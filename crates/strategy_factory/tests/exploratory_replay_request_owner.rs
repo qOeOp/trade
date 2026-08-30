@@ -1,6 +1,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use rstest::rstest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
@@ -373,7 +374,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     );
 }
 
-#[test]
+#[rstest]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
     std::thread::Builder::new()
