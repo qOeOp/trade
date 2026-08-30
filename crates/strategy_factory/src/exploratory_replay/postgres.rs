@@ -1464,6 +1464,29 @@ pub(crate) async fn lock_for_backtest_v2(
     )
 }
 
+pub(crate) async fn lock_for_backtest_v2_in_transaction(
+    rd_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    validate_backtest_transaction_binding_v2(rd_pool, transaction).await?;
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)")
+            .bind(&locator.request_identity)
+            .bind(&locator.meaning_digest)
+            .bind(&locator.receipt_identity)
+            .bind(&locator.seal_digest)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    decode_v2_read_result(
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+        value,
+    )
+}
+
 pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
@@ -1642,6 +1665,121 @@ async fn validate_backtest_binding_v2(
     .map_err(storage)?
     .unwrap_or(false);
 
+    if !function_ok {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "sealed R&D Replay V2 lock API unavailable".into(),
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_backtest_transaction_binding_v2(
+    rd_pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let rd_identity: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(rd_pool)
+        .await
+        .map_err(storage)?;
+    if rd_identity != "rd_owner" {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical rd_owner session required".into(),
+        ));
+    }
+
+    let backtest_identity: String = sqlx::query_scalar("SELECT current_user")
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if backtest_identity != "backtest_owner" {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical backtest_owner session required".into(),
+        ));
+    }
+
+    let backtest_role_ok: bool = sqlx::query_scalar(
+        "SELECT role.rolcanlogin
+            AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls)
+           FROM pg_catalog.pg_roles role
+          WHERE role.rolname=current_user",
+    )
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .unwrap_or(false);
+    if !backtest_role_ok {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "canonical backtest_owner role required".into(),
+        ));
+    }
+
+    let mut rd_transaction = rd_pool.begin().await.map_err(storage)?;
+    let challenge: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.hashtextextended(pg_catalog.clock_timestamp()::text || ':' || pg_catalog.random()::text || ':' || pg_catalog.pg_backend_pid()::text, 0)",
+    )
+    .fetch_one(&mut *rd_transaction)
+    .await
+    .map_err(storage)?;
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock($1)")
+        .bind(challenge)
+        .execute(&mut *rd_transaction)
+        .await
+        .map_err(storage)?;
+    let rd_database: (String, i64) = sqlx::query_as(
+        "SELECT pg_catalog.current_database(), database.oid::bigint FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut *rd_transaction)
+    .await
+    .map_err(storage)?;
+
+    let acquired_challenge: bool =
+        sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
+            .bind(challenge)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    let backtest_database: (String, i64) = sqlx::query_as(
+        "SELECT pg_catalog.current_database(), database.oid::bigint FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    rd_transaction.rollback().await.map_err(storage)?;
+
+    if acquired_challenge || backtest_database != rd_database {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "Backtest transaction is not bound to the R&D Owner database".into(),
+        ));
+    }
+
+    let function_ok: bool = sqlx::query_scalar(
+        "SELECT procedure.prosecdef
+             AND procedure.provolatile='v'
+             AND procedure.proparallel='u'
+             AND procedure.proisstrict
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND owner.rolname='rd_owner'
+             AND language.lanname='plpgsql'
+             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+             )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(LOCK_FUNCTION_V2)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .unwrap_or(false);
     if !function_ok {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "sealed R&D Replay V2 lock API unavailable".into(),
