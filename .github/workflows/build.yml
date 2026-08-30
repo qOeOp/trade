@@ -594,8 +594,8 @@ jobs:
 
       - name: Run isolated R&D Owner PostgreSQL tests
         if: >-
-          ${{ (steps.rust-tests.result == 'success' ||
-          steps.rust-tests.result == 'failure') && !cancelled() }}
+          ${{ (steps.rust-tests.outcome == 'success' ||
+          steps.rust-tests.outcome == 'failure') && !cancelled() }}
         run: >-
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
