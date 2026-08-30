@@ -1,0 +1,78 @@
+name: rd-owner-postgres
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+  push:
+    branches:
+      - test-rd-owner-postgres
+
+concurrency:
+  group: >-
+    ${{ format('rd-owner-postgres-{0}',
+    github.event.pull_request.number || format('{0}-{1}', github.ref_name, github.sha)) }}
+  cancel-in-progress: true
+
+env:
+  AUDIT_PR: >-
+    ${{ github.repository == 'qOeOp/trade'
+    || github.event_name == 'pull_request'
+    && (!github.event.pull_request.head.repo.full_name
+    || github.event.pull_request.head.repo.full_name != github.repository) }}
+  CARGO_BUILD_JOBS: "2"
+  CARGO_TARGET_DIR: ${{ github.workspace }}/target/rd-owner-postgres
+
+jobs:
+  rd-owner-postgres:
+    name: R&D Owner PostgreSQL isolated tests
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # https://github.com/step-security/harden-runner
+      - uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: >-
+            ${{ env.AUDIT_PR == 'true' && 'audit'
+            || vars.STEP_SECURITY_EGRESS_POLICY
+            || 'block' }}
+          allowed-endpoints: >-
+            ${{ vars.COMMON_ALLOWED_ENDPOINTS }}
+            ${{ vars.CI_ALLOWED_ENDPOINTS }}
+
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Verify immutable CI inputs
+        run: bash scripts/ci/verify-ci-inputs.sh post-checkout
+
+      - name: Common setup
+        uses: ./.github/actions/common-setup
+        with:
+          python-version: "3.13"
+          build-type: test
+          free-disk-space: "true"
+          free-disk-space-max-build: "true"
+          minimum-free-space-gb: "110"
+          rust-cache-enabled: "false"
+          uv-cache-enabled: "false"
+          prek-cache-enabled: "false"
+          capnp-cache-enabled: "false"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "false"
+
+      - name: Report disk space before Rust tests
+        run: bash scripts/ci/report-disk-space.bash "before Rust tests"
+
+      - name: Run isolated R&D Owner PostgreSQL tests
+        run: make cargo-test-rd-owner-postgres-isolated
+
+      - name: Report disk space after Rust tests
+        if: always()
+        run: df -h || true

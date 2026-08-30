@@ -73,6 +73,10 @@ if ! command -v docker > /dev/null 2>&1; then
   echo "ERROR: Docker is required for isolated R&D Owner PostgreSQL tests." >&2
   exit 1
 fi
+if ! command -v timeout > /dev/null 2>&1; then
+  echo "ERROR: timeout is required for isolated R&D Owner PostgreSQL tests." >&2
+  exit 1
+fi
 
 readonly postgres_image="public.ecr.aws/docker/library/postgres:16.4-alpine@sha256:5660c2cbfea50c7a9127d17dc4e48543eedd3d7a41a595a2dfa572471e37e64c"
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')-$$"
@@ -234,7 +238,8 @@ until docker exec "$container" pg_isready --username postgres --dbname postgres 
 done
 
 attempt=1
-until docker exec "$impersonator_container" pg_isready --username postgres --dbname "$impersonator_database" > /dev/null 2>&1; do
+until timeout 3 docker exec "$impersonator_container" psql --quiet --username postgres \
+  --dbname "$impersonator_database" --command 'SELECT 1' > /dev/null 2>&1; do
   if [[ "$attempt" -ge 30 ]]; then
     echo "ERROR: impersonating PostgreSQL did not become ready." >&2
     exit 1
