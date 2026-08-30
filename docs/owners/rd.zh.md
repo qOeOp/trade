@@ -18,6 +18,8 @@
   与 Build Receipt。
 - **TARGET：** 共享生命周期内核契约下内容寻址的 `StrategyDesignV2`、确定性 `StrategyPlanV2`、准确
   Owner input-binding receipt set、compiler disposition 与 lowering digest。
+- **TARGET：** R&D 冻结的规范 `BoundedFeatureProgramV1` identity/digest 及其准确 Design/plugin binding，
+  以及 tagged V3 first-party lowering/build capsule 与持久 receipt；这些不是 CURRENT executable fact。
 - 冻结 Exploratory Replay Request，绑定准确意图 TrialFamily 工件 请求 PIT 数据范围 重放配置和成本容量模型。
 - 探索请求与结果必须在 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot Universe Selection Record
   与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份上完全相等。只有请求相等的
@@ -58,6 +60,43 @@ primitive semantic ID、已声明 input role、lifecycle/state/target/protection
 和 Research Intent binding。Develop 确定性执行 canonicalization、capability closure、消费准确 Owner
 binding receipt，并 lowering 到 `StrategyPlanV2` 及唯一 Wasm Strategy Artifact/`ProgramHost` 路径。它不得
 生成无限制策略代码、发明 core opcode、通过启发式字符串推断来源，或创建另一个 interpreter/runtime。
+
+**TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1：** R&D 将一份规范
+`BoundedFeatureProgramV1` 与其 Research Intent、`StrategyDesignV2`、bounded-plugin semantic ID 和 manifest
+digest 一同冻结。该 program 声明类型化 Owner role、unit/scale、trigger/sample clock、版本化
+`vibe-indicators-kernel` primitive-catalog digest、fixed-I128 DAG、有界 state/resource、lifecycle output 及规范
+bytes/digest。R&D 拥有这些冻结的 Research/Design/program 含义；它不能 mint Market Data sample
+coordinate、build provenance、Host proposal identity、lifecycle transition、Backtest result、raw order 或
+trading effect。
+
+TARGET V1 catalog 是原子整体，不是 primitive name 菜单：fixed I128 scale 最大为 38，rescale 必须显式，
+rounding mode 只有 `TowardZero` 与 `NearestTiesToEven`，每项 operation 使用一个准确 I256 expression 并只做
+一次最终舍入。catalog 冻结 lag/rolling readiness、EMA/Wilder seed、Wilder ATR、period-delta RSI、OHLC
+geometry、trailing-window swing coordinate 与 closed-unit rational `range_fraction` 语义。缺失任何 required
+formula、semantic ID、golden vector 或 no-state-change oracle 都使整个 catalog unavailable。
+
+封闭的 TARGET catalog namespace 与规范 golden-vector codec 必须以原子整体发布。对于每个 sample-clock
+role，R&D 在 Design/Plan 中绑定准确的版本化 Owner-coordinate source 与普通有界 Bytes port，但只有 Market
+Data 能封存 308-byte coordinate 及其 receipt cross-binding。唯一通用 `ProgramHostV2` 校验并传输这些 bytes；
+它不 mint coordinate，也不获得 feature opcode。BFP plugin 使用单独 tagged ABI 3 failure status 表达
+`NUMERIC_FAILURE_NO_STATE_CHANGE`，同时所有既有 ABI 2 manifest、receipt、frame 与通用 failure 含义保持
+逐字节不变。这些都是 TARGET seam，不声称 CURRENT Market Data、Host、plugin、Composer 或 Backtest 已支持，
+也不要求第二 runtime 或 raw-order authority。
+
+只有 Strategy Factory 能验证规范 DAG 与 capability/resource/state bound，并使用内容寻址的 first-party
+SDK/kernel source 做确定性 lowering。它引用版本化 primitive semantic ID 与 source digest，而不复制公式。
+结果是准确一个现有 bounded plugin，其 output 仅限 typed post-state、`PositionIntentV1`、target 与
+protection field；`ProgramHostV2` 封存 proposal，只有共享生命周期内核能应用它。caller/LLM-authored
+Rust/Wasm/dependency、floating point、Host feature opcode、第二 interpreter/runtime、raw-order plumbing 与
+executable fallback 都不被接纳。
+
+未来 V3 build capsule/receipt 必须绑定规范 program、manifest、SDK/kernel、lowerer/compiler、toolchain/
+profile、完整 source set、两次字节一致 build、Wasm、ABI 和 resource/import/export bounds。
+`PluginImplementationReceiptV2` 可以继续绑定其不透明 verified-receipt digest，但 Composer durable readback
+必须区分 tagged V2 与 V3，并逐字节保留所有既有 V2 row/digest。架构契约与可证伪首个 corpus 见
+[Strategy Factory](../architecture/strategy-factory#target---arc-complex-d-bounded-feature-program-v1)。在对应
+code、Owner custody 与真实 `ProgramHostV2`/Backtest check 存在前，这不是 executable D-loop、Native Replay、
+Windmill acceptance、稳定盈利声明或 Paper/Live/production/trading authority。
 
 CURRENT ComplexStrategy V1 pre-Artifact Develop Evaluation 只有在 current accepted Research custody、完整
 TrialFamily frontier、规范有界 IR、准确 predecessor 与 Owner-sealed PIT readback 全部绑定且在提交时重新
