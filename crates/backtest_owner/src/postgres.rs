@@ -19,6 +19,24 @@ const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const REQUEST_STORAGE_DOMAIN: &str = "vibe.backtest.replay-request-storage.v2";
 const REQUEST_BINDING_DOMAIN: &str = "vibe.backtest.replay-request-binding.v2";
 const READBACK_COLUMNS_V2: &str = "SELECT stored_result.result_identity,stored_result.result_digest,stored_result.request_identity,stored_result.request_meaning_digest,stored_result.attempt_identity,stored_result.terminal,stored_result.canonical_bytes,stored_result.canonical_bytes_blake3,stored_run.request_identity AS run_request_identity,stored_run.request_meaning_digest AS run_request_meaning_digest,stored_run.attempt_identity AS run_attempt_identity,stored_run.result_digest AS run_result_digest,stored_run.terminal AS run_terminal,stored_run.request_seal_digest,stored_run.rd_receipt_identity,stored_run.request_binding_blake3,stored_run.request_canonical_bytes,stored_run.request_canonical_bytes_blake3 FROM public.backtest_replay_results_v2 stored_result JOIN public.backtest_replay_runs_v2 stored_run USING(result_identity)";
+const STORAGE_SHAPE_V2: &str = r#"SELECT
+    pg_catalog.pg_get_userbyid(run_class.relowner)='backtest_owner'
+    AND pg_catalog.pg_get_userbyid(result_class.relowner)='backtest_owner'
+    AND (SELECT pg_catalog.array_agg(attribute.attname::text || ':' || pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) || ':' || attribute.attnotnull::text ORDER BY attribute.attnum)
+         FROM pg_catalog.pg_attribute attribute
+         WHERE attribute.attrelid=run_class.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)
+        =ARRAY['request_identity:text:true','request_meaning_digest:text:true','request_seal_digest:text:true','rd_receipt_identity:text:true','request_binding_blake3:text:true','request_canonical_bytes:bytea:true','request_canonical_bytes_blake3:text:true','attempt_identity:text:true','result_identity:text:true','result_digest:text:true','terminal:text:true']::text[]
+    AND (SELECT pg_catalog.array_agg(attribute.attname::text || ':' || pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) || ':' || attribute.attnotnull::text ORDER BY attribute.attnum)
+         FROM pg_catalog.pg_attribute attribute
+         WHERE attribute.attrelid=result_class.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)
+        =ARRAY['result_identity:text:true','result_digest:text:true','request_identity:text:true','request_meaning_digest:text:true','attempt_identity:text:true','terminal:text:true','canonical_bytes:bytea:true','canonical_bytes_blake3:text:true']::text[]
+    AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=run_class.oid AND constraint_entry.contype='p' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=run_class.oid AND attname='result_identity')]::smallint[])
+    AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=run_class.oid AND constraint_entry.contype='u' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=run_class.oid AND attname='request_identity'),(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=run_class.oid AND attname='attempt_identity')]::smallint[])
+    AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=result_class.oid AND constraint_entry.contype='p' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=result_class.oid AND attname='result_identity')]::smallint[])
+    AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=result_class.oid AND constraint_entry.confrelid=run_class.oid AND constraint_entry.contype='f' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=result_class.oid AND attname='result_identity')]::smallint[] AND constraint_entry.confkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=run_class.oid AND attname='result_identity')]::smallint[])
+FROM pg_catalog.pg_class run_class,pg_catalog.pg_class result_class
+WHERE run_class.oid='public.backtest_replay_runs_v2'::pg_catalog.regclass
+  AND result_class.oid='public.backtest_replay_results_v2'::pg_catalog.regclass"#;
 
 /// Durable readback of one sealed Replay V2 request/result pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -230,6 +248,9 @@ async fn canonical_pool(database_url: &str) -> Result<PgPool, PostgresReplayOwne
 }
 
 async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
+    if !storage_shape_v2(pool).await? {
+        return Err(PostgresReplayOwnerErrorV2::CustodyUnavailable);
+    }
     let admitted: bool = sqlx::query_scalar(
         r#"SELECT
             NOT pg_catalog.has_schema_privilege('backtest_owner','public','CREATE')
@@ -273,6 +294,24 @@ async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwn
     } else {
         Err(PostgresReplayOwnerErrorV2::CustodyUnavailable)
     }
+}
+
+async fn storage_shape_v2(pool: &PgPool) -> Result<bool, PostgresReplayOwnerErrorV2> {
+    sqlx::query_scalar(STORAGE_SHAPE_V2)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)
+        .map(Option::unwrap_or_default)
+}
+
+async fn storage_shape_v2_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<bool, PostgresReplayOwnerErrorV2> {
+    sqlx::query_scalar(STORAGE_SHAPE_V2)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)
+        .map(Option::unwrap_or_default)
 }
 
 fn validate_result_binding(
@@ -331,11 +370,21 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
         .await
         .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
 
+    let existing_tables: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_catalog.pg_class class_entry JOIN pg_catalog.pg_namespace namespace_entry ON namespace_entry.oid=class_entry.relnamespace WHERE namespace_entry.nspname='public' AND class_entry.relname IN ('backtest_replay_runs_v2','backtest_replay_results_v2') AND class_entry.relkind IN ('r','p')",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    if existing_tables != 0
+        && (existing_tables != 2 || !storage_shape_v2_in_transaction(&mut transaction).await?)
+    {
+        return Err(PostgresReplayOwnerErrorV2::StorageUnavailable);
+    }
+
     for statement in [
         "CREATE TABLE IF NOT EXISTS public.backtest_replay_runs_v2 (request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,request_seal_digest TEXT NOT NULL,rd_receipt_identity TEXT NOT NULL,request_binding_blake3 TEXT NOT NULL,request_canonical_bytes BYTEA NOT NULL,request_canonical_bytes_blake3 TEXT NOT NULL,attempt_identity TEXT NOT NULL,result_identity TEXT PRIMARY KEY,result_digest TEXT NOT NULL,terminal TEXT NOT NULL,UNIQUE(request_identity,attempt_identity))",
         "CREATE TABLE IF NOT EXISTS public.backtest_replay_results_v2 (result_identity TEXT PRIMARY KEY REFERENCES public.backtest_replay_runs_v2(result_identity),result_digest TEXT NOT NULL,request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,attempt_identity TEXT NOT NULL,terminal TEXT NOT NULL,canonical_bytes BYTEA NOT NULL,canonical_bytes_blake3 TEXT NOT NULL)",
-        "ALTER TABLE public.backtest_replay_runs_v2 OWNER TO backtest_owner",
-        "ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_owner",
         "REVOKE ALL ON TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM PUBLIC",
         "DO $acl$ DECLARE grantee_name text; BEGIN FOR grantee_name IN SELECT DISTINCT role_entry.rolname FROM pg_catalog.pg_class class_entry CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(class_entry.relacl,pg_catalog.acldefault('r',class_entry.relowner))) acl_entry JOIN pg_catalog.pg_roles role_entry ON role_entry.oid=acl_entry.grantee WHERE class_entry.oid IN ('public.backtest_replay_runs_v2'::pg_catalog.regclass,'public.backtest_replay_results_v2'::pg_catalog.regclass) AND role_entry.rolname <> 'backtest_owner' LOOP EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM %I',grantee_name); END LOOP; END $acl$",
     ] {
@@ -343,6 +392,9 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
             .execute(&mut *transaction)
             .await
             .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    }
+    if !storage_shape_v2_in_transaction(&mut transaction).await? {
+        return Err(PostgresReplayOwnerErrorV2::StorageUnavailable);
     }
     transaction
         .commit()

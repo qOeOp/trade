@@ -39,6 +39,24 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
+            #[ignore = "requires a disposable malformed existing Backtest schema"]
+            async fn bootstrap_rejects_malformed_existing_storage_schema() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+
+                assert_eq!(
+                    PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                        .await
+                        .expect_err("bootstrap must not adopt malformed existing storage"),
+                    PostgresReplayOwnerErrorV2::StorageUnavailable
+                );
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology with a deterministic revocation trigger"]
             async fn revocation_between_validation_and_insert_writes_nothing() {
                 let (backtest_url, request_owner, locator, result) =

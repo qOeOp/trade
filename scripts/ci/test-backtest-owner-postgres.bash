@@ -226,6 +226,44 @@ export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$QUALIFICATION_TEST_DATABAS
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
+stage="Backtest malformed existing schema rejection"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+GRANT CREATE ON SCHEMA public TO backtest_owner;
+SET ROLE backtest_owner;
+CREATE TABLE public.backtest_replay_runs_v2 (
+  request_identity TEXT NOT NULL,
+  request_meaning_digest TEXT NOT NULL,
+  request_seal_digest TEXT NOT NULL,
+  rd_receipt_identity TEXT NOT NULL,
+  request_binding_blake3 TEXT NOT NULL,
+  request_canonical_bytes BYTEA NOT NULL,
+  request_canonical_bytes_blake3 TEXT NOT NULL,
+  attempt_identity TEXT NOT NULL,
+  result_identity TEXT PRIMARY KEY,
+  result_digest TEXT NOT NULL,
+  terminal TEXT NOT NULL
+);
+CREATE TABLE public.backtest_replay_results_v2 (
+  result_identity TEXT PRIMARY KEY REFERENCES public.backtest_replay_runs_v2(result_identity),
+  result_digest TEXT NOT NULL,
+  request_identity TEXT NOT NULL,
+  request_meaning_digest TEXT NOT NULL,
+  attempt_identity TEXT NOT NULL,
+  terminal TEXT NOT NULL,
+  canonical_bytes BYTEA NOT NULL,
+  canonical_bytes_blake3 TEXT NOT NULL
+);
+RESET ROLE;
+SQL
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::bootstrap_rejects_malformed_existing_storage_schema \
+  -- --ignored --exact
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "DROP TABLE public.backtest_replay_results_v2,public.backtest_replay_runs_v2" \
+  --command "REVOKE CREATE ON SCHEMA public FROM backtest_owner"
+
 # Deployment bootstrap owns DDL. The grant exists only for this isolated migration call.
 stage="one-shot Backtest storage bootstrap"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
