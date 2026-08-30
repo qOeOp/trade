@@ -1,9 +1,12 @@
 //! Durable PostgreSQL custody for sealed Backtest Replay V2 results.
 
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_strategy_factory::{
-    exploratory_replay::{ExploratoryReplayAvailabilityV1, ExploratoryReplayRequestLocatorV2},
+    exploratory_replay::{
+        ExploratoryReplayAvailabilityV1, ExploratoryReplayReadResultV2,
+        ExploratoryReplayRequestLocatorV2,
+    },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
 
@@ -139,47 +142,53 @@ impl PostgresReplayResultOwnerV2 {
         locator: &ExploratoryReplayRequestLocatorV2,
         result: &SealedReplayResultV2,
     ) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
         let locked = request_owner
-            .lock_exploratory_replay_request_for_backtest_v2(locator)
+            .lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+                &mut transaction,
+                locator,
+            )
             .await
             .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
-
-        if locked.projection().availability != ExploratoryReplayAvailabilityV1::Available {
-            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
-        }
-        let readback = locked
-            .readback()
-            .ok_or(PostgresReplayOwnerErrorV2::RequestUnavailable)?;
-        let request = readback.request();
-        let request_canonical_bytes = request
-            .to_canonical_bytes()
-            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
-
-        if request_canonical_bytes != readback.canonical_request_bytes() {
-            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
-        }
-        let request_meaning_digest = request
-            .meaning_digest()
-            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
-
-        if request.request_identity().as_str() != locator.request_identity
-            || request_meaning_digest.as_str() != locator.meaning_digest
-            || readback.meaning_digest() != locator.meaning_digest
-        {
-            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
-        }
-        validate_result_binding(request, &request_meaning_digest, result)?;
+        let (request, request_canonical_bytes, request_meaning_digest) =
+            validate_locked_request(&locked, locator)?;
+        validate_result_binding(&request, &request_meaning_digest, result)?;
         let result_canonical_bytes = result
             .to_canonical_bytes()
             .map_err(|_| PostgresReplayOwnerErrorV2::ResultNotAdmitted)?;
-        persist_result(
-            &self.pool,
+        let stored = persist_result(
+            &mut transaction,
             locator,
             result,
-            request_canonical_bytes,
+            request_canonical_bytes.clone(),
             result_canonical_bytes,
         )
-        .await
+        .await?;
+
+        let revalidated = request_owner
+            .lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+                &mut transaction,
+                locator,
+            )
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+        let (revalidated_request, revalidated_bytes, revalidated_meaning_digest) =
+            validate_locked_request(&revalidated, locator)?;
+        if revalidated_request != request
+            || revalidated_bytes != request_canonical_bytes
+            || revalidated_meaning_digest != request_meaning_digest
+        {
+            return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+        Ok(stored)
     }
 
     /// Rereads one durable request/result pair and verifies both exact byte streams.
@@ -227,13 +236,27 @@ async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwn
             AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_results_v2'::pg_catalog.regclass),false)
             AND NOT EXISTS (
                 SELECT 1
+                FROM pg_catalog.pg_class class_entry
+                CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(class_entry.relacl,pg_catalog.acldefault('r',class_entry.relowner))) acl_entry
+                WHERE class_entry.oid IN ('public.backtest_replay_runs_v2'::pg_catalog.regclass,'public.backtest_replay_results_v2'::pg_catalog.regclass)
+                  AND acl_entry.grantee <> class_entry.relowner
+            )
+            AND NOT EXISTS (
+                SELECT 1
                 FROM pg_catalog.pg_roles role_entry
                 WHERE role_entry.rolname <> 'backtest_owner'
+                  AND NOT role_entry.rolsuper
+                  AND pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles role_entry
+                WHERE role_entry.rolname <> 'backtest_owner'
+                  AND role_entry.rolcanlogin
                   AND NOT role_entry.rolsuper
                   AND (
                     pg_catalog.has_table_privilege(role_entry.oid,'public.backtest_replay_runs_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
                     OR pg_catalog.has_table_privilege(role_entry.oid,'public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                    OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
                   )
             )"#,
     )
@@ -268,6 +291,36 @@ fn validate_result_binding(
     Ok(())
 }
 
+fn validate_locked_request(
+    locked: &ExploratoryReplayReadResultV2,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<(ReplayRequestV2, Vec<u8>, CanonicalDigestV2), PostgresReplayOwnerErrorV2> {
+    if locked.projection().availability != ExploratoryReplayAvailabilityV1::Available {
+        return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+    }
+    let readback = locked
+        .readback()
+        .ok_or(PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+    let request = readback.request().clone();
+    let request_canonical_bytes = request
+        .to_canonical_bytes()
+        .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+    let request_meaning_digest = request
+        .meaning_digest()
+        .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
+
+    if request_canonical_bytes != readback.canonical_request_bytes()
+        || request.request_identity().as_str() != locator.request_identity
+        || request_meaning_digest.as_str() != locator.meaning_digest
+        || readback.meaning_digest() != locator.meaning_digest
+        || readback.receipt_identity() != locator.receipt_identity
+        || readback.seal_digest() != locator.seal_digest
+    {
+        return Err(PostgresReplayOwnerErrorV2::RequestUnavailable);
+    }
+    Ok((request, request_canonical_bytes, request_meaning_digest))
+}
+
 async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
     let mut transaction = pool
         .begin()
@@ -294,7 +347,7 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
 }
 
 async fn persist_result(
-    pool: &PgPool,
+    transaction: &mut Transaction<'_, Postgres>,
     locator: &ExploratoryReplayRequestLocatorV2,
     result: &SealedReplayResultV2,
     request_canonical_bytes: Vec<u8>,
@@ -310,16 +363,12 @@ async fn persist_result(
     let result_bytes_digest =
         canonical_bytes_digest(RESULT_STORAGE_DOMAIN, &result_canonical_bytes);
     let terminal = terminal_text(result.terminal());
-    let mut transaction = pool
-        .begin()
-        .await
-        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
     let existing = sqlx::query(sqlx::AssertSqlSafe(format!(
         "{READBACK_COLUMNS_V2} WHERE stored_run.request_identity=$1 AND stored_run.attempt_identity=$2 FOR UPDATE"
     )))
     .bind(result.request_identity().as_str())
     .bind(result.attempt_identity().as_str())
-    .fetch_optional(&mut *transaction)
+    .fetch_optional(&mut **transaction)
     .await
     .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
 
@@ -332,10 +381,6 @@ async fn persist_result(
             &result_canonical_bytes,
         )?;
         let readback = decode_row(&row)?;
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
         return if identical {
             Ok(readback)
         } else {
@@ -344,7 +389,7 @@ async fn persist_result(
     }
 
     let run = sqlx::query(
-        "INSERT INTO public.backtest_replay_runs_v2(request_identity,request_meaning_digest,request_seal_digest,rd_receipt_identity,request_binding_blake3,request_canonical_bytes,request_canonical_bytes_blake3,attempt_identity,result_identity,result_digest,terminal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
+        "INSERT INTO public.backtest_replay_runs_v2(request_identity,request_meaning_digest,request_seal_digest,rd_receipt_identity,request_binding_blake3,request_canonical_bytes,request_canonical_bytes_blake3,attempt_identity,result_identity,result_digest,terminal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT DO NOTHING",
     )
     .bind(result.request_identity().as_str())
     .bind(result.request_meaning_digest().as_str())
@@ -357,28 +402,30 @@ async fn persist_result(
     .bind(result.result_identity().as_str())
     .bind(result.result_digest().as_str())
     .bind(terminal)
-    .execute(&mut *transaction)
-    .await;
+    .execute(&mut **transaction)
+    .await
+    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
 
-    if let Err(e) = run {
-        let unique = e
-            .as_database_error()
-            .is_some_and(sqlx::error::DatabaseError::is_unique_violation);
-        transaction
-            .rollback()
-            .await
-            .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
-        return if unique {
-            resolve_after_unique_conflict(
-                pool,
-                locator,
-                result,
-                &request_canonical_bytes,
-                &result_canonical_bytes,
-            )
-            .await
+    if run.rows_affected() == 0 {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{READBACK_COLUMNS_V2} WHERE stored_run.request_identity=$1 AND stored_run.attempt_identity=$2 FOR UPDATE"
+        )))
+        .bind(result.request_identity().as_str())
+        .bind(result.attempt_identity().as_str())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?
+        .ok_or(PostgresReplayOwnerErrorV2::ConflictingReplay)?;
+        return if exact_existing_commit(
+            &row,
+            locator,
+            result,
+            &request_canonical_bytes,
+            &result_canonical_bytes,
+        )? {
+            decode_row(&row)
         } else {
-            Err(PostgresReplayOwnerErrorV2::StorageUnavailable)
+            Err(PostgresReplayOwnerErrorV2::ConflictingReplay)
         };
     }
     sqlx::query(
@@ -392,48 +439,14 @@ async fn persist_result(
     .bind(terminal)
     .bind(&result_canonical_bytes)
     .bind(&result_bytes_digest)
-    .execute(&mut *transaction)
+    .execute(&mut **transaction)
     .await
     .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
-    transaction
-        .commit()
-        .await
-        .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
     Ok(readback_from_result(
         result,
         request_canonical_bytes,
         result_canonical_bytes,
     ))
-}
-
-async fn resolve_after_unique_conflict(
-    pool: &PgPool,
-    locator: &ExploratoryReplayRequestLocatorV2,
-    result: &SealedReplayResultV2,
-    request_canonical_bytes: &[u8],
-    result_canonical_bytes: &[u8],
-) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
-    let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-        "{READBACK_COLUMNS_V2} WHERE stored_run.request_identity=$1 AND stored_run.attempt_identity=$2"
-    )))
-    .bind(result.request_identity().as_str())
-    .bind(result.attempt_identity().as_str())
-    .fetch_optional(pool)
-    .await
-    .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?
-    .ok_or(PostgresReplayOwnerErrorV2::ConflictingReplay)?;
-
-    if exact_existing_commit(
-        &row,
-        locator,
-        result,
-        request_canonical_bytes,
-        result_canonical_bytes,
-    )? {
-        decode_row(&row)
-    } else {
-        Err(PostgresReplayOwnerErrorV2::ConflictingReplay)
-    }
 }
 
 fn exact_existing_commit(
