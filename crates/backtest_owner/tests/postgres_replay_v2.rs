@@ -7,7 +7,7 @@ macro_rules! postgres_replay_v2_tests {
         mod durable_postgres_replay_v2 {
             use std::time::{Duration, Instant};
 
-            use sqlx::{Acquire, PgPool, Row};
+            use sqlx::{PgPool, Row};
             use vibe_backtest_owner_contracts::{
                 ComponentObservationLocatorV2, DiagnosticCategoryV2, ObservationComponentV2,
                 VersionedIdentityV2,
@@ -175,9 +175,8 @@ macro_rules! postgres_replay_v2_tests {
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle");
-                let backtest_pool = database
-                    .mutation()
-                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
 
                 sqlx::query("GRANT SELECT ON public.backtest_replay_runs_v2 TO rd_owner")
                     .execute(backtest_pool)
@@ -207,9 +206,8 @@ macro_rules! postgres_replay_v2_tests {
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle");
-                let backtest_pool = database
-                    .mutation()
-                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
 
                 sqlx::query(
                     "CREATE TRIGGER aaa_test_undeclared_backtest_trigger BEFORE INSERT ON public.backtest_replay_runs_v2 FOR EACH STATEMENT EXECUTE FUNCTION vibe_test_admin.noop_backtest_trigger_v2()",
@@ -283,9 +281,8 @@ macro_rules! postgres_replay_v2_tests {
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle");
-                let backtest_pool = database
-                    .mutation()
-                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
                 let mut reader = backtest_pool.begin().await.expect("reader transaction");
                 sqlx::query("LOCK TABLE public.backtest_replay_runs_v2 IN ACCESS SHARE MODE")
                     .execute(&mut *reader)
