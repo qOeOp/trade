@@ -11,6 +11,59 @@ readonly guarded_roots=(
   crates/strategy_factory_rd_owner_api
 )
 
+# Every invocation below uses the same workspace test graph. Only this ordered
+# package/binary/test filter changes, so nextest can reuse the workspace build
+# while the database-sensitive tests still run one at a time and fail fast.
+readonly rd_owner_postgres_tests=(
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
+  'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
+  'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
+  'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
+  'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
+  'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+)
+readonly nextest_graph_args=(--locked --workspace --lib --tests)
+readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
+
+check_nextest_graph_contract() {
+  if rg -n '^[[:space:]]*cargo[[:space:]]+test([[:space:]]|$)' "${BASH_SOURCE[0]}"; then
+    echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
+    return 1
+  fi
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 9 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all nine ordered tests." >&2
+    return 1
+  fi
+  if [[ "${rd_owner_postgres_tests[0]}" != *'|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates' ]] ||
+    [[ "${rd_owner_postgres_tests[7]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
+    echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
+    return 1
+  fi
+  if [[ "${nextest_graph_args[*]}" != '--locked --workspace --lib --tests' ]] ||
+    [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
+    echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
+    return 1
+  fi
+
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  if ! rg -Uq \
+    'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(CARGO_FEATURES\)"' \
+    "$repository_root/Makefile"; then
+    echo "ERROR: Makefile must pass the shared nextest graph explicitly." >&2
+    return 1
+  fi
+  if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
+    "$repository_root/.github/workflows/build.yml")" -ne 2 ]]; then
+    echo "ERROR: workspace and isolated CI steps must use the same feature graph." >&2
+    return 1
+  fi
+}
+
 check_static_isolation() {
   local forbidden_fallback
   forbidden_fallback='RD_OWNER_TEST_DATABASE_URL or RD_OWNER_DATABASE_URL|or_else\(\|\| std::env::var\("(RD_OWNER|PRODUCT_EDGE|OPERATOR_AUTHORIZATION|WINDMILL)_DATABASE_URL"\)'
@@ -61,6 +114,7 @@ PY
 }
 
 check_static_isolation
+check_nextest_graph_contract
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -70,6 +124,16 @@ if [[ -z "${CARGO_CI_PROFILE:-}" ]]; then
   exit 1
 fi
 readonly cargo_ci_profile="$CARGO_CI_PROFILE"
+if [[ -z "${NEXTEST_PROFILE:-}" ]]; then
+  echo "ERROR: NEXTEST_PROFILE must select a nextest execution profile." >&2
+  exit 1
+fi
+readonly nextest_profile="$NEXTEST_PROFILE"
+if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
+  echo "ERROR: RD_OWNER_POSTGRES_FEATURES must select the shared workspace feature union." >&2
+  exit 1
+fi
+readonly rd_owner_postgres_features="$RD_OWNER_POSTGRES_FEATURES"
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
@@ -388,59 +452,19 @@ export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${im
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
-# This is the first application connection to the fresh database. The real
-# rd_owner role must migrate its own storage and expose only its sealed read API
-# before the real qualification_writer role validates its custody.
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \
-  product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates \
-  -- --ignored --exact
-
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
-  --features sealed-develop-composer-acceptance \
-  --test develop_composer_owner_v2 \
-  durable_owner_is_atomic_restart_exact_and_fail_closed \
-  -- --ignored --exact
-
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
-  --test source_intake \
-  postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
-  -- --ignored --exact
-
-# Exercise the first positive R&D Owner API artifact consumer only after its
-# Source Intake schema dependency exists and before any test corrupts Owner rows.
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory-rd-owner-api \
-  --bin strategy-factory-rd-owner-api \
-  tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
-  -- --ignored --exact
-
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-product-edge --lib \
-  postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical \
-  -- --ignored --exact
-
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
-  --test exploratory_replay_request_owner \
-  frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
-  -- --ignored --exact
-
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
-  --test exploratory_replay_request_owner \
-  replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox \
-  -- --ignored --exact
-
-# This test deliberately leaves a raw Source Intake row corrupt. Run it only
-# after every positive consumer that must observe healthy Owner lineage.
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
-  --test source_intake \
-  postgres_readback_rejects_tampered_raw_payload \
-  -- --ignored --exact
-
-# This test deliberately leaves its Research view historically mismatched to
-# prove post-claim retry does not re-admit live Research. It must remain the
-# absolute last test so its poisoned row cannot contaminate another test's
-# global lineage verification. The catalog-only ACL oracle follows safely.
-cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \
-  artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut \
-  -- --ignored --exact
+# The first filter makes the first application connection to the fresh
+# database. Filters 8 and 9 deliberately poison Owner state and therefore stay
+# after every positive consumer, with the Research mismatch absolute last.
+for test_selection in "${rd_owner_postgres_tests[@]}"; do
+  IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
+  cargo nextest run \
+    "${nextest_graph_args[@]}" \
+    --features "$rd_owner_postgres_features" \
+    --profile "$nextest_profile" \
+    --cargo-profile "$cargo_ci_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
+done
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
