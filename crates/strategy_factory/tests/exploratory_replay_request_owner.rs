@@ -376,7 +376,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
-    assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody().await;
+    Box::pin(assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody()).await;
 
     let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
     let ReplayFixture {
@@ -663,7 +663,8 @@ async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owne
     wrong_revoked_locator.seal_digest = format!("sha256:{}", "0".repeat(64));
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
-    assert_unavailable_v2(&owner, &wrong_revoked_locator).await;
+    assert_backtest_unavailable_v2(&owner, &wrong_revoked_locator).await;
+    assert_recovery_stale_v2(&owner, &wrong_revoked_locator).await;
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_unavailable_v2(&owner, sealed_v2.locator()).await;
@@ -1226,15 +1227,7 @@ async fn assert_unavailable_v2(
     owner: &PostgresResearchGoalOwnerV1,
     locator: &ExploratoryReplayRequestLocatorV2,
 ) {
-    let result = owner
-        .lock_exploratory_replay_request_for_backtest_v2(locator)
-        .await
-        .unwrap();
-    assert_eq!(
-        result.projection().availability,
-        ExploratoryReplayAvailabilityV1::Unavailable
-    );
-    assert!(result.readback().is_none());
+    assert_backtest_unavailable_v2(owner, locator).await;
     let selector = ExploratoryReplayRecoverySelectorV2 {
         request_identity: locator.request_identity.clone(),
         meaning_digest: locator.meaning_digest.clone(),
@@ -1246,6 +1239,40 @@ async fn assert_unavailable_v2(
     assert_eq!(
         resolved.projection().availability,
         ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert!(resolved.readback().is_none());
+}
+
+async fn assert_backtest_unavailable_v2(
+    owner: &PostgresResearchGoalOwnerV1,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) {
+    let result = owner
+        .lock_exploratory_replay_request_for_backtest_v2(locator)
+        .await
+        .unwrap();
+    assert_eq!(
+        result.projection().availability,
+        ExploratoryReplayAvailabilityV1::Unavailable
+    );
+    assert!(result.readback().is_none());
+}
+
+async fn assert_recovery_stale_v2(
+    owner: &PostgresResearchGoalOwnerV1,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) {
+    let selector = ExploratoryReplayRecoverySelectorV2 {
+        request_identity: locator.request_identity.clone(),
+        meaning_digest: locator.meaning_digest.clone(),
+    };
+    let resolved = owner
+        .resolve_exploratory_replay_request_v2(&selector)
+        .await
+        .unwrap();
+    assert_eq!(
+        resolved.projection().availability,
+        ExploratoryReplayAvailabilityV1::Stale
     );
     assert!(resolved.readback().is_none());
 }
