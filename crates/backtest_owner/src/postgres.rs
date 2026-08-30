@@ -14,7 +14,8 @@ use crate::{
 
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const REQUEST_STORAGE_DOMAIN: &str = "vibe.backtest.replay-request-storage.v2";
-const READBACK_COLUMNS_V2: &str = "SELECT stored_result.result_identity,stored_result.result_digest,stored_result.request_identity,stored_result.request_meaning_digest,stored_result.attempt_identity,stored_result.terminal,stored_result.canonical_bytes,stored_result.canonical_bytes_blake3,stored_run.request_identity AS run_request_identity,stored_run.request_meaning_digest AS run_request_meaning_digest,stored_run.attempt_identity AS run_attempt_identity,stored_run.result_digest AS run_result_digest,stored_run.terminal AS run_terminal,stored_run.request_seal_digest,stored_run.rd_receipt_identity,stored_run.request_canonical_bytes,stored_run.request_canonical_bytes_blake3 FROM public.backtest_replay_results_v2 stored_result JOIN public.backtest_replay_runs_v2 stored_run USING(result_identity)";
+const REQUEST_BINDING_DOMAIN: &str = "vibe.backtest.replay-request-binding.v2";
+const READBACK_COLUMNS_V2: &str = "SELECT stored_result.result_identity,stored_result.result_digest,stored_result.request_identity,stored_result.request_meaning_digest,stored_result.attempt_identity,stored_result.terminal,stored_result.canonical_bytes,stored_result.canonical_bytes_blake3,stored_run.request_identity AS run_request_identity,stored_run.request_meaning_digest AS run_request_meaning_digest,stored_run.attempt_identity AS run_attempt_identity,stored_run.result_digest AS run_result_digest,stored_run.terminal AS run_terminal,stored_run.request_seal_digest,stored_run.rd_receipt_identity,stored_run.request_binding_blake3,stored_run.request_canonical_bytes,stored_run.request_canonical_bytes_blake3 FROM public.backtest_replay_results_v2 stored_result JOIN public.backtest_replay_runs_v2 stored_run USING(result_identity)";
 
 /// Durable readback of one sealed Replay V2 request/result pair.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,7 +221,21 @@ async fn canonical_pool(database_url: &str) -> Result<PgPool, PostgresReplayOwne
 
 async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
     let admitted: bool = sqlx::query_scalar(
-        "SELECT NOT pg_catalog.has_schema_privilege('backtest_owner','public','CREATE') AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_runs_v2'::pg_catalog.regclass),false) AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_results_v2'::pg_catalog.regclass),false)",
+        r#"SELECT
+            NOT pg_catalog.has_schema_privilege('backtest_owner','public','CREATE')
+            AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_runs_v2'::pg_catalog.regclass),false)
+            AND COALESCE((SELECT pg_catalog.pg_get_userbyid(class.relowner)='backtest_owner' FROM pg_catalog.pg_class class WHERE class.oid='public.backtest_replay_results_v2'::pg_catalog.regclass),false)
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles role_entry
+                WHERE role_entry.rolname <> 'backtest_owner'
+                  AND NOT role_entry.rolsuper
+                  AND (
+                    pg_catalog.has_table_privilege(role_entry.oid,'public.backtest_replay_runs_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                    OR pg_catalog.has_table_privilege(role_entry.oid,'public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                    OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+                  )
+            )"#,
     )
     .fetch_one(pool)
     .await
@@ -260,11 +275,12 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
         .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
 
     for statement in [
-        "CREATE TABLE IF NOT EXISTS public.backtest_replay_runs_v2 (request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,request_seal_digest TEXT NOT NULL,rd_receipt_identity TEXT NOT NULL,request_canonical_bytes BYTEA NOT NULL,request_canonical_bytes_blake3 TEXT NOT NULL,attempt_identity TEXT NOT NULL,result_identity TEXT PRIMARY KEY,result_digest TEXT NOT NULL,terminal TEXT NOT NULL,UNIQUE(request_identity,attempt_identity))",
+        "CREATE TABLE IF NOT EXISTS public.backtest_replay_runs_v2 (request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,request_seal_digest TEXT NOT NULL,rd_receipt_identity TEXT NOT NULL,request_binding_blake3 TEXT NOT NULL,request_canonical_bytes BYTEA NOT NULL,request_canonical_bytes_blake3 TEXT NOT NULL,attempt_identity TEXT NOT NULL,result_identity TEXT PRIMARY KEY,result_digest TEXT NOT NULL,terminal TEXT NOT NULL,UNIQUE(request_identity,attempt_identity))",
         "CREATE TABLE IF NOT EXISTS public.backtest_replay_results_v2 (result_identity TEXT PRIMARY KEY REFERENCES public.backtest_replay_runs_v2(result_identity),result_digest TEXT NOT NULL,request_identity TEXT NOT NULL,request_meaning_digest TEXT NOT NULL,attempt_identity TEXT NOT NULL,terminal TEXT NOT NULL,canonical_bytes BYTEA NOT NULL,canonical_bytes_blake3 TEXT NOT NULL)",
         "ALTER TABLE public.backtest_replay_runs_v2 OWNER TO backtest_owner",
         "ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_owner",
         "REVOKE ALL ON TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM PUBLIC",
+        "DO $acl$ DECLARE grantee_name text; BEGIN FOR grantee_name IN SELECT DISTINCT role_entry.rolname FROM pg_catalog.pg_class class_entry CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(class_entry.relacl,pg_catalog.acldefault('r',class_entry.relowner))) acl_entry JOIN pg_catalog.pg_roles role_entry ON role_entry.oid=acl_entry.grantee WHERE class_entry.oid IN ('public.backtest_replay_runs_v2'::pg_catalog.regclass,'public.backtest_replay_results_v2'::pg_catalog.regclass) AND role_entry.rolname <> 'backtest_owner' LOOP EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM %I',grantee_name); END LOOP; END $acl$",
     ] {
         sqlx::query(statement)
             .execute(&mut *transaction)
@@ -286,6 +302,11 @@ async fn persist_result(
 ) -> Result<ReplayResultReadbackV2, PostgresReplayOwnerErrorV2> {
     let request_bytes_digest =
         canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, &request_canonical_bytes);
+    let request_binding_digest = request_binding_digest(
+        &request_canonical_bytes,
+        &locator.seal_digest,
+        &locator.receipt_identity,
+    );
     let result_bytes_digest =
         canonical_bytes_digest(RESULT_STORAGE_DOMAIN, &result_canonical_bytes);
     let terminal = terminal_text(result.terminal());
@@ -323,12 +344,13 @@ async fn persist_result(
     }
 
     let run = sqlx::query(
-        "INSERT INTO public.backtest_replay_runs_v2(request_identity,request_meaning_digest,request_seal_digest,rd_receipt_identity,request_canonical_bytes,request_canonical_bytes_blake3,attempt_identity,result_identity,result_digest,terminal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+        "INSERT INTO public.backtest_replay_runs_v2(request_identity,request_meaning_digest,request_seal_digest,rd_receipt_identity,request_binding_blake3,request_canonical_bytes,request_canonical_bytes_blake3,attempt_identity,result_identity,result_digest,terminal) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)",
     )
     .bind(result.request_identity().as_str())
     .bind(result.request_meaning_digest().as_str())
     .bind(&locator.seal_digest)
     .bind(&locator.receipt_identity)
+    .bind(&request_binding_digest)
     .bind(&request_canonical_bytes)
     .bind(&request_bytes_digest)
     .bind(result.attempt_identity().as_str())
@@ -448,11 +470,21 @@ fn decode_row(
     let terminal = parse_terminal(&terminal_value)?;
     let request_canonical_bytes: Vec<u8> = row.try_get("request_canonical_bytes")?;
     let request_bytes_digest: String = row.try_get("request_canonical_bytes_blake3")?;
+    let request_seal_digest: String = row.try_get("request_seal_digest")?;
+    let rd_receipt_identity: String = row.try_get("rd_receipt_identity")?;
+    let stored_request_binding_digest: String = row.try_get("request_binding_blake3")?;
     let result_canonical_bytes: Vec<u8> = row.try_get("canonical_bytes")?;
     let result_bytes_digest: String = row.try_get("canonical_bytes_blake3")?;
 
     if canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, &request_canonical_bytes)
         != request_bytes_digest
+        || request_seal_digest.is_empty()
+        || rd_receipt_identity.is_empty()
+        || request_binding_digest(
+            &request_canonical_bytes,
+            &request_seal_digest,
+            &rd_receipt_identity,
+        ) != stored_request_binding_digest
         || canonical_bytes_digest(RESULT_STORAGE_DOMAIN, &result_canonical_bytes)
             != result_bytes_digest
     {
@@ -643,6 +675,24 @@ fn canonical_bytes_digest(domain: &str, bytes: &[u8]) -> String {
     hasher.update(domain.as_bytes());
     hasher.update(&[0]);
     hasher.update(bytes);
+    format!("blake3:{}", hasher.finalize().to_hex())
+}
+
+fn request_binding_digest(
+    request_canonical_bytes: &[u8],
+    request_seal_digest: &str,
+    rd_receipt_identity: &str,
+) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(REQUEST_BINDING_DOMAIN.as_bytes());
+    for value in [
+        request_canonical_bytes,
+        request_seal_digest.as_bytes(),
+        rd_receipt_identity.as_bytes(),
+    ] {
+        hasher.update(&(value.len() as u64).to_be_bytes());
+        hasher.update(value);
+    }
     format!("blake3:{}", hasher.finalize().to_hex())
 }
 
