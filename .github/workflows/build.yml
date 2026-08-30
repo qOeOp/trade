@@ -589,12 +589,20 @@ jobs:
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres"
 
-      - name: Run isolated R&D Owner PostgreSQL tests
-        run: make cargo-test-rd-owner-postgres-isolated
-
       - name: Report disk space after Rust tests
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after Rust tests"
+
+  rd-owner-postgres:
+    if: >
+      github.ref != 'refs/heads/test-pre-commit' &&
+      needs.plan.outputs.run-tests == 'true' &&
+      (needs.plan.outputs.run-rust-tests == 'true' ||
+       needs.plan.outputs.publish_r2 == 'true' ||
+       github.ref == 'refs/heads/master')
+    needs:
+      - plan
+    uses: ./.github/workflows/rd-owner-postgres.yml
 
   quality:
     name: quality
@@ -606,6 +614,7 @@ jobs:
       - build
       - rust-doctests-linux-x86
       - rust-tests-linux-x86
+      - rd-owner-postgres
     runs-on: ubuntu-22.04
     steps:
       - name: Verify required build graph
@@ -617,10 +626,12 @@ jobs:
           BUILD_RESULT: ${{ needs.build.result }}
           RUST_DOCTESTS_RESULT: ${{ needs.rust-doctests-linux-x86.result }}
           RUST_TESTS_RESULT: ${{ needs.rust-tests-linux-x86.result }}
+          RD_OWNER_POSTGRES_RESULT: ${{ needs.rd-owner-postgres.result }}
           RUN_TESTS: ${{ needs.plan.outputs.run-tests }}
           RUN_RUST_TESTS: ${{ needs.plan.outputs.run-rust-tests }}
           RUN_GENERATED_DRIFT: ${{ needs.plan.outputs.run-generated-drift }}
           PUBLISH_R2: ${{ needs.plan.outputs.publish_r2 }}
+          REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
         run: |
           set -euo pipefail
@@ -639,15 +650,18 @@ jobs:
           if [[ "$RUN_GENERATED_DRIFT" == true ]]; then
             test "$RUN_TESTS" = true
           fi
-          if [[ "$RUN_TESTS" == true ]] &&
+          if [[ "$REF" != refs/heads/test-pre-commit ]] &&
+             [[ "$RUN_TESTS" == true ]] &&
              { [[ "$RUN_RUST_TESTS" == true ]] ||
                [[ "$PUBLISH_R2" == true ]] ||
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
+            test "$RD_OWNER_POSTGRES_RESULT" = success
           else
             test "$RUST_TESTS_RESULT" = skipped
             test "$RUST_DOCTESTS_RESULT" = skipped
+            test "$RD_OWNER_POSTGRES_RESULT" = skipped
           fi
 
   # Linux ARM64, macOS ARM64, and Windows x86_64 wheels build only on nightly and master
