@@ -782,6 +782,10 @@ cargo-test-rd-owner-postgres-isolated: check-nextest-installed  #-- Run destruct
 check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL test isolation
 	bash scripts/ci/test-rd-owner-postgres.bash --check
 
+.PHONY: cargo-test-market-data-owner-postgres-isolated
+cargo-test-market-data-owner-postgres-isolated:  #-- Run isolated Market Data PostgreSQL owner tests
+	bash crates/data/tests/run_market_data_owner_postgres.bash
+
 # Doctests need their own target because `cargo nextest` cannot run them.
 # Sharing --features and --profile with the nextest targets lets both reuse the
 # same compiled artifacts. Run this before those targets: rustdoc links a
