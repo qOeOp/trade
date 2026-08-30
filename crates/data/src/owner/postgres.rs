@@ -810,6 +810,47 @@ pub(super) enum SampleCustodyErrorV1 {
     UnknownReceipt,
 }
 
+#[derive(Debug)]
+enum InstrumentAppendAttemptError {
+    Public(InstrumentMasterError),
+    RetryableContention,
+}
+
+impl InstrumentAppendAttemptError {
+    const fn store_unavailable() -> Self {
+        Self::Public(InstrumentMasterError::StoreUnavailable)
+    }
+
+    const fn into_public(self) -> InstrumentMasterError {
+        match self {
+            Self::Public(error) => error,
+            Self::RetryableContention => InstrumentMasterError::StoreUnavailable,
+        }
+    }
+}
+
+impl From<InstrumentMasterError> for InstrumentAppendAttemptError {
+    fn from(value: InstrumentMasterError) -> Self {
+        Self::Public(value)
+    }
+}
+
+fn classify_instrument_append_error(
+    error: sqlx::Error,
+    unique_fact_conflict_is_retryable: bool,
+) -> InstrumentAppendAttemptError {
+    let sqlstate = error
+        .as_database_error()
+        .and_then(sqlx::error::DatabaseError::code);
+    if matches!(sqlstate.as_deref(), Some("40001" | "40P01"))
+        || (unique_fact_conflict_is_retryable && sqlstate.as_deref() == Some("23505"))
+    {
+        InstrumentAppendAttemptError::RetryableContention
+    } else {
+        InstrumentAppendAttemptError::store_unavailable()
+    }
+}
+
 impl MarketDataOwnerPostgres {
     /// Persists one contract-verified sample and returns a verified native readback.
     ///
@@ -1069,8 +1110,17 @@ impl MarketDataOwnerPostgres {
         proposal: InstrumentMasterFactProposalV1,
         clock_locator: &UntrustedClockHeadLocator,
     ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
-        self.append_instrument_master_fact_inner(proposal, clock_locator, false)
+        let replay = proposal.clone();
+        match self
+            .append_instrument_master_fact_inner(proposal, clock_locator, false)
             .await
+        {
+            Err(InstrumentAppendAttemptError::RetryableContention) => self
+                .append_instrument_master_fact_inner(replay, clock_locator, false)
+                .await
+                .map_err(InstrumentAppendAttemptError::into_public),
+            result => result.map_err(InstrumentAppendAttemptError::into_public),
+        }
     }
 
     #[cfg(test)]
@@ -1081,6 +1131,7 @@ impl MarketDataOwnerPostgres {
     ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
         self.append_instrument_master_fact_inner(proposal, clock_locator, true)
             .await
+            .map_err(InstrumentAppendAttemptError::into_public)
     }
 
     async fn append_instrument_master_fact_inner(
@@ -1088,22 +1139,22 @@ impl MarketDataOwnerPostgres {
         proposal: InstrumentMasterFactProposalV1,
         clock_locator: &UntrustedClockHeadLocator,
         interrupt_before_commit: bool,
-    ) -> Result<InstrumentMasterFactV1, InstrumentMasterError> {
+    ) -> Result<InstrumentMasterFactV1, InstrumentAppendAttemptError> {
         let mut transaction = self
             .pool
             .begin()
             .await
-            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            .map_err(|_| InstrumentAppendAttemptError::store_unavailable())?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            .map_err(|_| InstrumentAppendAttemptError::store_unavailable())?;
         let lock = instrument_string_lock(&proposal.canonical_identity);
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(lock)
             .execute(&mut *transaction)
             .await
-            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            .map_err(|_| InstrumentAppendAttemptError::store_unavailable())?;
         let (handoff, proof) = current_instrument_clock(&mut transaction, clock_locator).await?;
         let fact = build_instrument_fact(proposal, &handoff, proof.as_ref())?;
         let mut facts = load_instrument_facts(
@@ -1117,7 +1168,7 @@ impl MarketDataOwnerPostgres {
             if stored == &fact {
                 return Ok(stored.clone());
             }
-            return Err(InstrumentMasterError::DigestMismatch);
+            return Err(InstrumentMasterError::DigestMismatch.into());
         }
         facts.push(fact.clone());
         validate_instrument_fact_graph(&facts)?;
@@ -1126,14 +1177,16 @@ impl MarketDataOwnerPostgres {
             .bind(fact.canonical_identity())
             .bind(fact.predecessor_fact_digest().map(|digest| digest.as_bytes().to_vec()))
             .bind(fact.canonical_bytes())
-            .execute(&mut *transaction).await.map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| classify_instrument_append_error(error, true))?;
         if interrupt_before_commit {
-            return Err(InstrumentMasterError::CommitInterrupted);
+            return Err(InstrumentMasterError::CommitInterrupted.into());
         }
         transaction
             .commit()
             .await
-            .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
+            .map_err(|error| classify_instrument_append_error(error, false))?;
         Ok(fact)
     }
 
