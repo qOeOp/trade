@@ -69,7 +69,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
-    "$repository_root/.github/workflows/rd-owner-postgres.yml" >/dev/null; then
+    "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
     return 1
   fi
