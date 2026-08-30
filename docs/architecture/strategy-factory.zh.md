@@ -94,6 +94,12 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
 - **TARGET / NOT_ADMITTED：** Paper 与 Live 只有在各自 Owner adapter 存在且被另行接纳后，才消费
   相同 plan、Artifact、事件排序、checkpoint schema、内核和语义 trace 契约。本文不声称当前已有
   Paper 或 Live 等价性、应用、外部写入或交易能力。
+- **TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1：** frozen Research 可提供下文定义的
+  有界类型化 feature/state program。Strategy Factory 使用 first-party source 对该规范 program 做确定性
+  lowering，生成一个现有 bounded plugin，随后只经过 `PluginManifestV2`、`StrategyPlanV2`、
+  `StrategyArtifactV2`、`ProgramHostV2` 与共享生命周期内核。仓库当前没有 executable
+  `BoundedFeatureProgramV1`、V3 producer 或持久 V3 readback。本契约不声称 executable D-loop、Native Replay、
+  Windmill acceptance、稳定盈利、Paper、Live、production 或 trading authority。
 
 `StrategyDesignV2` 是类型化、版本化、内容寻址的描述，覆盖 input role、join、parameter、feature、
 state、生命周期反应、portfolio target、保护政策和可选 custom-plugin 调用。它只能使用稳定 primitive
@@ -113,6 +119,342 @@ capability closure、primitive 与 plugin ABI 版本、资源上限、lifecycle/
    推断 Owner、instrument 或 field。
 1. **Lowering** 为 `ProgramHostV2` 生成唯一规范 `StrategyPlanV2` 和内容寻址 `StrategyArtifactV2` package。
    相同输入必须产生字节完全相同的 plan、Artifact 与 binding digest。
+
+### TARGET - ARC Complex D Bounded Feature Program V1
+
+`BoundedFeatureProgramV1`（BFP V1）是唯一接纳的通用 Complex D 表示。R&D/Develop 将其规范含义与 Research
+Intent、`StrategyDesignV2` 一同冻结；Strategy Factory 负责验证与 lowering，但不能发明 Research 含义。
+它唯一的前向路径是：
+
+`Frozen Research -> canonical BoundedFeatureProgramV1 typed DAG -> deterministic first-party source lowering ->`
+`versioned V3 build capsule/receipt -> existing PluginManifestV2/Composer/StrategyArtifactV2 ->`
+`existing ProgramHostV2 -> shared lifecycle kernel -> Backtest`。
+
+BFP 是 Design 所声明准确一个 bounded plugin 的 build input，不是 Host graph extension、Host feature opcode、
+interpreter、runtime、strategy template、raw-order program 或新 Owner。LLM 或 caller 可以提出 Research 含义，
+但不能创作 Rust、Wasm、dependency、ABI、公式实现、build command、clock、Owner receipt 或 executable
+fallback。只有冻结的规范 BFP 能进入 first-party lowerer。lowerer 必须确定且 dependency-closed，只能从已 pin
+SDK 与 primitive-kernel catalog 组装 source；不得接纳 caller source、package、build script、带 ambient input 的
+macro、network、filesystem input、randomness、floating point 或未声明 import/export。尤其是 BFP 含义、
+lowering、plugin state、wire value 和 acceptance 中任何 `f32` 或 `f64` value/operation 都不合法。
+
+规范 BFP schema 必须绑定下列全部内容，并拒绝 unknown field 与 unknown semantic ID：
+
+- schema 与 semantic version；准确 Research request、Research Intent、`StrategyDesignV2`、plugin semantic ID
+  和规范 `PluginManifestV2` digest；
+- 每个 input 的 Owner、fact type、role identity、timeframe、signed fixed-I128 unit 与 decimal scale、静态
+  binding receipt digest，以及声明的 trigger 或 sample clock；
+- primitive-catalog semantic version 与 content digest、first-party SDK/source digest、lifecycle-output
+  semantic ID，以及按规范拓扑顺序排列的完整 typed DAG；
+- node、edge、depth、port、constant、lag/rolling window、state cell/byte、source byte、Wasm byte、fuel、
+  linear memory 与每 event invocation 的有限上限；
+- 覆盖上述所有字段、全部 constant 与 frozen rounding mode 的 domain-separated 规范 bytes 与 digest。
+
+node ID 与 port ID 都是唯一稳定 string；edge 只能引用更早的 typed output；每个 output 都必须被消费或声明为
+terminal，每个 fan-out 都必须显式且有界，state 只有一个 writer 且声明初值。unreachable node、cycle、forward reference、duplicate
+ID、implicit cast、implicit rescale、unit mismatch、unbounded window 或与 manifest 不一致的 bound 都在 source
+generation 前成为 `UNSUPPORTED`。规范排序只使用 schema 定义的 byte key，不使用 source order、map
+iteration、locale、platform、enum ordinal 或 caller-provided digest。对规范 bytes 再 canonicalize 必须字节一致。
+
+首个 primitive catalog 必须版本化并由 `vibe-indicators-kernel` 拥有。Strategy Factory 只引用每个 primitive
+的 semantic ID 与已 pin catalog/source digest，不得复制、重新解释或独立实现公式。首个 catalog 至少包括：
+
+- checked fixed-I128 add、subtract、multiply、divide、显式 rescale、compare 与 select，全部绑定 frozen
+  rounding 与 overflow terminal；
+- lag 与 rolling sum、mean、minimum、maximum；
+- EMA、Wilder smoothing、true range、ATR 与 RSI；
+- candle body、range、upper/lower wick 与 gap geometry；
+- rolling swing high 与 low；
+- `range_fraction(low, high, numerator, denominator)`：ratio 是冻结且约分后的 rational，denominator 为正，
+  bounds 与 scale 显式，Fibonacci level 只能使用冻结的有理常量。
+
+price-action rule 与 candlestick pattern 是这些 catalog primitive 的类型化组合，不是命名 strategy template、
+opaque label、复制的公式或新 Host opcode。
+
+#### 数值、指标与 availability 语义
+
+BFP V1 fixed decimal 是带 `0..=38` base-10 scale 的 signed I128 coefficient；其数学值为
+`coefficient * 10^-scale`。scale 是每个 port 与 state type 的组成部分。node 不得推断、对齐或静默改变
+scale。add、subtract、compare、select 与 OHLC geometry 要求 input scale 相等；其他 scale 变化都必须是显式
+rescale 或 node-declared output scale。唯一接纳的 rounding mode 是 `TowardZero` 与
+`NearestTiesToEven`。每次 arithmetic/indicator update 都把所有十进制幂和 rational factor 纳入一个准确 signed
+two's-complement I256 expression，然后只做一次最终 division/rounding，得到声明 output scale。intermediate
+超过 I128 但能装入 I256 且舍入后能装入 I128 时合法。I256 overflow、divide by zero、invalid scale、在未声明
+rounding mode 时丢弃非零 remainder，或最终 I128 overflow（包括 I128 `MIN / -1`）都返回命名终态
+`NUMERIC_FAILURE_NO_STATE_CHANGE`。
+
+`NUMERIC_FAILURE_NO_STATE_CHANGE` 是 failure-atomic：input admission 可以被记录，但 primitive state、warm-up
+counter、已存 sample coordinate、plugin/BFP/kernel state、lifecycle output、target/protection、semantic trace 与
+checkpoint bytes 必须和 event 前逐字节相同。执行前发现的 validation failure 仍是 `UNSUPPORTED`，且不生成
+Artifact。合法 warm-up event 不是 numeric failure：它推进已声明 state，并暴露没有可读 value 的类型化
+`WARMING` availability。下游 node 不能读取 `WARMING` value；warm-up 期间的 lifecycle output 必须由 Design
+把 availability 显式 wiring 到现有 `HOLD` semantic。
+
+以下 V1 定义为规范语义：
+
+- `lag(offset)` 要求 `offset` 属于 `1..=declared_max_lag`，返回当前 coordinate 之前准确 `offset` 次 advance 的
+  value 与 Owner sample coordinate，并首次成为 `READY` 于 sample `offset + 1`。
+- rolling sum、mean、minimum、maximum 与 rolling swing 要求正 window。它们保持 `WARMING`，直到准确
+  `window` 个不同 update-clock sample 已接纳；此时状态为 `READY`，对应 sample `window`。mean 使用一次
+  I256 sum 除以 `window`，按 node rounding mode 只舍入一次；V1 不接纳 partial-window result。
+- period `p > 0` 的 EMA 在首个 sample 即 `READY` 并以该准确 sample 为 seed；之后把
+  `previous + (2 / (p + 1)) * (sample - previous)` 作为一个 wide expression，只做一次最终舍入。
+- period `p > 0` 的 Wilder smoothing 在首个 sample 即 `READY` 并以该准确 sample 为 seed；之后把
+  `previous + (1 / p) * (sample - previous)` 作为一个 wide expression，只做一次最终舍入。
+- true range 先校验 OHLC。首个 sample 为 `high - low`；之后为
+  `max(high - low, abs(high - previous_close), abs(low - previous_close))`。ATR V1 只能是该 true-range series
+  经过前述 first-sample-seeded Wilder update 的结果；configurable SMA ATR 不属于 V1。
+- period `p > 0` 的 RSI 先保存 previous close，再准确累计 `p` 个 delta 的 gain/loss。它的首次 `READY` output
+  是 sample `p + 1`，使用这 `p` 个 gain 与这 `p` 个 loss 的 arithmetic mean；后续 average gain/loss 使用前述 Wilder
+  update。output 是 node-declared scale 上 `[0, 100]` 的 dimensionless value。average gain/loss 同时为零时准确
+  为 `50`；gain 为正且 loss 为零时准确为 `100`；gain 为零且 loss 为正时准确为 `0`；其他情况按
+  `100 * gain / (gain + loss)` 只做一次最终舍入。
+- candle body 为 `abs(close - open)`，range 为 `high - low`，upper wick 为
+  `high - max(open, close)`，lower wick 为 `min(open, close) - low`，gap 是 signed
+  `open - previous_close`。只有 gap 在首个 sample 为 `WARMING`。scale mismatch 或违反
+  `low <= min(open, close) <= max(open, close) <= high` 时，必须在任何 geometry 或 previous-close state 推进前
+  返回 no-state-change terminal。
+- rolling swing high 是声明完整 trailing window 内的 maximum high，rolling swing low 是 minimum low。每个
+  output 同时包含获胜 value 与其完整 Owner sample coordinate；extremum 相等时选择 Owner order 中最新的
+  coordinate。它是 trailing-window extremum，不是 future-looking confirmed pivot。
+- `range_fraction(low, high, numerator, denominator)` 要求 low/high scale 相等、`low <= high`、rational 已
+  约分、numerator/denominator 编码为规范 unsigned 32-bit、denominator 为正且
+  `0 <= numerator <= denominator`。它把
+  `low + (high - low) * numerator / denominator` 作为一个 I256 expression，在声明 output scale 只做一次
+  最终舍入。闭区间之外的 ratio 在 V1 中 unavailable，不得 clamp 或 extension。
+
+warm-up count、period/window/lag value、ring index 与 add count 是规范 unsigned 32-bit field；Owner sequence
+是规范 unsigned 64-bit field；numeric coefficient 是规范 signed 128-bit field；scale 与 rounding tag 是规范
+unsigned 8-bit field；保存的 Owner coordinate 使用 `StrategyInputSampleCoordinateV1` 的准确 fixed-width
+canonical field。所有 integer 在规范 state bytes 中使用 little-endian。Rust layout、`usize`、pointer width、
+platform alignment、map order 与 JSON number parsing 均无 authority。
+
+primitive catalog 原子发布整个 family。下列清单是封闭的 V1 namespace：
+
+- Numeric policy：`bfp.numeric.fixed-i128.max-scale-38.explicit-rescale.i256-single-round.v1`、
+  `bfp.round.toward-zero.v1`、`bfp.round.nearest-ties-to-even.v1` 与
+  `bfp.numeric.failure.no-state-change.v1`。
+- Add：`bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.toward-zero.v1` 与
+  `bfp.fixed-i128.add.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1`。
+- Subtract：`bfp.fixed-i128.sub.max-scale-38.explicit-rescale.i256-single-round.toward-zero.v1` 与
+  `bfp.fixed-i128.sub.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1`。
+- Multiply：`bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.toward-zero.v1` 与
+  `bfp.fixed-i128.mul.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1`。
+- Divide：`bfp.fixed-i128.div.max-scale-38.explicit-rescale.i256-single-round.toward-zero.v1` 与
+  `bfp.fixed-i128.div.max-scale-38.explicit-rescale.i256-single-round.nearest-ties-to-even.v1`。
+- Rescale：`bfp.fixed-i128.rescale.max-scale-38.i256-single-round.toward-zero.v1` 与
+  `bfp.fixed-i128.rescale.max-scale-38.i256-single-round.nearest-ties-to-even.v1`。
+- Compare/select：`bfp.fixed-i128.compare.equal-scale.v1` 与 `bfp.fixed-i128.select.equal-scale.v1`。
+- Availability/state：`bfp.availability.warming-ready.v1`、`bfp.state.post.fixed-canonical.v1` 与
+  `bfp.lag.coordinate.offset.full-history.v1`。
+- Rolling：`bfp.rolling.sum.full-window.v1`、`bfp.rolling.mean.full-window.toward-zero.v1`、
+  `bfp.rolling.mean.full-window.nearest-ties-to-even.v1`、`bfp.rolling.min.full-window.v1` 与
+  `bfp.rolling.max.full-window.v1`。
+- EMA：`bfp.ema.first-sample.alpha-2-over-period-plus-1.toward-zero.v1` 与
+  `bfp.ema.first-sample.alpha-2-over-period-plus-1.nearest-ties-to-even.v1`。
+- Wilder：`bfp.wilder.first-sample.alpha-1-over-period.toward-zero.v1` 与
+  `bfp.wilder.first-sample.alpha-1-over-period.nearest-ties-to-even.v1`。
+- TR/ATR：`bfp.true-range.ohlc.first-high-low.v1`、
+  `bfp.atr.true-range.wilder-first-sample.toward-zero.v1` 与
+  `bfp.atr.true-range.wilder-first-sample.nearest-ties-to-even.v1`。
+- RSI：`bfp.rsi.period-deltas.wilder.flat-50.toward-zero.v1` 与
+  `bfp.rsi.period-deltas.wilder.flat-50.nearest-ties-to-even.v1`。
+- Candle：`bfp.candle.body-magnitude.ohlc-validated.v1`、`bfp.candle.range.ohlc-validated.v1`、
+  `bfp.candle.upper-wick.ohlc-validated.v1`、`bfp.candle.lower-wick.ohlc-validated.v1` 与
+  `bfp.candle.gap-signed.previous-close.ohlc-validated.v1`。
+- Swing：`bfp.swing-high.trailing-full-window.latest-coordinate-tie.v1` 与
+  `bfp.swing-low.trailing-full-window.latest-coordinate-tie.v1`。
+- Range fraction：`bfp.range-fraction.closed-unit-rational.toward-zero.v1` 与
+  `bfp.range-fraction.closed-unit-rational.nearest-ties-to-even.v1`。
+- Kernel output reference：`kernel.position.enter.v1`、`kernel.position.add.v1`、
+  `kernel.position.reduce.v1`、`kernel.position.exit.v1`、`kernel.position.hold.v1`、
+  `kernel.target.position.v1`、`kernel.target.weight.v1`、`kernel.target.rebalance.v1`、
+  `kernel.protection.stop-loss.v1`、`kernel.protection.take-profit.v1` 与
+  `kernel.protection.trailing-adjust.v1`。
+
+其他 primitive、alias、optional subset 或 extension 都不属于 catalog V1。每一行都在规范 catalog bytes 中
+绑定其准确 formula、type/unit/scale contract、适用的 rounding ID、availability/update-clock rule、state
+encoding 与 required golden-vector identity。缺失或增加任一行、formula、semantic ID、golden vector 或
+failure oracle 都使整个 V1 catalog digest unavailable；Strategy Factory 必须拒绝 BFP，不能发布或替换为
+partial toy catalog。
+
+每个 golden 都是规范 `BoundedFeatureGoldenVectorV1` binary bytes：magic `BFGV` `[u8; 4]`、schema
+`u16 = 1`、reserved-zero `u16`、ASCII vector semantic ID 与 primitive semantic ID（各自编码为
+`u16 length || bytes`）、rounding tag `u8`（`0 = none`、`1 = TowardZero`、
+`2 = NearestTiesToEven`）、terminal tag `u8`（`0 = READY`、`1 = WARMING`、
+`2 = NUMERIC_FAILURE_NO_STATE_CHANGE`、`3 = UNSUPPORTED`），随后依次为 pre-state、规范 input frame、
+expected output 与 post-state 四个 `u32 length || bytes` field。integer 使用 little-endian，string 必须为
+non-empty ASCII，reserved byte 与 trailing byte 被禁止，重新编码必须逐字节相同。vector identity 是
+`bfp.golden-vector.v1\0 || canonical bytes` 的 SHA-256。catalog 按 vector semantic-ID bytes 排序完整 vector，
+拒绝 duplicate，并把各 vector 的 `u32 length || canonical bytes` 拼接后纳入自身 digest。
+
+对于上述 Add 至 Range fraction 各 family 的每个 executable primitive ID，V1 准确要求一个
+`bfp.golden.primitive.<primitive-id-without-bfp-prefix>.success.v1` vector；semantic ID 已经冻结 rounding
+选择，规范 node argument 与 expected readiness 则位于 vector bytes 中。Numeric policy ID 与 kernel-output
+reference ID 不 mint primitive success vector。额外的封闭 cross-cutting vector-ID set 是这里明确命名的
+Cartesian product：rounding mode token `toward-zero|nearest-ties-to-even`、sign token
+`positive|negative` 与 quotient token `even|odd`，套入
+`bfp.golden.round.<rounding>.<sign>.<quotient>-half.v1`；frontier token
+`before-ready|first-ready` 与每个 family token
+`lag-offset-2|rolling-sum-window-3|rolling-mean-window-3|rolling-min-window-3|rolling-max-window-3|swing-high-window-3|swing-low-window-3|rsi-period-3`，
+套入 `bfp.golden.warm-up.<family>.<frontier>.v1`；以及 literal ID
+`bfp.golden.ema-period-3.first-ready.v1`、`bfp.golden.wilder-period-3.first-ready.v1`、
+`bfp.golden.atr-period-3.first-ready.v1`、`bfp.golden.gap.before-ready.v1`、
+`bfp.golden.gap.first-ready.v1`、`bfp.golden.rsi.flat-50.v1`、
+`bfp.golden.rsi.zero-loss-100.v1`、`bfp.golden.rsi.zero-gain-0.v1`、
+`bfp.golden.true-range.first.v1`、`bfp.golden.true-range.previous-close.v1`、
+`bfp.golden.numeric.i256-overflow.state-byte-identity.v1`、
+`bfp.golden.numeric.divide-by-zero.state-byte-identity.v1`、
+`bfp.golden.numeric.invalid-scale.state-byte-identity.v1`、
+`bfp.golden.numeric.remainder-without-rounding.state-byte-identity.v1`、
+`bfp.golden.numeric.final-i128-overflow.state-byte-identity.v1`、
+`bfp.golden.numeric.min-div-negative-one.state-byte-identity.v1`、
+`bfp.golden.numeric.scale-mismatch.state-byte-identity.v1`、
+`bfp.golden.ohlc.ordering-violation.state-byte-identity.v1`、
+`bfp.golden.swing-high.latest-coordinate-tie.v1`、
+`bfp.golden.swing-low.latest-coordinate-tie.v1`、`bfp.golden.sample.same-no-advance.v1`、
+`bfp.golden.sample.equal-value-new-advance.v1`、`bfp.golden.numeric.wide-fit-after-scale.v1`、
+`bfp.golden.range-fraction.denominator-zero.v1`、
+`bfp.golden.range-fraction.non-reduced-rational.v1`、`bfp.golden.range-fraction.above-one.v1` 与
+`bfp.golden.range-fraction.low-above-high.v1`。发布时有限 token set 展开成 literal ID；brace、token 或
+generator text 都不进入 catalog bytes。这些 literal state-byte-identity ID 穷尽 primitive numeric 与 OHLC
+failure golden。coordinate/receipt、ABI、build 与 resource rejection 位于 primitive evaluation 之外，是下文
+required corpus oracle，而不是额外 catalog golden。
+
+每个 stateful primitive 准确声明一个 update coordinate：reaction trigger clock，或一个命名 input 的 sample
+clock。BFP 还声明有界的 holding status、add count、high-water mark、protection state 等策略 state，并且只能
+生成 manifest-typed post-state、现有 `PositionIntentV1`、`TargetVariantV1`、`ProtectionVariantV1`、target 与
+protection field。Host 校验这些 bytes、封存 proposal identity/order，再把 proposal 交给共享生命周期内核。
+只有内核解释 `ENTER`、`ADD`、`REDUCE`、`EXIT`、`HOLD`、target position/weight、stop-loss、take-profit、
+trailing protection 与 fill reconciliation。BFP/plugin 绝不能输出 order、`Action::Submit`、Risk permit、
+Execution request 或 external effect。
+
+#### Sample-coordinate 契约
+
+数值相等不代表 sample identity。BFP V1 可以执行之前，Market Data 必须为每个已接纳 event 或 joined cut
+component 提供 dependency-neutral、Owner-sealed `StrategyInputSampleCoordinateV1`。其 canonical bytes 按以下
+顺序准确为 308 bytes：schema `u16 = 1`、reserved-zero `u16`、input role identity `[u8; 32]`、timeframe
+identity `[u8; 32]`、Owner event identity `[u8; 16]`、sample identity `[u8; 32]`、logical time `u64`、
+event-effective time `u64`、Owner sequence `u64`、static binding receipt digest `[u8; 32]`、dynamic
+canonical-row digest `[u8; 32]`、Source Binding lineage root `[u8; 32]`、lineage version `u64`、Market
+Semantics identity `[u8; 32]` 与 stable Owner sample-receipt digest `[u8; 32]`。integer 使用 little-endian；
+reserved 或 trailing byte 被禁止。coordinate digest 是
+`strategy.input.sample-coordinate.v1\0 || canonical bytes` 的 SHA-256。Market Data event/joined-cut receipt
+cross-bind 该 digest；coordinate 不包含 enclosing trigger receipt，因此被后续 trigger 携带的同一个 component
+sample 保持逐字节相同。
+
+Market Data 从封存的 static role/timeframe projection 派生 timeframe identity，并从 verified census 中选择、
+封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、
+hash-substitute 或 advance 它。对于一个 role，replay 只有在 308 bytes 全部相同时才能 join。同一
+role/timeframe/sample identity 若对应不同 bytes 即为 conflict。新 sample 必须保持 static binding、timeframe、
+lineage root 与 Market Semantics identity 不变，lineage version 不递减，sample identity 不同，并且
+`(logical_time, event_time, owner_sequence, event_identity, sample_identity)` tuple 按 lexicographic order 严格
+增大。cross-lineage coordinate 不可比较且 fail closed。state 是否推进由这些 equality/order rule 决定，而不
+由 numeric value equality 决定。
+
+TARGET Design/Plan seam 是版本化 source semantic
+`strategy.value-ref.owner-sample-coordinate.v1(input_role_id)`。对于每个被 sample-clock node 使用的 BFP
+role，lowerer 必须创建一个 manifest input port，其 literal semantic ID 是
+`strategy.input.sample-coordinate.v1.<role_identity_hex>`，其中 `role_identity_hex` 准确为该 role
+`[u8; 32]` identity 的 64 个 lowercase hex character。uppercase、非 64-length suffix 或与绑定 role 不等的
+suffix 都是 noncanonical。该 port 的 type 为 `ValueTypeV2::Bytes`，准确 `max_bytes = 308`。BFP role input
+port 按 `(role_identity_bytes, kind_tag)` 排序，其中 `kind_tag = 0` 是 role value port，`kind_tag = 1` 是其
+coordinate port，因此每个存在的 coordinate 准确跟随自己的 value，而不依赖 source order。
+`StrategyPlanV2` 绑定 role、完整 derived port ID、coordinate-source semantic ID、port ordinal、static
+binding、coordinate codec/digest rule 与 update clock。不含这一 tagged source 的既有 Design 保持逐字节
+相同的 V2 含义。
+
+唯一通用 `ProgramHostV2` 扩展其既有 Owner-event evidence adapter，而不是扩展 graph opcode set 或 runtime，
+以保留已经验证的 coordinate bytes 并解析该 Plan-bound metadata source。它拒绝未被已接纳 Market Data
+receipt cross-bind 的 coordinate，随后把准确 308 Owner bytes 复制到普通 typed plugin input port。guest 不会
+收到 caller coordinate，也不能请求另一个 role。这是唯一接纳的 transport；禁止从 I128 value、driver
+envelope、trigger count、local hash 或 guest state 派生 coordinate。
+
+trigger-clock node 对每个新接纳 trigger coordinate 推进一步。sample-clock node 只有在其命名 role 收到严格
+新的 Owner-sealed sample coordinate 时才推进。同一 1-hour sample 被多个 1-minute trigger 携带时，必须复用
+旧 sample-clock state 而不推进，即使其他 trigger value 改变；新封存的 1-hour sample 即使 OHLC 数值与前一个
+完全相同，也必须准确推进一次。value comparison、caller time、trigger count、arrival order、narrowed R04 或
+event hash、本地派生 timestamp 都不是合法替代。缺失、stale、duplicate-conflicting、cross-role、
+cross-timeframe、cross-lineage、regressed-version、receipt-mismatched 或非规范 coordinate，都必须在 guest
+调用或任何 BFP/plugin/lifecycle/target/protection/trace/checkpoint mutation 前失败。
+
+#### TARGET plugin failure-status 兼容
+
+命名 numeric terminal 使用既有 manifest、wire 与 `ProgramHostV2` 的兼容版本化扩展，而不是 plugin output、
+Host feature opcode 或第二 runtime。既有 ABI 2 manifest、frame bytes、receipt 与
+`strategy.plugin.failure.unsupported.v1` handling 保持逐字节权威。BFP V1 plugin 改用
+`PluginManifestV2.abi_version = 3` 与
+`failure_semantic_id = bfp.numeric.failure.no-state-change.v1`；Plan、V3 build receipt、
+`PluginImplementationReceiptV2`、module identity 与 Artifact 全部绑定这两个值。ABI 3 保留规范 port-entry
+layout，frame header 使用 ABI `u16 = 3`，只改变 invocation status map：nonnegative 值是规范 output length，
+`-1` 是 `NUMERIC_FAILURE_NO_STATE_CHANGE`，其他所有 negative 值都是 unsupported/unknown guest status。
+
+当 ABI 3 status 为 `-1` 时，`ProgramHostV2` 不 decode output，丢弃 scratch guest/BFP/kernel bundle，发出绑定
+已接纳 event 与 plugin identity 的命名 terminal，并证明 pre-event checkpoint bytes/digest 未改变。output
+frame 不能声明该 terminal，status 也不能携带 post-state、intent、target、protection 或 effect bytes。
+ABI/version/failure-ID mismatch、unknown status、trap 或 status/output-length conflict 都通过既有通用
+unsupported boundary fail closed。任何 V2 row 或 receipt 都不会被 rewrite、reinterpret 或 promote。
+
+#### V3 build capsule 与持久兼容
+
+`DevelopPluginBuildProducerV2` 是 CURRENT/PARTIAL，只从 manifest 派生固定空实现，无法诚实承载可变 BFP
+含义。因此 TARGET producer 接受单独 tagged V3 capsule，绝不对 V2 做未版本化改写。规范 V3 capsule 与
+build receipt 绑定 plugin semantic ID/manifest digest、BFP 规范 bytes/digest、准确 first-party SDK 与
+`vibe-indicators-kernel` catalog/source digest、lowerer identity/source digest、compiler/linker/target sysroot/
+toolchain/target/build-profile identity、固定 command/configuration、完整 source-file set/digest，以及声明的
+source/Wasm、fuel、memory、import、export、ABI、port、state、invocation bounds。两个 fresh private build
+必须成功完成，并生成字节一致的 source 与 Wasm。随后现有 ABI/resource verifier 拒绝所有未声明 import/
+export、start function、`memory.grow`、floating-point opcode、ABI/manifest mismatch 或资源超限。
+
+`PluginImplementationReceiptV2` 可以继续绑定结果 module 与不透明 `verified_build_receipt_digest`，但不解释
+或 mint V3 authority。Composer durable custody 必须存储并回读显式
+`V2(existing canonical bytes) | V3(canonical bytes)` receipt tag，使用对应 decoder 校验所选 schema，并把 tagged
+receipt digest 绑定进 Plan/Artifact 路径。既有 V2 row 与 digest 保持逐字节权威和可读；migration 不得 rewrite、
+reinterpret、backfill 或静默提升为 V3。missing tag、unknown version、cross-tag replay、V3 tag 下的 V2 bytes、
+同一 build identity 下改变 BFP，或 V3 coverage 不完整，都必须 fail closed 且不生成 Plan/Artifact。
+
+新 corpus 通过唯一 BFP-to-Wasm 路径证明仍被接纳的 legacy behavior 等价后，`complex_strategy_ir`、
+`complex_strategy_program`、其 interpreter/compiler 路径和手写 V1 complex program 必须被删除或退休为非
+authoritative。其 floating-point semantics 与 raw `Action::Submit` plumbing 不得被翻译、包装或保留为 BFP、
+SDK、primitive、Host 或 migration authority。
+
+#### 首个未来 executable corpus 与 falsifier
+
+首个未来 executable corpus 必须不可变且预提交。其单一 `InputJoinV2` 包含 1-minute raw
+open/high/low/close price role，以及 1-hour-close 与 1-day-close regime-source price role。每个 joined role
+都具有相同 fixed-I128 value type、price unit 与 scale；1-minute-close role 是显式 trigger。这个 V1 corpus
+不包含 volume role。在 1-minute trigger clock 上计算 ATR、RSI、candle geometry、rolling swing 与 rational
+Fibonacci range fraction，在命名的 1-hour-close/1-day-close sample clock 上更新 multi-timeframe regime state。
+reaction 准确消费该完整 join role set。有界 holding、add-count、high-water 与 protection state 驱动一段连续
+event sequence，其中包含
+`ENTER -> ADD -> REDUCE -> EXIT` 和显式 `HOLD`，并输出动态 stop-loss、take-profit 与 trailing protection。
+
+验收要求规范 BFP 两次 lowering 得到字节一致 source，两次 build 得到字节一致 Wasm 与 tagged V3 receipt，
+经 Composer 进入同一 `StrategyArtifactV2`，并通过真实 `ProgramHostV2`/Backtest shared-kernel path 执行。
+完整重复运行必须生成字节一致的 BFP、source、Wasm、build receipt、Plan/Artifact identity、ordered semantic
+trace、checkpoint、fill、position、protection、cost 与规范 Backtest result。在每个声明 state frontier 恢复
+checkpoint 都必须复现字节一致 suffix。
+
+corpus 必须为以下情况提供负向 oracle：unknown opcode/field/semantic ID；scale/unit mismatch；每个 checked
+overflow 与 rounding boundary；missing/stale/cross-lineage binding/coordinate；same-sample duplicate；
+equal-valued new sample；duplicate/conflicting state advance；DAG/window/state/fuel/memory/source/Wasm
+exhaustion；noncanonical bytes；build/source/Wasm inequality；ABI/import/export violation；floating-point
+presence；以及任何 raw-order output。它还覆盖 missing/duplicate/noncanonical golden ID 或 vector、ABI 3
+failure-semantic mismatch、unknown negative status、status/output-length conflict，以及携带 output 或 post-state
+的伪造 numeric terminal。每个负向案例都必须在命名 boundary 终止且不生成 fallback，并按适用
+情况让 checkpoint、BFP/plugin/kernel state、target/protection、semantic trace、Plan、Artifact 与 external
+effect 保持字节不变或不存在。
+
+golden vector 还必须冻结：两种 rounding mode 的正负 half tie；每个 lag、rolling、EMA、Wilder、ATR、RSI、
+gap 与 swing 在 `READY` 前一刻和首次 READY 的 warm-up frontier；flat-price RSI `50`；zero-loss RSI `100`；
+zero-gain RSI `0`；首个及后续 true range；OHLC rejection；latest-coordinate swing tie；same-sample 不推进；
+equal-valued-new-sample 推进；I128 intermediate 会 overflow 但 I256 intermediate 与最终 scaled result 均可容纳
+的计算；I128 `MIN / -1`；denominator 为零、rational 未约分、numerator 大于 denominator 或 low 大于 high
+这些可表示的 invalid range fraction；以及上述 closed state-byte-identity ID 命名的每个 primitive
+failure class。每个这类 vector 的 pre/post state 与 checkpoint 必须逐字节相同。transport、receipt、ABI、
+build 与 resource failure path 则通过各自不同的命名 corpus oracle 证明同一 no-change property。任一 required
+golden vector 缺失，或在两次 lowering、两次 build、完整 rerun、checkpoint-restored suffix 之间不同，都必须
+使 publication 失败。
 
 `InputJoinV2` version 1 只接纳一种 alignment semantic：
 `strategy.input-join.latest-not-after-trigger.v1`。Research 必须声明非空且唯一的 join ID、至少两个唯一的

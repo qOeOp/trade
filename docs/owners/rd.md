@@ -19,6 +19,8 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   policy, capability manifest, and Artifact Security Admission result.
 - **TARGET:** content-addressed `StrategyDesignV2`, deterministic `StrategyPlanV2`, exact Owner input-binding
   receipt set, compiler disposition and lowering digest under the shared lifecycle-kernel contract.
+- **TARGET:** R&D-frozen canonical `BoundedFeatureProgramV1` identity/digest and its exact Design/plugin binding,
+  plus a tagged V3 first-party lowering/build capsule and durable receipt. These are not CURRENT executable facts.
 - Frozen Exploratory Replay Request binding the exact intent, TrialFamily, artifact, requested PIT data scope, replay configuration, and cost-capacity model.
 - Exploratory request-result equality across Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
@@ -65,6 +67,45 @@ protection meaning, optional bounded-plugin manifest, and Research Intent bindin
 canonicalizes, closes capabilities, consumes exact Owner binding receipts, and lowers it to `StrategyPlanV2` and
 the sole Wasm Strategy Artifact/`ProgramHost` path. It may not generate unrestricted strategy code, invent a core
 opcode, infer a source through heuristic strings, or create another interpreter or runtime.
+
+**TARGET / NOT_ADMITTED - ARC Complex D Bounded Feature Program V1:** R&D freezes one canonical
+`BoundedFeatureProgramV1` together with its Research Intent, `StrategyDesignV2`, bounded-plugin semantic ID and
+manifest digest. The program declares typed Owner roles, units/scales, trigger/sample clocks, the versioned
+`vibe-indicators-kernel` primitive-catalog digest, a fixed-I128 DAG, bounded state/resources, lifecycle outputs,
+and canonical bytes/digest. R&D owns that frozen Research/Design/program meaning; it cannot mint a Market Data
+sample coordinate, build provenance, Host proposal identity, lifecycle transition, Backtest result, raw order, or
+trading effect.
+
+The TARGET V1 catalog is atomic rather than a menu of names: fixed I128 scale is at most 38, rescale is explicit,
+the only rounding modes are `TowardZero` and `NearestTiesToEven`, and each operation uses one exact I256 expression
+with one final rounding. The catalog freezes lag/rolling readiness, EMA/Wilder seeds, Wilder ATR, period-delta RSI,
+OHLC geometry, trailing-window swing coordinates, and closed-unit rational `range_fraction` semantics. Missing any
+required formula, semantic ID, golden vector, or no-state-change oracle makes the whole catalog unavailable.
+
+The closed TARGET catalog namespace and canonical golden-vector codec are published all-or-nothing. For every
+sample-clock role, R&D binds the exact versioned Owner-coordinate source and ordinary bounded Bytes port in the
+Design/Plan, but Market Data alone seals the 308-byte coordinate and its receipt cross-binding. The sole generic
+`ProgramHostV2` verifies and transports those bytes; it does not mint them or gain a feature opcode. BFP plugins use
+the separately tagged ABI 3 failure status for `NUMERIC_FAILURE_NO_STATE_CHANGE`, while every existing ABI 2
+manifest, receipt, frame, and generic failure meaning remains byte-identical. These are TARGET seams, not claims of
+CURRENT Market Data, Host, plugin, Composer, or Backtest support, and they require no second runtime or raw-order
+authority.
+
+Strategy Factory alone validates the canonical DAG and capability/resource/state bounds and deterministically
+lowers it with content-addressed first-party SDK/kernel sources. It references versioned primitive semantic IDs and
+source digests instead of copying formulas. The result is exactly one existing bounded plugin whose outputs are
+limited to typed post-state, `PositionIntentV1`, target and protection fields; `ProgramHostV2` seals the proposal
+and the shared lifecycle kernel alone applies it. No caller- or LLM-authored Rust/Wasm/dependency, floating point,
+Host feature opcode, second interpreter/runtime, raw-order plumbing, or executable fallback is admitted.
+
+The future V3 build capsule/receipt must bind the canonical program, manifest, SDK/kernel, lowerer/compiler,
+toolchain/profile, complete source set, two byte-identical builds, Wasm, ABI and resource/import/export bounds.
+`PluginImplementationReceiptV2` may continue to bind its opaque verified-receipt digest, but Composer durable
+readback must distinguish tagged V2 from V3 and preserve every existing V2 row and digest byte-for-byte. The
+architecture contract and falsifiable first corpus are defined in
+[Strategy Factory](../architecture/strategy-factory#target---arc-complex-d-bounded-feature-program-v1). Until
+those code, Owner custody and real `ProgramHostV2`/Backtest checks exist, this is not an executable D-loop, Native
+Replay, Windmill acceptance, stable-profitability claim, or Paper/Live/production/trading authority.
 
 The CURRENT ComplexStrategy V1 pre-Artifact Develop Evaluation is an R&D-internal fact only when current accepted
 Research custody, the complete TrialFamily frontier, canonical bounded IR, exact predecessor and an Owner-sealed
