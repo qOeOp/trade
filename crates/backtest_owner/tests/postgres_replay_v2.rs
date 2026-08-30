@@ -233,7 +233,7 @@ macro_rules! postgres_replay_v2_tests {
             #[ignore = "requires a seeded Replay V2 request and a conflicting table lock"]
             async fn runtime_lock_conflict_fails_closed_near_one_second() {
                 let (backtest_url, request_owner, locator, sealed_result) =
-                    seeded_storage_context('h').await;
+                    seeded_storage_context('b').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle");
@@ -593,7 +593,7 @@ macro_rules! postgres_replay_v2_tests {
             #[ignore = "requires a seeded Replay V2 request and controlled external-FK injection"]
             async fn existing_handle_rejects_post_connect_external_inbound_fk() {
                 let (backtest_url, request_owner, locator, result) =
-                    seeded_storage_context('g').await;
+                    seeded_storage_context('c').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle");
