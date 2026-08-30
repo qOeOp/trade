@@ -34,6 +34,29 @@ const MAX_TABLE_ELEMENTS: u64 = 4_096;
 const MAX_DATA_SEGMENTS: u32 = 128;
 const MAX_FUNCTION_BODY_BYTES: usize = 32 * 1024;
 
+#[derive(Clone, Copy)]
+enum WasmValidationPolicy {
+    Legacy,
+    #[allow(dead_code)] // Consumed only after a future tagged ABI3/V3 caller exists.
+    StrictNoFloat,
+}
+
+impl WasmValidationPolicy {
+    fn features(self) -> WasmFeatures {
+        let mut features = WasmFeatures::WASM1;
+        if matches!(self, Self::StrictNoFloat) {
+            features.remove(WasmFeatures::FLOATS);
+        }
+        features
+    }
+}
+
+#[derive(Clone, Copy)]
+enum MemoryPolicy {
+    FixedOnePage,
+    PluginBounded { max_bytes: u32 },
+}
+
 /// Runtime projection of an upper-layer frozen profile; archive, trial, and source budgets remain with their owners.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -180,102 +203,31 @@ pub(crate) fn validate_plugin_candidate_v2(
     wasm: &[u8],
     manifest: &PluginManifestV2,
 ) -> Result<(), ProgramRuntimeError> {
-    limit(wasm.len(), 64 * 1024, "module bytes")?;
-    let mut exports = Vec::new();
-    let mut memory_seen = false;
+    validate_plugin_candidate(wasm, manifest, WasmValidationPolicy::Legacy)
+}
 
-    for payload in Parser::new(0).parse_all(wasm) {
-        match payload.map_err(invalid_module)? {
-            Payload::Version {
-                num: 1,
-                encoding: Encoding::Module,
-                ..
-            } => {}
-            Payload::Version { .. } => return Err(ProgramRuntimeError::Abi("Wasm1 module")),
-            Payload::TypeSection(section) => limit(section.count(), MAX_TYPES, "types")?,
-            Payload::FunctionSection(section) => {
-                limit(section.count(), MAX_FUNCTIONS, "functions")?;
-            }
-            Payload::TableSection(section) => {
-                limit(section.count(), MAX_TABLES, "tables")?;
-                let mut elements = 0_u64;
+/// Future tagged plugin callers reuse the existing envelope while adding the BFP no-float policy.
+#[allow(dead_code)] // This foundation deliberately does not create the missing ABI3/V3 discriminator.
+pub(crate) fn validate_plugin_candidate_strict_no_float(
+    wasm: &[u8],
+    manifest: &PluginManifestV2,
+) -> Result<(), ProgramRuntimeError> {
+    validate_plugin_candidate(wasm, manifest, WasmValidationPolicy::StrictNoFloat)
+}
 
-                for table in section {
-                    let table = table.map_err(invalid_module)?;
-                    let maximum = table
-                        .ty
-                        .maximum
-                        .ok_or(ProgramRuntimeError::ResourceLimit("table elements"))?;
-                    elements = elements
-                        .checked_add(maximum)
-                        .ok_or(ProgramRuntimeError::ResourceLimit("table elements"))?;
-                }
-                limit(elements, MAX_TABLE_ELEMENTS, "table elements")?;
-            }
-            Payload::MemorySection(section) => {
-                if memory_seen || section.count() != 1 {
-                    return Err(ProgramRuntimeError::Abi("one memory"));
-                }
-                let memory = section
-                    .into_iter()
-                    .next()
-                    .ok_or(ProgramRuntimeError::Abi("one memory"))?
-                    .map_err(invalid_module)?;
-                let maximum = memory
-                    .maximum
-                    .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
-                let maximum_bytes = maximum
-                    .checked_mul(65_536)
-                    .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
-                if memory.memory64
-                    || memory.shared
-                    || memory.initial == 0
-                    || memory.initial > maximum
-                    || maximum_bytes > u64::from(manifest.max_linear_memory_bytes)
-                    || memory.page_size_log2.is_some()
-                {
-                    return Err(ProgramRuntimeError::ResourceLimit("linear memory"));
-                }
-                memory_seen = true;
-            }
-            Payload::GlobalSection(section) => limit(section.count(), MAX_GLOBALS, "globals")?,
-            Payload::ExportSection(section) => {
-                for export in section {
-                    let export = export.map_err(invalid_module)?;
-                    exports.push((export.name.to_owned(), export.kind, export.index));
-                }
-            }
-            Payload::DataSection(section) => {
-                limit(section.count(), MAX_DATA_SEGMENTS, "data segments")?;
-            }
-            Payload::CodeSectionEntry(body) => {
-                limit(
-                    body.range().len(),
-                    MAX_FUNCTION_BODY_BYTES,
-                    "function body bytes",
-                )?;
-                let mut operators = body.get_operators_reader().map_err(invalid_module)?;
-                while !operators.eof() {
-                    if matches!(
-                        operators.read().map_err(invalid_module)?,
-                        Operator::MemoryGrow { .. }
-                    ) {
-                        return Err(ProgramRuntimeError::Forbidden("memory.grow"));
-                    }
-                }
-            }
-            Payload::ImportSection(_) => return Err(ProgramRuntimeError::Forbidden("imports")),
-            Payload::StartSection { .. } => return Err(ProgramRuntimeError::Forbidden("start")),
-            _ => {}
-        }
-    }
-    Validator::new_with_features(WasmFeatures::WASM1)
-        .validate_all(wasm)
-        .map_err(invalid_module)?;
-
-    if !memory_seen {
-        return Err(ProgramRuntimeError::Abi("one memory"));
-    }
+fn validate_plugin_candidate(
+    wasm: &[u8],
+    manifest: &PluginManifestV2,
+    policy: WasmValidationPolicy,
+) -> Result<(), ProgramRuntimeError> {
+    let exports = scan_module(
+        wasm,
+        64 * 1024,
+        MemoryPolicy::PluginBounded {
+            max_bytes: manifest.max_linear_memory_bytes,
+        },
+        policy,
+    )?;
     validate_plugin_exports_v2(&exports)?;
 
     let engine = engine();
@@ -391,7 +343,22 @@ fn abi_i32(
 }
 
 fn validate_module(wasm: &[u8], budget: ProgramRuntimeBudget) -> Result<(), ProgramRuntimeError> {
-    limit(wasm.len(), budget.max_module_bytes, "module bytes")?;
+    let exports = scan_module(
+        wasm,
+        budget.max_module_bytes,
+        MemoryPolicy::FixedOnePage,
+        WasmValidationPolicy::Legacy,
+    )?;
+    validate_exports(&exports)
+}
+
+fn scan_module(
+    wasm: &[u8],
+    max_module_bytes: usize,
+    memory_policy: MemoryPolicy,
+    validation_policy: WasmValidationPolicy,
+) -> Result<Vec<(String, ExternalKind, u32)>, ProgramRuntimeError> {
+    limit(wasm.len(), max_module_bytes, "module bytes")?;
     let mut exports = Vec::new();
     let mut memory_seen = false;
 
@@ -433,13 +400,34 @@ fn validate_module(wasm: &[u8], budget: ProgramRuntimeBudget) -> Result<(), Prog
                     .ok_or(ProgramRuntimeError::Abi("one memory"))?
                     .map_err(invalid_module)?;
 
-                if memory.memory64
-                    || memory.shared
-                    || memory.initial != 1
-                    || memory.maximum != Some(1)
-                    || memory.page_size_log2.is_some()
-                {
-                    return Err(ProgramRuntimeError::Abi("fixed one-page memory"));
+                match memory_policy {
+                    MemoryPolicy::FixedOnePage => {
+                        if memory.memory64
+                            || memory.shared
+                            || memory.initial != 1
+                            || memory.maximum != Some(1)
+                            || memory.page_size_log2.is_some()
+                        {
+                            return Err(ProgramRuntimeError::Abi("fixed one-page memory"));
+                        }
+                    }
+                    MemoryPolicy::PluginBounded { max_bytes } => {
+                        let maximum = memory
+                            .maximum
+                            .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
+                        let maximum_bytes = maximum
+                            .checked_mul(65_536)
+                            .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
+                        if memory.memory64
+                            || memory.shared
+                            || memory.initial == 0
+                            || memory.initial > maximum
+                            || maximum_bytes > u64::from(max_bytes)
+                            || memory.page_size_log2.is_some()
+                        {
+                            return Err(ProgramRuntimeError::ResourceLimit("linear memory"));
+                        }
+                    }
                 }
                 memory_seen = true;
             }
@@ -460,11 +448,15 @@ fn validate_module(wasm: &[u8], budget: ProgramRuntimeBudget) -> Result<(), Prog
                 limit(body_bytes, MAX_FUNCTION_BODY_BYTES, "function body bytes")?;
                 let mut operators = body.get_operators_reader().map_err(invalid_module)?;
                 while !operators.eof() {
-                    if matches!(
-                        operators.read().map_err(invalid_module)?,
-                        Operator::MemoryGrow { .. }
-                    ) {
+                    let operator = operators.read().map_err(invalid_module)?;
+                    if matches!(operator, Operator::MemoryGrow { .. }) {
                         return Err(ProgramRuntimeError::Forbidden("memory.grow"));
+                    }
+
+                    if matches!(validation_policy, WasmValidationPolicy::StrictNoFloat)
+                        && is_ungated_float_input_integer_operator(&operator)
+                    {
+                        return Err(ProgramRuntimeError::Forbidden("floating point"));
                     }
                 }
             }
@@ -473,14 +465,32 @@ fn validate_module(wasm: &[u8], budget: ProgramRuntimeBudget) -> Result<(), Prog
             _ => {}
         }
     }
-    Validator::new_with_features(WasmFeatures::WASM1)
+    Validator::new_with_features(validation_policy.features())
         .validate_all(wasm)
         .map_err(invalid_module)?;
 
     if !memory_seen {
         return Err(ProgramRuntimeError::Abi("one memory"));
     }
-    validate_exports(&exports)
+    Ok(exports)
+}
+
+fn is_ungated_float_input_integer_operator(operator: &Operator<'_>) -> bool {
+    // wasmparser 0.239 gates float types and float-result operators through FLOATS, but these
+    // integer-result MVP visitors use its generic conversion path. Cover only that upstream gap.
+    matches!(
+        operator,
+        Operator::I32TruncF32S
+            | Operator::I32TruncF32U
+            | Operator::I32TruncF64S
+            | Operator::I32TruncF64U
+            | Operator::I64TruncF32S
+            | Operator::I64TruncF32U
+            | Operator::I64TruncF64S
+            | Operator::I64TruncF64U
+            | Operator::I32ReinterpretF32
+            | Operator::I64ReinterpretF64
+    )
 }
 
 fn validate_exports(exports: &[(String, ExternalKind, u32)]) -> Result<(), ProgramRuntimeError> {
@@ -537,6 +547,7 @@ mod tests {
     use strategy_factory_program_sdk::{FrameEncoder, ProgramRunScope};
 
     use super::*;
+    use crate::strategy_design_v2::{PluginStateContractV2, PortContractV2, ValueTypeV2};
 
     const PROGRAM_RUSTFLAGS: &str = "-Dwarnings \
         -Clink-arg=--initial-memory=65536 \
@@ -700,8 +711,209 @@ mod tests {
         ];
 
         for (spec, expected) in cases {
-            assert_eq!(new_error(&module(spec), budget(10_000)), expected);
+            let wasm = module(spec);
+            assert_eq!(new_error(&wasm, budget(10_000)), expected);
+            assert_eq!(
+                scan_module(
+                    &wasm,
+                    64 * 1024,
+                    MemoryPolicy::FixedOnePage,
+                    WasmValidationPolicy::StrictNoFloat,
+                )
+                .and_then(|exports| validate_exports(&exports))
+                .unwrap_err(),
+                expected
+            );
         }
+    }
+
+    #[rstest]
+    fn integer_only_v1_and_v2_modules_pass_legacy_and_strict_policies() {
+        let v1 = module(ModuleSpec::valid());
+        validate_module(&v1, budget(10_000)).unwrap();
+        let exports = scan_module(
+            &v1,
+            64 * 1024,
+            MemoryPolicy::FixedOnePage,
+            WasmValidationPolicy::StrictNoFloat,
+        )
+        .unwrap();
+        validate_exports(&exports).unwrap();
+
+        let manifest = plugin_manifest();
+        let v2 = plugin_module(None);
+        validate_plugin_candidate_v2(&v2, &manifest).unwrap();
+        validate_plugin_candidate_strict_no_float(&v2, &manifest).unwrap();
+    }
+
+    #[rstest]
+    fn legacy_float_module_remains_accepted_but_strict_policy_rejects_it() {
+        let manifest = plugin_manifest();
+        let wasm = plugin_module(Some((&[0x60, 1, 0x7d, 0], &[0], &[])));
+
+        validate_plugin_candidate_v2(&wasm, &manifest).unwrap();
+        assert_float_rejected(validate_plugin_candidate_strict_no_float(&wasm, &manifest));
+    }
+
+    #[rstest]
+    fn strict_policy_rejects_every_float_structural_category_and_opcode_family() {
+        let no_locals = [0];
+        let one_f64_local = [1, 1, 0x7c];
+        let empty_signature = [0x60, 0, 0];
+        let cases: [(&str, Vec<u8>); 9] = [
+            (
+                "signature params and results",
+                module_with_hidden_function(
+                    &[0x60, 1, 0x7d, 1, 0x7c],
+                    &no_locals,
+                    &[0x44, 0, 0, 0, 0, 0, 0, 0, 0],
+                ),
+            ),
+            (
+                "locals",
+                module_with_hidden_function(&empty_signature, &one_f64_local, &[]),
+            ),
+            ("globals", module_with_float_globals()),
+            (
+                "block types",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[0x02, 0x7d, 0x43, 0, 0, 0, 0, 0x0b, 0x1a],
+                ),
+            ),
+            (
+                "loads and stores",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[
+                        0x41, 0, 0x2a, 2, 0, 0x1a, 0x41, 0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x39, 3,
+                        0,
+                    ],
+                ),
+            ),
+            (
+                "constants and arithmetic",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[
+                        0x43, 0, 0, 0, 0, 0x43, 0, 0, 0, 0, 0x92, 0x1a, 0x44, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0xa2, 0x1a,
+                    ],
+                ),
+            ),
+            (
+                "comparisons",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[
+                        0x43, 0, 0, 0, 0, 0x43, 0, 0, 0, 0, 0x5b, 0x1a, 0x44, 0, 0, 0, 0, 0, 0, 0,
+                        0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x63, 0x1a,
+                    ],
+                ),
+            ),
+            (
+                "conversions",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[
+                        0x41, 0, 0xb2, 0x1a, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0xb0, 0x1a,
+                    ],
+                ),
+            ),
+            (
+                "reinterpretations",
+                module_with_hidden_function(
+                    &empty_signature,
+                    &no_locals,
+                    &[
+                        0x41, 0, 0xbe, 0x1a, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0xbd, 0x1a,
+                    ],
+                ),
+            ),
+        ];
+
+        for (category, wasm) in cases {
+            validate_module(&wasm, budget(10_000))
+                .unwrap_or_else(|e| panic!("legacy rejected {category}: {e}"));
+            assert_float_rejected(scan_module(
+                &wasm,
+                64 * 1024,
+                MemoryPolicy::FixedOnePage,
+                WasmValidationPolicy::StrictNoFloat,
+            ));
+        }
+    }
+
+    #[rstest]
+    fn strict_policy_rejects_unreachable_float_input_integer_operators() {
+        for opcode in [0xa8, 0xa9, 0xaa, 0xab, 0xae, 0xaf, 0xb0, 0xb1, 0xbc, 0xbd] {
+            let wasm = module_with_hidden_function(&[0x60, 0, 0], &[0], &[0x00, opcode, 0x1a]);
+            validate_module(&wasm, budget(10_000)).unwrap();
+            assert!(
+                scan_module(
+                    &wasm,
+                    64 * 1024,
+                    MemoryPolicy::FixedOnePage,
+                    WasmValidationPolicy::StrictNoFloat,
+                )
+                .is_err(),
+                "strict policy admitted unreachable float-input opcode {opcode:#x}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn strict_policy_treats_ieee_data_bytes_as_opaque() {
+        let mut wasm = module(ModuleSpec::valid());
+        let ieee_bytes = [
+            0x00, 0x00, 0x80, 0x3f, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xf0, 0x3f,
+        ];
+        let mut data = vec![1, 0, 0x41, 0x80, 0x80, 0x01, 0x0b];
+        u32_leb(&mut data, ieee_bytes.len() as u32);
+        data.extend(ieee_bytes);
+        section(&mut wasm, 11, &data);
+
+        let before = wasm.clone();
+        let first = scan_module(
+            &wasm,
+            64 * 1024,
+            MemoryPolicy::FixedOnePage,
+            WasmValidationPolicy::StrictNoFloat,
+        )
+        .unwrap();
+        let second = scan_module(
+            &wasm,
+            64 * 1024,
+            MemoryPolicy::FixedOnePage,
+            WasmValidationPolicy::StrictNoFloat,
+        )
+        .unwrap();
+        assert_eq!(first, second);
+        validate_exports(&first).unwrap();
+        assert_eq!(wasm, before);
+    }
+
+    #[rstest]
+    fn strict_validation_is_fail_closed_deterministic_and_mutation_free() {
+        for invalid in [b"\0asm\x01\0\0".to_vec(), b"\0asm\x02\0\0\0".to_vec()] {
+            let before = invalid.clone();
+            let first = strict_scan_error(&invalid);
+            let second = strict_scan_error(&invalid);
+            assert_eq!(first, second);
+            assert_eq!(invalid, before);
+        }
+
+        let float = module_with_float_globals();
+        let float_before = float.clone();
+        let first = strict_scan_error(&float);
+        let second = strict_scan_error(&float);
+        assert_eq!(first, second);
+        assert_eq!(float, float_before);
     }
 
     #[rstest]
@@ -845,6 +1057,166 @@ mod tests {
         fs::read(root.join(name)).unwrap()
     }
 
+    fn assert_float_rejected<T>(result: Result<T, ProgramRuntimeError>) {
+        match result {
+            Err(ProgramRuntimeError::InvalidModule(message)) => {
+                assert!(
+                    message.contains("floating-point"),
+                    "unexpected strict validation error: {message}"
+                );
+            }
+            Err(ProgramRuntimeError::Forbidden("floating point")) => {}
+            Err(e) => panic!("unexpected strict validation error: {e}"),
+            Ok(_) => panic!("strict validation unexpectedly admitted floating point"),
+        }
+    }
+
+    fn strict_scan_error(wasm: &[u8]) -> ProgramRuntimeError {
+        scan_module(
+            wasm,
+            64 * 1024,
+            MemoryPolicy::FixedOnePage,
+            WasmValidationPolicy::StrictNoFloat,
+        )
+        .unwrap_err()
+    }
+
+    fn plugin_manifest() -> PluginManifestV2 {
+        PluginManifestV2 {
+            semantic_id: "test.plugin.integer-only.v2".to_owned(),
+            abi_version: 2,
+            input_ports: vec![PortContractV2 {
+                semantic_id: "test.input.v2".to_owned(),
+                value_type: ValueTypeV2::I64,
+                max_bytes: 8,
+            }],
+            output_ports: vec![PortContractV2 {
+                semantic_id: "test.output.v2".to_owned(),
+                value_type: ValueTypeV2::I64,
+                max_bytes: 8,
+            }],
+            state: PluginStateContractV2 {
+                pre_port_id: "test.state.pre.v2".to_owned(),
+                post_port_id: "test.state.post.v2".to_owned(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 8,
+            },
+            capability_ids: vec![],
+            max_fuel: 10_000,
+            max_linear_memory_bytes: 65_536,
+            max_invocations_per_event: 1,
+            failure_semantic_id: "strategy.plugin.failure.unsupported.v1".to_owned(),
+        }
+    }
+
+    fn plugin_module(extra: Option<(&[u8], &[u8], &[u8])>) -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        let mut types = vec![2 + u8::from(extra.is_some())];
+        types.extend([0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
+        if let Some((type_entry, _, _)) = extra {
+            types.extend(type_entry);
+        }
+        section(&mut wasm, 1, &types);
+
+        let mut functions = vec![5 + u8::from(extra.is_some()), 0, 0, 0, 0, 1];
+        if extra.is_some() {
+            functions.push(2);
+        }
+        section(&mut wasm, 3, &functions);
+        section(&mut wasm, 5, &[1, 1, 1, 1]);
+
+        let mut exports = vec![6];
+        export(&mut exports, MEMORY_EXPORT, 2, 0);
+
+        for (name, index) in [
+            (PLUGIN_INPUT_PTR_EXPORT_V2, 0),
+            (PLUGIN_INPUT_CAPACITY_EXPORT_V2, 1),
+            (PLUGIN_OUTPUT_PTR_EXPORT_V2, 2),
+            (PLUGIN_OUTPUT_CAPACITY_EXPORT_V2, 3),
+            (PLUGIN_INVOKE_EXPORT_V2, 4),
+        ] {
+            export(&mut exports, name, 0, index);
+        }
+        section(&mut wasm, 7, &exports);
+
+        let mut code = vec![5 + u8::from(extra.is_some())];
+        for value in [1024, 64, 8192, 64, 0] {
+            body(&mut code, &i32_const(value));
+        }
+
+        if let Some((_, locals, operators)) = extra {
+            body_with_locals(&mut code, locals, operators);
+        }
+        section(&mut wasm, 10, &code);
+        wasm
+    }
+
+    fn module_with_hidden_function(type_entry: &[u8], locals: &[u8], operators: &[u8]) -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        let mut types = vec![3, 0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f];
+        types.extend(type_entry);
+        section(&mut wasm, 1, &types);
+        section(&mut wasm, 3, &[6, 0, 0, 0, 0, 1, 2]);
+        section(&mut wasm, 5, &[1, 1, 1, 1]);
+
+        let mut exports = vec![6];
+        export(&mut exports, MEMORY_EXPORT, 2, 0);
+
+        for (name, index) in [
+            (FRAME_PTR_EXPORT, 0),
+            (FRAME_CAPACITY_EXPORT, 1),
+            (PROPOSAL_PTR_EXPORT, 2),
+            (PROPOSAL_CAPACITY_EXPORT, 3),
+            (ON_EVENT_EXPORT, 4),
+        ] {
+            export(&mut exports, name, 0, index);
+        }
+        section(&mut wasm, 7, &exports);
+
+        let mut code = vec![6];
+        for value in [1024, 4096, 8192, 4096, 0] {
+            body(&mut code, &i32_const(value));
+        }
+        body_with_locals(&mut code, locals, operators);
+        section(&mut wasm, 10, &code);
+        wasm
+    }
+
+    fn module_with_float_globals() -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        section(&mut wasm, 1, &[2, 0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
+        section(&mut wasm, 3, &[5, 0, 0, 0, 0, 1]);
+        section(&mut wasm, 5, &[1, 1, 1, 1]);
+        section(
+            &mut wasm,
+            6,
+            &[
+                2, 0x7d, 0, 0x43, 0, 0, 0, 0, 0x0b, 0x7c, 0, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0x0b,
+            ],
+        );
+
+        let mut exports = vec![6];
+        export(&mut exports, MEMORY_EXPORT, 2, 0);
+
+        for (name, index) in [
+            (FRAME_PTR_EXPORT, 0),
+            (FRAME_CAPACITY_EXPORT, 1),
+            (PROPOSAL_PTR_EXPORT, 2),
+            (PROPOSAL_CAPACITY_EXPORT, 3),
+            (ON_EVENT_EXPORT, 4),
+        ] {
+            export(&mut exports, name, 0, index);
+        }
+        section(&mut wasm, 7, &exports);
+
+        let mut code = vec![5];
+        for value in [1024, 4096, 8192, 4096, 0] {
+            body(&mut code, &i32_const(value));
+        }
+        section(&mut wasm, 10, &code);
+        wasm
+    }
+
     fn module(spec: ModuleSpec) -> Vec<u8> {
         let mut wasm = b"\0asm\x01\0\0\0".to_vec();
         section(&mut wasm, 1, &[2, 0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
@@ -918,7 +1290,11 @@ mod tests {
     }
 
     fn body(code: &mut Vec<u8>, operators: &[u8]) {
-        let mut bytes = vec![0];
+        body_with_locals(code, &[0], operators);
+    }
+
+    fn body_with_locals(code: &mut Vec<u8>, locals: &[u8], operators: &[u8]) {
+        let mut bytes = locals.to_vec();
         bytes.extend(operators);
         bytes.push(0x0b);
         u32_leb(code, bytes.len() as u32);
