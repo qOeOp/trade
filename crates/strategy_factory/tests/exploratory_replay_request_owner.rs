@@ -373,9 +373,27 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     );
 }
 
-#[tokio::test]
+#[test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
-async fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
+fn frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
+    std::thread::Builder::new()
+        .name("frozen-exploratory-replay-request-owner-test".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(
+                    run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner(),
+                );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner() {
     Box::pin(assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody()).await;
 
     let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
