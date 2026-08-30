@@ -279,6 +279,39 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "REVOKE CREATE ON SCHEMA public FROM backtest_owner"
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE FUNCTION vibe_test_admin.set_backtest_external_inbound_fk_v2(enabled boolean)
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+BEGIN
+  IF enabled THEN
+    CREATE TABLE public.backtest_external_inbound_fk_v2 (
+      result_identity TEXT REFERENCES public.backtest_replay_runs_v2(result_identity)
+    );
+  ELSE
+    DROP TABLE IF EXISTS public.backtest_external_inbound_fk_v2;
+  END IF;
+END
+$function$;
+REVOKE ALL ON FUNCTION vibe_test_admin.set_backtest_external_inbound_fk_v2(boolean) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.set_backtest_external_inbound_fk_v2(boolean) TO backtest_owner;
+SQL
+
+stage="Backtest preexisting external inbound FK rejection"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "SELECT vibe_test_admin.set_backtest_external_inbound_fk_v2(true)" \
+  --command "GRANT CREATE ON SCHEMA public TO backtest_owner"
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::bootstrap_rejects_preexisting_external_inbound_fk \
+  -- --ignored --exact
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "SELECT vibe_test_admin.set_backtest_external_inbound_fk_v2(false)" \
+  --command "REVOKE CREATE ON SCHEMA public FROM backtest_owner"
+
 oracle_failed=false
 
 stage="Backtest bootstrap named-role ACL cleanup"
@@ -342,6 +375,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --command "DROP TRIGGER IF EXISTS aaa_test_undeclared_backtest_trigger ON public.backtest_replay_runs_v2" \
   --command "DROP FUNCTION vibe_test_admin.noop_backtest_trigger_v2()"
 
+stage="Backtest concurrent ACCESS SHARE admission"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::runtime_allows_concurrent_access_share_reader \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+
 stage="Backtest SET-only role impersonation rejection"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
@@ -377,6 +417,24 @@ cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factor
   --test exploratory_replay_request_owner \
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
   -- --ignored --exact
+
+stage="Backtest bounded conflicting-lock rejection"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::runtime_lock_conflict_fails_closed_near_one_second \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+
+stage="Backtest post-connect external inbound FK rejection"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::existing_handle_rejects_post_connect_external_inbound_fk \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "DROP TABLE IF EXISTS public.backtest_external_inbound_fk_v2" \
+  --command "DROP FUNCTION vibe_test_admin.set_backtest_external_inbound_fk_v2(boolean)"
 
 stage="R&D transaction SET-only role impersonation rejection"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \

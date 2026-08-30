@@ -54,6 +54,7 @@ const STORAGE_SHAPE_V2: &str = r#"SELECT
     AND (SELECT count(*) FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=result_class.oid)=2
     AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=result_class.oid AND constraint_entry.contype='p' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=result_class.oid AND attname='result_identity')]::smallint[] AND constraint_entry.conindid<>0 AND NOT constraint_entry.condeferrable AND NOT constraint_entry.condeferred AND constraint_entry.convalidated)
     AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=result_class.oid AND constraint_entry.confrelid=run_class.oid AND constraint_entry.contype='f' AND constraint_entry.conkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=result_class.oid AND attname='result_identity')]::smallint[] AND constraint_entry.confkey=ARRAY[(SELECT attnum FROM pg_catalog.pg_attribute WHERE attrelid=run_class.oid AND attname='result_identity')]::smallint[] AND constraint_entry.confupdtype='a' AND constraint_entry.confdeltype='a' AND constraint_entry.confmatchtype='s' AND NOT constraint_entry.condeferrable AND NOT constraint_entry.condeferred AND constraint_entry.convalidated)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.contype='f' AND constraint_entry.conrelid NOT IN (run_class.oid,result_class.oid) AND constraint_entry.confrelid IN (run_class.oid,result_class.oid))
     AND (SELECT count(*) FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid=run_class.oid)=2
     AND (SELECT count(*) FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid=result_class.oid)=1
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid IN (run_class.oid,result_class.oid) AND (NOT index_entry.indisvalid OR NOT index_entry.indisready OR NOT index_entry.indislive OR index_entry.indisclustered OR index_entry.indisreplident OR index_entry.indnullsnotdistinct))
@@ -367,13 +368,25 @@ async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwn
 async fn lock_and_validate_runtime_storage(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), PostgresReplayOwnerErrorV2> {
+    set_local_lock_timeout(transaction, PostgresReplayOwnerErrorV2::CustodyUnavailable).await?;
     sqlx::query(
-        "LOCK TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 IN ACCESS EXCLUSIVE MODE",
+        "LOCK TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 IN SHARE ROW EXCLUSIVE MODE",
     )
     .execute(&mut **transaction)
     .await
     .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
     validate_runtime_storage_in_transaction(transaction).await
+}
+
+async fn set_local_lock_timeout(
+    transaction: &mut Transaction<'_, Postgres>,
+    error: PostgresReplayOwnerErrorV2,
+) -> Result<(), PostgresReplayOwnerErrorV2> {
+    sqlx::query("SET LOCAL lock_timeout='1000ms'")
+        .execute(&mut **transaction)
+        .await
+        .map_err(|_| error)?;
+    Ok(())
 }
 
 async fn validate_runtime_storage_in_transaction(
@@ -536,6 +549,11 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
         .begin()
         .await
         .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
+    set_local_lock_timeout(
+        &mut transaction,
+        PostgresReplayOwnerErrorV2::StorageUnavailable,
+    )
+    .await?;
     validate_principal_and_role_graph(&mut transaction).await?;
 
     let existing_objects: i64 = sqlx::query_scalar(

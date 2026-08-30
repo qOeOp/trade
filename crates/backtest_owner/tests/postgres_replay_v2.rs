@@ -5,7 +5,9 @@ macro_rules! postgres_replay_v2_tests {
     () => {
         #[cfg(test)]
         mod durable_postgres_replay_v2 {
-            use sqlx::{PgPool, Row};
+            use std::time::{Duration, Instant};
+
+            use sqlx::{Acquire, PgPool, Row};
             use vibe_backtest_owner_contracts::{
                 ComponentObservationLocatorV2, DiagnosticCategoryV2, ObservationComponentV2,
                 VersionedIdentityV2,
@@ -52,6 +54,24 @@ macro_rules! postgres_replay_v2_tests {
                     PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
                         .await
                         .expect_err("bootstrap must not adopt malformed existing storage"),
+                    PostgresReplayOwnerErrorV2::StorageUnavailable
+                );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires canonical Backtest storage with a preexisting external inbound FK"]
+            async fn bootstrap_rejects_preexisting_external_inbound_fk() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+
+                assert_eq!(
+                    PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                        .await
+                        .expect_err("bootstrap must reject an external inbound FK"),
                     PostgresReplayOwnerErrorV2::StorageUnavailable
                 );
             }
@@ -209,6 +229,78 @@ macro_rules! postgres_replay_v2_tests {
                     result.expect_err("existing handle must reject undeclared storage trigger"),
                     PostgresReplayOwnerErrorV2::CustodyUnavailable
                 );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and a conflicting table lock"]
+            async fn runtime_lock_conflict_fails_closed_near_one_second() {
+                let (backtest_url, request_owner, locator, sealed_result) =
+                    seeded_storage_context('h').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest lock blocker pool");
+                let mut blocker = backtest_pool.begin().await.expect("lock blocker transaction");
+                sqlx::query("LOCK TABLE public.backtest_replay_runs_v2 IN SHARE MODE")
+                    .execute(&mut *blocker)
+                    .await
+                    .expect("conflicting table lock");
+
+                let started = Instant::now();
+                let result = owner
+                    .commit_exploratory_replay_result_v2(
+                        &request_owner,
+                        &locator,
+                        &sealed_result,
+                    )
+                    .await;
+                let elapsed = started.elapsed();
+                blocker.rollback().await.expect("release conflicting lock");
+
+                assert_eq!(
+                    result.expect_err("runtime write lock wait must fail closed"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert!(
+                    elapsed >= Duration::from_millis(850)
+                        && elapsed < Duration::from_secs(4),
+                    "lock wait must remain bounded near one second: {elapsed:?}"
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a concurrent ACCESS SHARE reader"]
+            async fn runtime_allows_concurrent_access_share_reader() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let backtest_pool = database
+                    .mutation()
+                    .pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let mut reader = backtest_pool.begin().await.expect("reader transaction");
+                sqlx::query("LOCK TABLE public.backtest_replay_runs_v2 IN ACCESS SHARE MODE")
+                    .execute(&mut *reader)
+                    .await
+                    .expect("concurrent ACCESS SHARE lock");
+
+                assert!(
+                    owner
+                        .read_result_v2(&identity("absent-result-v2"))
+                        .await
+                        .expect("legal concurrent read must remain admitted")
+                        .is_none()
+                );
+                reader.rollback().await.expect("release reader lock");
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
             }
 
             #[tokio::test]
@@ -498,6 +590,42 @@ macro_rules! postgres_replay_v2_tests {
                 );
                 assert_eq!(total_counts(&backtest_url).await, [1, 1]);
                 assert_eq!(counts_by_result(&backtest_url, conflicting.result_identity()).await, [0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and controlled external-FK injection"]
+            async fn existing_handle_rejects_post_connect_external_inbound_fk() {
+                let (backtest_url, request_owner, locator, result) =
+                    seeded_storage_context('g').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest external-FK injection pool");
+                sqlx::query("SELECT vibe_test_admin.set_backtest_external_inbound_fk_v2(true)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("inject external inbound FK after connect");
+
+                let read = owner.read_result_v2(result.result_identity()).await;
+                let write = owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await;
+                sqlx::query("SELECT vibe_test_admin.set_backtest_external_inbound_fk_v2(false)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("clear external inbound FK");
+
+                assert_eq!(
+                    read.expect_err("next read must reject external inbound FK"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(
+                    write.expect_err("next write must reject external inbound FK"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
             }
 
             fn assert_result_census(bytes: &[u8]) {
