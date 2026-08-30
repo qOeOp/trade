@@ -1514,6 +1514,38 @@ fn canonical_row_binding_bytes(row: &VerifiedPitObservation) -> Vec<u8> {
     encoder.finish()
 }
 
+/// Exact unchanged V1 evidence projected for the additive sample-fact owner.
+///
+/// This is deliberately visible only to sibling Market Data owner modules. It reuses the V1 row
+/// resolver and row codec instead of teaching the additive owner to reinterpret a binding or row.
+#[allow(
+    dead_code,
+    reason = "consumed by the additive sample-fact module after PostgreSQL owner fan-in"
+)]
+pub(super) struct SampleFactV1Projection<'a> {
+    pub(super) binding: &'a StrategyInputBindingReceipt,
+    pub(super) batch: &'a VerifiedPitObservationBatch,
+    pub(super) row: &'a VerifiedPitObservation,
+    pub(super) canonical_row_digest: BindingDigest,
+}
+
+#[allow(
+    dead_code,
+    reason = "consumed by the additive sample-fact module after PostgreSQL owner fan-in"
+)]
+pub(super) fn project_sample_fact_v1<'a>(
+    binding: &'a StrategyInputBindingReceipt,
+    batch: &'a VerifiedPitObservationBatch,
+) -> Result<SampleFactV1Projection<'a>, StrategyInputBindingUnavailable> {
+    let row = resolve_static_binding_row(binding, batch)?;
+    Ok(SampleFactV1Projection {
+        binding,
+        batch,
+        row,
+        canonical_row_digest: digest(&canonical_row_binding_bytes(row)),
+    })
+}
+
 fn canonical_locator_bytes(locator: &StrategyInputBindingLocator) -> Vec<u8> {
     let mut encoder = Encoder::new(b"VIBE_STRATEGY_INPUT_BINDING_V2");
     encoder.digest(locator.strategy_design_identity);
