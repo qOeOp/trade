@@ -170,6 +170,10 @@ export function freezeS1ContextForOwnedAttempt(result, expectedContext, frozenCo
     : frozenContext
 }
 
+export function artifactFailureDisposition(artifactBackendStarted) {
+  return artifactBackendStarted ? "SUBMITTED_OR_UNKNOWN" : "NOT_SUBMITTED"
+}
+
 export function researchAvailableAt(result, s1Context, nowEpochMs) {
   return result?.research_view?.availability === "AVAILABLE"
     && s1Context?.request_identity === result?.request_identity

@@ -3,6 +3,7 @@ import {
   actionControls,
   artifactActionControls,
   artifactInvocationAdmission,
+  artifactFailureDisposition,
   freezeS1ContextForOwnedAttempt,
   artifactAvailableAt,
   artifactBoundToS1Context,
@@ -522,7 +523,7 @@ export default function App() {
       setArtifactResult(projected)
       setConsumerClockEpochMs(Date.now())
     } catch {
-      if (artifactBackendStarted && admission.recovery) {
+      if (artifactFailureDisposition(artifactBackendStarted) === "SUBMITTED_OR_UNKNOWN") {
         setArtifactResult(unknownArtifactProjectionV1(buildRequestIdentity, attemptIdentity) as ArtifactResult)
       } else {
         setArtifactResult(null)

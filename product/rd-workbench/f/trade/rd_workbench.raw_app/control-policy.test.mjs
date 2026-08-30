@@ -4,6 +4,7 @@ import test from "node:test"
 import {
   actionControls,
   artifactActionControls,
+  artifactFailureDisposition,
   artifactAvailableAt,
   artifactBoundToS1Context,
   artifactInvocationAdmission,
@@ -606,6 +607,11 @@ test("artifact failure after backend start preserves same-attempt unknown custod
   assert.equal(result.artifact, null)
   assert.equal(result.artifactBackendStarted, true)
   assert.equal(result.error, failure)
+  assert.equal(artifactFailureDisposition(result.artifactBackendStarted), "SUBMITTED_OR_UNKNOWN")
+})
+
+test("artifact failure before backend start remains unsubmitted", () => {
+  assert.equal(artifactFailureDisposition(false), "NOT_SUBMITTED")
 })
 
 test("malformed S1 projection blocks artifact backend before submission", async () => {
