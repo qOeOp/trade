@@ -39,6 +39,89 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
+            #[ignore = "requires a disposable topology with a deterministic revocation trigger"]
+            async fn revocation_between_validation_and_insert_writes_nothing() {
+                let (backtest_url, request_owner, locator, result) =
+                    seeded_storage_context('a').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+
+                let commit = owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await;
+
+                assert_eq!(
+                    total_counts(&backtest_url).await,
+                    [0, 0],
+                    "revocation triggered immediately before the run insert must win"
+                );
+                assert_eq!(
+                    commit.expect_err("revoked request must not commit"),
+                    PostgresReplayOwnerErrorV2::RequestUnavailable
+                );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a committed Replay V2 result"]
+            async fn tampered_request_seal_digest_fails_closed_after_restart() {
+                assert_binding_tamper_fails_closed(
+                    "UPDATE public.backtest_replay_runs_v2 SET request_seal_digest=request_seal_digest || '-tampered' WHERE result_identity=$1",
+                    'b',
+                )
+                .await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a committed Replay V2 result"]
+            async fn tampered_rd_receipt_identity_fails_closed_after_restart() {
+                assert_binding_tamper_fails_closed(
+                    "UPDATE public.backtest_replay_runs_v2 SET rd_receipt_identity='tampered-rd-receipt-v2' WHERE result_identity=$1",
+                    'c',
+                )
+                .await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires bootstrap to clear a poisoned named-role ACL"]
+            async fn bootstrap_clears_poisoned_named_role_acl() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+
+                PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("runtime connect after bootstrap ACL cleanup");
+                let retained_poison: bool = sqlx::query_scalar(
+                    "SELECT pg_catalog.has_table_privilege(current_user,'public.backtest_replay_runs_v2','SELECT') OR pg_catalog.has_table_privilege(current_user,'public.backtest_replay_results_v2','SELECT')",
+                )
+                .fetch_one(rd_pool)
+                .await
+                .expect("named-role ACL readback");
+                assert!(!retained_poison, "bootstrap must clear named-role ACLs");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a disposable topology with a post-bootstrap named-role regrant"]
+            async fn runtime_connect_rejects_post_bootstrap_named_role_acl() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+
+                PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect_err("runtime connect must reject a named-role ACL regrant");
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology seeded by the real sealed R&D V2 test"]
             async fn v2_storage_adapter_is_atomic_restart_stable_and_fail_closed() {
                 let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
@@ -334,6 +417,94 @@ macro_rules! postgres_replay_v2_tests {
                     sqlx::query_scalar("SELECT COUNT(*) FROM public.backtest_replay_results_v2 WHERE result_identity=$1")
                         .bind(result_identity.as_str()).fetch_one(&pool).await.expect("result count"),
                 ]
+            }
+
+            async fn seeded_storage_context(
+                trace_byte: char,
+            ) -> (
+                String,
+                PostgresResearchGoalOwnerV1,
+                ExploratoryReplayRequestLocatorV2,
+                SealedReplayResultV2,
+            ) {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                let qualification_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+                    .to_string();
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+                let seeded = sqlx::query(
+                    "SELECT request_identity,v2_meaning_digest,v2_seal_digest,v2_receipt_json->>'receipt_identity' AS receipt_identity FROM public.rd_exploratory_replay_requests_v1 WHERE request_schema_version=2 AND lifecycle_state='FROZEN' ORDER BY committed_at_epoch_ms DESC,request_identity DESC LIMIT 1",
+                )
+                .fetch_one(rd_pool)
+                .await
+                .expect("script must seed one real Owner-sealed Replay V2 request");
+                let locator = ExploratoryReplayRequestLocatorV2 {
+                    request_identity: seeded.get("request_identity"),
+                    meaning_digest: seeded.get("v2_meaning_digest"),
+                    receipt_identity: seeded.get("receipt_identity"),
+                    seal_digest: seeded.get("v2_seal_digest"),
+                };
+                let request_owner = PostgresResearchGoalOwnerV1::connect_with_backtest(
+                    &rd_url,
+                    &qualification_url,
+                    &backtest_url,
+                )
+                .await
+                .expect("R&D Owner bound to the sealed V2 reader");
+                let locked = request_owner
+                    .lock_exploratory_replay_request_for_backtest_v2(&locator)
+                    .await
+                    .expect("real U1 V2 readback");
+                let request = locked
+                    .readback()
+                    .expect("seeded V2 request must be available")
+                    .request();
+                let result = storage_result_fixture(request, trace_byte)
+                    .expect("complete storage-only U2 fixture");
+                (backtest_url, request_owner, locator, result)
+            }
+
+            async fn assert_binding_tamper_fails_closed(query: &'static str, trace_byte: char) {
+                let (backtest_url, request_owner, locator, result) =
+                    seeded_storage_context(trace_byte).await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("exact U1 request and sealed U2 result commit atomically");
+                drop(owner);
+
+                let tamper_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest tamper pool");
+                sqlx::query(query)
+                    .bind(result.result_identity().as_str())
+                    .execute(&tamper_pool)
+                    .await
+                    .expect("mutate one durable request binding");
+                tamper_pool.close().await;
+
+                let restarted = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("restarted Backtest result Owner");
+                assert_eq!(
+                    restarted
+                        .read_result_v2(result.result_identity())
+                        .await
+                        .expect_err("tampered request binding must fail closed after restart"),
+                    PostgresReplayOwnerErrorV2::CorruptReadback
+                );
             }
 
             // Storage fixture only: it deliberately uses U2's private constructor so the adapter

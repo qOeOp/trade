@@ -2,6 +2,8 @@
 
 set -euo pipefail
 
+readonly cargo_ci_profile="${CARGO_CI_PROFILE:-nextest}"
+
 readonly guarded_paths=(
   crates/backtest_owner/src/postgres.rs
   crates/backtest_owner/tests/postgres_replay_v2.rs
@@ -229,39 +231,124 @@ stage="one-shot Backtest storage bootstrap"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "GRANT CREATE ON SCHEMA public TO backtest_owner"
-cargo test --locked --package vibe-backtest-owner --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
   postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once \
   -- --ignored --exact
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "REVOKE CREATE ON SCHEMA public FROM backtest_owner"
 
+oracle_failed=false
+
+stage="Backtest bootstrap named-role ACL cleanup"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "GRANT SELECT ON public.backtest_replay_runs_v2,public.backtest_replay_results_v2 TO rd_owner" \
+  --command "GRANT CREATE ON SCHEMA public TO backtest_owner"
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once \
+  -- --ignored --exact
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "REVOKE CREATE ON SCHEMA public FROM backtest_owner"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::bootstrap_clears_poisoned_named_role_acl \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+
+stage="Backtest runtime named-role ACL rejection"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "GRANT SELECT ON public.backtest_replay_runs_v2 TO rd_owner"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::runtime_connect_rejects_post_bootstrap_named_role_acl \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "REVOKE ALL ON public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM rd_owner"
+
 # Seed through the repository's real U1 V2 Owner path. No request meaning is synthesized here.
 stage="native R&D schema consumers"
-cargo test --locked --package vibe-strategy-factory --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \
   product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates \
   -- --ignored --exact
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test source_intake \
   postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
   -- --ignored --exact
-cargo test --locked --package vibe-strategy-factory-rd-owner-api \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory-rd-owner-api \
   --bin strategy-factory-rd-owner-api \
   tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
   -- --ignored --exact
-cargo test --locked --package vibe-product-edge --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-product-edge --lib \
   postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical \
   -- --ignored --exact
 
 stage="real sealed R&D V2 request seed"
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test exploratory_replay_request_owner \
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
   -- --ignored --exact
 
+stage="Backtest Replay V2 revocation-before-insert oracle"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+BEGIN
+  UPDATE public.rd_exploratory_replay_requests_v1
+  SET lifecycle_state='REVOKED'
+  WHERE request_identity=NEW.request_identity;
+  RETURN NEW;
+END
+$function$;
+REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2() FROM PUBLIC;
+CREATE TRIGGER aaa_test_revoke_replay_request_before_backtest_insert_v2
+BEFORE INSERT ON public.backtest_replay_runs_v2
+FOR EACH ROW EXECUTE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2();
+SQL
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DROP TRIGGER aaa_test_revoke_replay_request_before_backtest_insert_v2 ON public.backtest_replay_runs_v2;
+DROP FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_insert_v2();
+SQL
+
+stage="Backtest Replay V2 durable binding tamper oracles"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::tampered_request_seal_digest_fails_closed_after_restart \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "TRUNCATE public.backtest_replay_results_v2,public.backtest_replay_runs_v2"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::tampered_rd_receipt_identity_fails_closed_after_restart \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "TRUNCATE public.backtest_replay_results_v2,public.backtest_replay_runs_v2"
+
+if [[ "$oracle_failed" == true ]]; then
+  echo "ERROR: one or more Backtest Replay V2 regression oracles failed." >&2
+  exit 1
+fi
+
 # This proves storage semantics only. The Market -> parameterized runner predecessor remains held.
 stage="Backtest Replay V2 storage adapter"
-cargo test --locked --package vibe-backtest-owner --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
   postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed \
   -- --ignored --exact
 
