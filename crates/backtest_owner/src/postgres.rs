@@ -60,6 +60,17 @@ const STORAGE_SHAPE_V2: &str = r#"SELECT
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid IN (run_class.oid,result_class.oid) AND (NOT index_entry.indisvalid OR NOT index_entry.indisready OR NOT index_entry.indislive OR index_entry.indisclustered OR index_entry.indisreplident OR index_entry.indnullsnotdistinct))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_entry WHERE trigger_entry.tgrelid IN (run_class.oid,result_class.oid) AND NOT trigger_entry.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rule_entry WHERE rule_entry.ev_class IN (run_class.oid,result_class.oid))
+    AND NOT EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_rewrite rule_entry
+        JOIN pg_catalog.pg_depend dependency_entry
+          ON dependency_entry.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+         AND dependency_entry.objid=rule_entry.oid
+         AND dependency_entry.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+         AND dependency_entry.refobjid IN (run_class.oid,result_class.oid)
+         AND dependency_entry.deptype='n'
+        WHERE rule_entry.ev_class NOT IN (run_class.oid,result_class.oid)
+    )
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_entry WHERE policy_entry.polrelid IN (run_class.oid,result_class.oid))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance_entry WHERE inheritance_entry.inhrelid IN (run_class.oid,result_class.oid) OR inheritance_entry.inhparent IN (run_class.oid,result_class.oid))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic_entry WHERE statistic_entry.stxrelid IN (run_class.oid,result_class.oid))

@@ -49,7 +49,6 @@ macro_rules! postgres_replay_v2_tests {
                 let backtest_url = database
                     .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
                     .to_string();
-
                 assert_eq!(
                     PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
                         .await
@@ -67,7 +66,6 @@ macro_rules! postgres_replay_v2_tests {
                 let backtest_url = database
                     .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
                     .to_string();
-
                 assert_eq!(
                     PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
                         .await
@@ -77,9 +75,58 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
+            #[ignore = "requires canonical Backtest storage with a preexisting external view"]
+            async fn runtime_connect_rejects_preexisting_external_view() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+                let view_privileges: (bool, bool) = sqlx::query_as(
+                    "SELECT pg_catalog.has_table_privilege(current_user,'public.backtest_external_runs_v2','SELECT'),pg_catalog.has_table_privilege(current_user,'public.backtest_external_runs_v2','DELETE')",
+                )
+                .fetch_one(rd_pool)
+                .await
+                .expect("external-view grant readback");
+                assert_eq!(
+                    view_privileges,
+                    (true, true),
+                    "fixture must expose the rejected SELECT/DELETE escape"
+                );
+
+                assert_eq!(
+                    PostgresReplayResultOwnerV2::connect(&backtest_url)
+                        .await
+                        .expect_err("runtime connect must reject an external storage view"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires canonical Backtest storage with a preexisting external view"]
+            async fn bootstrap_rejects_preexisting_external_view() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+
+                assert_eq!(
+                    PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                        .await
+                        .expect_err("bootstrap must reject an external storage view"),
+                    PostgresReplayOwnerErrorV2::StorageUnavailable
+                );
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology with a controlled pre-persist revocation function"]
             async fn revocation_between_validation_and_insert_writes_nothing() {
-                let (backtest_url, request_owner, locator, result) =
+                let (backtest_url, _, request_owner, locator, result) =
                     seeded_storage_context('a').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
@@ -232,7 +279,7 @@ macro_rules! postgres_replay_v2_tests {
             #[tokio::test]
             #[ignore = "requires a seeded Replay V2 request and a conflicting table lock"]
             async fn runtime_lock_conflict_fails_closed_near_one_second() {
-                let (backtest_url, request_owner, locator, sealed_result) =
+                let (backtest_url, _, request_owner, locator, sealed_result) =
                     seeded_storage_context('b').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
@@ -592,7 +639,7 @@ macro_rules! postgres_replay_v2_tests {
             #[tokio::test]
             #[ignore = "requires a seeded Replay V2 request and controlled external-FK injection"]
             async fn existing_handle_rejects_post_connect_external_inbound_fk() {
-                let (backtest_url, request_owner, locator, result) =
+                let (backtest_url, _, request_owner, locator, result) =
                     seeded_storage_context('c').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
@@ -623,6 +670,60 @@ macro_rules! postgres_replay_v2_tests {
                     PostgresReplayOwnerErrorV2::CustodyUnavailable
                 );
                 assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and controlled external-view injection"]
+            async fn existing_handle_rejects_post_connect_external_view() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('d').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest external-view injection pool");
+                sqlx::query("SELECT vibe_test_admin.set_backtest_external_view_v2(true)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("inject external view after connect");
+
+                let read = owner.read_result_v2(result.result_identity()).await;
+                let write = owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await;
+                sqlx::query("SELECT vibe_test_admin.set_backtest_external_view_v2(false)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("clear external view");
+
+                assert_eq!(
+                    read.expect_err("next read must reject external storage view"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(
+                    write.expect_err("next write must reject external storage view"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+
+                let rd_pool = PgPool::connect(&rd_url)
+                    .await
+                    .expect("same-topology R&D Owner verification pool");
+                assert!(
+                    sqlx::query("DELETE FROM public.backtest_external_runs_v2")
+                        .execute(&rd_pool)
+                        .await
+                        .is_err(),
+                    "R&D Owner must not retain a deletable external view"
+                );
+                assert!(
+                    sqlx::query("SELECT 1 FROM public.backtest_external_runs_v2 LIMIT 1")
+                        .fetch_optional(&rd_pool)
+                        .await
+                        .is_err(),
+                    "R&D Owner must not retain a readable external view"
+                );
             }
 
             fn assert_result_census(bytes: &[u8]) {
@@ -660,6 +761,7 @@ macro_rules! postgres_replay_v2_tests {
             async fn seeded_storage_context(
                 trace_byte: char,
             ) -> (
+                String,
                 String,
                 PostgresResearchGoalOwnerV1,
                 ExploratoryReplayRequestLocatorV2,
@@ -708,11 +810,11 @@ macro_rules! postgres_replay_v2_tests {
                     .request();
                 let result = storage_result_fixture(request, trace_byte)
                     .expect("complete storage-only U2 fixture");
-                (backtest_url, request_owner, locator, result)
+                (backtest_url, rd_url, request_owner, locator, result)
             }
 
             async fn assert_binding_tamper_fails_closed(query: &'static str, trace_byte: char) {
-                let (backtest_url, request_owner, locator, result) =
+                let (backtest_url, _, request_owner, locator, result) =
                     seeded_storage_context(trace_byte).await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
