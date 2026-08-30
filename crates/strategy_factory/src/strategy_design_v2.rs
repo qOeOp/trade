@@ -4,6 +4,8 @@ use serde::{Deserialize, Deserializer, Serialize, de::Visitor};
 use vibe_data::owner::source_binding::BindingDigest;
 
 pub const STRATEGY_DESIGN_SCHEMA_V2: u16 = 2;
+pub const INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1: &str =
+    "strategy.input-join.latest-not-after-trigger.v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -179,6 +181,8 @@ pub struct InputJoinV2 {
     pub semantic_id: String,
     pub inputs: Vec<String>,
     pub alignment_semantic_id: String,
+    pub trigger_input_id: String,
+    pub max_staleness_ns: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

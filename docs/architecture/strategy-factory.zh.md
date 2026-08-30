@@ -55,6 +55,17 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   order fill、cache/position 转换、`ENTER -> ADD -> REDUCE -> EXIT`、保护 replace/adjust/clear、不中断执行
   与 checkpoint restore 后缀相等，以及重复运行相等。这只是一项隔离动态 Backtest 证明，不代表 Paper、
   Live、生产 Owner readiness 或交易授权。
+- **CURRENT/PARTIAL，隔离 multi-leg/multi-timeframe input join：** 第三组不可变 corpus 把 Research 声明的
+  四个准确 role（两个 AAPL 1 分钟 field、一个 MSFT 1 小时 field、一个 QQQ 1 天 field）绑定到各自的
+  compile-time-sealed Market Data Owner receipt。Market Data 在完整已验证 PIT/correction census 上执行
+  latest-not-after argmax，并签发一份不透明 `StrategyInputJoinedCutReceiptV1`；Host 不再具有 frame-slice
+  selection 路径。通用 `ProgramHostV2` 与共享内核经普通类型化 plugin 路径消费该完整 joined cut，保留
+  regime state，并且每个 trigger 只产生一份原子 target intent。真实
+  `BacktestEngine`/Sim Exchange consumer 证明确定性 join ordering、`ENTER -> ADD -> REDUCE`、原生 submit/fill、
+  重复运行相等和 checkpoint/restore 后缀相等。缺失、过期、来自未来、不匹配、跨 Design/role 或 lineage
+  冲突的 input 都在 guest、plugin state、lifecycle state、target 或 checkpoint 变更前被拒绝。这只是并行的
+  complex-strategy substrate 与隔离 Backtest acceptance；不是默认 R&D 路径、产品 readiness、Paper、Live、
+  生产 Owner readiness 或交易授权。
 - **CURRENT/DYNAMIC，有界准确双成员 Backtest target-set 纵向切片：** 一份完整 Owner-sealed universe
   frame 先在克隆的 `ProgramHostV2` 上 prepare，只产生一份规范 target set 与一次 plugin 调用；只有单份
   account-scoped `Portfolio::equity` 快照、两个准确 instrument fact、Decimal target conversion、成员
@@ -102,6 +113,26 @@ capability closure、primitive 与 plugin ABI 版本、资源上限、lifecycle/
    推断 Owner、instrument 或 field。
 1. **Lowering** 为 `ProgramHostV2` 生成唯一规范 `StrategyPlanV2` 和内容寻址 `StrategyArtifactV2` package。
    相同输入必须产生字节完全相同的 plan、Artifact 与 binding digest。
+
+`InputJoinV2` version 1 只接纳一种 alignment semantic：
+`strategy.input-join.latest-not-after-trigger.v1`。Research 必须声明非空且唯一的 join ID、至少两个唯一的
+原始类型化 input-role ID、该准确集合中的一个显式 trigger role，以及大于零、有限且不超过 31 天的
+`max_staleness_ns`。join-to-join edge（包括 cycle）、重复或未知 role、一个 role 被两个 join 共用，以及
+fact class、scope、value type、unit 或 scale 不兼容都属于 `UNSUPPORTED`。每个 joined role 都是带显式
+instrument 与 timeframe 的 exact-instrument Market Data Owner role；一个 reaction 要么消费完整规范 role
+集合，要么完全不消费。接纳时 trigger 固定 joined event 的 lifecycle 与 logical time；每个 component 必须
+具有相同 lifecycle、时间不晚于 trigger，并满足
+`trigger_time - component_time <= max_staleness_ns`。Market Data 在一份完整已验证 PIT/correction census 与
+frontier 上执行逐 role latest-not-after argmax，再把 trigger、准确 Design/join/role 集合、所选 frame identity
+与 digest、selection-basis/frontier digest、source/correction lineage、staleness proof、Market Semantics identity
+和 receipt digest 封存在不可 `Deserialize`、没有 public constructor 的
+`StrategyInputJoinedCutReceiptV1` 中。Host 只接收该 receipt，校验其准确 Plan 投影和 Owner 规范 component
+顺序，不能选择、替换、重排或推断 frame；`SealedReplayInput` 只能作为 Owner 内部证据基础。缺失、重复、
+过期、来自未来、receipt/role/Plan 不匹配、跨 census 或跨 Design 拼接、跨 lineage version 回退、同 root
+的冲突 version，或 component/event identity 冲突，
+都会在 scratch execution 或任何 guest、state、target、checkpoint 变更前失败。join 是由唯一通用 Host 与
+共享 lifecycle kernel 消费的规范 Plan 数据；它不会引入 feature opcode、第二 interpreter、heuristic
+binding 或 raw-order 路径。
 
 `StrategyArtifactV2` 是单个 package，其中包含规范 `StrategyPlanV2` bytes，并为 Plan 声明的每个 plugin
 准确包含一个独立构建的 Wasm module。不同 plugin 声明不能共享 module。系统不会生成外层或根 strategy

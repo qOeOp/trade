@@ -18,6 +18,9 @@ use vibe_data::owner::{
         STRATEGY_INPUT_FIXED_I128_LE_V1, StrategyInputEventFrameReceipt, StrategyInputEventKind,
         StrategyInputUniverseFrameReceipt,
     },
+    strategy_input_joined_cut::{
+        StrategyInputJoinedCutReceiptV1, derive_strategy_input_join_identity_v2,
+    },
 };
 
 use crate::{
@@ -27,8 +30,9 @@ use crate::{
     },
     program_runtime_v2::{ProgramPluginRuntimeV2, ProgramPluginRuntimeV2Error},
     strategy_design_v2::{
-        InputFactClassV2, InputScopeV2, LifecycleContextV2, LifecycleKindV2, PluginManifestV2,
-        TypedConstantV2, ValueRefV2, ValueTypeV2,
+        INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1, InputFactClassV2, InputJoinV2, InputScopeV2,
+        LifecycleContextV2, LifecycleKindV2, PluginManifestV2, TypedConstantV2, ValueRefV2,
+        ValueTypeV2,
     },
     strategy_plan_v2::{StrategyPlanV2, strategy_input_role_identity_v2},
 };
@@ -62,10 +66,11 @@ struct OwnerEventEvidenceV2 {
     event_receipt_digest: BindingDigest,
     trigger_digest: BindingDigest,
     observation_batch_digest: BindingDigest,
+    component_envelope_digest: BindingDigest,
     scale: u8,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct SourceBindingLineageVersionV2 {
     root: BindingDigest,
     version: u64,
@@ -83,13 +88,18 @@ pub struct AdmittedProgramEventV2 {
     envelope: LifecycleEnvelopeV1,
     inputs: Vec<ProgramEventInputV2>,
     identity: BindingDigest,
-    source_binding_lineage: Option<SourceBindingLineageVersionV2>,
+    source_binding_lineages: Vec<SourceBindingLineageVersionV2>,
+    input_join_identity: Option<BindingDigest>,
     universe_frame: Option<UniverseFrameBindingV2>,
 }
 
 impl AdmittedProgramEventV2 {
     pub(crate) const fn envelope(&self) -> LifecycleEnvelopeV1 {
         self.envelope
+    }
+
+    pub(crate) const fn is_joined_input(&self) -> bool {
+        self.input_join_identity.is_some()
     }
 
     pub(crate) fn fixed_i128_input(&self, role_semantic_id: &str) -> Option<i128> {
@@ -160,6 +170,9 @@ impl AdmittedProgramEventV2 {
                     event_receipt_digest: digest,
                     trigger_digest,
                     observation_batch_digest: trigger_digest,
+                    component_envelope_digest: BindingDigest::from_untrusted_bytes(
+                        envelope.envelope_digest,
+                    ),
                     scale: binding.scale(),
                 },
             });
@@ -169,7 +182,7 @@ impl AdmittedProgramEventV2 {
                 .input_role_identity
                 .cmp(&right.owner_event.input_role_identity)
         });
-        let source_binding_lineage = matches!(
+        let source_binding_lineages = matches!(
             envelope.order_key.kind,
             lifecycle_v1::LifecycleKind::Bar | lifecycle_v1::LifecycleKind::Event
         )
@@ -180,14 +193,23 @@ impl AdmittedProgramEventV2 {
                 .expect("market-data test Plan carries a binding")
                 .source_binding_lineage_root(),
             version: 1,
-        });
-        let identity =
-            admitted_event_identity(plan, envelope, &inputs, source_binding_lineage, None);
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+        let identity = admitted_event_identity(
+            plan,
+            envelope,
+            &inputs,
+            &source_binding_lineages,
+            None,
+            None,
+        );
         Self {
             envelope,
             inputs,
             identity,
-            source_binding_lineage,
+            source_binding_lineages,
+            input_join_identity: None,
             universe_frame: None,
         }
     }
@@ -205,12 +227,13 @@ impl AdmittedProgramEventV2 {
         version: u64,
     ) -> Self {
         let mut event = Self::issue_for_plan_test(plan, envelope, values);
-        event.source_binding_lineage = Some(SourceBindingLineageVersionV2 { root, version });
+        event.source_binding_lineages = vec![SourceBindingLineageVersionV2 { root, version }];
         event.identity = admitted_event_identity(
             plan,
             event.envelope,
             &event.inputs,
-            event.source_binding_lineage,
+            &event.source_binding_lineages,
+            event.input_join_identity,
             event.universe_frame,
         );
         event
@@ -245,12 +268,13 @@ pub(crate) fn admit_backtest_lifecycle_event_v2(
         return Err(ProgramHostV2Error::InputCoverage);
     }
     let inputs = Vec::new();
-    let identity = admitted_event_identity(plan, envelope, &inputs, None, None);
+    let identity = admitted_event_identity(plan, envelope, &inputs, &[], None, None);
     Ok(AdmittedProgramEventV2 {
         envelope,
         inputs,
         identity,
-        source_binding_lineage: None,
+        source_binding_lineages: vec![],
+        input_join_identity: None,
         universe_frame: None,
     })
 }
@@ -513,6 +537,11 @@ pub(crate) fn admit_market_data_program_event_v2(
     let envelope =
         LifecycleEnvelopeV1::new_bound(order_key, payload).map_err(ProgramHostV2Error::Kernel)?;
     let required = reaction_input_roles(plan, kind)?;
+
+    if join_for_roles(plan, &required).is_some() {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
     if required.len() != frame.values().len() {
         return Err(ProgramHostV2Error::InputCoverage);
     }
@@ -568,16 +597,251 @@ pub(crate) fn admit_market_data_program_event_v2(
                 event_receipt_digest: value.digest(),
                 trigger_digest: value.trigger_digest(),
                 observation_batch_digest: value.observation_batch_digest(),
+                component_envelope_digest: BindingDigest::from_untrusted_bytes(
+                    envelope.envelope_digest,
+                ),
                 scale: value.value_scale(),
             },
         });
     }
-    let identity = admitted_event_identity(plan, envelope, &inputs, source_binding_lineage, None);
+    let source_binding_lineages = source_binding_lineage.into_iter().collect::<Vec<_>>();
+    let identity = admitted_event_identity(
+        plan,
+        envelope,
+        &inputs,
+        &source_binding_lineages,
+        None,
+        None,
+    );
     Ok(AdmittedProgramEventV2 {
         envelope,
         inputs,
         identity,
-        source_binding_lineage,
+        source_binding_lineages,
+        input_join_identity: None,
+        universe_frame: None,
+    })
+}
+
+pub(crate) fn admit_market_data_joined_program_event_v2(
+    plan: &StrategyPlanV2,
+    receipt: &StrategyInputJoinedCutReceiptV1,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    if !receipt.has_valid_digest()
+        || receipt.strategy_design_identity() != plan.design_identity()
+        || receipt.components().len() < 2
+        || receipt.market_semantics_identity() != plan.market_semantics_identity()
+        || receipt.selection_basis_digest() == BindingDigest::from_untrusted_bytes([0; 32])
+        || receipt.frontier_digest() == BindingDigest::from_untrusted_bytes([0; 32])
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let join = plan
+        .input_joins()
+        .iter()
+        .find(|join| input_join_identity_v2(join) == receipt.join_identity())
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+    if join.alignment_semantic_id != INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1
+        || receipt.alignment_semantic_id() != join.alignment_semantic_id
+        || receipt.trigger_input_id() != join.trigger_input_id
+        || receipt.max_staleness_ns() != join.max_staleness_ns
+        || receipt.components().len() != join.inputs.len()
+        || receipt
+            .components()
+            .iter()
+            .zip(&join.inputs)
+            .any(|(component, expected)| component.role_semantic_id() != expected)
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    let mut components = Vec::with_capacity(receipt.components().len());
+    let mut role_ids = std::collections::BTreeSet::new();
+
+    for component in receipt.components() {
+        let frame = component.frame();
+        let [value] = frame.values() else {
+            return Err(ProgramHostV2Error::InputCoverage);
+        };
+        let Some(role) = plan.input_roles().iter().find(|role| {
+            role.semantic_id == component.role_semantic_id()
+                && strategy_input_role_identity_v2(role) == value.input_role_identity()
+        }) else {
+            return Err(ProgramHostV2Error::InputCoverage);
+        };
+
+        if !role_ids.insert(role.semantic_id.clone()) {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let Some(binding) = plan
+            .input_bindings()
+            .iter()
+            .find(|binding| binding.input_role_identity() == value.input_role_identity())
+        else {
+            return Err(ProgramHostV2Error::InputCoverage);
+        };
+        let trigger = frame.trigger();
+
+        let mut frame_bytes = Vec::new();
+        frame_bytes.extend(trigger.digest().as_bytes());
+        frame_bytes.extend(value.digest().as_bytes());
+
+        if component.frame_digest()
+            != domain_digest(
+                b"vibe.market-data.strategy-input-join.component.v1\0",
+                &frame_bytes,
+            )
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+
+        if value.binding_receipt_digest() != binding.receipt_digest()
+            || value.value_type_semantic_id() != STRATEGY_INPUT_FIXED_I128_LE_V1
+            || value.value_scale() != role.scale
+            || value.trigger_digest() != trigger.digest()
+            || value.observation_batch_digest() != trigger.observation_batch_digest()
+            || value.source_binding_lineage_root() != binding.source_binding_lineage_root()
+            || value.correction_stream_identity() != binding.correction_stream_identity()
+            || value.market_semantics_identity() != binding.market_semantics_identity()
+            || value.source_binding_lineage_version() == 0
+            || value.correction_sequence() == 0
+            || role.value_type != ValueTypeV2::I128
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let lifecycle = trigger.lifecycle();
+        let kind = match lifecycle.kind() {
+            StrategyInputEventKind::Bar if binding.data_kind() == "BAR" => {
+                lifecycle_v1::LifecycleKind::Bar
+            }
+            StrategyInputEventKind::Event
+                if matches!(
+                    binding.data_kind(),
+                    "QUOTE" | "TRADE" | "REFERENCE" | "ECONOMIC" | "SCALAR"
+                ) =>
+            {
+                lifecycle_v1::LifecycleKind::Event
+            }
+            _ => return Err(ProgramHostV2Error::InputCoverage),
+        };
+        let payload = match kind {
+            lifecycle_v1::LifecycleKind::Bar => lifecycle_v1::EnvelopePayloadV1::Bar,
+            lifecycle_v1::LifecycleKind::Event => lifecycle_v1::EnvelopePayloadV1::Event,
+            _ => unreachable!("Owner joined input kind is closed above"),
+        };
+        let order_key = lifecycle_v1::EventOrderKeyV1::new(
+            lifecycle.logical_time(),
+            lifecycle.event_time(),
+            kind,
+            lifecycle.owner_sequence(),
+            lifecycle.event_identity(),
+        )
+        .map_err(ProgramHostV2Error::Kernel)?;
+        let envelope = LifecycleEnvelopeV1::new_bound(order_key, payload)
+            .map_err(ProgramHostV2Error::Kernel)?;
+        components.push((
+            role,
+            envelope,
+            ProgramEventInputV2 {
+                role_semantic_id: role.semantic_id.clone(),
+                member_ordinal: None,
+                value: TypedValueV2::new(ValueTypeV2::I128, value.value_bytes().as_slice())
+                    .map_err(|_| ProgramHostV2Error::InputCoverage)?,
+                owner_event: OwnerEventEvidenceV2 {
+                    input_role_identity: value.input_role_identity(),
+                    binding_receipt_digest: value.binding_receipt_digest(),
+                    event_receipt_digest: value.digest(),
+                    trigger_digest: value.trigger_digest(),
+                    observation_batch_digest: value.observation_batch_digest(),
+                    component_envelope_digest: BindingDigest::from_untrusted_bytes(
+                        envelope.envelope_digest,
+                    ),
+                    scale: value.value_scale(),
+                },
+            },
+            SourceBindingLineageVersionV2 {
+                root: value.source_binding_lineage_root(),
+                version: value.source_binding_lineage_version(),
+            },
+        ));
+    }
+
+    if role_ids != join.inputs.iter().cloned().collect() {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let driver = components
+        .iter()
+        .find(|(role, _, _, _)| role.semantic_id == join.trigger_input_id)
+        .map(|(_, envelope, _, _)| *envelope)
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+    let trigger_component = receipt
+        .components()
+        .iter()
+        .find(|component| component.role_semantic_id() == join.trigger_input_id)
+        .ok_or(ProgramHostV2Error::InputCoverage)?;
+    if trigger_component.frame().trigger().digest() != receipt.trigger_digest() {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let driver_time = driver.order_key.logical_time_ns;
+    if components.iter().any(|(_, envelope, _, _)| {
+        envelope.order_key.kind != driver.order_key.kind
+            || envelope.order_key.logical_time_ns > driver_time
+            || driver_time.saturating_sub(envelope.order_key.logical_time_ns)
+                > join.max_staleness_ns
+    }) {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    if receipt
+        .components()
+        .iter()
+        .zip(&components)
+        .any(|(component, (_, envelope, _, _))| {
+            component.staleness_ns()
+                != driver_time.saturating_sub(envelope.order_key.logical_time_ns)
+        })
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    // Owner canonical component order is the sole ordering authority. The Host only verifies it.
+    if components.windows(2).any(|pair| {
+        pair[0].1.order_key == pair[1].1.order_key
+            || pair[0].1.order_key.event_identity == pair[1].1.order_key.event_identity
+    }) {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let inputs = components
+        .iter()
+        .map(|(_, _, input, _)| input.clone())
+        .collect::<Vec<_>>();
+    let mut source_binding_lineages = components
+        .iter()
+        .map(|(_, _, _, lineage)| *lineage)
+        .collect::<Vec<_>>();
+    source_binding_lineages.sort();
+    source_binding_lineages.dedup();
+    if source_binding_lineages
+        .windows(2)
+        .any(|pair| pair[0].root == pair[1].root && pair[0].version != pair[1].version)
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+    let input_join_identity = Some(receipt.join_identity());
+    let identity = admitted_event_identity(
+        plan,
+        driver,
+        &inputs,
+        &source_binding_lineages,
+        input_join_identity,
+        None,
+    );
+    Ok(AdmittedProgramEventV2 {
+        envelope: driver,
+        inputs,
+        identity,
+        source_binding_lineages,
+        input_join_identity,
         universe_frame: None,
     })
 }
@@ -719,6 +983,9 @@ pub(crate) fn admit_market_data_universe_program_event_v2(
                     event_receipt_digest: value.digest(),
                     trigger_digest: value.trigger_digest(),
                     observation_batch_digest: value.observation_batch_digest(),
+                    component_envelope_digest: BindingDigest::from_untrusted_bytes(
+                        envelope.envelope_digest,
+                    ),
                     scale: value.value_scale(),
                 },
             });
@@ -730,12 +997,13 @@ pub(crate) fn admit_market_data_universe_program_event_v2(
         selection_receipt_digest: selection.digest(),
         frame_receipt_digest: frame.digest(),
     });
-    let identity = admitted_event_identity(plan, envelope, &inputs, None, universe_frame);
+    let identity = admitted_event_identity(plan, envelope, &inputs, &[], None, universe_frame);
     Ok(AdmittedProgramEventV2 {
         envelope,
         inputs,
         identity,
-        source_binding_lineage: None,
+        source_binding_lineages: vec![],
+        input_join_identity: None,
         universe_frame,
     })
 }
@@ -795,7 +1063,8 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
         plan,
         event.envelope,
         &event.inputs,
-        event.source_binding_lineage,
+        &event.source_binding_lineages,
+        event.input_join_identity,
         event.universe_frame,
     );
     Ok(event)
@@ -923,6 +1192,15 @@ impl ProgramHostV2 {
         self.apply_event(&event)
     }
 
+    /// Admits and applies one complete Market Data Owner-sealed joined cut.
+    pub fn apply_market_data_joined_cut(
+        &mut self,
+        receipt: &StrategyInputJoinedCutReceiptV1,
+    ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
+        let event = admit_market_data_joined_program_event_v2(&self.plan, receipt)?;
+        self.apply_event(&event)
+    }
+
     /// Admits and applies one complete Owner-sealed exactly-two-member frame.
     pub fn apply_market_data_universe_event(
         &mut self,
@@ -950,10 +1228,11 @@ impl ProgramHostV2 {
             &self.plan,
             event.envelope,
             &event.inputs,
-            event.source_binding_lineage,
+            &event.source_binding_lineages,
+            event.input_join_identity,
             event.universe_frame,
         ) != event.identity
-            || event.source_binding_lineage.is_some_and(|lineage| {
+            || event.source_binding_lineages.iter().any(|lineage| {
                 lineage.version == 0
                     || self
                         .source_binding_lineage_version_frontier
@@ -965,7 +1244,8 @@ impl ProgramHostV2 {
         {
             return Err(ProgramHostV2Error::InputCoverage);
         }
-        let input_map = self.validate_inputs(event.envelope, &event.inputs)?;
+        let input_map =
+            self.validate_inputs(event.envelope, &event.inputs, event.input_join_identity)?;
         let mut admissions = Vec::with_capacity(TARGET_SET_MEMBER_COUNT);
 
         for member in &self.member_kernels {
@@ -999,7 +1279,7 @@ impl ProgramHostV2 {
             envelope: event.envelope,
             admissions,
             input_binding_digest: event.identity,
-            source_binding_lineage: event.source_binding_lineage,
+            source_binding_lineage: event.source_binding_lineages.first().copied(),
             target_set,
             traces: None,
         })
@@ -1031,12 +1311,14 @@ impl ProgramHostV2 {
             &self.plan,
             event.envelope,
             &event.inputs,
-            event.source_binding_lineage,
+            &event.source_binding_lineages,
+            event.input_join_identity,
             event.universe_frame,
         ) != event.identity
             || event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Fill
             || !event.inputs.is_empty()
-            || event.source_binding_lineage.is_some()
+            || !event.source_binding_lineages.is_empty()
+            || event.input_join_identity.is_some()
             || event.universe_frame.is_some()
         {
             return Err(ProgramHostV2Error::InputCoverage);
@@ -1079,7 +1361,8 @@ impl ProgramHostV2 {
             &self.plan,
             event.envelope,
             &event.inputs,
-            event.source_binding_lineage,
+            &event.source_binding_lineages,
+            event.input_join_identity,
             event.universe_frame,
         ) != event.identity
         {
@@ -1087,14 +1370,15 @@ impl ProgramHostV2 {
         }
 
         if event
-            .source_binding_lineage
-            .is_some_and(|lineage| lineage.version == 0)
+            .source_binding_lineages
+            .iter()
+            .any(|lineage| lineage.version == 0)
         {
             return Err(ProgramHostV2Error::InputCoverage);
         }
         let envelope = event.envelope;
         let inputs = event.inputs.as_slice();
-        let input_map = self.validate_inputs(envelope, inputs)?;
+        let input_map = self.validate_inputs(envelope, inputs, event.input_join_identity)?;
         let input_binding_digest = matches!(
             envelope.order_key.kind,
             lifecycle_v1::LifecycleKind::Bar
@@ -1125,7 +1409,7 @@ impl ProgramHostV2 {
             return Ok(outcome.trace);
         }
 
-        if event.source_binding_lineage.is_some_and(|lineage| {
+        if event.source_binding_lineages.iter().any(|lineage| {
             self.source_binding_lineage_version_frontier
                 .get(&lineage.root)
                 .is_some_and(|prior| lineage.version < *prior)
@@ -1152,7 +1436,7 @@ impl ProgramHostV2 {
             }
         };
         scratch.last_input_binding_digest = input_binding_digest;
-        if let Some(lineage) = event.source_binding_lineage {
+        for lineage in &event.source_binding_lineages {
             scratch
                 .source_binding_lineage_version_frontier
                 .insert(lineage.root, lineage.version);
@@ -1176,7 +1460,7 @@ impl ProgramHostV2 {
             return Err(ProgramHostV2Error::InputCoverage);
         }
 
-        if event.source_binding_lineage.is_some_and(|lineage| {
+        if event.source_binding_lineages.iter().any(|lineage| {
             self.source_binding_lineage_version_frontier
                 .get(&lineage.root)
                 .is_some_and(|prior| lineage.version < *prior)
@@ -1289,7 +1573,7 @@ impl ProgramHostV2 {
             });
         }
         scratch.last_input_binding_digest = input_binding_digest;
-        if let Some(lineage) = event.source_binding_lineage {
+        for lineage in &event.source_binding_lineages {
             scratch
                 .source_binding_lineage_version_frontier
                 .insert(lineage.root, lineage.version);
@@ -1385,6 +1669,7 @@ impl ProgramHostV2 {
         &self,
         envelope: LifecycleEnvelopeV1,
         inputs: &'a [ProgramEventInputV2],
+        input_join_identity: Option<BindingDigest>,
     ) -> Result<ProgramInputMapV2<'a>, ProgramHostV2Error> {
         if !matches!(
             envelope.order_key.kind,
@@ -1392,13 +1677,19 @@ impl ProgramHostV2 {
                 | lifecycle_v1::LifecycleKind::Event
                 | lifecycle_v1::LifecycleKind::Timer
         ) {
-            return if inputs.is_empty() {
+            return if inputs.is_empty() && input_join_identity.is_none() {
                 Ok(BTreeMap::new())
             } else {
                 Err(ProgramHostV2Error::InputCoverage)
             };
         }
         let declared = reaction_input_roles(&self.plan, envelope.order_key.kind)?;
+        let expected_join_identity =
+            join_for_roles(&self.plan, &declared).map(input_join_identity_v2);
+
+        if input_join_identity != expected_join_identity {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
         let universe = self.plan.universe_selection().is_some();
         let expected_len = if universe {
             declared.len().saturating_mul(TARGET_SET_MEMBER_COUNT)
@@ -1439,18 +1730,19 @@ impl ProgramHostV2 {
                 || input.owner_event.scale != role.scale
                 || (universe && input.member_ordinal.is_none_or(|ordinal| ordinal >= 2))
                 || (!universe && input.member_ordinal.is_some())
-                || frame
-                    .replace((
-                        input.owner_event.trigger_digest,
-                        input.owner_event.observation_batch_digest,
-                    ))
-                    .is_some_and(|prior| {
-                        prior
-                            != (
-                                input.owner_event.trigger_digest,
-                                input.owner_event.observation_batch_digest,
-                            )
-                    })
+                || (input_join_identity.is_none()
+                    && frame
+                        .replace((
+                            input.owner_event.trigger_digest,
+                            input.owner_event.observation_batch_digest,
+                        ))
+                        .is_some_and(|prior| {
+                            prior
+                                != (
+                                    input.owner_event.trigger_digest,
+                                    input.owner_event.observation_batch_digest,
+                                )
+                        }))
                 || values
                     .insert(
                         (input.role_semantic_id.as_str(), input.member_ordinal),
@@ -2485,7 +2777,8 @@ fn admitted_event_identity(
     plan: &StrategyPlanV2,
     envelope: LifecycleEnvelopeV1,
     inputs: &[ProgramEventInputV2],
-    source_binding_lineage: Option<SourceBindingLineageVersionV2>,
+    source_binding_lineages: &[SourceBindingLineageVersionV2],
+    input_join_identity: Option<BindingDigest>,
     universe_frame: Option<UniverseFrameBindingV2>,
 ) -> BindingDigest {
     let mut bytes = Vec::new();
@@ -2498,17 +2791,29 @@ fn admitted_event_identity(
         bytes.extend(input.owner_event.trigger_digest.as_bytes());
         bytes.extend(input.owner_event.binding_receipt_digest.as_bytes());
         bytes.extend(input.owner_event.event_receipt_digest.as_bytes());
+        if input_join_identity.is_some() {
+            bytes.extend(input.owner_event.component_envelope_digest.as_bytes());
+        }
     }
 
-    match source_binding_lineage {
-        Some(lineage) => {
-            bytes.push(1);
+    if let Some(join_identity) = input_join_identity {
+        bytes.extend(join_identity.as_bytes());
+        bytes.extend((source_binding_lineages.len() as u16).to_le_bytes());
+        for lineage in source_binding_lineages {
             bytes.extend(lineage.root.as_bytes());
             bytes.extend(lineage.version.to_le_bytes());
         }
-        None => {
-            bytes.push(0);
-            bytes.extend([0; 40]);
+    } else {
+        match source_binding_lineages.first() {
+            Some(lineage) => {
+                bytes.push(1);
+                bytes.extend(lineage.root.as_bytes());
+                bytes.extend(lineage.version.to_le_bytes());
+            }
+            None => {
+                bytes.push(0);
+                bytes.extend([0; 40]);
+            }
         }
     }
 
@@ -2524,7 +2829,39 @@ fn admitted_event_identity(
             bytes.extend([0; 96]);
         }
     }
-    domain_digest(b"strategy.program-host.admitted-event.v3\0", &bytes)
+    let domain = if input_join_identity.is_some() {
+        b"strategy.program-host.admitted-event.v4\0".as_slice()
+    } else {
+        b"strategy.program-host.admitted-event.v3\0".as_slice()
+    };
+    domain_digest(domain, &bytes)
+}
+
+fn join_for_roles<'a>(
+    plan: &'a StrategyPlanV2,
+    roles: &[&crate::strategy_design_v2::InputRoleV2],
+) -> Option<&'a InputJoinV2> {
+    let role_ids = roles
+        .iter()
+        .map(|role| role.semantic_id.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    plan.input_joins().iter().find(|join| {
+        join.inputs
+            .iter()
+            .map(String::as_str)
+            .collect::<std::collections::BTreeSet<_>>()
+            == role_ids
+    })
+}
+
+fn input_join_identity_v2(join: &InputJoinV2) -> BindingDigest {
+    derive_strategy_input_join_identity_v2(
+        &join.semantic_id,
+        &join.inputs,
+        &join.alignment_semantic_id,
+        &join.trigger_input_id,
+        join.max_staleness_ns,
+    )
 }
 fn rebalance_sequence(target: TargetStateV1) -> u64 {
     match target {
@@ -2723,3 +3060,7 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, ProgramHostV2Error> {
 fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ProgramHostV2Error> {
     Ok(u64::from_le_bytes(read_array(bytes, offset)?))
 }
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+#[path = "program_host_v2_input_join_backtest_tests.rs"]
+mod input_join_backtest_tests;

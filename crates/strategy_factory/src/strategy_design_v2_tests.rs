@@ -402,16 +402,148 @@ fn capability_cycle_and_resource_excess_are_unsupported() {
     ));
 }
 
+fn joined_design() -> StrategyDesignV2 {
+    let mut candidate = crate::program_host_v2_tests::executable_design();
+    let open = candidate
+        .inputs
+        .iter_mut()
+        .find(|input| input.semantic_id == "research.input.open.v1")
+        .expect("executable fixture has an OPEN role");
+    open.timeframe = "1H".into();
+    candidate.joins = vec![InputJoinV2 {
+        semantic_id: "research.join.regime.v1".into(),
+        inputs: vec![
+            "research.input.open.v1".into(),
+            "research.input.close.v1".into(),
+        ],
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: "research.input.close.v1".into(),
+        max_staleness_ns: 60_000_000_000,
+    }];
+    candidate
+}
+
 #[rstest]
-fn unlowered_join_is_unsupported() {
-    let mut candidate = design();
-    candidate.joins.push(InputJoinV2 {
-        semantic_id: "research.join.future.v1".into(),
-        inputs: vec!["research.input.close.v1".into()],
-        alignment_semantic_id: "research.alignment.future.v1".into(),
-    });
-    assert!(matches!(
-        compile_with_binding_projections_for_test(candidate, vec![]),
-        StrategyCompilationV2::Unsupported(issue) if issue.coordinate == "joins"
-    ));
+fn canonical_input_join_lowers_multi_timeframe_roles_byte_stably() {
+    let candidate = joined_design();
+    let mut reversed = bindings(&candidate);
+    reversed.reverse();
+    let first_compilation =
+        compile_with_binding_projections_for_test(candidate.clone(), bindings(&candidate));
+    let StrategyCompilationV2::Compiled(first) = first_compilation else {
+        panic!("valid canonical input join did not compile: {first_compilation:?}");
+    };
+    let StrategyCompilationV2::Compiled(second) =
+        compile_with_binding_projections_for_test(candidate, reversed)
+    else {
+        panic!("binding order changed input-join compilation");
+    };
+    assert_eq!(
+        serde_json::to_vec(&first).unwrap(),
+        serde_json::to_vec(&second).unwrap()
+    );
+    assert_eq!(first.design_identity(), second.design_identity());
+    assert_eq!(first.binding_digest(), second.binding_digest());
+}
+
+#[rstest]
+fn input_join_rejects_missing_duplicate_unknown_cyclic_and_overlapping_roles() {
+    let invalid = [
+        {
+            let mut value = joined_design();
+            value.joins[0].inputs.pop();
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins[0].inputs.push("research.input.close.v1".into());
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins[0].inputs[0] = "research.input.unknown.v1".into();
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins.push(InputJoinV2 {
+                semantic_id: "research.join.outer.v1".into(),
+                inputs: vec![
+                    "research.join.regime.v1".into(),
+                    "research.input.close.v1".into(),
+                ],
+                alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+                trigger_input_id: "research.input.close.v1".into(),
+                max_staleness_ns: 1,
+            });
+            value
+        },
+        {
+            let mut value = joined_design();
+            let mut overlap = value.joins[0].clone();
+            overlap.semantic_id = "research.join.overlap.v1".into();
+            value.joins.push(overlap);
+            value
+        },
+    ];
+
+    for candidate in invalid {
+        assert!(matches!(
+            compile_with_binding_projections_for_test(candidate.clone(), bindings(&candidate)),
+            StrategyCompilationV2::Unsupported(_)
+        ));
+    }
+}
+
+#[rstest]
+fn input_join_rejects_implicit_trigger_alignment_unbounded_staleness_and_incompatible_roles() {
+    let invalid = [
+        {
+            let mut value = joined_design();
+            value.joins[0].trigger_input_id = "research.input.unknown.v1".into();
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins[0].alignment_semantic_id = "research.alignment.heuristic.v1".into();
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins[0].max_staleness_ns = 0;
+            value
+        },
+        {
+            let mut value = joined_design();
+            value.joins[0].max_staleness_ns = u64::MAX;
+            value
+        },
+        {
+            let mut value = joined_design();
+            value
+                .inputs
+                .iter_mut()
+                .find(|input| input.semantic_id == "research.input.open.v1")
+                .unwrap()
+                .unit = "QUANTITY".into();
+            value
+        },
+        {
+            let mut value = joined_design();
+            value
+                .inputs
+                .iter_mut()
+                .find(|input| input.semantic_id == "research.input.open.v1")
+                .unwrap()
+                .scale = 3;
+            value
+        },
+    ];
+
+    for candidate in invalid {
+        assert!(matches!(
+            compile_with_binding_projections_for_test(candidate.clone(), bindings(&candidate)),
+            StrategyCompilationV2::Unsupported(_)
+        ));
+    }
 }
