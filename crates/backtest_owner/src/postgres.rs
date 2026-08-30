@@ -217,12 +217,13 @@ async fn canonical_pool(database_url: &str) -> Result<PgPool, PostgresReplayOwne
         .connect(database_url)
         .await
         .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
-    let current_user: String = sqlx::query_scalar("SELECT current_user")
-        .fetch_one(&pool)
-        .await
-        .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
+    let (session_user, current_user): (String, String) =
+        sqlx::query_as("SELECT session_user,current_user")
+            .fetch_one(&pool)
+            .await
+            .map_err(|_| PostgresReplayOwnerErrorV2::CustodyUnavailable)?;
 
-    if current_user != "backtest_owner" {
+    if session_user != "backtest_owner" || current_user != "backtest_owner" {
         return Err(PostgresReplayOwnerErrorV2::CustodyUnavailable);
     }
     Ok(pool)
@@ -246,7 +247,10 @@ async fn validate_runtime_storage(pool: &PgPool) -> Result<(), PostgresReplayOwn
                 FROM pg_catalog.pg_roles role_entry
                 WHERE role_entry.rolname <> 'backtest_owner'
                   AND NOT role_entry.rolsuper
-                  AND pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+                  AND (
+                    pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+                    OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','SET')
+                  )
             )
             AND NOT EXISTS (
                 SELECT 1

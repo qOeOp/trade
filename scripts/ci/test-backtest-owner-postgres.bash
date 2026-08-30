@@ -270,6 +270,19 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --command "REVOKE ALL ON public.backtest_replay_runs_v2,public.backtest_replay_results_v2 FROM rd_owner"
 
+stage="Backtest SET-only role impersonation rejection"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "GRANT backtest_owner TO product_edge_owner WITH INHERIT FALSE, SET TRUE"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-backtest-owner --lib \
+  postgres::durable_postgres_replay_v2::runtime_rejects_set_only_role_impersonation \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "REVOKE backtest_owner FROM product_edge_owner"
+
 # Seed through the repository's real U1 V2 Owner path. No request meaning is synthesized here.
 stage="native R&D schema consumers"
 cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \

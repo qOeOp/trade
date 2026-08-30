@@ -122,6 +122,29 @@ macro_rules! postgres_replay_v2_tests {
             }
 
             #[tokio::test]
+            #[ignore = "requires a disposable topology with a SET-only Backtest role member"]
+            async fn runtime_rejects_set_only_role_impersonation() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let product_edge_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+                    .to_string();
+                let impersonator_url =
+                    format!("{product_edge_url}?options=-c%20role%3Dbacktest_owner");
+
+                PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect_err("runtime must reject any SET-only Backtest membership path");
+                PostgresReplayResultOwnerV2::connect(&impersonator_url)
+                    .await
+                    .expect_err("session user must not impersonate the Backtest owner via SET ROLE");
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology seeded by the real sealed R&D V2 test"]
             async fn v2_storage_adapter_is_atomic_restart_stable_and_fail_closed() {
                 let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
