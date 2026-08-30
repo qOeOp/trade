@@ -915,6 +915,26 @@ $function$
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle before R&D helper drift");
+                assert_eq!(
+                    counts_by_result(&backtest_url, result.result_identity()).await,
+                    [0, 0],
+                    "canonical positive-control identity must start vacant"
+                );
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("canonical helpers must admit the same transaction-bound commit path");
+                assert_eq!(
+                    counts_by_result(&backtest_url, result.result_identity()).await,
+                    [1, 1],
+                    "canonical positive control must reach durable Backtest custody"
+                );
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+                assert_eq!(
+                    counts_by_result(&backtest_url, result.result_identity()).await,
+                    [0, 0],
+                    "canonical positive control must leave the shared fixture vacant"
+                );
                 let rd_pool = PgPool::connect(&rd_url)
                     .await
                     .expect("R&D helper replacement pool");
@@ -953,6 +973,7 @@ $function$
                     .expect("restore canonical internal helper definition");
                 let observed_forged_source = observed_forged_source
                     .expect("forged internal helper source readback before restoration");
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
                 assert!(
                     observed_forged_source.contains(forged_marker),
                     "fixture must replace the selected helper body"
@@ -962,6 +983,38 @@ $function$
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
                 assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+            }
+
+            async fn remove_exact_result_fixture(
+                database_url: &str,
+                result_identity: &OpaqueIdentityV2,
+            ) {
+                let pool = PgPool::connect(database_url)
+                    .await
+                    .expect("Backtest positive-control cleanup pool");
+                let mut transaction = pool
+                    .begin()
+                    .await
+                    .expect("Backtest positive-control cleanup transaction");
+                sqlx::query(
+                    "DELETE FROM public.backtest_replay_results_v2 WHERE result_identity=$1",
+                )
+                .bind(result_identity.as_str())
+                .execute(&mut *transaction)
+                .await
+                .expect("remove exact positive-control result");
+                sqlx::query(
+                    "DELETE FROM public.backtest_replay_runs_v2 WHERE result_identity=$1",
+                )
+                .bind(result_identity.as_str())
+                .execute(&mut *transaction)
+                .await
+                .expect("remove exact positive-control run");
+                transaction
+                    .commit()
+                    .await
+                    .expect("commit exact positive-control cleanup");
+                pool.close().await;
             }
 
             // Storage fixture only: it deliberately uses U2's private constructor so the adapter

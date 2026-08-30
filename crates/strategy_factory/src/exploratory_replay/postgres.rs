@@ -777,7 +777,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_receipt_identity text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
         SET search_path = pg_catalog
-        AS $function${INTERNAL_VERIFY_SOURCE_V1}        $function$
+        AS $function${INTERNAL_VERIFY_SOURCE_V1}$function$
         ",
     );
     sqlx::query(sqlx::AssertSqlSafe(create_internal_verify_v1.as_str()))
@@ -822,7 +822,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           requested_seal_digest text
         ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
         SET search_path = pg_catalog
-        AS $function${INTERNAL_VERIFY_SOURCE_V2}        $function$
+        AS $function${INTERNAL_VERIFY_SOURCE_V2}$function$
         ",
     );
     sqlx::query(sqlx::AssertSqlSafe(create_internal_verify_v2.as_str()))
