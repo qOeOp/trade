@@ -335,6 +335,211 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
+### TARGET sample-fact and sample-receipt authority
+
+This is an additive architecture contract, not executable readiness. Market Data remains the sole writer of the
+versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and `SampleReceiptV1`, and alone
+implements their native exact-receipt resolvers. Every existing V1 binding, event, value, frame, joined-cut, row,
+digest, and byte meaning remains
+authoritative and byte-identical; no V1 record is deleted, synthesized, backfilled, garbage-collected, reinterpreted,
+or promoted. The additive `StrategyInputSampleProjectionReceiptV2` is the single canonical frame/join projection
+over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut codecs;
+the unchanged V1 event/value/frame/join receipts remain its exact evidence inputs.
+
+`TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
+`u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
+`[u8; 32]`, time-zone identity `[u8; 32]`, label-rule `u8`, and partial-bar-rule `u8`; trailing bytes are forbidden.
+Its identity is SHA-256 over `market-data.timeframe.identity.v1\0 || canonical TimeframeSpecV1 bytes`. In
+particular, `1d` means one named exchange
+session day under the bound calendar, session, and time zone. It never means a UTC-duration day or an unanchored
+24-hour interval. A field required by the admitted combination that is absent or ambiguous makes the timeframe
+unavailable rather than allowing a consumer default.
+
+The tag registry is closed. Kind is exactly `0x01 POINT_EVENT`, `0x02 FIXED_INTERVAL_BAR`, or
+`0x03 EXCHANGE_SESSION_BAR`. Unit is exactly `0x00 NOT_APPLICABLE`, `0x01 SECOND`, `0x02 MINUTE`, `0x03 HOUR`,
+or `0x04 EXCHANGE_SESSION_DAY`. Label rule is exactly `0x00 EVENT_EFFECTIVE`, `0x01 INTERVAL_OPEN`, or
+`0x02 INTERVAL_CLOSE`. Partial-bar rule is exactly `0x00 NOT_APPLICABLE`, `0x01 COMPLETE_ONLY`, or
+`0x02 ADMIT_PARTIAL_AS_DISTINCT_SLOT`. The all-zero 32-byte value is the sole not-applicable identity; every
+applicable identity is non-zero.
+
+Only these combinations are canonical:
+
+- `POINT_EVENT` has `step = 1`, `unit = NOT_APPLICABLE`, all four identities zero,
+  `label = EVENT_EFFECTIVE`, and `partial = NOT_APPLICABLE`;
+- `FIXED_INTERVAL_BAR` has `step > 0`, unit `SECOND`, `MINUTE`, or `HOUR`, non-zero anchor and time-zone
+  identities, either both calendar/session identities zero for a continuous clock or both non-zero for a
+  schedule-bounded clock, label `INTERVAL_OPEN` or `INTERVAL_CLOSE`, and partial `COMPLETE_ONLY` or
+  `ADMIT_PARTIAL_AS_DISTINCT_SLOT`; and
+- `EXCHANGE_SESSION_BAR` has `step = 1`, `unit = EXCHANGE_SESSION_DAY`, all four identities non-zero, label
+  `INTERVAL_OPEN` or `INTERVAL_CLOSE`, and partial `COMPLETE_ONLY` or `ADMIT_PARTIAL_AS_DISTINCT_SLOT`.
+
+Every other tag, zero/non-zero arrangement, step/unit pair, or combination is unsupported and produces no
+timeframe identity. `ADMIT_PARTIAL_AS_DISTINCT_SLOT` requires the partial observation to receive its own root slot
+identity; it can never replace or alias the completed slot. Every bar interval is half-open `[open, close)` under
+the bound anchor and schedule; `INTERVAL_OPEN` uses `open` as event-effective time and `INTERVAL_CLOSE` uses
+`close`. `POINT_EVENT` uses the source event-effective time.
+
+The existing V1 binding's free-form timeframe string is provenance only and never determines these bytes.
+Market Data issues one additive, immutable `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt
+digest. Its canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, V1 binding-receipt digest `[u8; 32]`,
+timeframe identity `[u8; 32]`, and the complete fixed-width canonical `TimeframeSpecV1` bytes; its receipt identity
+is SHA-256 over `market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes`. The spec's four
+identities are the exact Owner-admitted calendar/session/time-zone/anchor evidence identities. The same
+V1 digest plus byte-identical projection is idempotent; the same digest with different bytes or identity is a
+conflict. Missing, ambiguous, or non-unique projection is unavailable. No consumer may parse `1D`, `1h`, another
+label, venue convention, or default into a spec. Exact historical projection readback remains available after any
+later Owner mapping or calendar change; a different mapping requires a successor V1 binding receipt.
+
+The `Owner event identity` carried by `SampleFactV1`, `SampleReceiptV1`, and the 308-byte coordinate is a new
+role-independent Market Data identity; it is not the existing V1 frame-trigger event identity. Its canonical
+preimage is, in order: schema `u16LE = 1`, reserved-zero `u16LE`, source snapshot identity `[u8; 32]`,
+source-snapshot fact digest `[u8; 32]`, observation-batch digest `[u8; 32]`, canonical-row digest `[u8; 32]`,
+logical time `u64LE`, event-effective time `u64LE`, provider-available time `u64LE`, retrieval time `u64LE`,
+correction-publication time `u64LE`, Owner sequence `u64LE`, correction-stream `u16LE length || bytes`, and
+correction-frontier digest `[u8; 32]`. The identity is the first 16 bytes of SHA-256 over
+`market-data.sample-event.identity.v1\0 || canonical preimage`; an all-zero result, alternate encoding, or a
+coordinate that does not equal the referenced historical Owner row is unsupported. No Design, role, static
+binding, trigger, frame, join, or consumer field enters this preimage.
+
+`SampleFactV1` is the immutable Owner fact for one series slot. Its canonical bytes start with schema `u16LE = 1`
+and reserved-zero `u16LE`, then bind, in order: series identity, slot identity, series-predecessor sample identity,
+optional correction-predecessor sample identity, source snapshot identity, source-snapshot fact digest,
+observation-batch digest, canonical instrument bytes, channel, data kind, field-semantic bytes, timeframe identity,
+Owner event identity, logical time, event-effective, provider-available, retrieval, correction-publication, Owner
+sequence, value-semantic bytes, exact value bytes, scale, canonical-row digest, Source Binding identity, Source
+Binding lineage root, lineage version, source-frontier digest, correction-stream bytes, correction-frontier digest,
+Instrument Master digest, Universe Selection digest, and Market Semantics identity. Fixed identities/digests are 32
+bytes, Owner event identity is 16 bytes, time/sequence/version fields are `u64LE`, channel/data-kind/scale are `u8`,
+optional absence/presence is `0x00`/`0x01`, and variable bytes are `u16LE length || bytes`; reserved or trailing
+bytes, oversized values, and alternate encodings are forbidden.
+
+The version-1 channel tag registry is exhaustive: `0x01 MARKET`, `0x02 REFERENCE`, and `0x03 ECONOMIC`. The
+version-1 data-kind tag registry is exhaustive: `0x01 BAR`, `0x02 QUOTE`, `0x03 TRADE`, and `0x04 SCALAR`.
+These tags are the sole canonical encoding of the unchanged V1 Owner strings returned by
+`StrategyInputChannel` and `MarketDataFieldSemantic.data_kind`; the exact historical V1 binding/event value
+selects the tag, never the consumer. `0x00`, every unlisted tag or string, a tag/string mismatch, and any later
+registry value presented under schema version 1 are unsupported and produce no fact, series identity, receipt,
+or V2 coordinate. Extending either registry requires a successor schema version rather than reinterpretation of
+stored version-1 bytes.
+
+The version-1 series projection is one ordered Owner-derived codec. Its bytes are schema `u16LE = 1`,
+reserved-zero `u16LE`, canonical instrument variable bytes, channel tag `u8`, data-kind tag `u8`, canonical
+field-semantic variable bytes, timeframe identity `[u8; 32]`, the exact
+`strategy.input.fixed-i128-le.v1` value-semantic variable bytes, the exact V1 unit variable bytes (`PRICE`,
+`QUANTITY`, or `SCALAR`), scale `u8`, Source Binding lineage root `[u8; 32]`, correction-stream variable bytes,
+and Market Semantics identity `[u8; 32]`, in that order. Each variable field uses the same `u16LE length || bytes`
+encoding as `SampleFactV1`. Every member is copied from the exact historical V1 Owner binding/event or its
+historical timeframe projection; a consumer supplies none of them. Exact value bytes, slot/predecessor,
+snapshot/fact/batch, Owner event/time/sequence, canonical-row digest, Source Binding identity and lineage version,
+source/correction frontiers, and every other renewable per-fact field are explicitly excluded. Therefore value or
+time renewal retains the series, while a changed correction stream, unit, scale, lineage root, or another listed
+static member creates a different series. The series identity is SHA-256 over
+`market-data.sample-series.identity.v1\0 || canonical version-1 series projection bytes`.
+
+A root slot identity is SHA-256 over `market-data.sample-slot.identity.v1\0` plus its series identity,
+event-effective time, and source-snapshot fact digest; an admitted correction must retain its predecessor's slot
+identity rather than recompute it. `fact_digest` is SHA-256 over
+`market-data.sample-fact.v1\0 || canonical SampleFactV1 bytes`, and
+`sample_identity` is SHA-256 over `market-data.sample.identity.v1\0 || fact_digest`. The sample identity is
+therefore distinct from, and cannot be substituted by, the existing BLAKE3 canonical-row digest even when the
+value bytes are equal. The all-zero series predecessor is canonical only for the first fact in a series; absent
+correction predecessor is canonical only for the first fact in a slot. Every correction has a present predecessor,
+and every later fact must name the current corresponding head.
+
+`SampleReceiptV1` is trigger-, consumer-, Design-, and role-independent. Its canonical bytes are exactly 244
+bytes, in order: schema `u16LE = 1`, reserved-zero `u16LE`, sample identity `[u8; 32]`, fact digest `[u8; 32]`,
+timeframe identity `[u8; 32]`, Owner event identity `[u8; 16]`, logical time `u64LE`, event-effective time
+`u64LE`, Owner sequence `u64LE`, canonical-row digest `[u8; 32]`, Source Binding lineage root `[u8; 32]`,
+lineage version `u64LE`, and Market Semantics identity `[u8; 32]`. They contain no input-role identity or static
+binding digest. Every alternate width, endianness, order, reserved value, missing byte, or trailing byte is
+unsupported and produces no receipt identity or V2 coordinate. Its stable digest is SHA-256 over
+`market-data.sample-receipt.v1\0 || canonical SampleReceiptV1 bytes`; those bytes are exactly the listed
+role-independent fact projection, is the receipt identity, and supplies the final sample-receipt-digest field of the
+existing exact 308-byte coordinate. The native resolver accepts only that exact Owner-authorized stable digest and
+returns the historically stored canonical receipt bytes; it never reconstructs them from a row, frame, trigger,
+value, latest head, role, binding, or caller coordinates.
+
+`StrategyInputFrameEvidenceIdentityV2` is an additive identity over one complete unchanged V1 frame; it does not
+change or replace any V1 receipt. Its canonical preimage is, in order: schema `u16LE = 2`, reserved-zero `u16LE`,
+the exact V1 frame-trigger receipt digest `[u8; 32]`, positive value count `u32LE`, and one 96-byte entry for every
+V1 frame value. Each entry is input-role identity `[u8; 32]`, static V1 binding-receipt digest `[u8; 32]`, and V1
+value-receipt digest `[u8; 32]`. Entries are strictly sorted by input-role identity and duplicate roles are
+unsupported; the total length is exactly `40 + 96 * count`. Its identity is SHA-256 over
+`market-data.strategy-input-frame-evidence.identity.v2\0 || canonical preimage bytes`. Missing, extra, reordered,
+or mismatched trigger/value evidence produces no identity. This identity is not a V1 frame receipt, does not
+replace the joined-cut receipt's private single-value component digest, and cannot be derived from only a trigger
+or one value.
+
+Only `StrategyInputSampleProjectionReceiptV2` forms a role-bound coordinate projection. Its canonical bytes are
+one header followed by fixed component entries. The header is, in order: schema `u16LE = 2`, reserved-zero
+`u16LE`, kind `u8` (`0x01 FRAME` or `0x02 JOINED_CUT`), exact subject identity/digest `[u8; 32]`, and positive
+component count `u32LE`. Each entry is exactly 612 bytes, in order: input-role identity `[u8; 32]`, static V1
+binding-receipt digest `[u8; 32]`, frame-evidence identity `[u8; 32]`, V1 frame-trigger receipt digest
+`[u8; 32]`, V1 role-bound trigger event identity `[u8; 16]`, V1 value-receipt digest `[u8; 32]`, historical
+timeframe-projection-receipt digest `[u8; 32]`, sample identity `[u8; 32]`, native `SampleReceiptV1` digest
+`[u8; 32]`, coordinate digest `[u8; 32]`, and the exact 308 coordinate bytes. Entries are strictly sorted by
+input-role identity bytes and duplicate roles are unsupported; the total length is exactly `41 + 612 * count`.
+Reserved, unknown kind, zero count, alternate order/width, missing, or trailing bytes produce no receipt.
+
+For `FRAME`, the subject identity is the additive frame-evidence identity and the entries exhaust the same ordered
+role values. For `JOINED_CUT`, the subject digest names the exact unchanged V1 joined-cut receipt and the entries
+exhaust the cut's flattened selected role set; each entry names its actual component frame-evidence identity,
+trigger, and value receipt.
+Flattening never changes the V1 cut's component/staleness meaning. Every entry resolves the exact binding and its
+historical `TimeframeProjectionReceiptV1`; the coordinate's role, binding, timeframe, row digest, lineage,
+Market Semantics, sample identity, native receipt digest, and coordinate digest must match those resolved bytes.
+The V1 frame/value row and batch evidence must equal the referenced `SampleFactV1`, and that fact's source
+snapshot/correction census must verify its lineage version. The V1 trigger's logical/event times and Owner
+sequence must equal the component's coordinate, while its role-bound event identity remains only the separately
+stored V1 evidence and is never copied into or equated with the role-independent native event identity. A
+current/latest lookup, partial component set, cross-frame/cut splice, or caller-derived field is unsupported.
+
+The V2 receipt identity and digest are the same SHA-256 over
+`market-data.sample-projection-receipt.v2\0 || canonical receipt bytes`. Market Data stores and resolves those
+exact bytes by that digest; byte-identical replay is idempotent and same-digest different bytes conflict. Thus one
+Owner sample keeps one native receipt and, for one role/binding, byte-identical coordinates when carried by a
+later trigger, while the enclosing V2 projection correctly changes with its V1 frame or joined cut. No projection
+can mint or alter the Owner sample receipt.
+
+An accepted correction is an immutable successor with both an exact series predecessor and correction
+predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the
+sample clock exactly once, even when its value bytes equal the predecessor. It never rewrites, replaces, masks,
+replays, or retroactively advances predecessor state. An ordinary equal-valued new slot is likewise a new sample
+and advances exactly once. Reusing one 1-hour or exchange-session `1d` sample under later 1-minute triggers returns
+the same receipt and coordinate bytes and causes no second sample-clock advance.
+
+The additive PostgreSQL target has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot
+correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction inserts
+the fact, receipt, and outbox row
+and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
+ordinary new slot advances its correction head from canonical absence to that first fact. A
+byte-identical replay performs zero writes and returns the exact historical receipt bytes. Identity/content
+mismatch, time or version regression, predecessor or sequence gap, competing branch, cycle, cross-lineage splice,
+head mismatch, missing/conflicting timeframe projection, or noncanonical bytes fails closed and advances neither
+head. Historical exact receipts remain
+readable after successors and corrections. No caller, Strategy Factory, ProgramHost, Backtest, fixture, migration,
+or reconciliation process receives insert/update/delete, head-advance, synthesis, backfill, or garbage-collection
+authority.
+
+The single V2 projection receipt binds each selected component's exact `sample_identity`, `SampleReceiptV1`
+digest, admitted V1 role/binding evidence, and existing 308-byte coordinate bytes/digest. It preserves all V1
+trigger, value, frame, join, and row identities rather than deriving sample authority from them. The same sample
+selected by later events or joins under the same role/binding therefore retains byte-identical native receipt and
+coordinate bytes. A coordinate digest computed
+from a row/frame/trigger digest, a caller timestamp, or a UTC 24-hour interpretation of `1d` is non-authoritative
+and fails before consumer state mutation.
+
+Canonical acceptance must use the repository's existing disposable PostgreSQL harness and repository-authoritative
+Makefile, pre-commit, and CI wiring. It covers per-field mutation for every canonical identity and fact field;
+byte-identical idempotency and same-identity conflict; ordinary and correction predecessor topology; response loss,
+restart, transaction rollback, and historical exact readback; receipt/coordinate tamper and cross-splice;
+predecessor gap, branch, cycle, regression, and cross-lineage rejection; V1 byte/meaning preservation; and database
+ACL denial for every non-Owner write path. The consumer oracle repeats the same 1-hour and exchange-session `1d`
+samples across 1-minute triggers without a double advance, advances once for an equal-valued new sample and once
+for an accepted correction, and returns identical native receipt bytes after restart. Until that dynamic evidence
+exists, this contract claims no provider authenticity, production migration or deployment, Dashboard, Paper, Live,
+BFP executable maturity, or trading authority.
+
 ## Input handoffs
 
 - Data vendors and trading venues provide raw market and reference records through Data Clients.

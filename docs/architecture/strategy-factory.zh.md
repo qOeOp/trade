@@ -341,10 +341,41 @@ Semantics identity `[u8; 32]` 与 stable Owner sample-receipt digest `[u8; 32]`�
 reserved 或 trailing byte 被禁止。coordinate digest 是
 `strategy.input.sample-coordinate.v1\0 || canonical bytes` 的 SHA-256。Market Data event/joined-cut receipt
 cross-bind 该 digest；coordinate 不包含 enclosing trigger receipt，因此被后续 trigger 携带的同一个 component
-sample 保持逐字节相同。
+sample 保持逐字节相同。此处的 `Owner event identity` 是 Market Data 定义的 role-independent native
+sample-event identity，不是绑定 Design、role 与 static binding 的 V1 frame-trigger event identity。
 
-Market Data 从封存的 static role/timeframe projection 派生 timeframe identity，并从 verified census 中选择、
-封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、
+这些保持不变的 308 bytes 的 Owner-native 来源是新增的 Market Data `SampleFactV1` 与 trigger-independent
+`SampleReceiptV1` 合同。`TimeframeSpecV1` 在 `market-data.timeframe.identity.v1` 下把 kind/step/unit 与
+anchor、calendar、session、time-zone、label、partial-bar identity/rule 一起绑定；`1d` 是
+exchange-session day，绝不是 UTC-duration day。
+`SampleFactV1` 绑定 series/slot 与 predecessor topology、source snapshot/fact/batch、instrument/channel/
+data-kind/field meaning/timeframe、Owner event/sequence、logical time 以及四个 event-effective/provider-available/
+retrieval/correction-publication clock、准确 value semantic/bytes/scale、canonical-row digest，以及
+binding/lineage/frontier/master/universe/Market Semantics/correction evidence。
+`fact_digest = SHA-256(market-data.sample-fact.v1\0 || fact_bytes)`，且
+`sample_identity = SHA-256(market-data.sample.identity.v1\0 || fact_digest)`；两者不同于既有 BLAKE3 row
+digest。
+
+未改变的 V1 binding timeframe string 不授权该 identity。只有 Market Data 能提供以准确 V1
+binding-receipt digest 为键的 immutable `TimeframeProjectionReceiptV1`，其中携带完整 spec bytes/identity
+及其 Owner evidence identity。projection 缺失、冲突、不唯一或由 caller 解析时，都必须在 coordinate 构造
+前失败；后续 calendar/mapping 改变不能修改 historical readback。
+
+`SampleReceiptV1` 携带准确 role-independent Owner fact projection。其 domain-separated SHA-256 stable digest
+提供既有 sample-receipt-digest 字段；fact identity 与 receipt digest 均不依赖 trigger、frame、join、
+consumer、Design、role 或 static binding。新增 `StrategyInputFrameEvidenceIdentityV2` 在不改变 V1 的前提下，
+以 additive 方式标识穷尽且有序的 V1 trigger/value evidence。`StrategyInputSampleProjectionReceiptV2` 是唯一
+V2 frame/join envelope；其闭集 `FRAME|JOINED_CUT` kind、FRAME evidence identity 或准确 V1 JOINED_CUT
+receipt digest 与按 role 严格排序的 fixed entry，把每份未改变的 V1
+binding/frame-evidence/trigger/value receipt 与其 timeframe-projection receipt、native sample receipt 和准确
+308-byte coordinate cross-bind。不存在独立 V2 event/value/frame/join codec。envelope 把 role-bound V1 trigger
+identity 与 role-independent native event identity 分开。ProgramHostV2 与 Backtest 只能接收该准确 V2
+projection 及其引用的原生历史 receipt，不能从 value、row digest、frame/event digest、
+trigger time、latest head 或本地 timeframe 解释派生或修复任何一个。restart 必须为同一 identity 解析出
+相同 native receipt bytes，并为同一 role/binding 解析出相同 coordinate bytes。
+
+Market Data 为 sealed static binding 解析准确 historical timeframe-projection receipt，并从 verified census
+中选择、封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、
 hash-substitute 或 advance 它。对于一个 role，replay 只有在 308 bytes 全部相同时才能 join。同一
 role/timeframe/sample identity 若对应不同 bytes 即为 conflict。新 sample 必须保持 static binding、timeframe、
 lineage root 与 Market Semantics identity 不变，lineage version 不递减，sample identity 不同，并且
@@ -377,6 +408,20 @@ trigger-clock node 对每个新接纳 trigger coordinate 推进一步。sample-c
 event hash、本地派生 timestamp 都不是合法替代。缺失、stale、duplicate-conflicting、cross-role、
 cross-timeframe、cross-lineage、regressed-version、receipt-mismatched 或非规范 coordinate，都必须在 guest
 调用或任何 BFP/plugin/lifecycle/target/protection/trace/checkpoint mutation 前失败。
+
+已接纳 correction 是具有准确 series/correction predecessor 的 immutable successor sample。它创建新的
+fact、receipt、identity 与 coordinate，并让 sample clock 准确推进一次；绝不 rewrite、追溯 replace 或
+replay predecessor state。普通的等值 successor 也推进一次。单一 V2 projection receipt 交叉绑定准确
+sample identity、native receipt digest 与 coordinate digest，同时保留所有 V1 byte
+与含义。一个 sample 被后续 trigger 重复选择时保持逐字节相同，且不会再次推进。
+
+该 TARGET 仍只达到 architecture-contract maturity。规范 acceptance 必须复用既有 disposable PostgreSQL
+harness 和仓库权威 Makefile、pre-commit、CI wiring，以证明逐字段 mutation、idempotency/conflict 与
+correction topology、response loss/restart/rollback/historical readback、tamper/cross-splice rejection、V1
+preservation 与 Owner-only ACL。consumer oracle 覆盖同一 1-hour 与 exchange-session `1d` sample 在 1-minute
+trigger 间重复、等值 successor、correction，以及 restart 后 byte-identical native receipt recovery。它不
+证明 provider authenticity、production migration/deployment、Dashboard、Paper、Live、BFP executable
+maturity 或 trading authority。
 
 #### TARGET plugin failure-status 兼容
 

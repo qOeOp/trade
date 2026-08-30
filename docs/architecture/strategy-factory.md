@@ -357,10 +357,44 @@ Market Semantics identity `[u8; 32]`, and stable Owner sample-receipt digest `[u
 reserved or trailing bytes are forbidden. Coordinate digest is SHA-256 over
 `strategy.input.sample-coordinate.v1\0 || canonical bytes`. The Market Data event/joined-cut receipt cross-binds
 that digest; the coordinate does not include the enclosing trigger receipt, so the same component sample carried
-by later triggers remains byte-identical.
+by later triggers remains byte-identical. `Owner event identity` here is the role-independent native sample-event
+identity defined by Market Data, not the V1 frame-trigger event identity that binds the Design, role, and static
+binding.
 
-Market Data derives the timeframe identity from the sealed static role/timeframe projection and selects and seals
-the coordinate from its verified census. R&D, Strategy Factory, the Host caller, Backtest, and the plugin cannot
+The Owner-native source of those unchanged 308 bytes is the additive Market Data `SampleFactV1` and
+trigger-independent `SampleReceiptV1` contract. `TimeframeSpecV1` binds kind/step/unit together with anchor,
+calendar, session, time-zone, label, and partial-bar identities and rules under
+`market-data.timeframe.identity.v1`; `1d` is an exchange-session day and never
+a UTC-duration day. `SampleFactV1` binds series/slot and predecessor topology, source snapshot/fact/batch,
+instrument/channel/data-kind/field meaning/timeframe, Owner event and sequence, logical time plus the four
+event-effective/provider-available/retrieval/correction-publication clocks, exact value semantic/bytes/scale,
+canonical-row digest, and binding/lineage/frontier/master/universe/Market Semantics/correction evidence.
+`fact_digest = SHA-256(market-data.sample-fact.v1\0 || fact_bytes)` and
+`sample_identity = SHA-256(market-data.sample.identity.v1\0 || fact_digest)` are distinct from the existing BLAKE3
+row digest.
+
+The unchanged V1 binding timeframe string does not authorize that identity. Market Data alone supplies an
+immutable `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest and carrying the full spec
+bytes/identity plus its Owner evidence identities. Missing, conflicting, non-unique, or caller-parsed projection
+fails before coordinate construction; later calendar or mapping changes cannot alter historical readback.
+
+`SampleReceiptV1` carries the exact role-independent Owner fact projection. Its domain-separated SHA-256 stable
+digest supplies the existing sample-receipt-digest field; neither the fact identity nor receipt digest depends on a
+trigger, frame, join, consumer, Design, role, or static binding. The additive
+`StrategyInputFrameEvidenceIdentityV2` additively identifies the exhaustive ordered V1 trigger/value evidence
+without changing V1. `StrategyInputSampleProjectionReceiptV2` is the only V2 frame/join envelope; its closed
+`FRAME|JOINED_CUT` kind, FRAME evidence identity or exact V1 JOINED_CUT receipt digest, and strictly role-sorted
+fixed entries cross-bind each unchanged V1 binding/frame-evidence/trigger/value receipt to its
+timeframe-projection receipt, native sample receipt, and exact 308-byte
+coordinate. There are no separate V2 event/value/frame/join codecs. The envelope keeps the role-bound V1 trigger
+identity separate from the role-independent native event identity. ProgramHostV2 and Backtest may receive only
+that exact V2 projection and the referenced
+native historical receipt. They cannot derive or repair either from the value, row digest, frame/event digest,
+trigger time, latest head, or a local timeframe interpretation. A restart must resolve the same native receipt
+bytes and, for the same role/binding, the same coordinate bytes.
+
+Market Data resolves the exact historical timeframe-projection receipt for the sealed static binding and selects
+and seals the coordinate from its verified census. R&D, Strategy Factory, the Host caller, Backtest, and the plugin cannot
 mint, narrow, hash-substitute, or advance it. For one role, a replay joins only when all 308 bytes match. The same
 role/timeframe/sample identity with different bytes is a conflict. A new sample requires unchanged static binding,
 timeframe, lineage root and Market Semantics identity, a nondecreasing lineage version, a different sample identity,
@@ -395,6 +429,21 @@ identical to the preceding sample. Value comparison, caller time, trigger count,
 event hash, and locally derived timestamps are not valid substitutes. Missing, stale, duplicate-conflicting,
 cross-role, cross-timeframe, cross-lineage, regressed-version, receipt-mismatched, or noncanonical coordinates fail
 before guest invocation or any BFP, plugin, lifecycle, target, protection, trace, or checkpoint mutation.
+
+An accepted correction is an immutable successor sample with exact series and correction predecessors. It creates
+a new fact, receipt, identity, and coordinate and advances the sample clock exactly once; it never rewrites,
+retroactively replaces, or replays the predecessor's state. An equal-valued ordinary successor also advances once.
+The single V2 projection receipt cross-binds the exact sample identity, native receipt digest, and coordinate
+digest while preserving every V1 byte and meaning. Repeated selection of one sample under
+later triggers is byte-identical and does not advance again.
+
+This TARGET remains architecture-contract maturity only. Canonical acceptance requires the existing disposable
+PostgreSQL harness and repository-authoritative Makefile, pre-commit, and CI wiring to prove per-field mutation,
+idempotency/conflict and correction topology, response loss/restart/rollback/historical readback, tamper and
+cross-splice rejection, V1 preservation, and Owner-only ACLs. The consumer oracle covers repeated 1-hour and
+exchange-session `1d` samples across 1-minute triggers, equal-valued successors, corrections, and byte-identical
+native receipt recovery after restart. It does not establish provider authenticity, production migration or
+deployment, Dashboard, Paper, Live, BFP executable maturity, or trading authority.
 
 #### TARGET plugin failure-status compatibility
 
