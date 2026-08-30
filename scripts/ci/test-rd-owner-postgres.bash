@@ -59,7 +59,18 @@ check_nextest_graph_contract() {
   fi
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/build.yml")" -ne 2 ]]; then
-    echo "ERROR: workspace and isolated CI steps must use the same feature graph." >&2
+    echo "ERROR: workspace CI and local rust test step must use the shared feature graph." >&2
+    return 1
+  fi
+  if ! rg -Uq \
+    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance' \
+    "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
+    echo "ERROR: rd-owner-postgres workflow must define sealed-develop-composer-acceptance feature union." >&2
+    return 1
+  fi
+  if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
+    "$repository_root/.github/workflows/rd-owner-postgres.yml" >/dev/null; then
+    echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
     return 1
   fi
 }

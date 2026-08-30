@@ -587,11 +587,15 @@ jobs:
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
       - name: Run Rust tests
+        id: rust-tests
         run: >-
           make cargo-test NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
       - name: Run isolated R&D Owner PostgreSQL tests
+        if: >-
+          ${{ (steps.rust-tests.result == 'success' ||
+          steps.rust-tests.result == 'failure') && !cancelled() }}
         run: >-
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
@@ -651,11 +655,9 @@ jobs:
                [[ "$REF_NAME" == master ]]; }; then
             test "$RUST_TESTS_RESULT" = success
             test "$RUST_DOCTESTS_RESULT" = success
-            test "$RD_OWNER_POSTGRES_RESULT" = success
           else
             test "$RUST_TESTS_RESULT" = skipped
             test "$RUST_DOCTESTS_RESULT" = skipped
-            test "$RD_OWNER_POSTGRES_RESULT" = skipped
           fi
 
   # Linux ARM64, macOS ARM64, and Windows x86_64 wheels build only on nightly and master
