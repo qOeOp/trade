@@ -1687,19 +1687,32 @@ async fn validate_backtest_transaction_binding_v2(
         ));
     }
 
-    let backtest_identity: String = sqlx::query_scalar("SELECT current_user")
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    if backtest_identity != "backtest_owner" {
+    let (backtest_session_identity, backtest_current_identity): (String, String) =
+        sqlx::query_as("SELECT session_user,current_user")
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    if backtest_session_identity != "backtest_owner"
+        || backtest_current_identity != "backtest_owner"
+    {
         return Err(ExploratoryReplayOwnerError::Unavailable(
-            "canonical backtest_owner session required".into(),
+            "canonical backtest_owner login session required".into(),
         ));
     }
 
     let backtest_role_ok: bool = sqlx::query_scalar(
         "SELECT role.rolcanlogin
             AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_roles role_entry
+               WHERE role_entry.rolname<>'backtest_owner'
+                 AND NOT role_entry.rolsuper
+                 AND (
+                   pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+                   OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','SET')
+                 )
+            )
            FROM pg_catalog.pg_roles role
           WHERE role.rolname=current_user",
     )

@@ -1681,6 +1681,55 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     );
 }
 
+#[tokio::test]
+#[ignore = "requires a disposable topology with a SET-only Backtest role member"]
+async fn caller_transaction_rejects_set_only_backtest_role_impersonation() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let sealed = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("frozen Replay V2 request");
+    let impersonator_url = format!("{}?options=-c%20role%3Dbacktest_owner", fixture.edge_url);
+    let impersonator_pool = PgPool::connect(&impersonator_url)
+        .await
+        .expect("product_edge_owner SET-only impersonator pool");
+    let mut impersonator_transaction = impersonator_pool
+        .begin()
+        .await
+        .expect("product_edge_owner impersonator transaction");
+    let (session_identity, current_identity, has_usage, has_set): (String, String, bool, bool) =
+        sqlx::query_as(
+            "SELECT session_user,current_user,
+                pg_catalog.pg_has_role(session_user,'backtest_owner','USAGE'),
+                pg_catalog.pg_has_role(session_user,'backtest_owner','SET')",
+        )
+        .fetch_one(&mut *impersonator_transaction)
+        .await
+        .expect("SET-only impersonator identity");
+    assert_eq!(session_identity, "product_edge_owner");
+    assert_eq!(current_identity, "backtest_owner");
+    assert!(!has_usage);
+    assert!(has_set);
+
+    let rejection = fixture
+        .owner
+        .lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+            &mut impersonator_transaction,
+            sealed.locator(),
+        )
+        .await
+        .expect_err("SET-only transaction must receive no sealed Replay V2 readback");
+    assert!(matches!(
+        rejection,
+        ExploratoryReplayOwnerError::Unavailable(_)
+    ));
+    impersonator_transaction
+        .rollback()
+        .await
+        .expect("rollback impersonator transaction");
+}
+
 async fn assert_unavailable(
     owner: &PostgresResearchGoalOwnerV1,
     locator: &ExploratoryReplayRequestLocatorV1,

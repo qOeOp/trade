@@ -344,6 +344,20 @@ cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factor
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
   -- --ignored --exact
 
+stage="R&D transaction SET-only role impersonation rejection"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "GRANT backtest_owner TO product_edge_owner WITH INHERIT FALSE, SET TRUE"
+if ! cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
+  --test exploratory_replay_request_owner \
+  caller_transaction_rejects_set_only_backtest_role_impersonation \
+  -- --ignored --exact; then
+  oracle_failed=true
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --command "REVOKE backtest_owner FROM product_edge_owner"
+
 stage="Backtest Replay V2 revocation-before-insert oracle"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
