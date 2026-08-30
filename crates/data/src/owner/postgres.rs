@@ -51,6 +51,9 @@ use super::{
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
     },
+    sample_fact::{
+        PreparedSampleCommitV1, StoredSampleReadbackV1, verify_stored_sample_readback_v1,
+    },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
         SharedTimeEvidenceError, UntrustedClockHeadLocator, build_epoch_successor_proof,
@@ -689,6 +692,29 @@ pub(super) struct PreparedSampleCustodyV1 {
 }
 
 impl PreparedSampleCustodyV1 {
+    fn from_prepared_contract(value: &PreparedSampleCommitV1) -> Self {
+        Self {
+            sample_identity: value.sample_identity(),
+            fact_digest: value.fact_digest(),
+            series_identity: value.series_identity(),
+            series_predecessor_identity: value.series_predecessor(),
+            series_sequence: value.series_sequence(),
+            correction_slot_identity: value.correction_slot_identity(),
+            correction_predecessor_identity: value.correction_predecessor(),
+            correction_sequence: value.correction_sequence(),
+            logical_time: value.logical_time(),
+            lineage_version: value.lineage_version(),
+            projection_receipt_digest: value.timeframe_projection_receipt_digest(),
+            projection_receipt_bytes: value.timeframe_projection_receipt_bytes().to_vec(),
+            fact_bytes: value.fact_canonical_bytes().to_vec(),
+            receipt_digest: value.sample_receipt_digest(),
+            receipt_bytes: value.sample_receipt_canonical_bytes().to_vec(),
+            outbox_identity: value.outbox_identity(),
+            outbox_payload_digest: value.outbox_payload_digest(),
+            outbox_payload_bytes: value.outbox_canonical_payload_bytes().to_vec(),
+        }
+    }
+
     /// Adapts contract-verified opaque values into the Owner-private PostgreSQL boundary.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn from_verified_contract(
@@ -780,6 +806,65 @@ pub(super) enum SampleCustodyErrorV1 {
 }
 
 impl MarketDataOwnerPostgres {
+    /// Persists one contract-verified sample and returns a verified native readback.
+    ///
+    /// The timeframe projection is idempotently stored first under its own immutable receipt;
+    /// the sample fact, receipt, outbox, and both heads then commit atomically together.
+    pub(crate) async fn commit_prepared_sample_v1(
+        &self,
+        prepared: &PreparedSampleCommitV1,
+    ) -> Result<StoredSampleReadbackV1, SampleCustodyErrorV1> {
+        self.store_timeframe_projection_receipt_v1(
+            prepared.timeframe_projection_receipt_digest(),
+            prepared.timeframe_projection_receipt_bytes(),
+        )
+        .await?;
+        let custody = PreparedSampleCustodyV1::from_prepared_contract(prepared);
+        let stored = self.commit_sample_custody_v1(&custody).await?;
+        if stored.receipt_digest() != prepared.sample_receipt_digest()
+            || stored.exact_receipt_bytes() != prepared.sample_receipt_canonical_bytes()
+        {
+            return Err(SampleCustodyErrorV1::StoreUnavailable);
+        }
+        verify_stored_sample_readback_v1(
+            prepared.fact_canonical_bytes(),
+            prepared.fact_digest(),
+            stored.exact_receipt_bytes(),
+            stored.receipt_digest(),
+        )
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)
+    }
+
+    /// Resolves and verifies one exact historical native sample readback.
+    pub(crate) async fn resolve_prepared_sample_v1(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StoredSampleReadbackV1, SampleCustodyErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        let stored = load_sample_custody(&mut transaction, receipt_digest)
+            .await?
+            .ok_or(SampleCustodyErrorV1::UnknownReceipt)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+        verify_stored_sample_readback_v1(
+            &stored.prepared.fact_bytes,
+            stored.prepared.fact_digest,
+            &stored.prepared.receipt_bytes,
+            stored.prepared.receipt_digest,
+        )
+        .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)
+    }
+
     /// Stores one already-validated timeframe projection receipt without interpreting its label.
     pub(super) async fn store_timeframe_projection_receipt_v1(
         &self,
@@ -1315,12 +1400,7 @@ async fn validate_series_predecessor(
     let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT sample_identity FROM market_data_private.sample_series_heads_v1 WHERE series_identity=$1 FOR UPDATE")
         .bind(prepared.series_identity.as_slice()).fetch_optional(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
     match prepared.series_predecessor_identity {
-        None if head.is_none()
-            && prepared.series_sequence == 1
-            && prepared.lineage_version == 1 =>
-        {
-            Ok(())
-        }
+        None if head.is_none() => Ok(()),
         Some(predecessor) if head.as_deref() == Some(predecessor.as_slice()) => {
             let prior = sqlx::query("SELECT series_identity,series_sequence,logical_time,lineage_version FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1")
                 .bind(predecessor.as_slice()).fetch_optional(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
@@ -1335,10 +1415,7 @@ async fn validate_series_predecessor(
                         .checked_add(1)
                         .ok_or(SampleCustodyErrorV1::SeriesHeadConflict)?
                 && prepared.logical_time > prior_time
-                && prepared.lineage_version
-                    == prior_version
-                        .checked_add(1)
-                        .ok_or(SampleCustodyErrorV1::SeriesHeadConflict)?
+                && prepared.lineage_version >= prior_version
             {
                 Ok(())
             } else {
@@ -1356,7 +1433,7 @@ async fn validate_correction_predecessor(
     let head: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT sample_identity,series_identity FROM market_data_private.sample_correction_heads_v1 WHERE correction_slot_identity=$1 FOR UPDATE")
         .bind(prepared.correction_slot_identity.as_slice()).fetch_optional(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
     match prepared.correction_predecessor_identity {
-        None if head.is_none() && prepared.correction_sequence == 1 => Ok(()),
+        None if head.is_none() => Ok(()),
         Some(predecessor)
             if head.as_ref().is_some_and(|(identity, series)| {
                 identity.as_slice() == predecessor && series.as_slice() == prepared.series_identity
