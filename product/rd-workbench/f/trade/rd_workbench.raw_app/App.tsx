@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useEffect, useMemo, useRef, useState } from "react"
 import {
   actionControls,
   artifactActionControls,
   artifactInvocationAdmission,
+  artifactFailureDisposition,
   freezeS1ContextForOwnedAttempt,
   artifactAvailableAt,
   artifactBoundToS1Context,
@@ -196,15 +197,6 @@ const initial = {
   independenceRationale: "No known local semantic predecessor before direct R&D lineage resolution.",
 }
 
-function boundedOwnerResult<T>(operation: Promise<T>): Promise<T> {
-  return Promise.race([
-    operation,
-    new Promise<T>((_, reject) => {
-      window.setTimeout(() => reject(new Error("OWNER_RESULT_TIMEOUT")), 5_000)
-    }),
-  ])
-}
-
 export default function App() {
   const [form, setForm] = useState(initial)
   const [requestIdentity, setRequestIdentity] = useState(() => `research-request-${crypto.randomUUID()}`)
@@ -218,6 +210,7 @@ export default function App() {
   const [s1Context, setS1Context] = useState<VerifiedS1ConsumerContextV1 | null>(null)
   const [artifactS1Context, setArtifactS1Context] = useState<VerifiedS1ConsumerContextV1 | null>(null)
   const [busy, setBusy] = useState(false)
+  const ownerCallToken = useRef<symbol | null>(null)
   const [consumerClockEpochMs, setConsumerClockEpochMs] = useState(() => Date.now())
   const researchViewAvailable = researchAvailableAt(result, s1Context, consumerClockEpochMs)
   const artifactDisplayContext = s1Context ?? artifactS1Context
@@ -274,6 +267,20 @@ export default function App() {
     return "已提交或结果未知"
   }, [result])
 
+  function acquireOwnerCall(): symbol | null {
+    if (ownerCallToken.current !== null) return null
+    const token = Symbol("owner-call")
+    ownerCallToken.current = token
+    setBusy(true)
+    return token
+  }
+
+  function releaseOwnerCall(token: symbol) {
+    if (ownerCallToken.current !== token) return
+    ownerCallToken.current = null
+    setBusy(false)
+  }
+
   useEffect(() => {
     const cuts = [s1Context?.valid_through_epoch_ms, artifactResult?.research_view?.valid_through_epoch_ms]
       .filter((value): value is number => typeof value === "number" && value > consumerClockEpochMs)
@@ -282,57 +289,62 @@ export default function App() {
     const timer = window.setTimeout(() => {
       const now = Date.now()
       setConsumerClockEpochMs(now)
-      if (busy) return
+      const token = acquireOwnerCall()
+      if (token === null) return
       void (async () => {
-        let refreshedContext = s1Context
-        if (s1Context && now >= s1Context.valid_through_epoch_ms) {
-          try {
-            const refreshed = await boundedOwnerResult(backend.research_goal({
-              action: "RESOLVE",
-              request_identity: requestIdentity,
-            }) as Promise<OwnerResult>)
-            const projected = await verifyResearchConsumerProjectionV1(refreshed, requestIdentity) as OwnerResult
-            setResult(projected)
-            refreshedContext = await deriveVerifiedS1ConsumerContextV1(projected, requestIdentity)
-            setS1Context(refreshedContext)
-          } catch {
-            setResult(unknownResearchProjectionV1(requestIdentity) as OwnerResult)
-            refreshedContext = null
-            setS1Context(null)
+        try {
+          let refreshedContext = s1Context
+          if (s1Context && now >= s1Context.valid_through_epoch_ms) {
+            try {
+              const refreshed = await (backend.research_goal({
+                action: "RESOLVE",
+                request_identity: requestIdentity,
+              }) as Promise<OwnerResult>)
+              const projected = await verifyResearchConsumerProjectionV1(refreshed, requestIdentity) as OwnerResult
+              setResult(projected)
+              refreshedContext = await deriveVerifiedS1ConsumerContextV1(projected, requestIdentity)
+              setS1Context(refreshedContext)
+            } catch {
+              setResult(unknownResearchProjectionV1(requestIdentity) as OwnerResult)
+              refreshedContext = null
+              setS1Context(null)
+            }
           }
-        }
-        const artifactCut = artifactResult?.research_view?.valid_through_epoch_ms
-        if (artifactResult && typeof artifactCut === "number" && now >= artifactCut) {
-          try {
-            const refreshed = await boundedOwnerResult(backend.artifact_build({
-              action: "RESOLVE",
-              build_request_identity: buildRequestIdentity,
-              attempt_identity: attemptIdentity,
-              research_request_identity: requestIdentity,
-              identity_mode: "EXACT",
-            }) as Promise<ArtifactResult>)
-            const terminalContext = await deriveVerifiedArtifactS1ContextV1(
-              refreshed,
-              buildRequestIdentity,
-              attemptIdentity,
-              requestIdentity,
-            )
-            const verificationContext = refreshedContext ?? terminalContext
-            const projectedArtifact = await verifyArtifactConsumerProjectionV1(
-              refreshed,
-              buildRequestIdentity,
-              attemptIdentity,
-              verificationContext,
-            ) as ArtifactResult
-            setArtifactResult(projectedArtifact)
-            setArtifactS1Context((current) => freezeS1ContextForOwnedAttempt(
-              projectedArtifact,
-              verificationContext,
-              current,
-            ))
-          } catch {
-            setArtifactResult(unknownArtifactProjectionV1(buildRequestIdentity, attemptIdentity) as ArtifactResult)
+          const artifactCut = artifactResult?.research_view?.valid_through_epoch_ms
+          if (artifactResult && typeof artifactCut === "number" && now >= artifactCut) {
+            try {
+              const refreshed = await (backend.artifact_build({
+                action: "RESOLVE",
+                build_request_identity: buildRequestIdentity,
+                attempt_identity: attemptIdentity,
+                research_request_identity: requestIdentity,
+                identity_mode: "EXACT",
+              }) as Promise<ArtifactResult>)
+              const terminalContext = await deriveVerifiedArtifactS1ContextV1(
+                refreshed,
+                buildRequestIdentity,
+                attemptIdentity,
+                requestIdentity,
+              )
+              const verificationContext = refreshedContext ?? terminalContext
+              const projectedArtifact = await verifyArtifactConsumerProjectionV1(
+                refreshed,
+                buildRequestIdentity,
+                attemptIdentity,
+                verificationContext,
+              ) as ArtifactResult
+              setArtifactResult(projectedArtifact)
+              setArtifactS1Context((current) => freezeS1ContextForOwnedAttempt(
+                projectedArtifact,
+                verificationContext,
+                current,
+              ))
+            } catch {
+              setArtifactResult(unknownArtifactProjectionV1(buildRequestIdentity, attemptIdentity) as ArtifactResult)
+            }
           }
+        } finally {
+          releaseOwnerCall(token)
         }
       })()
     }, Math.max(0, nextCut - Date.now()) + 1)
@@ -353,9 +365,9 @@ export default function App() {
 
   async function invoke(action: "SUBMIT" | "RESOLVE") {
     if ((action === "SUBMIT" && !controls.canSubmit) || (action === "RESOLVE" && !controls.canResolve && !canResolveImportedRequest)) return
-    setBusy(true)
+    const token = acquireOwnerCall()
+    if (token === null) return
     if (action === "SUBMIT") {
-      setResult(unknownResearchProjectionV1(requestIdentity) as OwnerResult)
       setS1Context(null)
     }
     try {
@@ -376,7 +388,7 @@ export default function App() {
           interpretation: form.interpretation,
         }],
       } : undefined
-      const response = await boundedOwnerResult(backend.research_goal({
+      const response = await (backend.research_goal({
         action,
         request_identity: requestIdentity,
         goal,
@@ -398,7 +410,7 @@ export default function App() {
       setResult(unknownResearchProjectionV1(requestIdentity) as OwnerResult)
       setS1Context(null)
     } finally {
-      setBusy(false)
+      releaseOwnerCall(token)
     }
   }
 
@@ -424,7 +436,8 @@ export default function App() {
       nowEpochMs: consumerClockEpochMs,
     })
     if (!admission.canInvoke) return
-    setBusy(true)
+    const token = acquireOwnerCall()
+    if (token === null) return
     let artifactBackendStarted = false
     let expectedS1Context = admission.context
     try {
@@ -434,13 +447,13 @@ export default function App() {
           setArtifactS1Context((current) => current ?? expectedS1Context)
         }
         setArtifactResult(unknownArtifactProjectionV1(buildRequestIdentity, attemptIdentity) as ArtifactResult)
-        return boundedOwnerResult(backend.artifact_build({
+        return backend.artifact_build({
           action,
           build_request_identity: buildRequestIdentity,
           attempt_identity: attemptIdentity,
           research_request_identity: requestIdentity,
           identity_mode: action === "RUN" && !admission.recovery ? "GENERATE" : "EXACT",
-        }) as Promise<ArtifactResult>)
+        }) as Promise<ArtifactResult>
       }
       let response: ArtifactResult
       if (action === "RUN") {
@@ -450,10 +463,10 @@ export default function App() {
           artifactResult,
           buildRequestIdentity,
           attemptIdentity,
-          resolveResearch: () => boundedOwnerResult(backend.research_goal({
+          resolveResearch: () => backend.research_goal({
             action: "RESOLVE",
             request_identity: requestIdentity,
-          }) as Promise<OwnerResult>),
+          }) as Promise<OwnerResult>,
           projectResearch: async (value: unknown, identity: string) => {
             const projected = await verifyResearchConsumerProjectionV1(value, identity) as OwnerResult
             const refreshedContext = await deriveVerifiedS1ConsumerContextV1(projected, identity)
@@ -510,13 +523,13 @@ export default function App() {
       setArtifactResult(projected)
       setConsumerClockEpochMs(Date.now())
     } catch {
-      if (artifactBackendStarted && admission.recovery) {
+      if (artifactFailureDisposition(artifactBackendStarted) === "SUBMITTED_OR_UNKNOWN") {
         setArtifactResult(unknownArtifactProjectionV1(buildRequestIdentity, attemptIdentity) as ArtifactResult)
       } else {
         setArtifactResult(null)
       }
     } finally {
-      setBusy(false)
+      releaseOwnerCall(token)
     }
   }
 
