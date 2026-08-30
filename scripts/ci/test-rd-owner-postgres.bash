@@ -65,6 +65,12 @@ if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
 
+if [[ -z "${CARGO_CI_PROFILE:-}" ]]; then
+  echo "ERROR: CARGO_CI_PROFILE must select a Cargo compile profile." >&2
+  exit 1
+fi
+readonly cargo_ci_profile="$CARGO_CI_PROFILE"
+
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
   exit 1
@@ -385,45 +391,45 @@ export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 # This is the first application connection to the fresh database. The real
 # rd_owner role must migrate its own storage and expose only its sealed read API
 # before the real qualification_writer role validates its custody.
-cargo test --locked --package vibe-strategy-factory --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \
   product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates \
   -- --ignored --exact
 
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --features sealed-develop-composer-acceptance \
   --test develop_composer_owner_v2 \
   durable_owner_is_atomic_restart_exact_and_fail_closed \
   -- --ignored --exact
 
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test source_intake \
   postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed \
   -- --ignored --exact
 
 # Exercise the first positive R&D Owner API artifact consumer only after its
 # Source Intake schema dependency exists and before any test corrupts Owner rows.
-cargo test --locked --package vibe-strategy-factory-rd-owner-api \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory-rd-owner-api \
   --bin strategy-factory-rd-owner-api \
   tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once \
   -- --ignored --exact
 
-cargo test --locked --package vibe-product-edge --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-product-edge --lib \
   postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical \
   -- --ignored --exact
 
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test exploratory_replay_request_owner \
   frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner \
   -- --ignored --exact
 
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test exploratory_replay_request_owner \
   replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox \
   -- --ignored --exact
 
 # This test deliberately leaves a raw Source Intake row corrupt. Run it only
 # after every positive consumer that must observe healthy Owner lineage.
-cargo test --locked --package vibe-strategy-factory \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory \
   --test source_intake \
   postgres_readback_rejects_tampered_raw_payload \
   -- --ignored --exact
@@ -432,7 +438,7 @@ cargo test --locked --package vibe-strategy-factory \
 # prove post-claim retry does not re-admit live Research. It must remain the
 # absolute last test so its poisoned row cannot contaminate another test's
 # global lineage verification. The catalog-only ACL oracle follows safely.
-cargo test --locked --package vibe-strategy-factory --lib \
+cargo test --locked --profile "$cargo_ci_profile" --package vibe-strategy-factory --lib \
   artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut \
   -- --ignored --exact
 
