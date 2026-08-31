@@ -141,7 +141,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
   raw receipt、capability、query、DTO 或 evidence accessor。通用 S3 catalog 仍只提供机制而非权威。
 - **TARGET：** 一个非业务 Deployment Store Admission Custodian 作为 Market Data 私有 seam，只拥有 signed append-only manifest/history、
   唯一 signed current head、direct target measurement、immutable admission receipt、rotation fence 与 custody
-  incident。它不是业务 `authorityOwner`、Flow 或 Dashboard node。其首个准确 deployment/bootstrap consumer 是
+  incident。它不是业务 `authorityOwner`、Flow 或 Dashboard node。预期的默认 deployment/bootstrap consumer 仍是
   `product/rd-workbench/docker-compose.yml#services.rd-owner-api`，根为
   `crates/strategy_factory_rd_owner_api/src/main.rs::main`。Market Data 在构造受治理 PostgreSQL repository 前，
   其私有 seam 必须消费一个 sealed receipt，绑定准确 environment、deployment、Market Data Owner、
@@ -150,16 +150,34 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
   signature、head、anti-rollback witness、direct measurement、credential lease 与 closed rotation fence。restart
   或 cache loss 必须重复 signature/head verification 与 direct measurement；歧义不构造 Owner repository，也不
   触发 business retry。receipt 与 raw store evidence 保持私有；普通 consumer 首个可见值是 Market Data 密封的
-  `ResearchPitTerminal`。
+  `ResearchPitTerminal`。在独立的 production resolver、signer、witness、credential-resolver 与 direct-
+  measurement adapter 存在前，该默认产品入口保持 `UNAVAILABLE`。
+- **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 在上述生产 adapter 存在前，只有这个被显式选择、由
+  request 驱动的 profile 获准作为非默认动态验收拓扑。disposable PostgreSQL target 只有在收到 canonical management
+  plane 预置、且位于 repository、candidate、caller、consumer 与被测进程之外的 immutable acceptance trust
+  bundle 后才可准入；该 bundle 固定 acceptance environment、signer key fingerprint、witness、credential-
+  resolver 与 direct-measurer identity。分别执行的独立 principal 签发 signed append-only manifest/history 及
+  准确 current head、维护 anti-rollback witness、租赁 opaque credential handle、直接测量 target 并关闭 rotation
+  fence；candidate/caller 不拥有 signer private key、witness write authority、credential material 或 measurement
+  authority。sealed admission receipt 交叉绑定完整 trust bundle 与每项 observation。Market Data 私有
+  custodian 保留这些证据与 credential；随后 Owner-issued request 解析为准确 projection/event locator 与
+  durable readback，consumer 只能获得密封、只读的 `StrategyInputSampleEventResolverV1`。`ProgramHost` 把 request
+  选定的 Owner input 送入真实 BacktestEngine 与 Sim Exchange；Backtest 密封实际消费与 diagnosis，并在一个
+  原子提交中写入准确 request、attempt 与 terminal result。逐字节相同 retry 加入相同 bytes，含义冲突被拒绝，
+  restart 必须返回相同 Owner readback。caller digest、raw DSN、fixture、fixed corpus、in-memory/temp-file writer
+  以及由 candidate、caller、consumer 或被测进程派生的 signer/witness/credential/measurer 均不能铸造任何
+  正向权威。
 - **TARGET / UNAVAILABLE：** S3 fan-out 等待真实 catalog consumer 与 pinned disposable S3-compatible test
   authority。production signer、resolver 与 anti-rollback witness adapter 在有证据前保持 unavailable。
 - **NOT_ADMITTED：** 不创建 business fact/receipt、global registry、scheduler、deployment service、caller-authored
   positive evidence；artifact/log 不保存 raw DSN/secret/private key；不自动执行 DDL/role/credential/bucket
-  mutation、provider probe、production write、Dashboard implementation 或 trading。
+  mutation、provider probe、production write、Dashboard implementation 或 trading。隔离验收绝不提升为
+  production readiness、deployment authority、Paper、Live、real trading 或另一项 production write。
 
 Shared Time producer 先于其 Portfolio consumer。disposable PostgreSQL acceptance 必须贯穿私有 admission、
-前后 revalidation、Market Data current-head 校验与 sealed RD Workbench consumer 边界；fixture proof 不是
-production adapter evidence。S3 fan-out 保持更后且有条件。
+前后 revalidation、Market Data current-head 校验与被显式选择的隔离 consumer 边界；fixture proof 不是
+production adapter evidence。默认 RD Workbench 路径与 S3 fan-out 仍须等待各自独立 adapter，保持更后、
+unavailable 且有条件。
 
 ## Provider 有类型端口证据
 

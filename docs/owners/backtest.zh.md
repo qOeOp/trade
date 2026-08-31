@@ -62,6 +62,36 @@ input receipt 与 cut、replay configuration、runtime/kernel/simulator identity
 seed、range、calendar/time-zone 含义和 semantic-trace digest。消费证据缺失或不匹配时不得生成正向
 receipt；两个 caller-authored DTO 相等绝不构成 request-result correlation。
 
+### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` 终态结果路径
+
+**TARGET / ISOLATED_ACCEPTANCE_ONLY：** 这个被显式选择、由 request 驱动的路径，是对应 Market Data 隔离
+profile 唯一获准的动态验收 consumer。Backtest 只接收准确的 R&D Owner-issued 密封 request locator 与 receipt，
+并先通过固定只读 R&D Owner port resolve 其 canonical bytes 与 digest；同时还必须取得 Market Data 为该 request
+密封的只读 `StrategyInputSampleEventResolverV1` capability。它通过 `ProgramHost` 解析准确的
+request-selected Owner `EVENT` input 前，还必须取得新增的版本化 Owner binding receipt；该 receipt 交叉绑定
+sealed request、准确 Market Data projection receipt digest 与 Owner-native event identity。Replay V2 的
+`resolved_owner_inputs` 单独只是通用 content addressing，不能授权或重建这项 binding。
+它使用真实 BacktestEngine 与 Sim Exchange 执行，并只从这些组件的实际
+消费派生 actual-consumption record、完整 diagnosis、semantic trace 与 terminal result。caller 提供的 request、
+digest、DSN、fixture、fixed corpus 或重建 input 均不能替代任何 Owner handoff 或铸造 result。
+获准的 Store Admission receipt 还必须绑定 immutable external acceptance trust bundle，以及彼此独立的 signer、
+witness、credential-resolver 与 direct-measurer identity；由 candidate、caller、consumer 或被测进程派生的
+任何 authority 均不能满足该 prerequisite。
+
+一个 Backtest Owner transaction 必须一起提交准确 request identity/canonical bytes、唯一 attempt、密封 actual-
+consumption/diagnosis record 与 terminal result。逐字节相同 retry 加入同一个 attempt 并返回相同 canonical
+result receipt bytes；同一 identity 下 request、consumption、diagnosis 或 result bytes 任一不同即为 conflict，
+且零写入。process 与 repository restart 后，Owner 必须解析 request locator，并返回逐字节相同的 attempt、
+result receipt 与 actual-consumption readback。不得用 separate pool、in-memory/temp-file writer、caller
+persistence 或 response-loss retry 拆分或重建该原子 custody。
+
+Store Admission head/rotation/ACL/credential/measurement、Owner request、projection/event locator、sealed
+resolver、event 或 readback 任一缺失、过期、已取代、role 错误或不匹配，都必须在 `ProgramHost` invocation 或
+Backtest mutation 前失败，且不产生正向 receipt/result。隔离证明只覆盖该 disposable PostgreSQL topology；
+绝不建立 production readiness、default-product reachability、deployment authority、protected replay
+acceptance、Paper、Live、real trading 或另一项 production write，所有独立 production adapter 均保持
+`UNAVAILABLE`。
+
 ## 输入交接
 
 - [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，绑定准确不可变工件 请求 PIT 数据

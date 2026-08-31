@@ -353,21 +353,41 @@ current head、anti-rollback witness、direct measurement、credential lease 与
 自写 positive evidence 组装。restart 或 cache loss 必须重验 signature/head 并重新测量目标。任何歧义都不构造
 Owner repository，也不触发 business retry。
 
-首个准确 consumer 是默认 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。Market Data 在构造
+预期的默认 consumer 是 `product/rd-workbench` 的 `rd-owner-api` bootstrap composition。Market Data 在构造
 受治理 PostgreSQL repository 之前，其私有 seam 必须消费一个绑定准确 Market Data Owner、PostgreSQL backend、
 environment、deployment 与 consumer identity 的 sealed store-admission receipt。S3 保持 TARGET 和
 `UNAVAILABLE`，直到存在真实 catalog consumer 与 pinned disposable S3-compatible test authority。receipt 与 raw
 store/PIT/source/clock evidence 保留在 Market Data 内；普通 consumer 首个可见值是 sealed
-`ResearchPitTerminal`。
+`ResearchPitTerminal`。在独立的 production resolver、signer、anti-rollback witness、credential-resolver 与
+direct-measurement adapter 存在前，默认产品入口保持 `UNAVAILABLE`。
+
+**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET：** 在上述 adapter 存在前，只有这个被显式选择的 profile
+获准作为非默认、非生产动态验收拓扑。canonical management plane 在 repository、candidate、caller、consumer 与被测进程
+之外预置 immutable acceptance trust bundle，固定 environment、signer key fingerprint、witness、credential-
+resolver 与 direct-measurer identity。分别执行的独立 principal 签发 signed append-only manifest/history 与
+准确 current head、维护 witness、租赁 opaque credential handle、直接测量 disposable PostgreSQL target 并关闭
+rotation；candidate/caller 不拥有其中任何写权限或 secret authority。admission receipt 交叉绑定该 bundle 与每项
+observation。其余 stages 是：Market Data 私有 admission/custodian；Owner-issued request 到
+projection/event locator 与 durable readback；密封只读 `StrategyInputSampleEventResolverV1`；`ProgramHost`；
+真实 BacktestEngine 与 Sim Exchange；以及带 restart readback 的 Backtest Owner terminal-result receipt。raw
+custody evidence 绝不交给 consumer。Backtest 原子提交准确 request、attempt、actual-consumption record、diagnosis
+与 result；逐字节相同 retry 加入相同 canonical bytes，含义变化则冲突且零写入。
+
+任一 signature、head、rotation、ACL、credential、measurement、request、locator、projection、event、role 或
+readback binding 缺失或不匹配时，该 profile 必须在 `ProgramHost` 或 Backtest mutation 前 fail closed。raw
+DSN、caller digest、fixture、fixed corpus、in-memory/temp-file writer，以及由 candidate、caller、consumer 或
+被测进程派生的 signer/witness/credential/measurer 均不能创建
+正向 resolver 或 result。成功的隔离证据只证明该准确 disposable topology；不能提升为 production readiness、
+deployment authority、Paper、Live、real trading 或另一项 production write。
 
 **NOT_ADMITTED：** custodian 不创建 business fact/receipt、global registry、scheduler 或 deployment service；
 artifact/log 不保存 raw DSN、secret 或 private key；不自动执行 DDL、role、credential、bucket mutation 或
 provider probe；也不授权 production write、Dashboard implementation 或 trading。
 
 Shared Time producer state machine 先于其 Portfolio consumer。disposable PostgreSQL acceptance 必须覆盖
-私有 admission、前后 revalidation、Market Data current-head 校验和 sealed RD Workbench consumer path；fixture
-不能证明 production adapter。production signer、resolver、witness 与 S3 adapter 在有自身证据前保持
-unavailable。
+私有 admission、前后 revalidation、Market Data current-head 校验和被显式选择的隔离 consumer path；fixture
+不能证明 production adapter。production signer、resolver、witness、credential-resolver、direct-measurement、
+default-product 与 S3 adapter 在有自身证据前保持 unavailable。
 
 Execution 面向 Product Edge 的 Effect Closure View 区分 `UNKNOWN_EFFECT` `NO_EFFECT` `SETTLED`，并绑定准确 effect frontier
 回读与对账截面 blocker freshness 和责任 Owner。Recovery 投影另行区分 Runtime readiness `NOT_READY`
