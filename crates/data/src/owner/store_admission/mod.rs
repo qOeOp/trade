@@ -518,18 +518,12 @@ impl AdmittedMarketDataSnapshotPort {
             .revalidator
             .admit_capability(self.scope.clone())
             .await?;
-        if !before.measurement_spec.covers_sample_projection_floor_v2() {
-            return Err(rejection(
-                &self.scope,
-                AdmissionFailureCode::DirectMeasurementMismatch,
-            ));
-        }
-        if !same_snapshot_cut(&self.receipt, &before.receipt) {
-            return Err(rejection(
-                &self.scope,
-                AdmissionFailureCode::AdmissionCutExpired,
-            ));
-        }
+        validate_sample_projection_revalidation_v2(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
         let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
             &before.credential_lease,
             &receipt_digest,
@@ -545,23 +539,33 @@ impl AdmittedMarketDataSnapshotPort {
             .revalidator
             .admit_capability(self.scope.clone())
             .await?;
-        if !after.measurement_spec.covers_sample_projection_floor_v2() {
-            return Err(rejection(
-                &self.scope,
-                AdmissionFailureCode::DirectMeasurementMismatch,
-            ));
-        }
-        if !same_snapshot_cut(&self.receipt, &after.receipt) {
-            return Err(rejection(
-                &self.scope,
-                AdmissionFailureCode::AdmissionCutExpired,
-            ));
-        }
+        validate_sample_projection_revalidation_v2(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
         Ok(StrategyInputSampleProjectionStorageEvidenceV2 {
             projection_row: raw.projection_row,
             timeframe_rows: raw.timeframe_rows,
             sample_rows: raw.sample_rows,
         })
+    }
+
+    /// Revalidates the exact V2 measurement floor and admission cut immediately before return.
+    pub(super) async fn revalidate_sample_projection_v2_before_return(
+        &self,
+    ) -> Result<(), DeploymentStoreAdmissionError> {
+        let current = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_sample_projection_revalidation_v2(
+            &self.scope,
+            &self.receipt,
+            &current.receipt,
+            &current.measurement_spec,
+        )
     }
 
     /// Reads one fixed Source Binding snapshot after full admission both before checkout and return.
@@ -716,6 +720,24 @@ fn same_snapshot_cut(
     observed: &SealedDeploymentStoreAdmissionReceipt,
 ) -> bool {
     expected == observed
+}
+
+fn validate_sample_projection_revalidation_v2(
+    scope: &AdmissionScope,
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+    observed_measurement_spec: &PostgresMeasurementSpec,
+) -> Result<(), DeploymentStoreAdmissionError> {
+    if !observed_measurement_spec.covers_sample_projection_floor_v2() {
+        return Err(rejection(
+            scope,
+            AdmissionFailureCode::DirectMeasurementMismatch,
+        ));
+    }
+    if !same_snapshot_cut(expected, observed) {
+        return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
+    }
+    Ok(())
 }
 
 /// Stable failure categories at the custody boundary.
@@ -2387,8 +2409,11 @@ mod tests {
             )
             .unwrap(),
         );
-        let custodian =
-            complete.custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+        let measurement_calls = Arc::new(AtomicUsize::new(0));
+        let custodian = complete.custodian(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&measurement_calls),
+        );
         let initial = custodian
             .admit_capability(complete.request.scope())
             .await
@@ -2397,19 +2422,44 @@ mod tests {
         let port = initial
             .into_sample_projection_snapshot_port()
             .expect("complete floor promotes projection port");
-        for _ in 0..2 {
-            let revalidated = port
-                .revalidator
-                .admit_capability(port.scope.clone())
-                .await
-                .expect("revalidation preserves complete floor");
-            assert!(
-                revalidated
-                    .measurement_spec
-                    .covers_sample_projection_floor_v2()
-            );
-            assert!(same_snapshot_cut(&port.receipt, &revalidated.receipt));
-        }
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 1);
+        port.revalidate_sample_projection_v2_before_return()
+            .await
+            .expect("return performs a distinct complete revalidation");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
+
+        let incomplete_spec = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec!["market_data_api.resolve_snapshot_v1(text)".to_string()],
+            vec!["market_data_private.snapshot_facts_v1".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            validate_sample_projection_revalidation_v2(
+                &port.scope,
+                &port.receipt,
+                &port.receipt,
+                &incomplete_spec,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+
+        let mut rotated = port.receipt.clone();
+        rotated.rotation_fence_identity = "rotation:new".to_string();
+        assert_eq!(
+            validate_sample_projection_revalidation_v2(
+                &port.scope,
+                &port.receipt,
+                &rotated,
+                &complete.history.manifests[1].manifest.measurement_spec,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
     }
 
     #[tokio::test]

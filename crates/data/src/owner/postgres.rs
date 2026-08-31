@@ -4658,8 +4658,13 @@ impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
             .resolve_sample_projection_v2(locator.receipt_digest())
             .await
             .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
-        verify_admitted_sample_projection_v2(locator.receipt_digest(), &evidence)
-            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)
+        let readback = verify_admitted_sample_projection_v2(locator.receipt_digest(), &evidence)
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        self.admitted_port
+            .revalidate_sample_projection_v2_before_return()
+            .await
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        Ok(readback)
     }
 }
 
