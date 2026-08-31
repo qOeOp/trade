@@ -7,6 +7,7 @@ pub mod instrument_master;
 pub mod pit_snapshot;
 pub mod research_pit_terminal;
 pub mod sample_fact;
+pub mod sample_projection;
 pub mod sealed_replay_input;
 pub mod shared_time_evidence;
 pub mod source_binding;
