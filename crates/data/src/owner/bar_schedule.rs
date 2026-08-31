@@ -727,6 +727,8 @@ pub(super) mod authority {
 
     #[cfg(test)]
     mod tests {
+        use rstest::rstest;
+
         use super::*;
 
         fn id(value: u8) -> BarScheduleIdentity {
