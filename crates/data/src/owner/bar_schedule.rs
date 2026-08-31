@@ -362,9 +362,11 @@ pub(super) mod authority {
         {
             return Err(BarScheduleError::InstrumentMasterMismatch);
         }
+
         if instrument_master.cut().effective_instant() != event {
             return Err(BarScheduleError::InstrumentMasterMismatch);
         }
+
         if !contains(proposal.effective_from, proposal.effective_until, event)
             || !contains(
                 master_fact.effective_from(),
@@ -568,6 +570,7 @@ pub(super) mod authority {
             identity: expected,
         };
         d.end()?;
+
         if receipt.store_generation_identity == zero() || receipt.store_append_sequence == 0 {
             return Err(BarScheduleError::InvalidCanonicalBytes);
         }
@@ -702,6 +705,7 @@ pub(super) mod authority {
             completion: f.completion,
         };
         validate_spec(&p)?;
+
         if !contains(f.effective_from, f.effective_until, f.cut_effective_instant)
             || [
                 f.calendar_identity,
@@ -796,7 +800,7 @@ pub(super) mod authority {
             }));
         }
 
-        #[test]
+        #[rstest]
         fn exact_readback_replays_unchanged() {
             let (fact, cut) = fact_and_cut();
             let receipt = build_receipt(&fact, &cut, id(11), 1).expect("stored receipt");
@@ -812,12 +816,12 @@ pub(super) mod authority {
             assert!(verify_readback(&readback));
         }
 
-        #[test]
+        #[rstest]
         fn recomputed_cut_effective_instant_splice_fails_closed() {
             assert_recomputed_splice_rejected(|cut| cut.effective_instant += 1);
         }
 
-        #[test]
+        #[rstest]
         fn recomputed_instrument_master_cut_splice_fails_closed() {
             assert_recomputed_splice_rejected(|cut| cut.instrument_master_cut_digest = id(12));
         }
@@ -832,6 +836,7 @@ fn validate_spec(p: &UntrustedBarScheduleProposalV1) -> Result<(), BarScheduleEr
     {
         return Err(BarScheduleError::UnsupportedSchedule);
     }
+
     match (p.kind, p.unit, p.step) {
         (
             BarScheduleKindV1::FixedInterval,
@@ -886,26 +891,26 @@ impl Encoder {
         self.bytes
     }
     fn u8(&mut self, v: u8) {
-        self.bytes.push(v)
+        self.bytes.push(v);
     }
     fn u32(&mut self, v: u32) {
-        self.bytes.extend_from_slice(&v.to_le_bytes())
+        self.bytes.extend_from_slice(&v.to_le_bytes());
     }
     fn u64(&mut self, v: u64) {
-        self.bytes.extend_from_slice(&v.to_le_bytes())
+        self.bytes.extend_from_slice(&v.to_le_bytes());
     }
     fn i128(&mut self, v: i128) {
-        self.bytes.extend_from_slice(&v.to_le_bytes())
+        self.bytes.extend_from_slice(&v.to_le_bytes());
     }
     fn digest(&mut self, v: BarScheduleIdentity) {
-        self.bytes.extend_from_slice(v.as_bytes())
+        self.bytes.extend_from_slice(v.as_bytes());
     }
     fn optional_digest(&mut self, v: Option<BarScheduleIdentity>) {
         match v {
             None => self.u8(0),
             Some(v) => {
                 self.u8(1);
-                self.digest(v)
+                self.digest(v);
             }
         }
     }
@@ -914,7 +919,7 @@ impl Encoder {
             None => self.u8(0),
             Some(v) => {
                 self.u8(1);
-                self.i128(v)
+                self.i128(v);
             }
         }
     }
