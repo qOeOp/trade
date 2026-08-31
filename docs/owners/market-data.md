@@ -376,17 +376,19 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
-### CURRENT/PARTIAL sample-fact and sample-receipt authority
+### CURRENT/PARTIAL EVENT authority; TARGET BAR authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
 `SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The
-additive BAR extension admitted here is limited to complete fixed-interval and exchange-session bars; partial bars
-remain TARGET. Market Data remains the sole writer of all these records. Every existing V1 binding, event, value,
-frame, joined-cut, row, digest, and byte meaning remains
+additive BAR contract below is `TARGET / UNAVAILABLE` until its schedule fact/cut/receipt custody and V3 projection
+receive dynamic PostgreSQL evidence; when admitted, it is limited to complete fixed-interval and exchange-session
+bars, while partial bars remain TARGET. Market Data remains the sole writer of all these records. Every existing V1
+binding, event, value, frame, joined-cut, row, digest, and byte meaning remains
 authoritative and byte-identical; no V1 record is deleted, synthesized, backfilled, garbage-collected, reinterpreted,
-or promoted. The additive `StrategyInputSampleProjectionReceiptV2` is the single canonical frame/join projection
-over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut codecs;
-the unchanged V1 event/value/frame/join receipts remain its exact evidence inputs.
+or promoted. The additive `StrategyInputSampleProjectionReceiptV2` remains the canonical EVENT frame/join
+projection over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut
+codecs; the unchanged V1 event/value/frame/join receipts remain its exact evidence inputs. BAR uses only the
+separate TARGET V3 projection described below and never widens or reinterprets V2.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -421,31 +423,55 @@ identity; it can never replace or alias the completed slot. Every bar interval i
 the bound anchor and schedule; `INTERVAL_OPEN` uses `open` as event-effective time and `INTERVAL_CLOSE` uses
 `close`. `POINT_EVENT` uses the source event-effective time.
 
-The first admitted BAR slice accepts only `COMPLETE_ONLY` for `FIXED_INTERVAL_BAR` and
+The first TARGET BAR slice accepts only `COMPLETE_ONLY` for `FIXED_INTERVAL_BAR` and
 `EXCHANGE_SESSION_BAR`. The canonical `ADMIT_PARTIAL_AS_DISTINCT_SLOT` codec is preserved for a later TARGET, but
 it is not executable admission in this slice and produces no positive projection, fact, receipt, or resolver result.
 
-The existing V1 binding's free-form timeframe string is provenance only and is never parsed or used to determine
-these bytes. `UntrustedTimeframeProjectionProposalV1` is a structured additive proposal keyed to one exact V1
-binding-receipt identity. It carries only that binding identity and typed kind, positive step, unit, label, and
-partial-bar rule; caller-supplied anchor, calendar, session, time-zone, or free-form label fields are not authority.
-Market Data alone re-resolves the exact binding and selected row in the exact `VerifiedPitObservationBatch`,
-derives the anchor from that row's exact verified Source Binding evidence, and verifies the binding, batch, Source
-Binding identity, lineage root, and lineage version as one unchanged anchor. For a BAR proposal it also resolves
-one exact single-fact `InstrumentMasterReadbackV1` and derives the applicable calendar, session, and time-zone
-evidence identities from that fact; zero calendar/session is admitted only when that exact Owner evidence proves a
-continuous clock. Missing, multiple, stale, mismatched, or caller-derived evidence produces no projection.
+The existing V1 binding's free-form timeframe string is provenance only. It is never parsed into typed schedule
+bytes and changing it cannot change a schedule identity, timeframe identity, or series identity. A caller may name
+an untrusted desired BAR shape, but that input has no direct projection authority and cannot mint, select, or mutate
+schedule, calendar, session, time-zone, anchor, label, partial rule, or instrument evidence.
 
-Only after that validation does Market Data issue one additive, immutable `TimeframeProjectionReceiptV1` keyed by
-the exact V1 binding-receipt digest. Its canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, V1
-binding-receipt digest `[u8; 32]`,
-timeframe identity `[u8; 32]`, and the complete fixed-width canonical `TimeframeSpecV1` bytes; its receipt identity
-is SHA-256 over `market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes`. The spec's four
-identities are the exact Owner-admitted calendar/session/time-zone/anchor evidence identities. The same
-V1 digest plus byte-identical projection is idempotent; the same digest with different bytes or identity is a
-conflict. Missing, ambiguous, or non-unique projection is unavailable. No consumer may parse `1D`, `1h`, another
-label, venue convention, or default into a spec. Exact historical projection readback remains available after any
-later Owner mapping or calendar change; a different mapping requires a successor V1 binding receipt.
+BAR authority starts only with an additive, immutable Owner PostgreSQL `BarScheduleFactV1`. Its canonical bytes are,
+in order: schema `u16LE = 1`, reserved-zero `u16LE`, schedule identity `[u8; 32]`, exact canonical
+`TimeframeSpecV1` bytes, Source Binding identity `[u8; 32]`, Source Binding lineage root `[u8; 32]`, lineage version
+`u64LE`, exact `InstrumentMasterFactV1` identity `[u8; 32]` and digest `[u8; 32]`, exact
+`InstrumentMasterCutV1` identity `[u8; 32]` and digest `[u8; 32]`, schedule-effective-from `u64LE`,
+schedule-effective-to `u64LE`, and Owner sequence `u64LE`; trailing
+bytes and an empty or inverted half-open interval are forbidden. The schedule identity is SHA-256 over
+`market-data.bar-schedule.identity.v1\0 || canonical schedule members excluding the schedule identity`, and the fact
+digest is SHA-256 over `market-data.bar-schedule-fact.v1\0 || canonical fact bytes`. Only Market Data may derive the
+typed spec and its anchor/calendar/session/time-zone identities from its verified Source Binding and an exact native
+`InstrumentMasterReadbackV1`; zero calendar/session is allowed only when that readback proves a continuous clock.
+
+`BarScheduleCutV1` binds that fact digest, the exact BAR interval open and close, the label-derived event-effective
+time, and the exact Owner observation/decision cut, all as `u64LE`, plus the exact Instrument Master cut identity
+and digest. At that exact BAR event/cut, both independent predicates must hold: the schedule fact's half-open
+effective interval and the Instrument Master fact's half-open effective interval each contain the event-effective
+instant (`from <= event_effective < until`), and the Instrument Master fact is observable at the bound decision cut
+under its existing clock/cut rule. The cut is never substituted for the effective instant. The BAR interval itself
+must be exactly the half-open `[open, close)` generated by the stored schedule. A boundary miss, different cut,
+stale or multiple fact, or caller-derived time produces no cut or receipt. Its digest is SHA-256 over
+`market-data.bar-schedule-cut.v1\0 || canonical cut bytes`.
+
+One Owner transaction appends the schedule fact and cut, writes an outbox row, and issues
+`BarScheduleReceiptV1`, whose canonical bytes bind schema `u16LE = 1`, reserved-zero `u16LE`, schedule identity,
+fact digest, cut digest, timeframe identity, Instrument Master fact/cut digests, Source Binding lineage root, lineage
+version, and Owner sequence in that order. Its digest is SHA-256 over
+`market-data.bar-schedule-receipt.v1\0 || canonical receipt bytes`. Byte-identical retry is idempotent; same identity
+with different content conflicts. Historical lookup returns a move-only `BarScheduleReadbackV1` with no public
+constructor, `Clone`, or deserialization path, and only after PostgreSQL verifies the stored fact, cut, receipt,
+outbox, effective containment, and digest chain. No caller locator or reconstructed bytes confer schedule authority.
+
+Only that verified readback can authorize the additive immutable `TimeframeProjectionReceiptV1` keyed by the exact
+V1 binding-receipt digest. Its existing canonical bytes and domain remain unchanged: schema `u16LE = 1`,
+reserved-zero `u16LE`, V1 binding-receipt digest `[u8; 32]`, timeframe identity `[u8; 32]`, and the complete
+fixed-width canonical `TimeframeSpecV1` bytes, with SHA-256 domain
+`market-data.timeframe-projection-receipt.v1\0`. The same V1 digest plus byte-identical projection is idempotent;
+different bytes conflict. Missing, ambiguous, non-unique, or non-durable schedule readback is unavailable. No
+consumer may parse `1D`, `1h`, another label, venue convention, or default into a spec. Exact historical schedule
+and projection readback remains available after later Owner mapping or calendar changes; those changes require a
+new Owner schedule fact/cut and cannot be smuggled through a free-form binding label.
 
 The `Owner event identity` carried by `SampleFactV1`, `SampleReceiptV1`, and the 308-byte coordinate is a new
 role-independent Market Data identity; it is not the existing V1 frame-trigger event identity. Its canonical
@@ -476,7 +502,7 @@ These tags are the sole canonical encoding of the unchanged V1 Owner strings ret
 `StrategyInputChannel` and `MarketDataFieldSemantic.data_kind`; the exact historical V1 binding/event value
 selects the tag, never the consumer. `0x00`, every unlisted tag or string, a tag/string mismatch, and any later
 registry value presented under schema version 1 are unsupported and produce no fact, series identity, receipt,
-or V2 coordinate. Extending either registry requires a successor schema version rather than reinterpretation of
+EVENT V2 coordinate, or BAR V3 coordinate. Extending either registry requires a successor schema version rather than reinterpretation of
 stored version-1 bytes.
 
 The version-1 series projection is one ordered Owner-derived codec. Its bytes are schema `u16LE = 1`,
@@ -509,7 +535,7 @@ timeframe identity `[u8; 32]`, Owner event identity `[u8; 16]`, logical time `u6
 `u64LE`, Owner sequence `u64LE`, canonical-row digest `[u8; 32]`, Source Binding lineage root `[u8; 32]`,
 lineage version `u64LE`, and Market Semantics identity `[u8; 32]`. They contain no input-role identity or static
 binding digest. Every alternate width, endianness, order, reserved value, missing byte, or trailing byte is
-unsupported and produces no receipt identity or V2 coordinate. Its stable digest is SHA-256 over
+unsupported and produces no receipt identity, EVENT V2 coordinate, or BAR V3 coordinate. Its stable digest is SHA-256 over
 `market-data.sample-receipt.v1\0 || canonical SampleReceiptV1 bytes`; those bytes are exactly the listed
 role-independent fact projection, is the receipt identity, and supplies the final sample-receipt-digest field of the
 existing exact 308-byte coordinate. The native resolver accepts only that exact Owner-authorized stable digest and
@@ -527,7 +553,8 @@ or mismatched trigger/value evidence produces no identity. This identity is not 
 replace the joined-cut receipt's private single-value component digest, and cannot be derived from only a trigger
 or one value.
 
-Only `StrategyInputSampleProjectionReceiptV2` forms a role-bound coordinate projection. Its canonical bytes are
+Only `StrategyInputSampleProjectionReceiptV2` forms the existing EVENT role-bound coordinate projection. Its
+canonical bytes are
 one header followed by fixed component entries. The header is, in order: schema `u16LE = 2`, reserved-zero
 `u16LE`, kind `u8` (`0x01 FRAME` or `0x02 JOINED_CUT`), exact subject identity/digest `[u8; 32]`, and positive
 component count `u32LE`. Each entry is exactly 612 bytes, in order: input-role identity `[u8; 32]`, static V1
@@ -550,6 +577,9 @@ snapshot/correction census must verify its lineage version. The V1 trigger's log
 sequence must equal the component's coordinate, while its role-bound event identity remains only the separately
 stored V1 evidence and is never copied into or equated with the role-independent native event identity. A
 current/latest lookup, partial component set, cross-frame/cut splice, or caller-derived field is unsupported.
+Both V2 kind tags retain exactly those FRAME and JOINED_CUT meanings, and every component must resolve an unchanged
+V1 `EVENT` lifecycle. A BAR lifecycle, BAR timeframe, BAR schedule receipt, or new interpretation of either tag is
+unsupported under schema 2 and produces no V2 receipt or readback.
 
 The V2 receipt identity and digest are the same SHA-256 over
 `market-data.sample-projection-receipt.v2\0 || canonical receipt bytes`. Market Data stores and resolves those
@@ -558,16 +588,37 @@ Owner sample keeps one native receipt and, for one role/binding, byte-identical 
 later trigger, while the enclosing V2 projection correctly changes with its V1 frame or joined cut. No projection
 can mint or alter the Owner sample receipt.
 
+The TARGET `StrategyInputBarSampleProjectionReceiptV3` is the only BAR role-bound projection. It has a separate
+domain and header and does not reuse V2 bytes. Its header is, in order: schema `u16LE = 3`, reserved-zero `u16LE`,
+lifecycle `u8 = 0x02 BAR`, projection kind `u8` (`0x01 FRAME` or `0x02 JOINED_CUT`, retaining those structural
+meanings), exact subject identity/digest `[u8; 32]`, and positive component count `u32LE`. Each entry is exactly
+676 bytes: the unchanged 612-byte component layout above followed by exact `BarScheduleReceiptV1` digest
+`[u8; 32]` and exact `BarScheduleCutV1` digest `[u8; 32]`. Entries remain strictly sorted by input-role identity;
+the total length is exactly `42 + 676 * count`. The V3 identity and digest are the same SHA-256 over
+`market-data.bar-sample-projection-receipt.v3\0 || canonical receipt bytes`. Lifecycle `EVENT`, an unknown lifecycle
+or projection kind, a BAR entry under V2, or any alternate order, width, count, or trailing byte is unsupported.
+
+Before durable V3 issuance, Market Data must resolve each move-only `BarScheduleReadbackV1`, historical timeframe
+projection, `SampleReceiptV1`, and V1 frame/join evidence from Owner PostgreSQL. It verifies the BAR lifecycle,
+byte-identical timeframe identity, schedule/fact/cut/receipt digest chain, exact Instrument Master fact/cut chain,
+half-open schedule and Instrument Master effective containment at the component's exact BAR event-effective instant
+under its exact bound decision cut,
+series identity, slot/predecessor topology, coordinate, and native sample receipt. All components must name the
+same projection subject and their own exact durable schedule cuts; no caller-supplied or latest/current evidence is
+accepted. PostgreSQL stores the exact V3 bytes and digest with an outbox row and resolves them historically after
+restart. Missing, stale, conflicting, cross-spliced, non-durable, or response-loss recovery evidence produces no
+positive V3 readback and no consumer mutation.
+
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the
 sample clock exactly once, even when its value bytes equal the predecessor. It never rewrites, replaces, masks,
 replays, or retroactively advances predecessor state. An ordinary equal-valued new slot is likewise a new sample
-and advances exactly once. Reusing one 1-hour or exchange-session `1d` sample under later 1-minute triggers returns
-the same receipt and coordinate bytes and causes no second sample-clock advance.
+and advances exactly once. For a future admitted BAR path, reusing one 1-hour or exchange-session `1d` sample under
+later 1-minute triggers must return the same receipt and coordinate bytes and cause no second sample-clock advance.
 
-The additive PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot
-correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction inserts
-the fact, receipt, and outbox row
+The current POINT_EVENT PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head,
+per-slot correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction
+inserts the fact, receipt, and outbox row
 and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
 ordinary new slot advances its correction head from canonical absence to that first fact. A
 byte-identical replay performs zero writes and returns the exact historical receipt bytes. Identity/content
@@ -578,12 +629,15 @@ readable after successors and corrections. No caller, Strategy Factory, ProgramH
 or reconciliation process receives insert/update/delete, head-advance, synthesis, backfill, or garbage-collection
 authority.
 
-The single V2 projection receipt binds each selected component's exact `sample_identity`, `SampleReceiptV1`
+The BAR schedule fact/cut/receipt/readback, BAR sample custody, and V3 projection PostgreSQL path described above
+remain TARGET and confer no current authority until the required dynamic evidence lands.
+
+For EVENT, the V2 projection receipt binds each selected component's exact `sample_identity`, `SampleReceiptV1`
 digest, admitted V1 role/binding evidence, and existing 308-byte coordinate bytes/digest. It preserves all V1
 trigger, value, frame, join, and row identities rather than deriving sample authority from them. The same sample
 selected by later events or joins under the same role/binding therefore retains byte-identical native receipt and
-coordinate bytes. A coordinate digest computed
-from a row/frame/trigger digest, a caller timestamp, or a UTC 24-hour interpretation of `1d` is non-authoritative
+coordinate bytes. For BAR, only a future dynamically verified V3 receipt may make the corresponding projection. A
+coordinate digest computed from a row/frame/trigger digest, a caller timestamp, or a UTC 24-hour interpretation of `1d` is non-authoritative
 and fails before consumer state mutation.
 
 Canonical acceptance must use the repository's existing disposable PostgreSQL harness and repository-authoritative

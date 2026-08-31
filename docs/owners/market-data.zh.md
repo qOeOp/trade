@@ -357,17 +357,19 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
-### CURRENT/PARTIAL sample-fact 与 sample-receipt 权威
+### CURRENT/PARTIAL EVENT 权威；TARGET BAR 权威
 
 Market Data 已实现版本化 `TimeframeSpecV1`、`TimeframeProjectionReceiptV1`、`SampleFactV1`、
 `SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` 的 durable PostgreSQL custody。本契约
-新准入的增量 BAR extension 仅限完整 fixed-interval bar 与 exchange-session bar；partial bar 仍是 TARGET。
+下述增量 BAR contract 在其 schedule fact/cut/receipt custody 与 V3 projection 获得动态 PostgreSQL evidence
+前保持 `TARGET / UNAVAILABLE`；未来准入时也仅限完整 fixed-interval bar 与 exchange-session bar，partial bar
+仍是 TARGET。
 Market Data 仍是所有这些 record 的唯一 writer。所有既有 V1
 binding、event、value、frame、joined-cut、row、digest 与 byte 含义继续保持权威且逐字节不变；不得删除、
 合成、backfill、garbage-collect、reinterpret 或 promote 任何 V1 record。新增的
-`StrategyInputSampleProjectionReceiptV2` 是 Owner fact 之上的唯一 canonical frame/join projection，不是替代
-权威。不存在独立的 V2 event/value/frame/joined-cut codec；未改变的 V1 event/value/frame/join receipt 仍是其
-准确 evidence input。
+`StrategyInputSampleProjectionReceiptV2` 仍是 Owner fact 之上的 canonical EVENT frame/join projection，不是
+替代权威。不存在独立的 V2 event/value/frame/joined-cut codec；未改变的 V1 event/value/frame/join receipt
+仍是其准确 evidence input。BAR 只能使用下述独立 TARGET V3 projection，绝不扩大或重新解释 V2。
 
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
@@ -403,31 +405,55 @@ not-applicable identity；每个 applicable identity 都必须非零。
 `INTERVAL_OPEN` 使用 `open` 作为 event-effective time，`INTERVAL_CLOSE` 使用 `close`；`POINT_EVENT` 使用
 source event-effective time。
 
-首个获准 BAR slice 对 `FIXED_INTERVAL_BAR` 与 `EXCHANGE_SESSION_BAR` 只接受 `COMPLETE_ONLY`。规范
+首个 TARGET BAR slice 对 `FIXED_INTERVAL_BAR` 与 `EXCHANGE_SESSION_BAR` 只接受 `COMPLETE_ONLY`。规范
 `ADMIT_PARTIAL_AS_DISTINCT_SLOT` codec 为后续 TARGET 保留，但本 slice 不准入其执行，且不生成 positive
 projection、fact、receipt 或 resolver result。
 
-既有 V1 binding 的 free-form timeframe string 仅是 provenance，绝不解析，也绝不用于决定这些 bytes。
-`UntrustedTimeframeProjectionProposalV1` 是以一份准确 V1 binding-receipt identity 为键的结构化增量 proposal。
-它只携带该 binding identity 与类型化 kind、正 step、unit、label 和 partial-bar rule；caller 提供的 anchor、
-calendar、session、time-zone 或 free-form label field 都不是权威。只有 Market Data 能重新解析准确 binding 与
-准确 `VerifiedPitObservationBatch` 中的 selected row，从该 row 的准确 verified Source Binding evidence 派生
-anchor，并将 binding、batch、Source Binding identity、lineage root 与 lineage version 作为一个未改变 anchor
-验证。对 BAR proposal，Market Data 还解析一份准确 single-fact `InstrumentMasterReadbackV1`，并从该 fact
-派生适用的 calendar、session 与 time-zone evidence identity；只有准确 Owner evidence 证明 continuous clock
-时，才可准入 calendar/session 零值。evidence 缺失、多份、过期、不匹配或由 caller 派生时，都不生成
-projection。
+既有 V1 binding 的 free-form timeframe string 仅是 provenance。它绝不解析成 typed schedule bytes，且对它
+的修改不能改变 schedule identity、timeframe identity 或 series identity。caller 可以命名一个 untrusted 所需
+BAR shape，但该 input 没有直接 projection 权威，也不能铸造、选择或改写 schedule、calendar、session、
+time-zone、anchor、label、partial rule 或 instrument evidence。
 
-只有完成该验证后，Market Data 才签发一份以准确 V1 binding-receipt digest 为键的新增 immutable
-`TimeframeProjectionReceiptV1`。其 canonical bytes 是 schema `u16LE = 1`、reserved-zero
-`u16LE`、V1 binding-receipt digest `[u8; 32]`、timeframe identity `[u8; 32]` 与完整 fixed-width canonical
-`TimeframeSpecV1` bytes；receipt identity 是
-`market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes` 的 SHA-256。spec 的四个 identity
-就是准确 Owner-admitted calendar/session/time-zone/anchor evidence identity。同一 V1 digest 加逐字节相同
-projection 是 idempotent；同一
-digest 对应不同 bytes 或 identity 是 conflict。projection 缺失、含糊或不唯一时 unavailable。consumer
-不得把 `1D`、`1h`、其他 label、venue convention 或 default 解析成 spec。后续 Owner mapping 或 calendar
-改变后，准确 historical projection 仍可回读；不同 mapping 必须使用 successor V1 binding receipt。
+BAR 权威只能始于 Owner PostgreSQL 中新增、immutable 的 `BarScheduleFactV1`。其 canonical bytes 按顺序为：
+schema `u16LE = 1`、reserved-zero `u16LE`、schedule identity `[u8; 32]`、准确 canonical
+`TimeframeSpecV1` bytes、Source Binding identity `[u8; 32]`、Source Binding lineage root `[u8; 32]`、lineage
+version `u64LE`、准确 `InstrumentMasterFactV1` identity `[u8; 32]` 与 digest `[u8; 32]`、准确
+`InstrumentMasterCutV1` identity `[u8; 32]` 与 digest `[u8; 32]`、schedule-effective-from `u64LE`、
+schedule-effective-to `u64LE` 与 Owner sequence
+`u64LE`；禁止 trailing bytes、空或倒置的 half-open interval。schedule identity 是
+`market-data.bar-schedule.identity.v1\0 || canonical schedule members excluding the schedule identity` 的
+SHA-256，fact digest 是 `market-data.bar-schedule-fact.v1\0 || canonical fact bytes` 的 SHA-256。只有 Market
+Data 可以从其 verified Source Binding 与准确原生 `InstrumentMasterReadbackV1` 派生 typed spec 及其
+anchor/calendar/session/time-zone identity；只有该 readback 证明 continuous clock 时，calendar/session 才可
+为零。
+
+`BarScheduleCutV1` 绑定该 fact digest、准确 BAR interval open/close、从 label 派生的 event-effective time、
+准确 Owner observation/decision cut（均为 `u64LE`），以及准确 Instrument Master cut identity 与 digest。
+在该准确 BAR event/cut 上，两个独立 predicate 都必须成立：schedule fact 与 Instrument Master fact 的
+half-open effective interval 都包含 event-effective instant（`from <= event_effective < until`），且 Instrument
+Master fact 按其既有 clock/cut rule 在绑定 decision cut 已可观察。cut 绝不替代 effective instant。BAR interval
+本身必须准确等于 stored schedule 生成的 half-open `[open, close)`。任何 boundary miss、不同 cut、过期或多份
+fact、caller 派生 time 都不生成 cut 或 receipt。
+其 digest 是 `market-data.bar-schedule-cut.v1\0 || canonical cut bytes` 的 SHA-256。
+
+一个 Owner transaction append schedule fact 与 cut、写入 outbox row，并签发 `BarScheduleReceiptV1`；其
+canonical bytes 按顺序绑定 schema `u16LE = 1`、reserved-zero `u16LE`、schedule identity、fact digest、cut
+digest、timeframe identity、Instrument Master fact/cut digest、Source Binding lineage root、lineage version 与
+Owner sequence。其 digest 是 `market-data.bar-schedule-receipt.v1\0 || canonical receipt bytes` 的 SHA-256。
+逐字节相同 retry idempotent，同 identity 不同 content conflict。historical lookup 返回 move-only
+`BarScheduleReadbackV1`；它没有 public constructor、`Clone` 或 deserialization path，且只有 PostgreSQL
+验证 stored fact、cut、receipt、outbox、effective containment 与 digest chain 后才返回。caller locator 或
+重建 bytes 都不产生 schedule 权威。
+
+只有该 verified readback 才能授权以准确 V1 binding-receipt digest 为键的新增 immutable
+`TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain 保持不变：schema `u16LE = 1`、
+reserved-zero `u16LE`、V1 binding-receipt digest `[u8; 32]`、timeframe identity `[u8; 32]` 与完整
+fixed-width canonical `TimeframeSpecV1` bytes，SHA-256 domain 为
+`market-data.timeframe-projection-receipt.v1\0`。同一 V1 digest 加逐字节相同 projection idempotent，不同
+bytes conflict。schedule readback 缺失、含糊、不唯一或非 durable 时 unavailable。consumer 不得把 `1D`、
+`1h`、其他 label、venue convention 或 default 解析成 spec。后续 Owner mapping/calendar 改变后仍可回读
+准确 historical schedule 与 projection；这些改变必须形成新的 Owner schedule fact/cut，不能通过 free-form
+binding label 偷渡。
 
 `SampleFactV1`、`SampleReceiptV1` 与 308-byte coordinate 携带的 `Owner event identity` 是新增的
 role-independent Market Data identity，并非既有 V1 frame-trigger event identity。其 canonical preimage 按顺序
@@ -458,7 +484,7 @@ data-kind tag registry 也是穷尽闭集：`0x01 BAR`、`0x02 QUOTE`、`0x03 TR
 未改变的 V1 Owner `StrategyInputChannel` 与 `MarketDataFieldSemantic.data_kind` 返回字符串的唯一 canonical
 encoding；tag 只能由准确 historical V1 binding/event value 选择，consumer 不能自行选择。`0x00`、任何未列出的
 tag 或字符串、tag/string 不匹配，以及在 schema version 1 下出现的后续 registry value 都 unsupported，且不生成
-fact、series identity、receipt 或 V2 coordinate。扩展任一 registry 都必须使用 successor schema version，不得
+fact、series identity、receipt、EVENT V2 coordinate 或 BAR V3 coordinate。扩展任一 registry 都必须使用 successor schema version，不得
 重新解释已存储的 version-1 bytes。
 
 version 1 series projection 只有一个有序的 Owner-derived codec。其 bytes 按顺序为：schema `u16LE = 1`、
@@ -489,7 +515,7 @@ identity `[u8; 32]`、Owner event identity `[u8; 16]`、logical time `u64LE`、e
 Owner sequence `u64LE`、canonical-row digest `[u8; 32]`、Source Binding lineage root `[u8; 32]`、lineage
 version `u64LE` 与 Market Semantics identity `[u8; 32]`；其中不含 input-role identity 或 static binding
 digest。任何其他 width、endianness、order、reserved value、缺失 byte 或 trailing byte 都 unsupported，且不生成
-receipt identity 或 V2 coordinate。其 stable digest 是
+receipt identity、EVENT V2 coordinate 或 BAR V3 coordinate。其 stable digest 是
 `market-data.sample-receipt.v1\0 || canonical SampleReceiptV1 bytes` 的 SHA-256；这些 bytes 准确等于上述
 role-independent fact projection；该 digest 同时是 receipt identity，并提供既有准确 308-byte coordinate
 的最后一个 sample-receipt-digest 字段。原生 resolver 只接受该准确 Owner-authorized stable digest，并返回历史
@@ -506,7 +532,7 @@ value-receipt digest `[u8; 32]`。entry 按 input-role identity 严格排序，�
 乱序或不匹配的 trigger/value evidence 都不生成 identity。该 identity 不是 V1 frame receipt，不替换 joined-cut
 receipt 的 private single-value component digest，也不能只从一个 trigger 或一个 value 派生。
 
-只有 `StrategyInputSampleProjectionReceiptV2` 形成 role-bound coordinate projection。其 canonical bytes 是
+只有 `StrategyInputSampleProjectionReceiptV2` 形成既有 EVENT role-bound coordinate projection。其 canonical bytes 是
 一个 header 后接 fixed component entry。header 按顺序为：schema `u16LE = 2`、reserved-zero `u16LE`、kind
 `u8`（`0x01 FRAME` 或 `0x02 JOINED_CUT`）、准确 subject identity/digest `[u8; 32]` 与正 component count
 `u32LE`。每个 entry 恰好是 612 bytes，按顺序为：input-role identity `[u8; 32]`、static V1 binding-receipt
@@ -527,6 +553,9 @@ timeframe、row digest、lineage、Market Semantics、sample identity、native r
 sequence 必须等于 component coordinate；其 role-bound event identity 只作为单独存储的 V1 evidence，绝不复制
 进 role-independent native event identity 或与之判等。current/latest lookup、partial component set、cross-
 frame/cut splice 或 caller-derived field 都 unsupported。
+V2 的两个 kind tag 只保留上述 FRAME 与 JOINED_CUT 含义，且每个 component 必须解析未改变的 V1 `EVENT`
+lifecycle。BAR lifecycle、BAR timeframe、BAR schedule receipt 或对任一 tag 的新解释在 schema 2 下都
+unsupported，且不生成 V2 receipt 或 readback。
 
 V2 receipt identity 与 digest 是
 `market-data.sample-projection-receipt.v2\0 || canonical receipt bytes` 的同一 SHA-256。Market Data 按该 digest
@@ -534,14 +563,38 @@ V2 receipt identity 与 digest 是
 保持一份 native receipt，并在同一 role/binding 下被后续 trigger 携带时保持逐字节相同 coordinate，而 enclosing
 V2 projection 随其 V1 frame 或 joined cut 正确改变。任何 projection 都不能 mint 或改写 Owner sample receipt。
 
+TARGET `StrategyInputBarSampleProjectionReceiptV3` 是唯一 BAR role-bound projection。它使用独立 domain 与
+header，不复用 V2 bytes。header 按顺序为：schema `u16LE = 3`、reserved-zero `u16LE`、lifecycle
+`u8 = 0x02 BAR`、projection kind `u8`（`0x01 FRAME` 或 `0x02 JOINED_CUT`，保留上述结构含义）、准确
+subject identity/digest `[u8; 32]` 与正 component count `u32LE`。每个 entry 恰好是 676 bytes：上述未改变
+的 612-byte component layout 后接准确 `BarScheduleReceiptV1` digest `[u8; 32]` 与准确
+`BarScheduleCutV1` digest `[u8; 32]`。entry 仍按 input-role identity 严格排序；总长度恰好是
+`42 + 676 * count`。V3 identity 与 digest 是
+`market-data.bar-sample-projection-receipt.v3\0 || canonical receipt bytes` 的同一 SHA-256。lifecycle
+`EVENT`、未知 lifecycle/projection kind、V2 下的 BAR entry，或其他 order、width、count、trailing byte 都
+unsupported。
+
+durable V3 issuance 前，Market Data 必须从 Owner PostgreSQL 解析每个 move-only
+`BarScheduleReadbackV1`、historical timeframe projection、`SampleReceiptV1` 与 V1 frame/join evidence。它
+验证 BAR lifecycle、逐字节相同 timeframe identity、schedule/fact/cut/receipt digest chain、准确 Instrument
+Master fact/cut chain、schedule 与 Instrument Master 在 component 的准确 bound decision cut 下对准确 BAR
+event-effective instant 的 half-open effective containment、series identity、slot/predecessor topology、
+coordinate 与 native sample receipt。所有
+component 必须命名相同 projection subject 以及各自准确 durable schedule cut；caller 提供或
+latest/current evidence 均不接受。PostgreSQL 以 outbox row 存储准确 V3 bytes/digest，并在 restart 后按历史
+解析。evidence 缺失、过期、冲突、cross-spliced、非 durable 或 response-loss recovery 不完整时，都不生成
+positive V3 readback，也不发生 consumer mutation。
+
 已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
 它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进
 一次，即使其 value bytes 与 predecessor 相等。它绝不 rewrite、replace、mask、replay 或追溯推进 predecessor
-state。普通的等值新 slot 同样是新 sample，并准确推进一次。同一 1-hour 或 exchange-session `1d` sample 被
-后续 1-minute trigger 携带时，返回相同 receipt/coordinate bytes，且不会第二次推进 sample clock。
+state。普通的等值新 slot 同样是新 sample，并准确推进一次。对未来获准的 BAR path，同一 1-hour 或
+exchange-session `1d` sample 被后续 1-minute trigger 携带时，必须返回相同 receipt/coordinate bytes，且不得
+第二次推进 sample clock。
 
-增量 PostgreSQL 路径包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot
-correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction 插入 fact、receipt、outbox row，并从 fact
+当前 POINT_EVENT PostgreSQL 路径包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、
+per-slot correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction
+插入 fact、receipt、outbox row，并从 fact
 绑定的 predecessor 对 series/correction head 执行 compare-and-swap 前进；普通新 slot 从规范 absence 把其
 correction head 推进到首个 fact。逐字节相同的 replay 执行零次
 write，并返回准确历史 receipt bytes。identity/content mismatch、time/version regression、predecessor 或
@@ -550,11 +603,14 @@ sequence gap、competing branch、cycle、cross-lineage splice、head mismatch�
 Factory、ProgramHost、Backtest、fixture、migration 与 reconciliation process 都不获得 insert/update/delete、
 head-advance、synthesis、backfill 或 garbage-collection 权威。
 
-单一 V2 projection receipt 交叉绑定每个 selected component 的准确 `sample_identity`、`SampleReceiptV1`
+上述 BAR schedule fact/cut/receipt/readback、BAR sample custody 与 V3 projection PostgreSQL 路径保持
+TARGET；在所需动态 evidence 落地前不产生任何当前权威。
+
+对于 EVENT，V2 projection receipt 交叉绑定每个 selected component 的准确 `sample_identity`、`SampleReceiptV1`
 digest、已接纳 V1 role/binding evidence 与既有 308-byte coordinate bytes/digest。它保留所有 V1 trigger、
 value、frame、join 与 row identity，而不从这些 identity 派生 sample 权威。因此，同一个 sample 被后续
-event 或 join 在同一 role/binding 下选中时，native receipt 与 coordinate bytes 保持逐字节相同。从
-row/frame/trigger digest、caller
+event 或 join 在同一 role/binding 下选中时，native receipt 与 coordinate bytes 保持逐字节相同。对于 BAR，
+只有未来经过动态验证的 V3 receipt 才能形成对应 projection。从 row/frame/trigger digest、caller
 timestamp 或 `1d` 的 UTC 24 小时解释计算 coordinate digest 均不具备权威，并在 consumer state mutation
 之前失败。
 
