@@ -701,6 +701,12 @@ fn prepare_schedule_dependency_v3(
             .is_some_and(|until| event_effective >= until)
         || fact.market_semantics_identity() != source.binding.locator().market_semantics_identity()
         || *fact.market_semantics_identity().as_bytes() != receipt.market_semantics_identity()
+        || fact.instrument_master_digest().as_bytes()
+            != &source.sample.fact().instrument_master_digest()
+        || fact.schedule_source_frontier().as_bytes()
+            != &source.sample.fact().source_frontier_digest()
+        || fact.schedule_correction_frontier().as_bytes()
+            != &source.sample.fact().correction_frontier_digest()
     {
         return Err(StrategyInputSampleProjectionUnavailable::SampleMismatch);
     }
@@ -1360,7 +1366,7 @@ pub(crate) mod tests {
             prepare_bar_schedule_commit_v1,
         },
         sample_fact::tests::{
-            bar_postgres_schedule_fixture_v1, bar_projection_fixture_v2,
+            bar_postgres_schedule_fixture_v1, bar_projection_fixture_v2, foreign_bar_schedule_v1,
             point_event_projection_fixture_v2, point_event_projection_fixture_variant_v2,
         },
         source_binding::BindingDigest,
@@ -1642,6 +1648,39 @@ pub(crate) mod tests {
             )
             .unwrap_err(),
             StrategyInputSampleProjectionUnavailable::TimeframeMismatch
+        );
+    }
+
+    #[rstest]
+    #[case([81; 32], [7; 32], [11; 32])]
+    #[case([9; 32], [82; 32], [11; 32])]
+    #[case([9; 32], [7; 32], [83; 32])]
+    #[case([81; 32], [82; 32], [83; 32])]
+    fn v3_bar_rejects_shape_identical_foreign_authority_schedule_splice(
+        #[case] instrument_master_digest: Identity,
+        #[case] source_frontier: Identity,
+        #[case] correction_frontier: Identity,
+    ) {
+        let (binding, frame, timeframe, sample) = bar_projection_fixture_v2();
+        let foreign_schedule = foreign_bar_schedule_v1(
+            BindingDigest::from_untrusted_bytes(instrument_master_digest),
+            BindingDigest::from_untrusted_bytes(source_frontier),
+            BindingDigest::from_untrusted_bytes(correction_frontier),
+        );
+        assert!(bar_schedule_authority::verify_readback(&foreign_schedule));
+
+        assert_eq!(
+            prepare_strategy_input_sample_projection_bar_v3(
+                &frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding: &binding,
+                    timeframe: &timeframe,
+                    sample: &sample,
+                    schedule: &foreign_schedule,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::SampleMismatch
         );
     }
 

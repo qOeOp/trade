@@ -2458,6 +2458,10 @@ async fn validate_schedule_dependency_v3(
             .is_some_and(|until| i128::from(sample.receipt().event_effective()) >= until)
         || fact.market_semantics_identity().as_bytes()
             != &sample.receipt().market_semantics_identity()
+        || fact.instrument_master_digest().as_bytes() != &sample.fact().instrument_master_digest()
+        || fact.schedule_source_frontier().as_bytes() != &sample.fact().source_frontier_digest()
+        || fact.schedule_correction_frontier().as_bytes()
+            != &sample.fact().correction_frontier_digest()
     {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }

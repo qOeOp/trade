@@ -1046,6 +1046,63 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         receipt_bytes,
     );
 
+    let foreign_schedule_prepared =
+        crate::owner::sample_fact::tests::foreign_bar_schedule_commit_v1(
+            BindingDigest::from_untrusted_bytes([81; 32]),
+            BindingDigest::from_untrusted_bytes([82; 32]),
+            BindingDigest::from_untrusted_bytes([83; 32]),
+            Some(successor_schedule.fact().digest()),
+        );
+    let foreign_schedule = restarted
+        .commit_prepared_bar_schedule_v1(&foreign_schedule_prepared)
+        .await
+        .expect("durable internally consistent foreign schedule");
+    let original_dependency = &prepared.schedule_dependencies()[0];
+    let foreign_dependency = StoredStrategyInputSampleProjectionScheduleDependencyV3 {
+        component_ordinal: 0,
+        role_identity: original_dependency.role_identity(),
+        binding_receipt_digest: original_dependency.binding_receipt_digest(),
+        schedule_readback_identity: foreign_schedule.identity(),
+        schedule_fact_digest: foreign_schedule.fact().digest(),
+        schedule_cut_identity: foreign_schedule.cut.identity,
+        schedule_cut_digest: foreign_schedule.cut.identity,
+        schedule_receipt_identity: foreign_schedule.receipt_identity(),
+    };
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 SET schedule_readback_identity=$1,schedule_fact_digest=$2,schedule_cut_identity=$3,schedule_cut_digest=$4,schedule_receipt_identity=$5 WHERE receipt_digest=$6 AND component_ordinal=0")
+        .bind(foreign_dependency.schedule_readback_identity.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_fact_digest.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_cut_identity.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_cut_digest.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_receipt_identity.as_bytes().as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    let foreign_custody_digest = sample_projection_custody_digest_v3(
+        receipt_digest,
+        0x01,
+        0x02,
+        subject_identity,
+        1,
+        &receipt_bytes,
+        &[foreign_dependency],
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET custody_digest=$1 WHERE receipt_digest=$2")
+        .bind(foreign_custody_digest.as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    drop(restarted);
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+
     sqlx::query("DELETE FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 WHERE receipt_digest=$1")
         .bind(receipt_digest.as_slice())
         .execute(restarted.pool())

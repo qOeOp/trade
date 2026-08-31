@@ -373,6 +373,9 @@ pub struct SampleFactV1 {
     observation_batch_digest: Identity,
     timeframe_identity: Identity,
     owner_event_identity: [u8; 16],
+    source_frontier_digest: Identity,
+    correction_frontier_digest: Identity,
+    instrument_master_digest: Identity,
     fact_digest: Identity,
     sample_identity: Identity,
     canonical_row_digest: Identity,
@@ -418,6 +421,18 @@ impl SampleFactV1 {
     #[must_use]
     pub const fn owner_event_identity(&self) -> [u8; 16] {
         self.owner_event_identity
+    }
+    #[must_use]
+    pub(crate) const fn source_frontier_digest(&self) -> Identity {
+        self.source_frontier_digest
+    }
+    #[must_use]
+    pub(crate) const fn correction_frontier_digest(&self) -> Identity {
+        self.correction_frontier_digest
+    }
+    #[must_use]
+    pub(crate) const fn instrument_master_digest(&self) -> Identity {
+        self.instrument_master_digest
     }
     #[must_use]
     pub const fn fact_digest(&self) -> Identity {
@@ -882,6 +897,9 @@ pub(crate) fn prepare_sample_commit_v1(
         observation_batch_digest: *batch.digest().as_bytes(),
         timeframe_identity: timeframe.timeframe_identity,
         owner_event_identity,
+        source_frontier_digest: *row.source_frontier_digest().as_bytes(),
+        correction_frontier_digest: *row.correction_frontier_digest().as_bytes(),
+        instrument_master_digest: *row.instrument_master_digest().as_bytes(),
         fact_digest,
         sample_identity,
         canonical_row_digest: *projection.canonical_row_digest.as_bytes(),
@@ -1381,6 +1399,9 @@ fn decode_fact(
         observation_batch_digest: batch_digest,
         timeframe_identity,
         owner_event_identity,
+        source_frontier_digest: source_frontier,
+        correction_frontier_digest: correction_frontier,
+        instrument_master_digest: instrument_master,
         fact_digest: expected_digest,
         sample_identity,
         canonical_row_digest,
@@ -1633,8 +1654,9 @@ pub(crate) mod tests {
     use crate::owner::{
         bar_schedule::{
             BarScheduleCompletionV1, BarScheduleError, BarScheduleKindV1, BarScheduleLabelV1,
-            BarScheduleReadbackV1, BarScheduleUnitV1, UntrustedBarScheduleProposalV1,
-            authority as bar_schedule_authority, prepare_bar_schedule_commit_v1,
+            BarScheduleReadbackV1, BarScheduleUnitV1, PreparedBarScheduleCommitV1,
+            UntrustedBarScheduleProposalV1, authority as bar_schedule_authority,
+            prepare_bar_schedule_commit_v1,
         },
         instrument_master::{
             ClockProjection, InstrumentClass, InstrumentDecimal, InstrumentMasterCutV1,
@@ -1771,6 +1793,22 @@ pub(crate) mod tests {
         market_semantics: BindingDigest,
         correction_frontier: BindingDigest,
     ) -> InstrumentMasterReadbackV1 {
+        instrument_master_readback_with_lineage(
+            instrument,
+            market_semantics,
+            d(9),
+            d(7),
+            correction_frontier,
+        )
+    }
+
+    fn instrument_master_readback_with_lineage(
+        instrument: &str,
+        market_semantics: BindingDigest,
+        instrument_master_digest: BindingDigest,
+        source_frontier: BindingDigest,
+        correction_frontier: BindingDigest,
+    ) -> InstrumentMasterReadbackV1 {
         let clock = ClockProjection {
             clock_identity: [31; 32],
             clock_epoch: [32; 32],
@@ -1819,7 +1857,7 @@ pub(crate) mod tests {
                 corporate_action_frontier: d(37),
                 historical_membership_frontier: d(38),
                 market_semantics_identity: market_semantics,
-                source_frontier: d(7),
+                source_frontier,
                 correction_frontier,
                 effective_from: 1,
                 effective_until: Some(100),
@@ -1850,7 +1888,7 @@ pub(crate) mod tests {
                 d(37),
                 d(38),
                 market_semantics,
-                d(7),
+                source_frontier,
                 correction_frontier,
             ],
             canonical_bytes: vec![2],
@@ -1867,7 +1905,7 @@ pub(crate) mod tests {
             receipt_identity: d(46),
             outbox_identity: d(46),
             canonical_bytes: vec![3],
-            identity: d(9),
+            identity: instrument_master_digest,
         }
     }
 
@@ -2042,6 +2080,67 @@ pub(crate) mod tests {
         }
     }
 
+    pub(crate) fn foreign_bar_schedule_v1(
+        instrument_master_digest: BindingDigest,
+        source_frontier: BindingDigest,
+        correction_frontier: BindingDigest,
+    ) -> BarScheduleReadbackV1 {
+        let prepared = foreign_bar_schedule_commit_v1(
+            instrument_master_digest,
+            source_frontier,
+            correction_frontier,
+            None,
+        );
+        let receipt =
+            bar_schedule_authority::build_receipt(&prepared.fact, &prepared.cut, d(72), 1)
+                .expect("foreign schedule receipt");
+        bar_schedule_authority::build_readback(prepared.fact, prepared.cut, receipt)
+            .expect("verify-readback-valid foreign schedule")
+    }
+
+    pub(crate) fn foreign_bar_schedule_commit_v1(
+        instrument_master_digest: BindingDigest,
+        source_frontier: BindingDigest,
+        correction_frontier: BindingDigest,
+        predecessor_fact_digest: Option<BindingDigest>,
+    ) -> PreparedBarScheduleCommitV1 {
+        let mut row = bar_row(10, 3);
+        row.instrument_master_digest = instrument_master_digest;
+        row.source_frontier_digest = source_frontier;
+        row.correction_frontier_digest = correction_frontier;
+        let mut batch = batch(row, 30);
+        batch.instrument_master_digest = instrument_master_digest;
+        batch.source_frontier_digest = source_frontier;
+        batch.correction_frontier_digest = correction_frontier;
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("foreign BAR binding");
+        let instrument_master = instrument_master_readback_with_lineage(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            instrument_master_digest,
+            source_frontier,
+            correction_frontier,
+        );
+        prepare_bar_schedule_commit_v1(
+            UntrustedBarScheduleProposalV1 {
+                canonical_instrument: "AAPL.XNAS".into(),
+                predecessor_fact_digest,
+                effective_from: 1,
+                effective_until: Some(100),
+                kind: BarScheduleKindV1::FixedInterval,
+                step: 5,
+                unit: BarScheduleUnitV1::Minute,
+                anchor_identity: d(70),
+                label: BarScheduleLabelV1::IntervalClose,
+                completion: BarScheduleCompletionV1::CompleteOnly,
+            },
+            &binding,
+            &batch,
+            &instrument_master,
+        )
+        .expect("internally consistent foreign BAR schedule")
+    }
+
     fn prepared_bar_projection_fixture_v2() -> (
         StrategyInputBindingReceipt,
         StrategyInputEventFrameReceipt,
@@ -2151,6 +2250,9 @@ pub(crate) mod tests {
             observation_batch_digest: [16; 32],
             timeframe_identity: [3; 32],
             owner_event_identity: [4; 16],
+            source_frontier_digest: [17; 32],
+            correction_frontier_digest: [18; 32],
+            instrument_master_digest: [19; 32],
             fact_digest: [5; 32],
             sample_identity: [6; 32],
             canonical_row_digest: [7; 32],
@@ -2201,6 +2303,40 @@ pub(crate) mod tests {
         );
         assert_eq!(commit.sample_receipt_canonical_bytes().len(), 244);
         assert_ne!(commit.fact_digest(), commit.sample_identity());
+    }
+
+    #[rstest]
+    fn sample_fact_roundtrip_retains_authority_lineage_coordinates() {
+        let batch = batch(row(10, 3), 30);
+        let binding =
+            bind_strategy_input_role(&request(&batch), &batch).expect("sealed V1 binding");
+        let timeframe = prepare_point_event_timeframe_projection_v1(&binding);
+        let commit = prepare_sample_commit_v1(
+            &binding,
+            &batch,
+            &timeframe,
+            SampleFactHeadsV1 {
+                series: None,
+                slot: None,
+            },
+        )
+        .expect("point event fact");
+        let readback = stored(&commit);
+
+        for fact in [commit.fact(), readback.fact()] {
+            assert_eq!(
+                fact.source_frontier_digest(),
+                *batch.source_frontier_digest().as_bytes()
+            );
+            assert_eq!(
+                fact.correction_frontier_digest(),
+                *batch.correction_frontier_digest().as_bytes()
+            );
+            assert_eq!(
+                fact.instrument_master_digest(),
+                *batch.instrument_master_digest().as_bytes()
+            );
+        }
     }
 
     #[rstest]
