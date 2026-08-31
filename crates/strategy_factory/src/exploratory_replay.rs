@@ -3,6 +3,7 @@
 //! Callers may propose meaning and retain an opaque locator. Positive Owner custody is
 //! serialize-only and can only be assembled by the PostgreSQL R&D Owner implementation.
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -312,6 +313,13 @@ pub struct ExploratoryReplayReadResultV1 {
     pub(crate) readback: Option<SealedExploratoryReplayReadbackV1>,
 }
 
+/// Positive Replay V2 authority is serialize-only and can be obtained only from the sealed R&D
+/// Owner read port.
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::exploratory_replay::SealedExploratoryReplayReadbackV2;
+/// let _: SealedExploratoryReplayReadbackV2 = serde_json::from_str("{}").unwrap();
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SealedExploratoryReplayReadbackV2 {
@@ -377,6 +385,43 @@ impl ExploratoryReplayReadResultV2 {
     pub fn readback(&self) -> Option<&SealedExploratoryReplayReadbackV2> {
         self.readback.as_ref()
     }
+}
+
+pub(crate) mod sealed_read_port {
+    pub trait RdOwned {}
+}
+
+/// Fixed query-only boundary for resolving Replay V2 authority from existing R&D custody.
+///
+/// The caller-safe selector grants no authority. Only the crate-owned PostgreSQL R&D Owner can
+/// implement this port and return a positive sealed readback.
+///
+/// ```compile_fail
+/// use async_trait::async_trait;
+/// use vibe_strategy_factory::exploratory_replay::{
+///     ExploratoryReplayOwnerError, ExploratoryReplayReadResultV2,
+///     ExploratoryReplayRecoverySelectorV2, ExploratoryReplaySealedReadPortV2,
+/// };
+///
+/// struct CallerOwnedPort;
+///
+/// #[async_trait]
+/// impl ExploratoryReplaySealedReadPortV2 for CallerOwnedPort {
+///     async fn resolve_sealed_exploratory_replay_request_v2(
+///         &self,
+///         _: &ExploratoryReplayRecoverySelectorV2,
+///     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+///         unreachable!()
+///     }
+/// }
+/// ```
+#[async_trait]
+pub trait ExploratoryReplaySealedReadPortV2: sealed_read_port::RdOwned + Send + Sync {
+    /// Resolves one selector without creating or mutating Replay custody.
+    async fn resolve_sealed_exploratory_replay_request_v2(
+        &self,
+        selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError>;
 }
 
 impl ExploratoryReplayReadResultV1 {

@@ -38,7 +38,8 @@ use vibe_strategy_factory::{
         ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
         ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
         ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
-        ExploratoryReplayRequestProposalV2, IdentityDigestV1, VersionedIdentityV1,
+        ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2, IdentityDigestV1,
+        VersionedIdentityV1,
     },
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
@@ -246,7 +247,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
             .to_string(),
     };
     let unavailable = pre_run_owner
-        .resolve_exploratory_replay_request_v2(&unknown)
+        .resolve_sealed_exploratory_replay_request_v2(&unknown)
         .await
         .expect("unknown Replay V2 resolve");
     assert_eq!(
@@ -279,7 +280,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
             .await
             .expect("reconnected R&D Owner without Backtest capability");
     let resolved = rd_only_owner
-        .resolve_exploratory_replay_request_v2(&selector)
+        .resolve_sealed_exploratory_replay_request_v2(&selector)
         .await
         .expect("pre-send-selector R&D resolve after response loss");
     let readback = resolved.readback().expect("sealed R&D readback");
@@ -306,9 +307,9 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     );
 
     let (resolved_one, resolved_two, resolved_three) = tokio::join!(
-        rd_only_owner.resolve_exploratory_replay_request_v2(&selector),
-        rd_only_owner.resolve_exploratory_replay_request_v2(&selector),
-        rd_only_owner.resolve_exploratory_replay_request_v2(&selector),
+        rd_only_owner.resolve_sealed_exploratory_replay_request_v2(&selector),
+        rd_only_owner.resolve_sealed_exploratory_replay_request_v2(&selector),
+        rd_only_owner.resolve_sealed_exploratory_replay_request_v2(&selector),
     );
 
     for replay in [resolved_one, resolved_two, resolved_three] {
@@ -336,7 +337,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
         },
     ] {
         let unavailable = rd_only_owner
-            .resolve_exploratory_replay_request_v2(&changed)
+            .resolve_sealed_exploratory_replay_request_v2(&changed)
             .await
             .expect("wrong or cross-spliced selector resolve");
         assert_eq!(
@@ -360,7 +361,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
         meaning_digest: selector.meaning_digest.clone(),
     };
     let unavailable = rd_only_owner
-        .resolve_exploratory_replay_request_v2(&v1_as_v2)
+        .resolve_sealed_exploratory_replay_request_v2(&v1_as_v2)
         .await
         .expect("V1 custody through V2 namespace");
     assert_eq!(

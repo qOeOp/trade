@@ -22,7 +22,7 @@ use crate::exploratory_replay::{
     ExploratoryReplayReadResultV1, ExploratoryReplayReadResultV2,
     ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
     ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
-    ExploratoryReplayRequestProposalV2,
+    ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
@@ -71,6 +71,18 @@ impl Debug for PostgresResearchGoalOwnerV1 {
             .field("source_policy_bound", &self.source_policy.is_some())
             .field("source_submission_bound", &self.source_submission.is_some())
             .finish_non_exhaustive()
+    }
+}
+
+impl crate::exploratory_replay::sealed_read_port::RdOwned for PostgresResearchGoalOwnerV1 {}
+
+#[async_trait]
+impl ExploratoryReplaySealedReadPortV2 for PostgresResearchGoalOwnerV1 {
+    async fn resolve_sealed_exploratory_replay_request_v2(
+        &self,
+        selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
     }
 }
 
@@ -933,7 +945,8 @@ impl PostgresResearchGoalOwnerV1 {
         &self,
         selector: &ExploratoryReplayRecoverySelectorV2,
     ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
+        self.resolve_sealed_exploratory_replay_request_v2(selector)
+            .await
     }
 
     /// Uses the canonical `backtest_owner` capability to consume only the V2 sealed handoff.
