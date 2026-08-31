@@ -904,6 +904,7 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
             .await
             .is_err()
     );
+
     for privilege in ["INSERT", "UPDATE", "DELETE"] {
         let admitted: bool = sqlx::query_scalar("SELECT has_table_privilege($1,$2,$3)")
             .bind(READER_ROLE)

@@ -1033,7 +1033,7 @@ impl MarketDataOwnerPostgres {
             .bind(custody_digest.as_slice())
             .execute(&mut *transaction)
             .await
-            .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+            .map_err(|e| map_sample_projection_insert_error_v2(&e))?;
         if rollback_before_commit {
             return Err(SampleProjectionCustodyErrorV2::CommitInterrupted);
         }
@@ -1640,6 +1640,7 @@ fn validate_prepared_sample_projection_v2(
         prepared.receipt_digest(),
     )
     .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+
     if prepared.kind_tag() != 0x01
         || stored.kind_tag() != prepared.kind_tag()
         || stored.subject_identity() != prepared.subject_identity()
@@ -1659,6 +1660,7 @@ async fn validate_sample_projection_dependencies_v2(
     for component in decoded.components() {
         let sample_receipt_digest = component.sample_receipt_digest();
         let timeframe_projection_digest = component.timeframe_projection_digest();
+
         if lock_dependencies {
             let sample_locked: Option<Vec<u8>> = sqlx::query_scalar(
                 "SELECT receipt_digest FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
@@ -1790,6 +1792,7 @@ async fn load_strategy_input_sample_projection_v2(
     }
     let stored =
         promote_stored_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)?;
+
     if stored.kind_tag() != kind
         || stored.subject_identity() != subject_identity
         || stored.component_count() != component_count
@@ -4825,6 +4828,7 @@ fn verify_admitted_sample_projection_v2(
         u32::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
     })?;
     let receipt_bytes = projection_raw_bytes_field(projection, "receipt_bytes")?;
+
     if receipt_digest != expected_digest
         || kind != 0x01
         || component_count == 0
@@ -4841,6 +4845,7 @@ fn verify_admitted_sample_projection_v2(
     }
     let decoded = decode_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)
         .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
     if decoded.kind_tag() != kind
         || decoded.subject_identity() != subject_identity
         || decoded.component_count() != component_count
@@ -4914,6 +4919,7 @@ fn verify_admitted_sample_projection_v2(
         };
         validate_prepared_sample(&prepared)
             .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
         if prepared.projection_receipt_digest != timeframe_digest
             || prepared.projection_binding_receipt_digest != timeframe_binding
             || prepared.projection_receipt_bytes != timeframe_bytes

@@ -345,6 +345,7 @@ pub(crate) fn prepare_strategy_input_sample_projection_frame_v2(
     put_u32(&mut bytes, component_count);
 
     let mut previous_role = None;
+
     for (value, source) in values.iter().zip(sources) {
         let role = *value.input_role_identity().as_bytes();
         if previous_role.is_some_and(|previous| previous >= role) {
@@ -386,6 +387,7 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
     if sha256(RECEIPT_DOMAIN, bytes) != expected_digest {
         return Err(StrategyInputSampleProjectionUnavailable::DigestMismatch);
     }
+
     if bytes.len() < RECEIPT_HEADER_LEN
         || !(bytes.len() - RECEIPT_HEADER_LEN).is_multiple_of(RECEIPT_ENTRY_LEN)
     {
@@ -418,6 +420,7 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
     let mut components = Vec::with_capacity(count);
     let mut trigger_digest = None;
     let mut previous_role = None;
+
     for _ in 0..count {
         let role = decoder.identity_nonzero()?;
         if previous_role.is_some_and(|previous| previous >= role) {
@@ -519,12 +522,14 @@ fn prepare_frame_evidence(
         .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
     let mut entries = Vec::with_capacity(values.len() * FRAME_EVIDENCE_ENTRY_LEN);
     let mut previous_role = None;
+
     for value in values {
         let role = *value.input_role_identity().as_bytes();
         if previous_role.is_some_and(|previous| previous >= role) {
             return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
         }
         previous_role = Some(role);
+
         if value.trigger_digest() != frame.trigger().digest()
             || value.observation_batch_digest() != frame.trigger().observation_batch_digest()
         {
@@ -563,12 +568,14 @@ fn project_component(
     {
         return Err(StrategyInputSampleProjectionUnavailable::BindingMismatch);
     }
+
     if !timeframe.is_point_event()
         || timeframe.binding_receipt_digest() != binding_digest
         || timeframe.timeframe_identity() != receipt.timeframe_identity()
     {
         return Err(StrategyInputSampleProjectionUnavailable::TimeframeMismatch);
     }
+
     if fact.snapshot_identity() != *trigger.snapshot_identity().as_bytes()
         || fact.snapshot_fact_digest() != *trigger.snapshot_fact_digest().as_bytes()
         || fact.observation_batch_digest() != *trigger.observation_batch_digest().as_bytes()
@@ -650,6 +657,7 @@ fn verify_coordinate(
     let _market_semantics = decoder.identity_nonzero()?;
     let receipt = decoder.identity_nonzero()?;
     decoder.end()?;
+
     if role != expected_role
         || binding != expected_binding
         || sample != expected_sample
@@ -716,6 +724,7 @@ impl<'a> Decoder<'a> {
         if self.u16()? != expected {
             return Err(StrategyInputSampleProjectionUnavailable::InvalidSchema);
         }
+
         if self.u16()? != 0 {
             return Err(StrategyInputSampleProjectionUnavailable::ReservedNonZero);
         }
@@ -778,6 +787,7 @@ pub(crate) mod tests {
         },
         source_binding::BindingDigest,
     };
+    use rstest::rstest;
 
     fn fixture() -> PreparedStrategyInputSampleProjectionV2 {
         let (binding, frame, timeframe, sample) = point_event_projection_fixture_v2();
@@ -806,7 +816,7 @@ pub(crate) mod tests {
         (bytes, receipt_digest)
     }
 
-    #[test]
+    #[rstest]
     fn frame_projection_is_exact_and_structural_decode_recomputes_evidence() {
         let prepared = fixture();
         assert_eq!(prepared.kind_tag(), 0x01);
@@ -824,7 +834,7 @@ pub(crate) mod tests {
         assert_eq!(stored.receipt_digest(), prepared.receipt_digest());
     }
 
-    #[test]
+    #[rstest]
     fn preparation_rejects_partial_and_cross_spliced_owner_evidence() {
         let (binding, frame, timeframe, sample) = point_event_projection_fixture_v2();
         assert_eq!(
@@ -883,10 +893,11 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn stored_codec_rejects_header_count_order_length_and_digest_mutations() {
         let prepared = fixture();
         let valid = prepared.canonical_bytes();
+
         for (offset, expected) in [
             (0, StrategyInputSampleProjectionUnavailable::InvalidSchema),
             (2, StrategyInputSampleProjectionUnavailable::ReservedNonZero),
@@ -963,7 +974,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn stored_codec_rejects_each_entry_and_coordinate_cross_binding_mutation() {
         let prepared = fixture();
         let valid = prepared.canonical_bytes();
@@ -975,6 +986,7 @@ pub(crate) mod tests {
             345, 347, 349, 381, 413, 429, 461, 469, 477, 485, 517, 549, 581, 589,
             621, // coordinate
         ];
+
         for offset in offsets {
             let mut bytes = valid.to_vec();
             bytes[offset] ^= 1;

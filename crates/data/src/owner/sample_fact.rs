@@ -1174,6 +1174,7 @@ fn decode_receipt(
     let source_binding_lineage_version = d.u64()?;
     let market_semantics_identity = d.identity()?;
     d.end()?;
+
     for identity in [
         sample_identity,
         fact_digest,
@@ -1184,6 +1185,7 @@ fn decode_receipt(
     ] {
         nonzero(identity)?;
     }
+
     if owner_event_identity == [0; 16] || owner_sequence == 0 || source_binding_lineage_version == 0
     {
         return Err(SampleFactUnavailable::InvalidCombination);

@@ -163,9 +163,9 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_e
     StrategyInputSampleProjectionBootstrapErrorV2,
 > {
     let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|error| {
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
             StrategyInputSampleProjectionBootstrapErrorV2 {
-                failure: map_bootstrap_failure(&error),
+                failure: map_bootstrap_failure(&e),
             }
         })?;
     consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
@@ -184,9 +184,9 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_l
     StrategyInputSampleProjectionBootstrapErrorV2,
 > {
     let bootstrap =
-        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|error| {
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
             StrategyInputSampleProjectionBootstrapErrorV2 {
-                failure: map_bootstrap_failure(&error),
+                failure: map_bootstrap_failure(&e),
             }
         })?;
     consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await

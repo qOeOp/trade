@@ -734,6 +734,7 @@ fn validate_sample_projection_revalidation_v2(
             AdmissionFailureCode::DirectMeasurementMismatch,
         ));
     }
+
     if !same_snapshot_cut(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
