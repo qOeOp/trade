@@ -24,6 +24,7 @@ use std::fmt::Display;
 use sha2::{Digest as _, Sha256};
 
 use super::{
+    instrument_master::{InstrumentMasterFactV1, InstrumentMasterReadbackV1},
     source_binding::BindingDigest,
     strategy_input_binding::{
         STRATEGY_INPUT_FIXED_I128_LE_V1, StrategyInputBindingReceipt,
@@ -38,6 +39,10 @@ const SAMPLE_RECEIPT_LEN: usize = 244;
 
 const TIMEFRAME_ID_DOMAIN: &[u8] = b"market-data.timeframe.identity.v1\0";
 const TIMEFRAME_RECEIPT_DOMAIN: &[u8] = b"market-data.timeframe-projection-receipt.v1\0";
+const TIMEFRAME_ANCHOR_DOMAIN: &[u8] = b"market-data.timeframe.anchor.owner-evidence.v1\0";
+const TIMEFRAME_CALENDAR_DOMAIN: &[u8] = b"market-data.timeframe.calendar.owner-evidence.v1\0";
+const TIMEFRAME_SESSION_DOMAIN: &[u8] = b"market-data.timeframe.session.owner-evidence.v1\0";
+const TIMEFRAME_TIME_ZONE_DOMAIN: &[u8] = b"market-data.timeframe.time-zone.owner-evidence.v1\0";
 const EVENT_ID_DOMAIN: &[u8] = b"market-data.sample-event.identity.v1\0";
 const SERIES_ID_DOMAIN: &[u8] = b"market-data.sample-series.identity.v1\0";
 const SLOT_ID_DOMAIN: &[u8] = b"market-data.sample-slot.identity.v1\0";
@@ -81,6 +86,51 @@ enum PartialBarRule {
     AdmitPartialAsDistinctSlot = 0x02,
 }
 
+/// Untrusted fixed-interval unit proposal. It cannot mint a timeframe identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BarTimeframeUnitV1 {
+    Second,
+    Minute,
+    Hour,
+}
+
+/// Untrusted bar-label proposal. It cannot mint a timeframe identity.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BarLabelRuleV1 {
+    IntervalOpen,
+    IntervalClose,
+}
+
+/// Untrusted partial-bar proposal. V1 native preparation currently admits complete bars only.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BarPartialRuleV1 {
+    CompleteOnly,
+    AdmitPartialAsDistinctSlot,
+}
+
+/// Untrusted structured proposal for one schedule-bounded fixed-interval bar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UntrustedFixedIntervalBarTimeframeV1 {
+    pub step: u32,
+    pub unit: BarTimeframeUnitV1,
+    pub label: BarLabelRuleV1,
+    pub partial: BarPartialRuleV1,
+}
+
+/// Untrusted structured proposal for one exchange-session-day bar.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UntrustedExchangeSessionBarTimeframeV1 {
+    pub label: BarLabelRuleV1,
+    pub partial: BarPartialRuleV1,
+}
+
+/// Closed untrusted BAR timeframe proposal. Binding labels are never parsed into this value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum UntrustedBarTimeframeProposalV1 {
+    FixedInterval(UntrustedFixedIntervalBarTimeframeV1),
+    ExchangeSession(UntrustedExchangeSessionBarTimeframeV1),
+}
+
 /// One exact canonical timeframe specification.
 #[derive(Debug)]
 pub struct TimeframeSpecV1 {
@@ -104,6 +154,53 @@ impl TimeframeSpecV1 {
             identity: sha256(TIMEFRAME_ID_DOMAIN, &bytes),
             bytes,
         }
+    }
+
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the documented fixed-width timeframe tuple has one canonical constructor"
+    )]
+    fn bar(
+        kind: TimeframeKind,
+        step: u32,
+        unit: TimeframeUnit,
+        anchor: Identity,
+        calendar: Identity,
+        session: Identity,
+        time_zone: Identity,
+        label: LabelRule,
+        partial: PartialBarRule,
+    ) -> Result<Self, SampleFactUnavailable> {
+        validate_timeframe_combination(
+            kind as u8,
+            step,
+            unit as u8,
+            anchor,
+            calendar,
+            session,
+            time_zone,
+            label as u8,
+            partial as u8,
+        )?;
+        let mut bytes = Vec::with_capacity(TIMEFRAME_SPEC_LEN);
+        put_u16(&mut bytes, 1);
+        put_u16(&mut bytes, 0);
+        bytes.push(kind as u8);
+        put_u32(&mut bytes, step);
+        bytes.push(unit as u8);
+        bytes.extend_from_slice(&anchor);
+        bytes.extend_from_slice(&calendar);
+        bytes.extend_from_slice(&session);
+        bytes.extend_from_slice(&time_zone);
+        bytes.push(label as u8);
+        bytes.push(partial as u8);
+        let bytes: [u8; TIMEFRAME_SPEC_LEN] = bytes
+            .try_into()
+            .map_err(|_| SampleFactUnavailable::InvalidLength)?;
+        Ok(Self {
+            identity: sha256(TIMEFRAME_ID_DOMAIN, &bytes),
+            bytes,
+        })
     }
 
     fn decode(bytes: &[u8]) -> Result<Self, SampleFactUnavailable> {
@@ -178,6 +275,25 @@ impl TimeframeProjectionReceiptV1 {
         }
     }
 
+    fn from_spec(binding: &StrategyInputBindingReceipt, spec: TimeframeSpecV1) -> Self {
+        let binding_receipt_digest = *binding.digest().as_bytes();
+        let mut bytes = Vec::with_capacity(TIMEFRAME_PROJECTION_LEN);
+        put_u16(&mut bytes, 1);
+        put_u16(&mut bytes, 0);
+        bytes.extend_from_slice(&binding_receipt_digest);
+        bytes.extend_from_slice(&spec.identity);
+        bytes.extend_from_slice(&spec.bytes);
+        let bytes: [u8; TIMEFRAME_PROJECTION_LEN] =
+            bytes.try_into().expect("fixed timeframe receipt width");
+        Self {
+            digest: sha256(TIMEFRAME_RECEIPT_DOMAIN, &bytes),
+            bytes,
+            binding_receipt_digest,
+            timeframe_identity: spec.identity,
+            spec,
+        }
+    }
+
     fn decode(bytes: &[u8], expected_digest: Identity) -> Result<Self, SampleFactUnavailable> {
         if bytes.len() != TIMEFRAME_PROJECTION_LEN {
             return Err(SampleFactUnavailable::InvalidLength);
@@ -230,6 +346,13 @@ impl TimeframeProjectionReceiptV1 {
     }
     pub(crate) fn is_point_event(&self) -> bool {
         self.spec.bytes[4] == TimeframeKind::PointEvent as u8
+    }
+    pub(crate) fn is_bar(&self) -> bool {
+        matches!(
+            self.spec.bytes[4],
+            x if x == TimeframeKind::FixedIntervalBar as u8
+                || x == TimeframeKind::ExchangeSessionBar as u8
+        )
     }
 }
 
@@ -384,6 +507,9 @@ impl SampleReceiptV1 {
 pub(crate) enum SampleFactUnavailable {
     BindingUnavailable,
     UnsupportedDataKind,
+    UnsupportedTimeframe,
+    AmbiguousInstrumentMaster,
+    InstrumentMasterMismatch,
     InvalidTag,
     InvalidCombination,
     InvalidLength,
@@ -540,6 +666,85 @@ pub(crate) fn prepare_point_event_timeframe_projection_v1(
     TimeframeProjectionReceiptV1::point_event(binding)
 }
 
+/// Mints one BAR timeframe projection only from the exact selected row and native Instrument
+/// Master evidence. The binding's free-form timeframe remains provenance and is never parsed.
+pub(crate) fn prepare_bar_timeframe_projection_v1(
+    binding: &StrategyInputBindingReceipt,
+    batch: &VerifiedPitObservationBatch,
+    instrument_master: &InstrumentMasterReadbackV1,
+    proposal: UntrustedBarTimeframeProposalV1,
+) -> Result<TimeframeProjectionReceiptV1, SampleFactUnavailable> {
+    let projection = project_sample_fact_v1(binding, batch)?;
+    let row = projection.row;
+    if row.data_kind() != "BAR" {
+        return Err(SampleFactUnavailable::UnsupportedDataKind);
+    }
+
+    let [fact] = instrument_master.facts() else {
+        return Err(SampleFactUnavailable::AmbiguousInstrumentMaster);
+    };
+    validate_instrument_master_timeframe_evidence(
+        binding,
+        batch,
+        row,
+        fact,
+        instrument_master,
+    )?;
+
+    let class_tag = fact.instrument_class() as u16;
+    let anchor = timeframe_anchor_identity(
+        binding,
+        batch,
+        row,
+        projection.canonical_row_digest,
+        fact,
+        class_tag,
+    )?;
+    let calendar = instrument_master_field_identity(
+        TIMEFRAME_CALENDAR_DOMAIN,
+        fact,
+        class_tag,
+        fact.calendar_identity(),
+    )?;
+    let session = instrument_master_field_identity(
+        TIMEFRAME_SESSION_DOMAIN,
+        fact,
+        class_tag,
+        fact.session_identity(),
+    )?;
+    let time_zone = instrument_master_field_identity(
+        TIMEFRAME_TIME_ZONE_DOMAIN,
+        fact,
+        class_tag,
+        fact.time_zone_identity(),
+    )?;
+
+    let (kind, step, unit, label, partial) = match proposal {
+        UntrustedBarTimeframeProposalV1::FixedInterval(proposal) => (
+            TimeframeKind::FixedIntervalBar,
+            proposal.step,
+            match proposal.unit {
+                BarTimeframeUnitV1::Second => TimeframeUnit::Second,
+                BarTimeframeUnitV1::Minute => TimeframeUnit::Minute,
+                BarTimeframeUnitV1::Hour => TimeframeUnit::Hour,
+            },
+            label_rule(proposal.label),
+            admitted_partial_rule(proposal.partial)?,
+        ),
+        UntrustedBarTimeframeProposalV1::ExchangeSession(proposal) => (
+            TimeframeKind::ExchangeSessionBar,
+            1,
+            TimeframeUnit::ExchangeSessionDay,
+            label_rule(proposal.label),
+            admitted_partial_rule(proposal.partial)?,
+        ),
+    };
+    let spec = TimeframeSpecV1::bar(
+        kind, step, unit, anchor, calendar, session, time_zone, label, partial,
+    )?;
+    Ok(TimeframeProjectionReceiptV1::from_spec(binding, spec))
+}
+
 pub(crate) fn verify_stored_timeframe_projection_v1(
     bytes: &[u8],
     expected_digest: Identity,
@@ -556,15 +761,17 @@ pub(crate) fn prepare_sample_commit_v1(
     if timeframe.binding_receipt_digest != *binding.digest().as_bytes() {
         return Err(SampleFactUnavailable::ReceiptMismatch);
     }
-    // Durable preparation initially admits POINT_EVENT only. Decode validation still supports the
-    // complete timeframe registry so stored historical codecs fail closed without parsing labels.
-    if timeframe.spec.bytes[4] != TimeframeKind::PointEvent as u8 {
-        return Err(SampleFactUnavailable::UnsupportedDataKind);
-    }
     let projection = project_sample_fact_v1(binding, batch)?;
     let row = projection.row;
     let data_kind = data_kind_tag(row.data_kind())?;
-    if data_kind == 0x01 {
+    let compatible = if timeframe.is_bar() {
+        data_kind == 0x01
+    } else if timeframe.is_point_event() {
+        data_kind != 0x01
+    } else {
+        false
+    };
+    if !compatible {
         return Err(SampleFactUnavailable::UnsupportedDataKind);
     }
     let channel = channel_tag(row.channel())?;
@@ -730,6 +937,103 @@ pub(crate) fn verify_stored_sample_readback_v1(
         return Err(SampleFactUnavailable::ReceiptMismatch);
     }
     Ok(StoredSampleReadbackV1 { fact, receipt })
+}
+
+fn validate_instrument_master_timeframe_evidence(
+    binding: &StrategyInputBindingReceipt,
+    batch: &VerifiedPitObservationBatch,
+    row: &crate::owner::pit_snapshot::VerifiedPitObservation,
+    fact: &InstrumentMasterFactV1,
+    readback: &InstrumentMasterReadbackV1,
+) -> Result<(), SampleFactUnavailable> {
+    let locator = binding.locator();
+    let expected_members = readback.cut().expected_members();
+    if expected_members.len() != 1
+        || expected_members[0] != row.instrument()
+        || fact.canonical_identity() != row.instrument()
+        || locator.instrument() != row.instrument()
+        || readback.digest() != batch.instrument_master_digest()
+        || row.instrument_master_digest() != batch.instrument_master_digest()
+        || fact.market_semantics_identity() != row.market_semantics_identity()
+        || fact.market_semantics_identity() != batch.market_semantics_identity()
+        || fact.market_semantics_identity() != locator.market_semantics_identity()
+        || fact.correction_frontier() != row.correction_frontier_digest()
+        || fact.correction_frontier() != batch.correction_frontier_digest()
+    {
+        return Err(SampleFactUnavailable::InstrumentMasterMismatch);
+    }
+    if fact.calendar_identity().is_empty()
+        || fact.session_identity().is_empty()
+        || fact.time_zone_identity().is_empty()
+    {
+        return Err(SampleFactUnavailable::UnsupportedTimeframe);
+    }
+    Ok(())
+}
+
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the anchor cross-binds every exact selected Owner evidence coordinate"
+)]
+fn timeframe_anchor_identity(
+    binding: &StrategyInputBindingReceipt,
+    batch: &VerifiedPitObservationBatch,
+    row: &crate::owner::pit_snapshot::VerifiedPitObservation,
+    canonical_row_digest: BindingDigest,
+    fact: &InstrumentMasterFactV1,
+    class_tag: u16,
+) -> Result<Identity, SampleFactUnavailable> {
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 1);
+    put_u16(&mut bytes, class_tag);
+    bytes.extend_from_slice(binding.digest().as_bytes());
+    bytes.extend_from_slice(batch.digest().as_bytes());
+    bytes.extend_from_slice(canonical_row_digest.as_bytes());
+    bytes.extend_from_slice(row.source_binding_identity().as_bytes());
+    bytes.extend_from_slice(batch.source_binding_lineage_root().as_bytes());
+    put_u64(&mut bytes, batch.source_binding_lineage_version());
+    bytes.extend_from_slice(fact.digest().as_bytes());
+    put_var(&mut bytes, row.instrument().as_bytes())?;
+    let identity = sha256(TIMEFRAME_ANCHOR_DOMAIN, &bytes);
+    nonzero(identity)?;
+    Ok(identity)
+}
+
+fn instrument_master_field_identity(
+    domain: &[u8],
+    fact: &InstrumentMasterFactV1,
+    class_tag: u16,
+    field: &str,
+) -> Result<Identity, SampleFactUnavailable> {
+    if field.is_empty() {
+        return Err(SampleFactUnavailable::UnsupportedTimeframe);
+    }
+    let mut bytes = Vec::new();
+    put_u16(&mut bytes, 1);
+    put_u16(&mut bytes, class_tag);
+    bytes.extend_from_slice(fact.digest().as_bytes());
+    put_var(&mut bytes, field.as_bytes())?;
+    let identity = sha256(domain, &bytes);
+    nonzero(identity)?;
+    Ok(identity)
+}
+
+const fn label_rule(proposal: BarLabelRuleV1) -> LabelRule {
+    match proposal {
+        BarLabelRuleV1::IntervalOpen => LabelRule::IntervalOpen,
+        BarLabelRuleV1::IntervalClose => LabelRule::IntervalClose,
+    }
+}
+
+fn admitted_partial_rule(
+    proposal: BarPartialRuleV1,
+) -> Result<PartialBarRule, SampleFactUnavailable> {
+    match proposal {
+        BarPartialRuleV1::CompleteOnly => Ok(PartialBarRule::CompleteOnly),
+        BarPartialRuleV1::AdmitPartialAsDistinctSlot => {
+            Err(SampleFactUnavailable::UnsupportedTimeframe)
+        }
+    }
 }
 
 #[allow(
@@ -1328,6 +1632,11 @@ impl<'a> Decoder<'a> {
 pub(crate) mod tests {
     use super::*;
     use crate::owner::{
+        instrument_master::{
+            ClockProjection, InstrumentClass, InstrumentDecimal, InstrumentMasterCutV1,
+            InstrumentMasterFactProposalV1, InstrumentMasterFactV1, InstrumentMasterReadbackV1,
+            InstrumentMasterResolution, InstrumentMasterScopeV1, InstrumentVenueSourceMapping,
+        },
         pit_snapshot::{
             UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
             UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime,
@@ -1370,6 +1679,16 @@ pub(crate) mod tests {
             correction_sequence: sequence,
             correction_frontier_digest: d(8 + sequence as u8),
         }
+    }
+
+    fn bar_row(event_effective: u64, sequence: u64) -> VerifiedPitObservation {
+        let mut row = row(event_effective, sequence);
+        row.symbolic_key = "AAPL.CLOSE".into();
+        row.data_kind = "BAR".into();
+        row.field = "CLOSE".into();
+        row.timeframe = "not-a-timeframe-authority".into();
+        row.correction_stream_identity = "bar-corrections".into();
+        row
     }
 
     fn batch(row: VerifiedPitObservation, fact: u8) -> VerifiedPitObservationBatch {
@@ -1433,6 +1752,111 @@ pub(crate) mod tests {
             universe_selection_digest: batch.universe_selection_digest(),
             market_semantics_identity: batch.market_semantics_identity(),
             decision_cut: 40,
+        }
+    }
+
+    fn bar_request(batch: &VerifiedPitObservationBatch) -> UntrustedStrategyInputBindingRequest {
+        let mut request = request(batch);
+        request.field_semantic = MarketDataFieldSemantic::BarClosePrice;
+        request.timeframe = "not-a-timeframe-authority".into();
+        request
+    }
+
+    fn instrument_master_readback(
+        instrument: &str,
+        market_semantics: BindingDigest,
+        correction_frontier: BindingDigest,
+    ) -> InstrumentMasterReadbackV1 {
+        let clock = ClockProjection {
+            clock_identity: [31; 32],
+            clock_epoch: [32; 32],
+            monotonic_sequence: 1,
+            wall_observed: 40,
+            decision_cut: 40,
+            head_identity: d(33),
+            head_digest: d(34),
+            valid_through: 50,
+            restart_continuity_digest: d(35),
+            uncertainty_bound: 1,
+            skew_bound: 1,
+            epoch_proof_identity: None,
+            epoch_proof_digest: None,
+        };
+        let fact = InstrumentMasterFactV1 {
+            proposal: InstrumentMasterFactProposalV1 {
+                canonical_identity: instrument.into(),
+                predecessor_fact_digest: None,
+                mappings: vec![InstrumentVenueSourceMapping {
+                    venue_identity: "XNAS".into(),
+                    source_identity: "SIP".into(),
+                    source_instrument: b"AAPL".to_vec(),
+                }],
+                instrument_class: InstrumentClass::Equity,
+                base_currency: Some("USD".into()),
+                quote_currency: None,
+                settlement_currency: Some("USD".into()),
+                margin_currency: None,
+                price_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 2,
+                },
+                quantity_increment: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                contract_multiplier: InstrumentDecimal {
+                    mantissa: 1,
+                    scale: 0,
+                },
+                calendar_identity: "XNYS-CALENDAR-V1".into(),
+                session_identity: "XNYS-REGULAR-V1".into(),
+                time_zone_identity: "America/New_York".into(),
+                lifecycle_frontier: d(36),
+                corporate_action_frontier: d(37),
+                historical_membership_frontier: d(38),
+                market_semantics_identity: market_semantics,
+                source_frontier: d(7),
+                correction_frontier,
+                effective_from: 1,
+                effective_until: Some(100),
+                provider_available: 20,
+                retrieval: 30,
+                correction_publication: 31,
+                owner_observation: 40,
+            },
+            clock: clock.clone(),
+            canonical_bytes: vec![1],
+            identity: d(30),
+        };
+        let cut = InstrumentMasterCutV1 {
+            request_identity: d(40),
+            request_meaning_digest: d(41),
+            scope: InstrumentMasterScopeV1::ExactInstrument(instrument.into()),
+            expected_members: vec![instrument.into()],
+            effective_instant: 10,
+            owner_observation: 40,
+            decision_cut: 40,
+            clock,
+            resolutions: vec![InstrumentMasterResolution {
+                canonical_identity: instrument.into(),
+                fact_digest: fact.digest(),
+            }],
+            frontiers: [d(42); 6],
+            canonical_bytes: vec![2],
+            identity: d(43),
+        };
+        InstrumentMasterReadbackV1 {
+            request_identity: d(40),
+            request_meaning_digest: d(41),
+            facts: vec![fact],
+            cut,
+            stable_correlation: d(44),
+            store_generation_identity: d(45),
+            store_append_sequence: 1,
+            receipt_identity: d(46),
+            outbox_identity: d(46),
+            canonical_bytes: vec![3],
+            identity: d(9),
         }
     }
 
@@ -1500,6 +1924,49 @@ pub(crate) mod tests {
             },
         )
         .expect("contract-verified point event sample");
+        (binding, frame, timeframe, stored(&commit))
+    }
+
+    pub(crate) fn bar_projection_fixture_v2() -> (
+        StrategyInputBindingReceipt,
+        StrategyInputEventFrameReceipt,
+        TimeframeProjectionReceiptV1,
+        StoredSampleReadbackV1,
+    ) {
+        let batch = batch(bar_row(10, 3), 30);
+        let binding = bind_strategy_input_role(&bar_request(&batch), &batch)
+            .expect("sealed V1 BAR binding");
+        let frame = bind_strategy_input_event_frame(std::slice::from_ref(&binding), &batch)
+            .expect("complete V1 BAR frame");
+        let master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        let timeframe = prepare_bar_timeframe_projection_v1(
+            &binding,
+            &batch,
+            &master,
+            UntrustedBarTimeframeProposalV1::FixedInterval(
+                UntrustedFixedIntervalBarTimeframeV1 {
+                    step: 5,
+                    unit: BarTimeframeUnitV1::Minute,
+                    label: BarLabelRuleV1::IntervalClose,
+                    partial: BarPartialRuleV1::CompleteOnly,
+                },
+            ),
+        )
+        .expect("Owner-derived BAR timeframe");
+        let commit = prepare_sample_commit_v1(
+            &binding,
+            &batch,
+            &timeframe,
+            SampleFactHeadsV1 {
+                series: None,
+                slot: None,
+            },
+        )
+        .expect("contract-verified BAR sample");
         (binding, frame, timeframe, stored(&commit))
     }
 
@@ -1607,6 +2074,123 @@ pub(crate) mod tests {
         );
         assert_eq!(commit.sample_receipt_canonical_bytes().len(), 244);
         assert_ne!(commit.fact_digest(), commit.sample_identity());
+    }
+
+    #[rstest]
+    fn bar_timeframes_are_minted_from_owner_evidence_and_commit_without_label_parsing() {
+        let batch = batch(bar_row(10, 3), 30);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+        let master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        let fixed = prepare_bar_timeframe_projection_v1(
+            &binding,
+            &batch,
+            &master,
+            UntrustedBarTimeframeProposalV1::FixedInterval(
+                UntrustedFixedIntervalBarTimeframeV1 {
+                    step: 5,
+                    unit: BarTimeframeUnitV1::Minute,
+                    label: BarLabelRuleV1::IntervalClose,
+                    partial: BarPartialRuleV1::CompleteOnly,
+                },
+            ),
+        )
+        .expect("fixed BAR");
+        assert!(fixed.is_bar());
+        assert_eq!(fixed.spec().canonical_bytes()[4], 0x02);
+        assert_eq!(&fixed.spec().canonical_bytes()[5..9], &5_u32.to_le_bytes());
+        assert_eq!(fixed.spec().canonical_bytes()[9], 0x02);
+        for identity in fixed.spec().canonical_bytes()[10..138].chunks_exact(32) {
+            assert_ne!(identity, [0; 32]);
+        }
+        let commit = prepare_sample_commit_v1(
+            &binding,
+            &batch,
+            &fixed,
+            SampleFactHeadsV1 {
+                series: None,
+                slot: None,
+            },
+        )
+        .expect("BAR sample fact");
+        assert_eq!(commit.fact().timeframe_identity(), fixed.timeframe_identity());
+
+        let session = prepare_bar_timeframe_projection_v1(
+            &binding,
+            &batch,
+            &master,
+            UntrustedBarTimeframeProposalV1::ExchangeSession(
+                UntrustedExchangeSessionBarTimeframeV1 {
+                    label: BarLabelRuleV1::IntervalOpen,
+                    partial: BarPartialRuleV1::CompleteOnly,
+                },
+            ),
+        )
+        .expect("session BAR");
+        assert_eq!(session.spec().canonical_bytes()[4], 0x03);
+        assert_eq!(session.spec().canonical_bytes()[9], 0x04);
+        assert_ne!(fixed.timeframe_identity(), session.timeframe_identity());
+    }
+
+    #[rstest]
+    fn bar_timeframe_mint_rejects_partial_and_instrument_master_splices() {
+        let batch = batch(bar_row(10, 3), 30);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed BAR binding");
+        let proposal = UntrustedBarTimeframeProposalV1::FixedInterval(
+            UntrustedFixedIntervalBarTimeframeV1 {
+                step: 1,
+                unit: BarTimeframeUnitV1::Hour,
+                label: BarLabelRuleV1::IntervalClose,
+                partial: BarPartialRuleV1::CompleteOnly,
+            },
+        );
+        let mut master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+
+        master.facts.push(master.facts[0].clone());
+        assert_eq!(
+            prepare_bar_timeframe_projection_v1(&binding, &batch, &master, proposal)
+                .unwrap_err(),
+            SampleFactUnavailable::AmbiguousInstrumentMaster
+        );
+        master.facts.pop();
+        master.facts[0].proposal.market_semantics_identity = d(90);
+        assert_eq!(
+            prepare_bar_timeframe_projection_v1(&binding, &batch, &master, proposal)
+                .unwrap_err(),
+            SampleFactUnavailable::InstrumentMasterMismatch
+        );
+        master.facts[0].proposal.market_semantics_identity = batch.market_semantics_identity();
+        master.facts[0].proposal.correction_frontier = d(91);
+        assert_eq!(
+            prepare_bar_timeframe_projection_v1(&binding, &batch, &master, proposal)
+                .unwrap_err(),
+            SampleFactUnavailable::InstrumentMasterMismatch
+        );
+
+        let master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        let partial = UntrustedBarTimeframeProposalV1::ExchangeSession(
+            UntrustedExchangeSessionBarTimeframeV1 {
+                label: BarLabelRuleV1::IntervalOpen,
+                partial: BarPartialRuleV1::AdmitPartialAsDistinctSlot,
+            },
+        );
+        assert_eq!(
+            prepare_bar_timeframe_projection_v1(&binding, &batch, &master, partial).unwrap_err(),
+            SampleFactUnavailable::UnsupportedTimeframe
+        );
     }
 
     #[rstest]

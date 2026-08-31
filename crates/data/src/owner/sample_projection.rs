@@ -315,14 +315,11 @@ impl Display for StrategyInputSampleProjectionUnavailable {
 
 impl std::error::Error for StrategyInputSampleProjectionUnavailable {}
 
-/// Prepares one complete point-event FRAME projection from verified Owner artifacts.
+/// Prepares one complete EVENT or BAR FRAME projection from verified Owner artifacts.
 pub(crate) fn prepare_strategy_input_sample_projection_frame_v2(
     frame: &StrategyInputEventFrameReceipt,
     sources: &[StrategyInputSampleProjectionSourceV2<'_>],
 ) -> Result<PreparedStrategyInputSampleProjectionV2, StrategyInputSampleProjectionUnavailable> {
-    if frame.trigger().lifecycle().kind() != StrategyInputEventKind::Event {
-        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
-    }
     let frame_evidence = prepare_frame_evidence(frame)?;
     let values = frame.values();
     if values.len() != sources.len() {
@@ -494,7 +491,7 @@ pub(super) fn verify_decoded_projection_component_native_v2(
     timeframe: &TimeframeProjectionReceiptV1,
     sample: &StoredSampleReadbackV1,
 ) -> Result<(), StrategyInputSampleProjectionUnavailable> {
-    if !timeframe.is_point_event()
+    if !(timeframe.is_point_event() || timeframe.is_bar())
         || timeframe.digest() != component.timeframe_projection_digest
         || timeframe.binding_receipt_digest() != component.binding_receipt_digest
         || sample.receipt().sample_identity() != component.sample_identity
@@ -569,7 +566,11 @@ fn project_component(
         return Err(StrategyInputSampleProjectionUnavailable::BindingMismatch);
     }
 
-    if !timeframe.is_point_event()
+    let compatible_timeframe = match lifecycle.kind() {
+        StrategyInputEventKind::Event => timeframe.is_point_event(),
+        StrategyInputEventKind::Bar => timeframe.is_bar(),
+    };
+    if !compatible_timeframe
         || timeframe.binding_receipt_digest() != binding_digest
         || timeframe.timeframe_identity() != receipt.timeframe_identity()
     {
@@ -783,7 +784,8 @@ pub(crate) mod tests {
     use super::*;
     use crate::owner::{
         sample_fact::tests::{
-            point_event_projection_fixture_v2, point_event_projection_fixture_variant_v2,
+            bar_projection_fixture_v2, point_event_projection_fixture_v2,
+            point_event_projection_fixture_variant_v2,
         },
         source_binding::BindingDigest,
     };
@@ -832,6 +834,49 @@ pub(crate) mod tests {
         assert_eq!(stored.component_count(), prepared.component_count());
         assert_eq!(stored.canonical_bytes(), prepared.canonical_bytes());
         assert_eq!(stored.receipt_digest(), prepared.receipt_digest());
+    }
+
+    #[rstest]
+    fn bar_frame_requires_bar_timeframe_without_event_reinterpretation() {
+        let (bar_binding, bar_frame, bar_timeframe, bar_sample) = bar_projection_fixture_v2();
+        let prepared = prepare_strategy_input_sample_projection_frame_v2(
+            &bar_frame,
+            &[StrategyInputSampleProjectionSourceV2 {
+                binding: &bar_binding,
+                timeframe: &bar_timeframe,
+                sample: &bar_sample,
+            }],
+        )
+        .expect("BAR lifecycle and BAR native timeframe");
+        assert_eq!(prepared.component_count(), 1);
+
+        let (_, _, event_timeframe, _) = point_event_projection_fixture_v2();
+        assert_eq!(
+            prepare_strategy_input_sample_projection_frame_v2(
+                &bar_frame,
+                &[StrategyInputSampleProjectionSourceV2 {
+                    binding: &bar_binding,
+                    timeframe: &event_timeframe,
+                    sample: &bar_sample,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::TimeframeMismatch
+        );
+
+        let (event_binding, event_frame, _, event_sample) = point_event_projection_fixture_v2();
+        assert_eq!(
+            prepare_strategy_input_sample_projection_frame_v2(
+                &event_frame,
+                &[StrategyInputSampleProjectionSourceV2 {
+                    binding: &event_binding,
+                    timeframe: &bar_timeframe,
+                    sample: &event_sample,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::TimeframeMismatch
+        );
     }
 
     #[rstest]
