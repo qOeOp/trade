@@ -218,6 +218,10 @@ impl InstrumentMasterFactV1 {
     pub const fn correction_frontier(&self) -> InstrumentMasterIdentity {
         self.proposal.correction_frontier
     }
+    /// Returns the source frontier sealed into this historical fact.
+    pub const fn source_frontier(&self) -> InstrumentMasterIdentity {
+        self.proposal.source_frontier
+    }
     pub const fn effective_from(&self) -> i128 {
         self.proposal.effective_from
     }
@@ -261,6 +265,10 @@ impl InstrumentMasterCutV1 {
     }
     pub fn expected_members(&self) -> &[String] {
         &self.expected_members
+    }
+    /// Returns the exact effective instant resolved by this cut.
+    pub const fn effective_instant(&self) -> i128 {
+        self.effective_instant
     }
 }
 

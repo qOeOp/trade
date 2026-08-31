@@ -3,6 +3,7 @@
 #[cfg(not(test))]
 use std::sync::Arc;
 
+pub mod bar_schedule;
 pub mod instrument_master;
 pub mod pit_snapshot;
 pub mod research_pit_terminal;
