@@ -303,6 +303,19 @@ impl AdmittedMarketDataPostgresCapability {
         Ok(self.into_source_binding_snapshot_port())
     }
 
+    /// Consumes this authority into the fixed V3 BAR sample-projection read operation.
+    pub(super) fn into_sample_projection_snapshot_port_v3(
+        self,
+    ) -> Result<AdmittedMarketDataSnapshotPort, DeploymentStoreAdmissionError> {
+        if !self.measurement_spec.covers_sample_projection_floor_v3() {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementMismatch,
+            ));
+        }
+        Ok(self.into_source_binding_snapshot_port())
+    }
+
     /// Consumes this authority into the fixed BAR schedule read operation.
     pub(super) fn into_bar_schedule_snapshot_port(
         self,
@@ -374,6 +387,70 @@ pub(super) struct StrategyInputSampleProjectionStorageEvidenceV2 {
     projection_row: Vec<u8>,
     timeframe_rows: Vec<Vec<u8>>,
     sample_rows: Vec<Vec<u8>>,
+}
+
+/// Complete raw V3 BAR projection evidence observed inside one admitted snapshot.
+pub(super) struct StrategyInputSampleProjectionStorageEvidenceV3 {
+    projection_row: Vec<u8>,
+    dependency_rows: Vec<Vec<u8>>,
+    timeframe_rows: Vec<Vec<u8>>,
+    sample_rows: Vec<Vec<u8>>,
+    schedule_rows: Vec<Vec<u8>>,
+    schedule_history_rows: Vec<Vec<Vec<u8>>>,
+}
+
+impl StrategyInputSampleProjectionStorageEvidenceV3 {
+    #[must_use]
+    pub(super) fn projection_row(&self) -> &[u8] {
+        &self.projection_row
+    }
+    #[must_use]
+    pub(super) fn dependency_rows(&self) -> &[Vec<u8>] {
+        &self.dependency_rows
+    }
+    #[must_use]
+    pub(super) fn timeframe_rows(&self) -> &[Vec<u8>] {
+        &self.timeframe_rows
+    }
+    #[must_use]
+    pub(super) fn sample_rows(&self) -> &[Vec<u8>] {
+        &self.sample_rows
+    }
+    #[must_use]
+    pub(super) fn schedule_rows(&self) -> &[Vec<u8>] {
+        &self.schedule_rows
+    }
+    #[must_use]
+    pub(super) fn schedule_history_rows(&self) -> &[Vec<Vec<u8>>] {
+        &self.schedule_history_rows
+    }
+
+    #[cfg(test)]
+    pub(super) async fn from_disposable_postgres(
+        database_url: String,
+        receipt_digest: [u8; 32],
+    ) -> Result<Self, ()> {
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "disposable-sample-projection-v3-test",
+            "vibe-data-test",
+            "v1",
+            u64::MAX,
+            database_url,
+        )
+        .map_err(|_| ())?;
+        let raw =
+            postgres::read_strategy_input_sample_projection_snapshot_v3(&lease, &receipt_digest)
+                .await
+                .map_err(|_| ())?;
+        Ok(Self {
+            projection_row: raw.projection_row,
+            dependency_rows: raw.dependency_rows,
+            timeframe_rows: raw.timeframe_rows,
+            sample_rows: raw.sample_rows,
+            schedule_rows: raw.schedule_rows,
+            schedule_history_rows: raw.schedule_history_rows,
+        })
+    }
 }
 
 impl StrategyInputSampleProjectionStorageEvidenceV2 {
@@ -657,6 +734,68 @@ impl AdmittedMarketDataSnapshotPort {
         )
     }
 
+    /// Reads one fixed V3 BAR projection and every referenced Owner artifact in one snapshot.
+    pub(super) async fn resolve_sample_projection_v3(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StrategyInputSampleProjectionStorageEvidenceV3, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_sample_projection_revalidation_v3(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
+        let raw = postgres::read_strategy_input_sample_projection_snapshot_v3(
+            &before.credential_lease,
+            &receipt_digest,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_sample_projection_revalidation_v3(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
+        Ok(StrategyInputSampleProjectionStorageEvidenceV3 {
+            projection_row: raw.projection_row,
+            dependency_rows: raw.dependency_rows,
+            timeframe_rows: raw.timeframe_rows,
+            sample_rows: raw.sample_rows,
+            schedule_rows: raw.schedule_rows,
+            schedule_history_rows: raw.schedule_history_rows,
+        })
+    }
+
+    /// Revalidates the complete V3 BAR floor and admission cut immediately before promotion.
+    pub(super) async fn revalidate_sample_projection_v3_before_return(
+        &self,
+    ) -> Result<(), DeploymentStoreAdmissionError> {
+        let current = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_sample_projection_revalidation_v3(
+            &self.scope,
+            &self.receipt,
+            &current.receipt,
+            &current.measurement_spec,
+        )
+    }
+
     /// Reads one fixed Source Binding snapshot after full admission both before checkout and return.
     pub(super) async fn resolve(
         &self,
@@ -818,6 +957,25 @@ fn validate_sample_projection_revalidation_v2(
     observed_measurement_spec: &PostgresMeasurementSpec,
 ) -> Result<(), DeploymentStoreAdmissionError> {
     if !observed_measurement_spec.covers_sample_projection_floor_v2() {
+        return Err(rejection(
+            scope,
+            AdmissionFailureCode::DirectMeasurementMismatch,
+        ));
+    }
+
+    if !same_snapshot_cut(expected, observed) {
+        return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
+    }
+    Ok(())
+}
+
+fn validate_sample_projection_revalidation_v3(
+    scope: &AdmissionScope,
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+    observed_measurement_spec: &PostgresMeasurementSpec,
+) -> Result<(), DeploymentStoreAdmissionError> {
+    if !observed_measurement_spec.covers_sample_projection_floor_v3() {
         return Err(rejection(
             scope,
             AdmissionFailureCode::DirectMeasurementMismatch,
@@ -2564,6 +2722,102 @@ mod tests {
                 &port.receipt,
                 &rotated,
                 &complete.history.manifests[1].manifest.measurement_spec,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+    }
+
+    #[tokio::test]
+    async fn v3_bar_projection_requires_complete_floor_and_revalidates_exact_cut() {
+        let unrelated = Fixture::new();
+        let capability = unrelated
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(unrelated.request.scope())
+            .await
+            .expect("unrelated admission");
+        assert_eq!(
+            capability
+                .into_sample_projection_snapshot_port_v3()
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+
+        let complete_spec = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec![
+                "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)".into(),
+                "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)".into(),
+                "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)".into(),
+                "market_data_private.resolve_sample_receipt_v1(bytea)".into(),
+                "market_data_private.resolve_bar_schedule_v1(bytea)".into(),
+                "market_data_private.resolve_bar_schedule_history_v1(text)".into(),
+            ],
+            vec![
+                "market_data_private.strategy_input_sample_projection_receipts_v3".into(),
+                "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3".into(),
+                "market_data_private.timeframe_projection_receipts_v1".into(),
+                "market_data_private.sample_facts_v1".into(),
+                "market_data_private.sample_receipts_v1".into(),
+                "market_data_private.sample_outbox_v1".into(),
+                "market_data_private.bar_schedule_state_v1".into(),
+                "market_data_private.bar_schedule_facts_v1".into(),
+                "market_data_private.bar_schedule_heads_v1".into(),
+                "market_data_private.bar_schedule_cuts_v1".into(),
+                "market_data_private.bar_schedule_receipts_v1".into(),
+                "market_data_private.bar_schedule_outbox_v1".into(),
+            ],
+        )
+        .unwrap();
+        let complete = Fixture::with_spec(&complete_spec);
+        let measurement_calls = Arc::new(AtomicUsize::new(0));
+        let custodian = complete.custodian(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&measurement_calls),
+        );
+        let initial = custodian
+            .admit_capability(complete.request.scope())
+            .await
+            .expect("complete V3 floor admitted");
+        assert!(initial.measurement_spec.covers_sample_projection_floor_v3());
+        let port = initial
+            .into_sample_projection_snapshot_port_v3()
+            .expect("complete V3 floor promotes fixed port");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 1);
+        port.revalidate_sample_projection_v3_before_return()
+            .await
+            .expect("final V3 revalidation");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
+
+        let incomplete = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec!["market_data_private.resolve_strategy_input_sample_projection_v3(bytea)".into()],
+            vec!["market_data_private.strategy_input_sample_projection_receipts_v3".into()],
+        )
+        .unwrap();
+        assert_eq!(
+            validate_sample_projection_revalidation_v3(
+                &port.scope,
+                &port.receipt,
+                &port.receipt,
+                &incomplete,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+        let mut rotated = port.receipt.clone();
+        rotated.rotation_fence_identity = "rotation:new".to_string();
+        assert_eq!(
+            validate_sample_projection_revalidation_v3(
+                &port.scope,
+                &port.receipt,
+                &rotated,
+                &complete_spec,
             )
             .unwrap_err()
             .code(),

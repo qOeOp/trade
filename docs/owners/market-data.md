@@ -382,8 +382,10 @@ Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionRece
 `SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The code
 also implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
 schedule readback, and V3 BAR FRAME projection receipts. These paths are `CURRENT / PARTIAL` Owner authority after
-their isolated dynamic PostgreSQL acceptance; they do not make BAR reachable by a product or composite consumer.
-Production-admitted/public V3 resolution and product consumption remain `TARGET / UNAVAILABLE`. BAR is limited to
+their isolated dynamic PostgreSQL acceptance. The sealed exact-digest V3 resolver core is likewise
+`CURRENT / PARTIAL`, but the fixed `STRATEGY_FACTORY_RD_OWNER_API_V1` production startup still fails closed because
+its production admission adapters remain unavailable. Production startup and product or composite consumption remain
+`TARGET / UNAVAILABLE`. BAR is limited to
 complete fixed-interval and
 exchange-session bars, while partial bars remain TARGET. Market Data remains the sole writer of all admitted
 records. Every existing V1
@@ -393,7 +395,8 @@ or promoted. The additive `StrategyInputSampleProjectionReceiptV2` remains the c
 projection over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut
 codecs; the unchanged V1 event/value/frame receipts remain its exact evidence inputs. V2 JOINED_CUT projection is
 unimplemented and remains TARGET. BAR uses only the separate V3 FRAME projection described below; its durable Owner
-custody is CURRENT/PARTIAL, while production-admitted/public and product resolution remain TARGET/UNAVAILABLE. It
+custody and its sealed exact historical resolver core are CURRENT/PARTIAL, while production startup and product
+resolution remain TARGET/UNAVAILABLE. It
 never widens or reinterprets V2.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
@@ -617,10 +620,16 @@ The current V3 source cross-binds the exact V1 binding, BAR `TimeframeProjection
 byte-identical sample/timeframe dependencies. Its canonical bytes do not carry a `BarScheduleReceiptV1` or
 `BarScheduleCutV1`; durable dependency columns cross-bind those Owner artifacts outside the codec. The V3
 PostgreSQL table, atomic commit, byte-identical recovery, tamper rejection, and writer/reader ACL oracle are
-CURRENT/PARTIAL durable Owner custody and passed the isolated dynamic PostgreSQL acceptance. V3 still has no
-production-admitted/public resolver and remains `TARGET / UNAVAILABLE` to Strategy Factory, ProgramHost, Backtest,
-composite, Windmill, and every other product consumer. A stored V3 row or structural V3 bytes alone produces no
-consumer authority or mutation.
+CURRENT/PARTIAL durable Owner custody and passed the isolated dynamic PostgreSQL acceptance. Its sealed public
+locator/readback contract and resolver core are `CURRENT / PARTIAL`: one exact receipt digest reads one
+historical FRAME/BAR projection only after a complete fixed PostgreSQL snapshot verifies projection custody,
+timeframe/sample facts, schedule dependencies, exact schedule readbacks, and append-only schedule history, with
+admission revalidated before the read, after the read, and immediately before promotion. The resolver cannot select
+kind or lifecycle, perform a latest lookup, resolve V2 BAR or JOINED_CUT, or expose storage authority. Strategy
+Factory production startup, product composition, ProgramHost, Backtest, composite, Windmill, and every other product
+consumption remain `TARGET / UNAVAILABLE`; required production startup returns no resolver while its external
+admission adapters are unavailable. A stored V3 row or structural V3 bytes alone produces no consumer authority or
+mutation.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the
@@ -645,14 +654,17 @@ authority.
 The BAR schedule fact/cut/receipt/readback PostgreSQL path, BAR sample custody, and V3 projection PostgreSQL path are
 CURRENT/PARTIAL durable Owner custody after isolated dynamic acceptance. Schedule has admitted capability,
 revalidation, fixed read/history, reader ACL, and public startup resolution. V3 has durable commit/recovery/tamper/ACL
-evidence but no production-admitted/public resolver; V3 product and composite consumption remain
-TARGET/UNAVAILABLE. The crate-private structural codecs or stored rows alone are not product acceptance evidence.
+evidence plus a sealed exact historical resolver core. V3 production startup, product, and composite consumption
+remain TARGET/UNAVAILABLE. The crate-private structural codecs or stored rows alone are not product acceptance
+evidence.
 
 For EVENT, the V2 projection receipt binds each selected component's exact `sample_identity`, `SampleReceiptV1`
 digest, admitted V1 role/binding evidence, and existing 308-byte coordinate bytes/digest. It preserves all V1
 trigger, value, frame, and row identities rather than deriving sample authority from them. The same sample selected
 by later event frames under the same role/binding therefore retains byte-identical native receipt and
-coordinate bytes. For BAR, only a future dynamically verified V3 receipt may make the corresponding projection. A
+coordinate bytes. For BAR, only the Owner's sealed, dynamically verified V3 resolver core may make the corresponding
+historical projection readback inside its admitted boundary; no production startup or product consumer is admitted
+by that capability. A
 coordinate digest computed from a row/frame/trigger digest, a caller timestamp, or a UTC 24-hour interpretation of `1d` is non-authoritative
 and fails before consumer state mutation.
 

@@ -23,9 +23,12 @@ mod store_admission;
 
 #[cfg(not(test))]
 use self::{
-    bar_schedule::BarScheduleResolverV1, postgres::MarketDataReadPostgres,
+    bar_schedule::BarScheduleResolverV1,
+    postgres::MarketDataReadPostgres,
     research_pit_terminal::ResearchPitTerminalResolver,
-    sample_projection::StrategyInputSampleProjectionResolverV2,
+    sample_projection::{
+        StrategyInputSampleProjectionResolverV2, StrategyInputSampleProjectionResolverV3,
+    },
     sealed_replay_input::SealedReplayInputResolver,
 };
 
@@ -59,6 +62,13 @@ pub struct StrategyInputSampleProjectionBootstrapErrorV2 {
     failure: ResearchPitTerminalBootstrapFailure,
 }
 
+/// Redacted startup failure for the sealed V3 BAR sample-projection resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data V3 BAR sample-projection bootstrap rejected: {failure:?}")]
+pub struct StrategyInputSampleProjectionBootstrapErrorV3 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
 /// Redacted startup failure for the sealed BAR schedule resolver.
 #[derive(Debug, thiserror::Error)]
 #[error("Market Data BAR schedule bootstrap rejected: {failure:?}")]
@@ -74,6 +84,13 @@ impl BarScheduleBootstrapErrorV1 {
 }
 
 impl StrategyInputSampleProjectionBootstrapErrorV2 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
+}
+
+impl StrategyInputSampleProjectionBootstrapErrorV3 {
     #[must_use]
     pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
         self.failure
@@ -208,6 +225,51 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_l
     consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
 }
 
+/// Resolves store admission and returns only the sealed V3 BAR sample-projection resolver.
+///
+/// Disabled mode returns `None`. Required mode fails closed unless the exact complete V3 floor is
+/// admitted for the fixed Strategy Factory R&D Owner API consumer. The production admission
+/// adapters remain unavailable, so required production startup currently returns a redacted error.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn strategy_input_sample_projection_resolver_v3_from_store_admission_environment()
+-> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV3>>,
+    StrategyInputSampleProjectionBootstrapErrorV3,
+> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            StrategyInputSampleProjectionBootstrapErrorV3 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_sample_projection_store_admission_bootstrap_v3(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed V3 BAR startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn strategy_input_sample_projection_resolver_v3_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV3>>,
+    StrategyInputSampleProjectionBootstrapErrorV3,
+> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            StrategyInputSampleProjectionBootstrapErrorV3 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_sample_projection_store_admission_bootstrap_v3(bootstrap).await
+}
+
 /// Resolves store admission and returns only the sealed BAR schedule resolver.
 ///
 /// Disabled mode returns `None`. Required mode fails closed unless admission retains the exact
@@ -300,6 +362,31 @@ async fn consume_sample_projection_store_admission_bootstrap_v2(
             let port = capability
                 .into_sample_projection_snapshot_port()
                 .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_sample_projection_store_admission_bootstrap_v3(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV3>>,
+    StrategyInputSampleProjectionBootstrapErrorV3,
+> {
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV3 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability
+                .into_sample_projection_snapshot_port_v3()
+                .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV3 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
