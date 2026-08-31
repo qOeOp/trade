@@ -815,6 +815,25 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
         .fetch_one(admin).await.unwrap();
     assert_eq!(resolver_config, ["search_path=pg_catalog"]);
 
+    // Content hashes alone are not Owner authority: even a structurally valid projection whose
+    // coordinate and outer digests were both recomputed cannot be promoted through durable
+    // readback when it does not match the Owner-sealed custody row.
+    let (recomputed_bytes, recomputed_digest) =
+        crate::owner::sample_projection::tests::recomputed_coordinate_mutation_fixture_v2();
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2 WHERE receipt_digest=$3")
+        .bind(recomputed_digest.as_slice()).bind(&recomputed_bytes).bind(receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v2(recomputed_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2 WHERE receipt_digest=$3")
+        .bind(receipt_digest.as_slice()).bind(&receipt_bytes).bind(recomputed_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+
     assert!(
         sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v2(receipt_digest,kind,subject_identity,component_count,receipt_bytes,custody_digest) VALUES ($1,1,$2,1,$3,$4)")
             .bind(sample_digest(250).as_slice())

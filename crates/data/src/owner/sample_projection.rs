@@ -118,33 +118,37 @@ impl PreparedStrategyInputSampleProjectionV2 {
     }
 }
 
-/// Opaque structurally verified historical readback.
+/// Structurally decoded bytes without durable Owner-custody authority.
+///
+/// A matching caller-supplied digest proves content addressing only. The PostgreSQL Owner is the
+/// sole module allowed to promote this value to a custody-bearing historical readback after it has
+/// verified the immutable row, its custody digest, and its indexed identity columns.
 #[derive(Debug)]
-pub(crate) struct StoredStrategyInputSampleProjectionV2 {
+pub(super) struct DecodedStrategyInputSampleProjectionV2 {
     bytes: Box<[u8]>,
     digest: Identity,
     subject_identity: Identity,
     component_count: u32,
 }
 
-impl StoredStrategyInputSampleProjectionV2 {
-    pub(crate) const fn receipt_digest(&self) -> Identity {
+impl DecodedStrategyInputSampleProjectionV2 {
+    pub(super) const fn receipt_digest(&self) -> Identity {
         self.digest
     }
 
-    pub(crate) const fn kind_tag(&self) -> u8 {
+    pub(super) const fn kind_tag(&self) -> u8 {
         FRAME_KIND
     }
 
-    pub(crate) const fn subject_identity(&self) -> Identity {
+    pub(super) const fn subject_identity(&self) -> Identity {
         self.subject_identity
     }
 
-    pub(crate) const fn component_count(&self) -> u32 {
+    pub(super) const fn component_count(&self) -> u32 {
         self.component_count
     }
 
-    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+    pub(super) fn canonical_bytes(&self) -> &[u8] {
         &self.bytes
     }
 }
@@ -238,11 +242,11 @@ pub(crate) fn prepare_strategy_input_sample_projection_frame_v2(
     })
 }
 
-/// Verifies exact stored FRAME bytes without duplicating offsets in a persistence adapter.
-pub(crate) fn verify_stored_strategy_input_sample_projection_v2(
+/// Decodes exact FRAME bytes without conferring durable Owner-custody authority.
+pub(super) fn decode_strategy_input_sample_projection_v2(
     bytes: &[u8],
     expected_digest: Identity,
-) -> Result<StoredStrategyInputSampleProjectionV2, StrategyInputSampleProjectionUnavailable> {
+) -> Result<DecodedStrategyInputSampleProjectionV2, StrategyInputSampleProjectionUnavailable> {
     if sha256(RECEIPT_DOMAIN, bytes) != expected_digest {
         return Err(StrategyInputSampleProjectionUnavailable::DigestMismatch);
     }
@@ -325,7 +329,7 @@ pub(crate) fn verify_stored_strategy_input_sample_projection_v2(
         return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
     }
 
-    Ok(StoredStrategyInputSampleProjectionV2 {
+    Ok(DecodedStrategyInputSampleProjectionV2 {
         bytes: bytes.to_vec().into_boxed_slice(),
         digest: expected_digest,
         subject_identity,
@@ -587,7 +591,7 @@ impl<'a> Decoder<'a> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::owner::{
         sample_fact::tests::{
@@ -609,13 +613,27 @@ mod tests {
         .expect("complete point-event FRAME projection")
     }
 
+    pub(crate) fn recomputed_coordinate_mutation_fixture_v2() -> (Vec<u8>, [u8; 32]) {
+        let prepared = fixture();
+        let mut bytes = prepared.canonical_bytes().to_vec();
+        let coordinate_start = RECEIPT_HEADER_LEN + 304;
+        let coordinate_digest_start = coordinate_start - 32;
+        let logical_time_offset = coordinate_start + 116;
+        bytes[logical_time_offset] ^= 1;
+        let coordinate_digest = sha256(COORDINATE_DOMAIN, &bytes[coordinate_start..]);
+        bytes[coordinate_digest_start..coordinate_start].copy_from_slice(&coordinate_digest);
+        let receipt_digest = sha256(RECEIPT_DOMAIN, &bytes);
+        assert!(decode_strategy_input_sample_projection_v2(&bytes, receipt_digest).is_ok());
+        (bytes, receipt_digest)
+    }
+
     #[test]
-    fn frame_projection_is_exact_and_stored_readback_recomputes_evidence() {
+    fn frame_projection_is_exact_and_structural_decode_recomputes_evidence() {
         let prepared = fixture();
         assert_eq!(prepared.kind_tag(), 0x01);
         assert_eq!(prepared.component_count(), 1);
         assert_eq!(prepared.canonical_bytes().len(), 653);
-        let stored = verify_stored_strategy_input_sample_projection_v2(
+        let stored = decode_strategy_input_sample_projection_v2(
             prepared.canonical_bytes(),
             prepared.receipt_digest(),
         )
@@ -703,7 +721,7 @@ mod tests {
             bytes[offset] ^= 1;
             let digest = sha256(RECEIPT_DOMAIN, &bytes);
             assert_eq!(
-                verify_stored_strategy_input_sample_projection_v2(&bytes, digest).unwrap_err(),
+                decode_strategy_input_sample_projection_v2(&bytes, digest).unwrap_err(),
                 expected
             );
         }
@@ -711,7 +729,7 @@ mod tests {
         let mut zero_count = valid.to_vec();
         zero_count[37..41].copy_from_slice(&0_u32.to_le_bytes());
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(
+            decode_strategy_input_sample_projection_v2(
                 &zero_count,
                 sha256(RECEIPT_DOMAIN, &zero_count),
             )
@@ -719,7 +737,7 @@ mod tests {
             StrategyInputSampleProjectionUnavailable::EmptyFrame
         );
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(
+            decode_strategy_input_sample_projection_v2(
                 &valid[..valid.len() - 1],
                 sha256(RECEIPT_DOMAIN, &valid[..valid.len() - 1]),
             )
@@ -729,7 +747,7 @@ mod tests {
         let mut trailing = valid.to_vec();
         trailing.push(0);
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(
+            decode_strategy_input_sample_projection_v2(
                 &trailing,
                 sha256(RECEIPT_DOMAIN, &trailing),
             )
@@ -737,7 +755,7 @@ mod tests {
             StrategyInputSampleProjectionUnavailable::InvalidLength
         );
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(valid, [0; 32]).unwrap_err(),
+            decode_strategy_input_sample_projection_v2(valid, [0; 32]).unwrap_err(),
             StrategyInputSampleProjectionUnavailable::DigestMismatch
         );
 
@@ -746,7 +764,7 @@ mod tests {
         duplicate[37..41].copy_from_slice(&2_u32.to_le_bytes());
         duplicate.extend_from_slice(entry);
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(
+            decode_strategy_input_sample_projection_v2(
                 &duplicate,
                 sha256(RECEIPT_DOMAIN, &duplicate),
             )
@@ -757,7 +775,7 @@ mod tests {
         let mut reordered = duplicate;
         reordered[RECEIPT_HEADER_LEN + RECEIPT_ENTRY_LEN] = 21;
         assert_eq!(
-            verify_stored_strategy_input_sample_projection_v2(
+            decode_strategy_input_sample_projection_v2(
                 &reordered,
                 sha256(RECEIPT_DOMAIN, &reordered),
             )
@@ -782,11 +800,8 @@ mod tests {
             let mut bytes = valid.to_vec();
             bytes[offset] ^= 1;
             assert!(
-                verify_stored_strategy_input_sample_projection_v2(
-                    &bytes,
-                    prepared.receipt_digest(),
-                )
-                .is_err(),
+                decode_strategy_input_sample_projection_v2(&bytes, prepared.receipt_digest())
+                    .is_err(),
                 "offset {offset} must fail closed"
             );
         }

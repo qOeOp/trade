@@ -55,8 +55,8 @@ use super::{
         PreparedSampleCommitV1, StoredSampleReadbackV1, verify_stored_sample_readback_v1,
     },
     sample_projection::{
-        PreparedStrategyInputSampleProjectionV2, StoredStrategyInputSampleProjectionV2,
-        verify_stored_strategy_input_sample_projection_v2,
+        DecodedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV2,
+        decode_strategy_input_sample_projection_v2,
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
@@ -835,6 +835,34 @@ pub(super) enum SampleProjectionCustodyErrorV2 {
     UnknownReceipt,
 }
 
+/// Exact historical projection promoted only by the durable Market Data Owner.
+#[derive(Debug)]
+pub(super) struct StoredStrategyInputSampleProjectionV2 {
+    decoded: DecodedStrategyInputSampleProjectionV2,
+}
+
+impl StoredStrategyInputSampleProjectionV2 {
+    pub(super) const fn receipt_digest(&self) -> [u8; 32] {
+        self.decoded.receipt_digest()
+    }
+
+    pub(super) const fn kind_tag(&self) -> u8 {
+        self.decoded.kind_tag()
+    }
+
+    pub(super) const fn subject_identity(&self) -> [u8; 32] {
+        self.decoded.subject_identity()
+    }
+
+    pub(super) const fn component_count(&self) -> u32 {
+        self.decoded.component_count()
+    }
+
+    pub(super) fn canonical_bytes(&self) -> &[u8] {
+        self.decoded.canonical_bytes()
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(test)]
 pub(super) enum SampleProjectionCustodyFaultV2 {
@@ -985,7 +1013,7 @@ impl MarketDataOwnerPostgres {
         if response_loss {
             Err(SampleProjectionCustodyErrorV2::ResponseLost)
         } else {
-            verify_stored_strategy_input_sample_projection_v2(
+            promote_stored_strategy_input_sample_projection_v2(
                 prepared.canonical_bytes(),
                 receipt_digest,
             )
@@ -1576,7 +1604,7 @@ struct StoredSampleCustodyV1 {
 fn validate_prepared_sample_projection_v2(
     prepared: &PreparedStrategyInputSampleProjectionV2,
 ) -> Result<(), SampleProjectionCustodyErrorV2> {
-    let stored = verify_stored_strategy_input_sample_projection_v2(
+    let stored = decode_strategy_input_sample_projection_v2(
         prepared.canonical_bytes(),
         prepared.receipt_digest(),
     )
@@ -1676,8 +1704,8 @@ async fn load_strategy_input_sample_projection_v2(
     {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }
-    let stored = verify_stored_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)
-        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let stored =
+        promote_stored_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)?;
     if stored.kind_tag() != kind
         || stored.subject_identity() != subject_identity
         || stored.component_count() != component_count
@@ -1685,6 +1713,15 @@ async fn load_strategy_input_sample_projection_v2(
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }
     Ok(Some(stored))
+}
+
+fn promote_stored_strategy_input_sample_projection_v2(
+    bytes: &[u8],
+    expected_digest: [u8; 32],
+) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+    let decoded = decode_strategy_input_sample_projection_v2(bytes, expected_digest)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    Ok(StoredStrategyInputSampleProjectionV2 { decoded })
 }
 
 fn sample_projection_digest_column_v2(
