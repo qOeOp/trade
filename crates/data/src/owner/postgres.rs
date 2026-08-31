@@ -24,6 +24,7 @@ use super::sealed_replay_input::{
 use super::store_admission::{
     AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
     MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
+    StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use super::{
     instrument_master::{
@@ -76,6 +77,16 @@ use super::{
             verify_stored_aggregate as verify_source_aggregate,
         },
     },
+};
+#[cfg(not(test))]
+use super::sample_projection::{
+    StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2,
+    StrategyInputSampleProjectionResolverV2, UntrustedStrategyInputSampleProjectionLocatorV2,
+};
+#[cfg(test)]
+use super::{
+    sample_projection::StrategyInputSampleProjectionReadbackV2,
+    store_admission::StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -4616,6 +4627,28 @@ impl SealedReplayInputResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
+    async fn resolve_strategy_input_sample_projection_v2(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV2,
+    ) -> Result<
+        StrategyInputSampleProjectionReadbackV2,
+        StrategyInputSampleProjectionResolveErrorV2,
+    > {
+        let evidence = self
+            .admitted_port
+            .resolve_sample_projection_v2(locator.receipt_digest())
+            .await
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        verify_admitted_sample_projection_v2(locator.receipt_digest(), &evidence)
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)
+    }
+}
+
+impl super::sample_projection::sealed::Sealed for MarketDataReadPostgres {}
+
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 
@@ -4752,6 +4785,212 @@ impl ResearchPitTerminalResolver for MarketDataReadPostgres {
 struct StoredEnvelope {
     aggregate: Value,
     native: NativeIndex,
+}
+
+fn verify_admitted_sample_projection_v2(
+    expected_digest: [u8; 32],
+    evidence: &StrategyInputSampleProjectionStorageEvidenceV2,
+) -> Result<StrategyInputSampleProjectionReadbackV2, SampleProjectionCustodyErrorV2> {
+    let projection: Value = serde_json::from_slice(evidence.projection_row())
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let projection = projection
+        .as_object()
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let receipt_digest = projection_raw_digest(projection, "receipt_digest")?;
+    let subject_identity = projection_raw_digest(projection, "subject_identity")?;
+    let custody_digest = projection_raw_digest(projection, "custody_digest")?;
+    let kind = projection_raw_u64(projection, "kind")
+        .and_then(|value| {
+            u8::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+        })?;
+    let component_count = projection_raw_u64(projection, "component_count")
+        .and_then(|value| {
+            u32::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+        })?;
+    let receipt_bytes = projection_raw_bytes_field(projection, "receipt_bytes")?;
+    if receipt_digest != expected_digest
+        || kind != 0x01
+        || component_count == 0
+        || custody_digest
+            != sample_projection_custody_digest_v2(
+                receipt_digest,
+                kind,
+                subject_identity,
+                component_count,
+                &receipt_bytes,
+            )
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    let decoded = decode_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    if decoded.kind_tag() != kind
+        || decoded.subject_identity() != subject_identity
+        || decoded.component_count() != component_count
+        || decoded.components().len() != evidence.sample_rows().len()
+        || decoded.components().len() != evidence.timeframe_rows().len()
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+
+    for ((component, timeframe_row), sample_row) in decoded
+        .components()
+        .iter()
+        .zip(evidence.timeframe_rows())
+        .zip(evidence.sample_rows())
+    {
+        let timeframe: Value = serde_json::from_slice(timeframe_row)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe = timeframe
+            .as_object()
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe_digest = projection_raw_digest(timeframe, "receipt_digest")?;
+        let timeframe_binding = projection_raw_digest(timeframe, "binding_receipt_digest")?;
+        let timeframe_bytes = projection_raw_bytes_field(timeframe, "receipt_bytes")?;
+        let timeframe_custody = projection_raw_digest(timeframe, "custody_digest")?;
+        if timeframe_digest != component.timeframe_projection_digest()
+            || timeframe_custody
+                != projection_custody_digest(
+                    timeframe_digest,
+                    timeframe_binding,
+                    &timeframe_bytes,
+                )
+        {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let timeframe = verify_stored_timeframe_projection_v1(&timeframe_bytes, timeframe_digest)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
+        let sample: Value = serde_json::from_slice(sample_row)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let sample = sample
+            .as_object()
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let prepared = PreparedSampleCustodyV1 {
+            sample_identity: projection_raw_digest(sample, "sample_identity")?,
+            fact_digest: projection_raw_digest(sample, "fact_digest")?,
+            series_identity: projection_raw_digest(sample, "series_identity")?,
+            series_predecessor_identity: projection_raw_optional_digest(
+                sample,
+                "series_predecessor_identity",
+            )?,
+            series_sequence: projection_raw_u64(sample, "series_sequence")?,
+            correction_slot_identity: projection_raw_digest(sample, "correction_slot_identity")?,
+            correction_predecessor_identity: projection_raw_optional_digest(
+                sample,
+                "correction_predecessor_identity",
+            )?,
+            correction_sequence: projection_raw_u64(sample, "correction_sequence")?,
+            logical_time: projection_raw_u64(sample, "logical_time")?,
+            lineage_version: projection_raw_u64(sample, "lineage_version")?,
+            projection_receipt_digest: projection_raw_digest(
+                sample,
+                "projection_receipt_digest",
+            )?,
+            projection_binding_receipt_digest: projection_raw_digest(
+                sample,
+                "projection_binding_receipt_digest",
+            )?,
+            projection_receipt_bytes: projection_raw_bytes_field(
+                sample,
+                "projection_receipt_bytes",
+            )?,
+            fact_bytes: projection_raw_bytes_field(sample, "fact_bytes")?,
+            receipt_digest: projection_raw_digest(sample, "receipt_digest")?,
+            receipt_bytes: projection_raw_bytes_field(sample, "receipt_bytes")?,
+            outbox_identity: projection_raw_digest(sample, "outbox_identity")?,
+            outbox_payload_digest: projection_raw_digest(sample, "outbox_payload_digest")?,
+            outbox_payload_bytes: projection_raw_bytes_field(sample, "outbox_payload_bytes")?,
+        };
+        validate_prepared_sample(&prepared)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if prepared.projection_receipt_digest != timeframe_digest
+            || prepared.projection_binding_receipt_digest != timeframe_binding
+            || prepared.projection_receipt_bytes != timeframe_bytes
+            || projection_raw_digest(sample, "projection_custody_digest")?
+                != projection_custody_digest(
+                    prepared.projection_receipt_digest,
+                    prepared.projection_binding_receipt_digest,
+                    &prepared.projection_receipt_bytes,
+                )
+            || projection_raw_digest(sample, "fact_custody_digest")?
+                != sample_fact_custody_digest(&prepared)
+            || projection_raw_digest(sample, "receipt_custody_digest")?
+                != sample_receipt_custody_digest(
+                    prepared.sample_identity,
+                    prepared.receipt_digest,
+                    &prepared.receipt_bytes,
+                )
+            || projection_raw_digest(sample, "outbox_custody_digest")?
+                != sample_outbox_custody_digest(&prepared)
+        {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let sample = verify_stored_sample_readback_v1(
+            &prepared.fact_bytes,
+            prepared.fact_digest,
+            &prepared.receipt_bytes,
+            prepared.receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        verify_decoded_projection_component_native_v2(component, &timeframe, &sample)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    }
+    Ok(StrategyInputSampleProjectionReadbackV2::from_verified(
+        decoded,
+    ))
+}
+
+fn projection_raw_u64(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<u64, SampleProjectionCustodyErrorV2> {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .filter(|value| *value != 0)
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+fn projection_raw_digest(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<[u8; 32], SampleProjectionCustodyErrorV2> {
+    projection_raw_bytes_field(object, field)?
+        .try_into()
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+fn projection_raw_optional_digest(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<[u8; 32]>, SampleProjectionCustodyErrorV2> {
+    match object.get(field) {
+        Some(Value::Null) => Ok(None),
+        Some(_) => projection_raw_digest(object, field).map(Some),
+        None => Err(SampleProjectionCustodyErrorV2::StoreUnavailable),
+    }
+}
+
+fn projection_raw_bytes_field(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Vec<u8>, SampleProjectionCustodyErrorV2> {
+    let encoded = object
+        .get(field)
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix("\\x"))
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    if encoded.len() % 2 != 0 {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    (0..encoded.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&encoded[offset..offset + 2], 16)
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+        })
+        .collect()
 }
 
 #[cfg(not(test))]

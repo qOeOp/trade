@@ -10,6 +10,7 @@
 
 use std::fmt::Display;
 
+use async_trait::async_trait;
 use sha2::{Digest as _, Sha256};
 
 use super::{
@@ -32,6 +33,114 @@ const RECEIPT_DOMAIN: &[u8] = b"market-data.sample-projection-receipt.v2\0";
 const COORDINATE_DOMAIN: &[u8] = b"strategy.input.sample-coordinate.v1\0";
 
 type Identity = [u8; 32];
+
+/// Untrusted content-addressed locator for one historical V2 sample projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UntrustedStrategyInputSampleProjectionLocatorV2 {
+    receipt_digest: Identity,
+}
+
+impl UntrustedStrategyInputSampleProjectionLocatorV2 {
+    /// Creates a locator from caller-supplied bytes. This confers no custody authority.
+    #[must_use]
+    pub const fn from_untrusted(receipt_digest: Identity) -> Self {
+        Self { receipt_digest }
+    }
+
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Identity {
+        self.receipt_digest
+    }
+}
+
+/// Opaque historical projection promoted only after admission and native custody verification.
+///
+/// This value deliberately implements neither `Clone` nor `Deserialize` and has no public
+/// constructor. Its bytes are the exact canonical bytes stored by Market Data.
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV2;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<StrategyInputSampleProjectionReadbackV2>();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV2;
+/// let _: StrategyInputSampleProjectionReadbackV2 = serde_json::from_slice(b"{}").unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV2;
+/// let _ = StrategyInputSampleProjectionReadbackV2 {
+///     receipt_digest: [1; 32], subject_identity: [2; 32], component_count: 1,
+///     canonical_bytes: vec![].into_boxed_slice(),
+/// };
+/// ```
+#[derive(Debug)]
+pub struct StrategyInputSampleProjectionReadbackV2 {
+    receipt_digest: Identity,
+    subject_identity: Identity,
+    component_count: u32,
+    canonical_bytes: Box<[u8]>,
+}
+
+impl StrategyInputSampleProjectionReadbackV2 {
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Identity {
+        self.receipt_digest
+    }
+
+    #[must_use]
+    pub const fn subject_identity(&self) -> Identity {
+        self.subject_identity
+    }
+
+    #[must_use]
+    pub const fn component_count(&self) -> u32 {
+        self.component_count
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(super) fn from_verified(decoded: DecodedStrategyInputSampleProjectionV2) -> Self {
+        Self {
+            receipt_digest: decoded.digest,
+            subject_identity: decoded.subject_identity,
+            component_count: decoded.component_count,
+            canonical_bytes: decoded.bytes,
+        }
+    }
+}
+
+/// Redacted fail-closed error for the public projection resolver.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("Market Data sample projection is unavailable")]
+pub struct StrategyInputSampleProjectionResolveErrorV2;
+
+pub(super) mod sealed {
+    pub trait Sealed {}
+}
+
+/// Sealed fixed resolver for one exact, admission-verified historical V2 projection.
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionResolverV2;
+/// struct ForgedResolver;
+/// impl StrategyInputSampleProjectionResolverV2 for ForgedResolver {}
+/// ```
+#[async_trait]
+pub trait StrategyInputSampleProjectionResolverV2: sealed::Sealed + Send + Sync {
+    async fn resolve_strategy_input_sample_projection_v2(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV2,
+    ) -> Result<
+        StrategyInputSampleProjectionReadbackV2,
+        StrategyInputSampleProjectionResolveErrorV2,
+    >;
+}
 
 /// Additive identity over one complete unchanged V1 event frame.
 #[derive(Debug)]

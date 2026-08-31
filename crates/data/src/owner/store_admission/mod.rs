@@ -288,6 +288,12 @@ impl AdmittedMarketDataPostgresCapability {
     pub(super) fn into_pit_terminal_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
         self.into_source_binding_snapshot_port()
     }
+
+    /// Consumes this authority into the fixed V2 sample-projection read operation.
+    #[must_use]
+    pub(super) fn into_sample_projection_snapshot_port(self) -> AdmittedMarketDataSnapshotPort {
+        self.into_source_binding_snapshot_port()
+    }
 }
 
 /// Owner-private opaque port exposing only fixed Market Data snapshot operations.
@@ -340,6 +346,56 @@ pub(super) struct MarketDataPitTerminalStorageEvidence {
     pit_lineage_rows: Vec<Vec<u8>>,
     source_lineage_rows: Vec<Vec<u8>>,
     clock_rows: Vec<Vec<u8>>,
+}
+
+/// Exact raw projection and V1 dependency rows observed inside one admitted snapshot.
+pub(super) struct StrategyInputSampleProjectionStorageEvidenceV2 {
+    projection_row: Vec<u8>,
+    timeframe_rows: Vec<Vec<u8>>,
+    sample_rows: Vec<Vec<u8>>,
+}
+
+impl StrategyInputSampleProjectionStorageEvidenceV2 {
+    #[must_use]
+    pub(super) fn projection_row(&self) -> &[u8] {
+        &self.projection_row
+    }
+
+    #[must_use]
+    pub(super) fn timeframe_rows(&self) -> &[Vec<u8>] {
+        &self.timeframe_rows
+    }
+
+    #[must_use]
+    pub(super) fn sample_rows(&self) -> &[Vec<u8>] {
+        &self.sample_rows
+    }
+
+    #[cfg(test)]
+    pub(super) async fn from_disposable_postgres(
+        database_url: String,
+        receipt_digest: [u8; 32],
+    ) -> Result<Self, ()> {
+        let lease = PostgresCredentialLease::from_resolved_secret(
+            "disposable-sample-projection-test",
+            "vibe-data-test",
+            "v1",
+            u64::MAX,
+            database_url,
+        )
+        .map_err(|_| ())?;
+        let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
+            &lease,
+            &receipt_digest,
+        )
+        .await
+        .map_err(|_| ())?;
+        Ok(Self {
+            projection_row: raw.projection_row,
+            timeframe_rows: raw.timeframe_rows,
+            sample_rows: raw.sample_rows,
+        })
+    }
 }
 
 /// Exact native index columns and bytes for one normalized PIT observation row.
@@ -447,6 +503,49 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
+    /// Reads one fixed V2 projection and all referenced V1 custody after admission before and after.
+    pub(super) async fn resolve_sample_projection_v2(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StrategyInputSampleProjectionStorageEvidenceV2, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        if !same_snapshot_cut(&self.receipt, &before.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        let raw = postgres::read_strategy_input_sample_projection_snapshot_v2(
+            &before.credential_lease,
+            &receipt_digest,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        if !same_snapshot_cut(&self.receipt, &after.receipt) {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::AdmissionCutExpired,
+            ));
+        }
+        Ok(StrategyInputSampleProjectionStorageEvidenceV2 {
+            projection_row: raw.projection_row,
+            timeframe_rows: raw.timeframe_rows,
+            sample_rows: raw.sample_rows,
+        })
+    }
+
     /// Reads one fixed Source Binding snapshot after full admission both before checkout and return.
     pub(super) async fn resolve(
         &self,

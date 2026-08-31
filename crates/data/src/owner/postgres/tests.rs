@@ -804,6 +804,98 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
         .await
         .unwrap();
     assert_eq!(admitted.canonical_bytes(), receipt_bytes);
+    let production_evidence = StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+        reader_url.to_string(),
+        receipt_digest,
+    )
+    .await
+    .unwrap();
+    let production_readback =
+        verify_admitted_sample_projection_v2(receipt_digest, &production_evidence).unwrap();
+    assert_eq!(production_readback.receipt_digest(), receipt_digest);
+    assert_eq!(production_readback.subject_identity(), subject_identity);
+    assert_eq!(production_readback.component_count(), 1);
+    assert_eq!(production_readback.canonical_bytes(), receipt_bytes);
+
+    let sample_receipt_digest: [u8; 32] = receipt_bytes[41 + 240..41 + 272]
+        .try_into()
+        .unwrap();
+    let original_sample_receipt_bytes: Vec<u8> = sqlx::query_scalar(
+        "SELECT receipt_bytes FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1",
+    )
+    .bind(sample_receipt_digest.as_slice())
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2",
+    )
+    .bind([0x7f_u8; 32].as_slice())
+    .bind(sample_receipt_digest.as_slice())
+    .execute(admin)
+    .await
+    .unwrap();
+    let tampered_dependency =
+        StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+            reader_url.to_string(),
+            receipt_digest,
+        )
+        .await
+        .unwrap();
+    assert!(verify_admitted_sample_projection_v2(receipt_digest, &tampered_dependency).is_err());
+    sqlx::query(
+        "UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2",
+    )
+    .bind(&original_sample_receipt_bytes)
+    .bind(sample_receipt_digest.as_slice())
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let mut missing_dependency_bytes = receipt_bytes.clone();
+    missing_dependency_bytes[41 + 240..41 + 272].copy_from_slice(&sample_digest(254));
+    let mut missing_receipt_hasher = Sha256::new();
+    missing_receipt_hasher.update(b"market-data.sample-projection-receipt.v2\0");
+    missing_receipt_hasher.update(&missing_dependency_bytes);
+    let missing_receipt_digest: [u8; 32] = missing_receipt_hasher.finalize().into();
+    let missing_custody_digest = sample_projection_custody_digest_v2(
+        missing_receipt_digest,
+        1,
+        subject_identity,
+        1,
+        &missing_dependency_bytes,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
+        .bind(missing_receipt_digest.as_slice())
+        .bind(&missing_dependency_bytes)
+        .bind(missing_custody_digest.as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(admin)
+        .await
+        .unwrap();
+    assert!(
+        StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+            reader_url.to_string(),
+            missing_receipt_digest,
+        )
+        .await
+        .is_err()
+    );
+    let restored_custody_digest = sample_projection_custody_digest_v2(
+        receipt_digest,
+        1,
+        subject_identity,
+        1,
+        &receipt_bytes,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
+        .bind(receipt_digest.as_slice())
+        .bind(&receipt_bytes)
+        .bind(restored_custody_digest.as_slice())
+        .bind(missing_receipt_digest.as_slice())
+        .execute(admin)
+        .await
+        .unwrap();
     assert!(
         sqlx::query(
             "SELECT * FROM market_data_private.strategy_input_sample_projection_receipts_v2",
