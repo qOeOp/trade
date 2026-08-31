@@ -402,6 +402,7 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
 fn sample_digest(byte: u8) -> [u8; 32] {
