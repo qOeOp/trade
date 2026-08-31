@@ -116,6 +116,7 @@ link，不是两种能力。Research 仍是 TrialFamily/Census 唯一 writer，Q
 - `crates/strategy_governance` → **Strategy Governance Owner。** 采用静态 fail-closed Governance core 生成精确 authorization 与 lifecycle receipts。adapter evidence 在规范 Owner 回读前保持不可信，authorization 也不证明 Runtime 已应用。
 - `crates/product_edge_claim_custody` → **Product Edge provider invocation custody。** `CURRENT` 是 claim 与 start custody 的 Owner 内部存储和加锁解析 seam。caller 记录仅是 proposal；provider 执行与交易仍为 `NOT_ADMITTED`。
 - `crates/rd_source_intake_invocation_custody` → **R&D Source Intake invocation 托管。** `CURRENT` 加锁并验证准确 Product Edge claim/start evidence，并密封和解析一个 R&D-owned Source Intake reservation，不转移任一 Owner 权威。provider execution、production write 与 trading 保持 `NOT_ADMITTED`。
+- `crates/rd_exploratory_replay_custody` → **R&D 探索式回放托管。** `CURRENT` 通过固定的 R&D Owner PostgreSQL API 解析密封的 Exploratory Replay V2 读取，并在 canonical 回读前校验完整的 request/receipt/seal/outbox 绑定；恢复查询器仅提供查询，不得构造正向权威。provider execution、production write、Windmill 效果、qualification、deployment 与 trading 均保持 `NOT_ADMITTED`。
 - `crates/rd_artifact_invocation_custody` → **R&D invocation reservation custody。** `CURRENT` 针对精确 Product Edge custody 密封并解析一个 R&D-owned reservation，不转移任一 Owner 权威。provider 执行与交易仍为 `NOT_ADMITTED`。
 - `crates/strategy_factory_rd_owner_api` → **R&D 与 Product Edge API composition。** `CURRENT` 只组合现有 Owner ports，不拥有事实，也不把 transport、credential、配置或 provider output 变成权威。生产写与交易仍为 `NOT_ADMITTED`。
 
