@@ -756,6 +756,7 @@ async fn prepared_bar_sample_projection_v3(
             binding,
             timeframe: &timeframe,
             sample: &stored_sample,
+            schedule,
         }],
     )
     .expect("BAR lifecycle projection from durable native sample")
@@ -773,6 +774,15 @@ async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
 async fn sample_projection_count_v3(pool: &PgPool) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v3",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn sample_projection_schedule_dependency_count_v3(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
     )
     .fetch_one(pool)
     .await
@@ -879,6 +889,8 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
     assert_eq!(prepared.component_count(), 1);
     assert_eq!(receipt_bytes.len(), 42 + 612);
     let initial_count = sample_projection_count_v3(owner.pool()).await;
+    let initial_dependency_count =
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await;
 
     assert_eq!(
         owner
@@ -895,6 +907,10 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         initial_count
     );
     assert_eq!(
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await,
+        initial_dependency_count
+    );
+    assert_eq!(
         owner
             .commit_strategy_input_sample_projection_with_fault_v3(
                 &prepared,
@@ -908,6 +924,10 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         sample_projection_count_v3(owner.pool()).await,
         initial_count + 1
     );
+    assert_eq!(
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await,
+        initial_dependency_count + 1
+    );
 
     let recovered = owner
         .commit_strategy_input_sample_projection_v3(&prepared)
@@ -917,6 +937,36 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
     assert_eq!(recovered.lifecycle_tag(), 0x02);
     assert_eq!(recovered.subject_identity(), subject_identity);
     assert_eq!(recovered.canonical_bytes(), receipt_bytes);
+
+    let mut successor_proposal = fixture.schedule_proposal.clone();
+    successor_proposal.predecessor_fact_digest = Some(schedule.fact().digest());
+    let successor_prepared = prepare_bar_schedule_commit_v1(
+        successor_proposal,
+        &fixture.binding,
+        &fixture.batch,
+        &fixture.instrument_master,
+    )
+    .expect("same BAR shape with successor schedule custody");
+    let successor_schedule = owner
+        .commit_prepared_bar_schedule_v1(&successor_prepared)
+        .await
+        .expect("durable successor schedule");
+    let alternate_schedule_prepared = prepared_bar_sample_projection_v3(
+        &owner,
+        &fixture.binding,
+        &fixture.frame,
+        &fixture.batch,
+        &successor_schedule,
+    )
+    .await;
+    assert_eq!(alternate_schedule_prepared.canonical_bytes(), receipt_bytes);
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_v3(&alternate_schedule_prepared)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::IdentityConflict,
+    );
     drop(owner);
 
     let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
@@ -967,49 +1017,46 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
 
     let mut cross_lifecycle_bytes = receipt_bytes.clone();
     cross_lifecycle_bytes[5] = 0x01;
-    let mut hasher = Sha256::new();
-    hasher.update(b"market-data.sample-projection-receipt.v3\0");
-    hasher.update(&cross_lifecycle_bytes);
-    let cross_lifecycle_digest: [u8; 32] = hasher.finalize().into();
-    let cross_lifecycle_custody = sample_projection_custody_digest_v3(
-        cross_lifecycle_digest,
-        0x01,
-        0x02,
-        subject_identity,
-        1,
-        &cross_lifecycle_bytes,
-    );
-    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
-        .bind(cross_lifecycle_digest.as_slice())
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_bytes=$1 WHERE receipt_digest=$2")
         .bind(&cross_lifecycle_bytes)
-        .bind(cross_lifecycle_custody.as_slice())
         .bind(receipt_digest.as_slice())
         .execute(restarted.pool())
         .await
         .unwrap();
     assert_eq!(
         restarted
-            .resolve_strategy_input_sample_projection_v3(cross_lifecycle_digest)
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
             .await
             .unwrap_err(),
         SampleProjectionCustodyErrorV2::StoreUnavailable,
     );
-    let restored_custody = sample_projection_custody_digest_v3(
-        receipt_digest,
-        0x01,
-        0x02,
-        subject_identity,
-        1,
-        &receipt_bytes,
-    );
-    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
-        .bind(receipt_digest.as_slice())
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_bytes=$1 WHERE receipt_digest=$2")
         .bind(&receipt_bytes)
-        .bind(restored_custody.as_slice())
-        .bind(cross_lifecycle_digest.as_slice())
+        .bind(receipt_digest.as_slice())
         .execute(restarted.pool())
         .await
         .unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .expect("restored V3 BAR lifecycle")
+            .canonical_bytes(),
+        receipt_bytes,
+    );
+
+    sqlx::query("DELETE FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 WHERE receipt_digest=$1")
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
 }
 
 async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str, admin: &PgPool) {

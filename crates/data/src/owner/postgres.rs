@@ -33,7 +33,8 @@ use super::store_admission::{
 };
 use super::{
     bar_schedule::{
-        BarScheduleIdentity, BarScheduleReadbackV1, BarScheduleResolverV1,
+        BarScheduleCompletionV1, BarScheduleIdentity, BarScheduleKindV1, BarScheduleLabelV1,
+        BarScheduleReadbackV1, BarScheduleResolverV1, BarScheduleUnitV1,
         PreparedBarScheduleCommitV1, UntrustedBarScheduleLocatorV1,
         authority::{
             build_readback as build_bar_schedule_readback,
@@ -140,6 +141,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_receipts_v1 (fact_digest BYTEA PRIMARY KEY REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), readback_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(readback_identity)=32), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), fact_digest BYTEA UNIQUE NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v3 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind=1), lifecycle SMALLINT NOT NULL CHECK (lifecycle=2), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,lifecycle,subject_identity), CHECK (octet_length(receipt_bytes)=42+612*component_count))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 (receipt_digest BYTEA NOT NULL REFERENCES market_data_private.strategy_input_sample_projection_receipts_v3(receipt_digest) ON DELETE RESTRICT, component_ordinal BIGINT NOT NULL CHECK (component_ordinal>=0), role_identity BYTEA NOT NULL CHECK (octet_length(role_identity)=32), binding_receipt_digest BYTEA NOT NULL CHECK (octet_length(binding_receipt_digest)=32), schedule_readback_identity BYTEA NOT NULL REFERENCES market_data_private.bar_schedule_receipts_v1(readback_identity) ON DELETE RESTRICT CHECK (octet_length(schedule_readback_identity)=32), schedule_fact_digest BYTEA NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest) ON DELETE RESTRICT CHECK (octet_length(schedule_fact_digest)=32), schedule_cut_identity BYTEA NOT NULL REFERENCES market_data_private.bar_schedule_cuts_v1(cut_identity) ON DELETE RESTRICT CHECK (octet_length(schedule_cut_identity)=32), schedule_cut_digest BYTEA NOT NULL CHECK (octet_length(schedule_cut_digest)=32), schedule_receipt_identity BYTEA NOT NULL REFERENCES market_data_private.bar_schedule_receipts_v1(receipt_identity) ON DELETE RESTRICT CHECK (octet_length(schedule_receipt_identity)=32), PRIMARY KEY(receipt_digest,component_ordinal), UNIQUE(receipt_digest,role_identity,binding_receipt_digest))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
@@ -941,6 +943,18 @@ pub(super) struct StoredStrategyInputSampleProjectionV3 {
     decoded: DecodedStrategyInputSampleProjectionV3,
 }
 
+#[derive(Debug, Eq, PartialEq)]
+struct StoredStrategyInputSampleProjectionScheduleDependencyV3 {
+    component_ordinal: u32,
+    role_identity: [u8; 32],
+    binding_receipt_digest: [u8; 32],
+    schedule_readback_identity: BarScheduleIdentity,
+    schedule_fact_digest: BarScheduleIdentity,
+    schedule_cut_identity: BarScheduleIdentity,
+    schedule_cut_digest: BarScheduleIdentity,
+    schedule_receipt_identity: BarScheduleIdentity,
+}
+
 impl StoredStrategyInputSampleProjectionV3 {
     pub(super) const fn receipt_digest(&self) -> [u8; 32] {
         self.decoded.receipt_digest()
@@ -1177,7 +1191,7 @@ impl MarketDataOwnerPostgres {
         rollback_before_commit: bool,
         response_loss: bool,
     ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
-        let decoded = validate_prepared_sample_projection_v3(prepared)?;
+        let (decoded, dependencies) = validate_prepared_sample_projection_v3(prepared)?;
         let receipt_digest = prepared.receipt_digest();
         let subject_identity = prepared.subject_identity();
         let mut transaction = self
@@ -1191,16 +1205,21 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
         lock_sample_projection_identities_v2(&mut transaction, subject_identity, receipt_digest)
             .await?;
-        validate_sample_projection_dependencies_v3(&mut transaction, &decoded, true).await?;
+        validate_sample_projection_dependencies_v3(&mut transaction, &decoded, &dependencies, true)
+            .await?;
 
         if let Some(stored) =
             load_strategy_input_sample_projection_v3(&mut transaction, receipt_digest).await?
         {
+            let stored_dependencies =
+                load_sample_projection_schedule_dependencies_v3(&mut transaction, receipt_digest)
+                    .await?;
             if stored.kind_tag() != prepared.kind_tag()
                 || stored.lifecycle_tag() != prepared.lifecycle_tag()
                 || stored.subject_identity() != subject_identity
                 || stored.component_count() != prepared.component_count()
                 || stored.canonical_bytes() != prepared.canonical_bytes()
+                || stored_dependencies != dependencies
             {
                 return Err(SampleProjectionCustodyErrorV2::IdentityConflict);
             }
@@ -1231,6 +1250,7 @@ impl MarketDataOwnerPostgres {
             subject_identity,
             prepared.component_count(),
             prepared.canonical_bytes(),
+            &dependencies,
         );
         sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v3(receipt_digest,kind,lifecycle,subject_identity,component_count,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7)")
             .bind(receipt_digest.as_slice())
@@ -1243,6 +1263,12 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+        insert_sample_projection_schedule_dependencies_v3(
+            &mut transaction,
+            receipt_digest,
+            &dependencies,
+        )
+        .await?;
         if rollback_before_commit {
             return Err(SampleProjectionCustodyErrorV2::CommitInterrupted);
         }
@@ -2241,7 +2267,13 @@ fn sample_projection_custody_digest_v2(
 
 fn validate_prepared_sample_projection_v3(
     prepared: &PreparedStrategyInputSampleProjectionV3,
-) -> Result<DecodedStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+) -> Result<
+    (
+        DecodedStrategyInputSampleProjectionV3,
+        Vec<StoredStrategyInputSampleProjectionScheduleDependencyV3>,
+    ),
+    SampleProjectionCustodyErrorV2,
+> {
     let stored = decode_strategy_input_sample_projection_v3(
         prepared.canonical_bytes(),
         prepared.receipt_digest(),
@@ -2257,15 +2289,73 @@ fn validate_prepared_sample_projection_v3(
     {
         return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
     }
-    Ok(stored)
+    let dependencies = prepared
+        .schedule_dependencies()
+        .iter()
+        .enumerate()
+        .map(|(ordinal, dependency)| {
+            let component = stored
+                .components()
+                .get(ordinal)
+                .ok_or(SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+            let component_ordinal = u32::try_from(ordinal)
+                .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+            if component.role_identity() != dependency.role_identity()
+                || component.binding_receipt_digest() != dependency.binding_receipt_digest()
+            {
+                return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
+            }
+            Ok(StoredStrategyInputSampleProjectionScheduleDependencyV3 {
+                component_ordinal,
+                role_identity: dependency.role_identity(),
+                binding_receipt_digest: dependency.binding_receipt_digest(),
+                schedule_readback_identity: BarScheduleIdentity::from_untrusted_bytes(
+                    dependency.schedule_readback_identity(),
+                ),
+                schedule_fact_digest: BarScheduleIdentity::from_untrusted_bytes(
+                    dependency.schedule_fact_digest(),
+                ),
+                schedule_cut_identity: BarScheduleIdentity::from_untrusted_bytes(
+                    dependency.schedule_cut_identity(),
+                ),
+                schedule_cut_digest: BarScheduleIdentity::from_untrusted_bytes(
+                    dependency.schedule_cut_digest(),
+                ),
+                schedule_receipt_identity: BarScheduleIdentity::from_untrusted_bytes(
+                    dependency.schedule_receipt_identity(),
+                ),
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    if dependencies.len() != stored.components().len() {
+        return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
+    }
+    Ok((stored, dependencies))
 }
 
 async fn validate_sample_projection_dependencies_v3(
     transaction: &mut Transaction<'_, Postgres>,
     decoded: &DecodedStrategyInputSampleProjectionV3,
+    schedule_dependencies: &[StoredStrategyInputSampleProjectionScheduleDependencyV3],
     lock_dependencies: bool,
 ) -> Result<(), SampleProjectionCustodyErrorV2> {
-    for component in decoded.components() {
+    if schedule_dependencies.len() != decoded.components().len() {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    for (ordinal, (component, schedule_dependency)) in decoded
+        .components()
+        .iter()
+        .zip(schedule_dependencies)
+        .enumerate()
+    {
+        if schedule_dependency.component_ordinal
+            != u32::try_from(ordinal)
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+            || schedule_dependency.role_identity != component.role_identity()
+            || schedule_dependency.binding_receipt_digest != component.binding_receipt_digest()
+        {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
         let sample_receipt_digest = component.sample_receipt_digest();
         let timeframe_projection_digest = component.timeframe_projection_digest();
         if lock_dependencies {
@@ -2308,8 +2398,161 @@ async fn validate_sample_projection_dependencies_v3(
         .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
         verify_decoded_projection_component_native_v3(component, &timeframe, &sample)
             .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        validate_schedule_dependency_v3(
+            transaction,
+            schedule_dependency,
+            &timeframe,
+            &sample,
+            lock_dependencies,
+        )
+        .await?;
     }
     Ok(())
+}
+
+async fn validate_schedule_dependency_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    dependency: &StoredStrategyInputSampleProjectionScheduleDependencyV3,
+    timeframe: &super::sample_fact::TimeframeProjectionReceiptV1,
+    sample: &StoredSampleReadbackV1,
+    lock_dependency: bool,
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    if lock_dependency {
+        let locked: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT readback_identity FROM market_data_private.bar_schedule_receipts_v1 WHERE readback_identity=$1 FOR KEY SHARE",
+        )
+        .bind(dependency.schedule_readback_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if locked.is_none() {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+    }
+    let schedule = load_bar_schedule_readback(transaction, dependency.schedule_readback_identity)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let fact = schedule.fact();
+    if fact.digest() != dependency.schedule_fact_digest
+        || schedule.cut.identity != dependency.schedule_cut_identity
+        || schedule.cut.identity != dependency.schedule_cut_digest
+        || schedule.receipt_identity() != dependency.schedule_receipt_identity
+        || schedule_timeframe_spec_bytes_v3(fact)? != *timeframe.spec().canonical_bytes()
+        || fact.cut_effective_instant() != i128::from(sample.receipt().event_effective())
+        || i128::from(sample.receipt().event_effective()) < fact.effective_from()
+        || fact
+            .effective_until()
+            .is_some_and(|until| i128::from(sample.receipt().event_effective()) >= until)
+        || fact.market_semantics_identity().as_bytes()
+            != &sample.receipt().market_semantics_identity()
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    Ok(())
+}
+
+fn schedule_timeframe_spec_bytes_v3(
+    fact: &super::bar_schedule::BarScheduleFactV1,
+) -> Result<[u8; 140], SampleProjectionCustodyErrorV2> {
+    let (kind, unit) = match (fact.kind(), fact.unit()) {
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => (0x02, 0x01),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute) => (0x02, 0x02),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour) => (0x02, 0x03),
+        (BarScheduleKindV1::ExchangeSession, BarScheduleUnitV1::ExchangeSessionDay) => (0x03, 0x04),
+        _ => return Err(SampleProjectionCustodyErrorV2::StoreUnavailable),
+    };
+    let label = match fact.label() {
+        BarScheduleLabelV1::IntervalOpen => 0x01,
+        BarScheduleLabelV1::IntervalClose => 0x02,
+    };
+    let partial = match fact.completion() {
+        BarScheduleCompletionV1::CompleteOnly => 0x01,
+    };
+    let mut bytes = Vec::with_capacity(140);
+    bytes.extend_from_slice(&1_u16.to_le_bytes());
+    bytes.extend_from_slice(&0_u16.to_le_bytes());
+    bytes.push(kind);
+    bytes.extend_from_slice(&fact.step().to_le_bytes());
+    bytes.push(unit);
+    bytes.extend_from_slice(fact.anchor_identity().as_bytes());
+    bytes.extend_from_slice(fact.calendar_identity().as_bytes());
+    bytes.extend_from_slice(fact.session_identity().as_bytes());
+    bytes.extend_from_slice(fact.time_zone_identity().as_bytes());
+    bytes.push(label);
+    bytes.push(partial);
+    bytes
+        .try_into()
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+async fn insert_sample_projection_schedule_dependencies_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_digest: [u8; 32],
+    dependencies: &[StoredStrategyInputSampleProjectionScheduleDependencyV3],
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    for dependency in dependencies {
+        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_schedule_dependencies_v3(receipt_digest,component_ordinal,role_identity,binding_receipt_digest,schedule_readback_identity,schedule_fact_digest,schedule_cut_identity,schedule_cut_digest,schedule_receipt_identity) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            .bind(receipt_digest.as_slice())
+            .bind(i64::from(dependency.component_ordinal))
+            .bind(dependency.role_identity.as_slice())
+            .bind(dependency.binding_receipt_digest.as_slice())
+            .bind(dependency.schedule_readback_identity.as_bytes().as_slice())
+            .bind(dependency.schedule_fact_digest.as_bytes().as_slice())
+            .bind(dependency.schedule_cut_identity.as_bytes().as_slice())
+            .bind(dependency.schedule_cut_digest.as_bytes().as_slice())
+            .bind(dependency.schedule_receipt_identity.as_bytes().as_slice())
+            .execute(&mut **transaction)
+            .await
+            .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+    }
+    Ok(())
+}
+
+async fn load_sample_projection_schedule_dependencies_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    receipt_digest: [u8; 32],
+) -> Result<
+    Vec<StoredStrategyInputSampleProjectionScheduleDependencyV3>,
+    SampleProjectionCustodyErrorV2,
+> {
+    let rows = sqlx::query("SELECT component_ordinal,role_identity,binding_receipt_digest,schedule_readback_identity,schedule_fact_digest,schedule_cut_identity,schedule_cut_digest,schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 WHERE receipt_digest=$1 ORDER BY component_ordinal")
+        .bind(receipt_digest.as_slice())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(StoredStrategyInputSampleProjectionScheduleDependencyV3 {
+                component_ordinal: u32::try_from(
+                    row.try_get::<i64, _>("component_ordinal")
+                        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                )
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                role_identity: sample_projection_digest_column_v2(&row, "role_identity")?,
+                binding_receipt_digest: sample_projection_digest_column_v2(
+                    &row,
+                    "binding_receipt_digest",
+                )?,
+                schedule_readback_identity: bar_schedule_digest_column(
+                    &row,
+                    "schedule_readback_identity",
+                )
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                schedule_fact_digest: bar_schedule_digest_column(&row, "schedule_fact_digest")
+                    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                schedule_cut_identity: bar_schedule_digest_column(&row, "schedule_cut_identity")
+                    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                schedule_cut_digest: bar_schedule_digest_column(&row, "schedule_cut_digest")
+                    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+                schedule_receipt_identity: bar_schedule_digest_column(
+                    &row,
+                    "schedule_receipt_identity",
+                )
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+            })
+        })
+        .collect()
 }
 
 async fn resolve_strategy_input_sample_projection_from_pool_v3(
@@ -2371,6 +2614,8 @@ async fn load_strategy_input_sample_projection_v3(
     let receipt_bytes: Vec<u8> = row
         .try_get("receipt_bytes")
         .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let dependencies =
+        load_sample_projection_schedule_dependencies_v3(transaction, receipt_digest).await?;
     if receipt_digest != expected_digest
         || kind != 0x01
         || lifecycle != 0x02
@@ -2382,6 +2627,7 @@ async fn load_strategy_input_sample_projection_v3(
                 subject_identity,
                 component_count,
                 &receipt_bytes,
+                &dependencies,
             )
     {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
@@ -2395,7 +2641,8 @@ async fn load_strategy_input_sample_projection_v3(
     {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }
-    validate_sample_projection_dependencies_v3(transaction, &stored.decoded, false).await?;
+    validate_sample_projection_dependencies_v3(transaction, &stored.decoded, &dependencies, false)
+        .await?;
     Ok(Some(stored))
 }
 
@@ -2415,6 +2662,7 @@ fn sample_projection_custody_digest_v3(
     subject_identity: [u8; 32],
     component_count: u32,
     receipt_bytes: &[u8],
+    dependencies: &[StoredStrategyInputSampleProjectionScheduleDependencyV3],
 ) -> [u8; 32] {
     let mut digest = Sha256::new();
     digest.update(b"market-data.sample-projection-custody.v3\0");
@@ -2423,6 +2671,16 @@ fn sample_projection_custody_digest_v3(
     digest.update(subject_identity);
     digest.update(component_count.to_le_bytes());
     digest.update(receipt_bytes);
+    for dependency in dependencies {
+        digest.update(dependency.component_ordinal.to_le_bytes());
+        digest.update(dependency.role_identity);
+        digest.update(dependency.binding_receipt_digest);
+        digest.update(dependency.schedule_readback_identity.as_bytes());
+        digest.update(dependency.schedule_fact_digest.as_bytes());
+        digest.update(dependency.schedule_cut_identity.as_bytes());
+        digest.update(dependency.schedule_cut_digest.as_bytes());
+        digest.update(dependency.schedule_receipt_identity.as_bytes());
+    }
     digest.finalize().into()
 }
 
