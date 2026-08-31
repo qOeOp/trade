@@ -16,11 +16,17 @@ use crate::{
         ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
-        ArtifactRequestIdentityPreflightV1, ReservedArtifactBuildInvocationV1,
-        StoredArtifactBuildInvocationSnapshotV1, UnixArtifactBuildSandboxV1, artifact_review,
-        artifact_review_action_projection, build_receipt, build_request_semantic_digest,
-        canonical_intent_bytes, issue_artifact, sandbox_request, validate_candidate,
-        verify_artifact_build_admission, verify_sandbox_product,
+        ArtifactRequestIdentityPreflightV1, LegacyPreparedAttemptDrainReadbackV1,
+        ReservedArtifactBuildInvocationV1, StoredArtifactBuildInvocationSnapshotV1,
+        UnixArtifactBuildSandboxV1, artifact_review, artifact_review_action_projection,
+        build_receipt, build_request_semantic_digest, canonical_intent_bytes, issue_artifact,
+        sandbox_request, validate_candidate, verify_artifact_build_admission,
+        verify_sandbox_product,
+    },
+    legacy_prepared_attempt_drain::{
+        LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
+        attempt_json_digest, form_receipt, migrate as migrate_legacy_drain,
+        verify_drain_in_transaction, verify_live_predicates_in_transaction,
     },
     product_edge::{
         FrozenResearchGoalIntent, ResearchNextLegalAction, ResearchViewAvailability,
@@ -38,6 +44,16 @@ use crate::{
     trial_family::{TrialFamilyError, TrialFamilyResolutionV1},
     trial_family_postgres::{migrate as migrate_trial_family, persist_artifact_binding},
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyPreparedAttemptDrainSummaryV1 {
+    pub schema_version: u32,
+    pub target_count: u32,
+    pub target_set_digest: String,
+    pub receipt_identities: Vec<String>,
+    pub receipt_digests: Vec<String>,
+}
 
 #[derive(Clone)]
 pub struct PostgresArtifactBuildOwnerV1 {
@@ -103,8 +119,47 @@ struct LegacyArtifactBuildRequestV1 {
     build_request_identity: String,
     attempt_identity: String,
     intent_identity: String,
-    channel: crate::product_edge::ProductEdgeChannel,
+    channel: LegacyProductEdgeChannelV1,
     context: serde_json::Value,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AdmittedLegacyPreparedAttemptV1 {
+    schema_version: u32,
+    request: AdmittedLegacyPreparedRequestV1,
+    request_semantic_digest: String,
+    state: AttemptState,
+    candidate_digest: Option<String>,
+    #[serde(default)]
+    candidate: Option<serde_json::Value>,
+    prepared_at_epoch_ms: u64,
+    receipt: Option<ArtifactBuildReceiptV1>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct AdmittedLegacyPreparedRequestV1 {
+    build_request_identity: String,
+    attempt_identity: String,
+    intent_identity: String,
+    channel: AdmittedLegacyPreparedChannelV1,
+    admission: ProductEdgeAdmissionLocatorV1,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum AdmittedLegacyPreparedChannelV1 {
+    App,
+    Mcp,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum LegacyProductEdgeChannelV1 {
+    App,
+    Mcp,
+    WindmillProductEdge,
 }
 
 #[derive(Serialize)]
@@ -227,21 +282,26 @@ impl PostgresArtifactBuildOwnerV1 {
         migrate_trial_family(&self.pool)
             .await
             .map_err(|e| trial_family_storage(&e))?;
+        migrate_legacy_drain(&self.pool).await?;
         Ok(())
     }
 
     async fn assert_activation_safe(&self) -> Result<(), ArtifactBuildError> {
-        let rows: Vec<serde_json::Value> =
-            sqlx::query_scalar("SELECT attempt_json FROM rd_artifact_build_attempts_v1")
-                .fetch_all(&self.pool)
-                .await
-                .map_err(storage)?;
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let rows = sqlx::query("SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 FOR SHARE")
+            .fetch_all(&mut *transaction).await.map_err(storage)?;
 
-        for value in rows {
+        for row in rows {
+            let value: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
             if serde_json::from_value::<StoredAttemptV1>(value.clone())
                 .ok()
                 .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value))
             {
+                continue;
+            }
+            if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
+                let binding = verify_admitted_legacy_prepared_binding(&row, &value, &prepared)?;
+                verify_drain_in_transaction(&mut transaction, &binding).await?;
                 continue;
             }
             let (legacy, _) = decode_legacy_attempt(&value)?;
@@ -257,6 +317,7 @@ impl PostgresArtifactBuildOwnerV1 {
                 ));
             }
         }
+        transaction.commit().await.map_err(storage)?;
         Ok(())
     }
 
@@ -302,6 +363,18 @@ impl PostgresArtifactBuildOwnerV1 {
             }
             transaction.commit().await.map_err(storage)?;
             return Ok(ArtifactRequestIdentityPreflightV1::Current);
+        }
+        if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
+            let binding = verify_admitted_legacy_prepared_binding(row, &value, &prepared)?;
+            if binding.build_request_identity != build_request_identity
+                || binding.attempt_identity != attempt_identity
+            {
+                return Err(ArtifactBuildError::ConflictingReplay);
+            }
+            let mut transaction = self.pool.begin().await.map_err(storage)?;
+            verify_drain_in_transaction(&mut transaction, &binding).await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined);
         }
         let (legacy, _) = decode_legacy_attempt(&value)?;
         if legacy.schema_version != 1
@@ -371,6 +444,17 @@ impl PostgresArtifactBuildOwnerV1 {
             .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value))
         {
             return Err(ArtifactBuildError::ConflictingReplay);
+        }
+        if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
+            let binding = verify_admitted_legacy_prepared_binding(row, &value, &prepared)?;
+            if binding.build_request_identity != build_request_identity
+                || binding.attempt_identity != attempt_identity
+            {
+                return Err(ArtifactBuildError::ConflictingReplay);
+            }
+            let receipt = verify_drain_in_transaction(&mut transaction, &binding).await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(drained_prepared_result(&prepared, &receipt));
         }
         let (legacy, complete_projection_fields) = decode_legacy_attempt(&value)?;
         verify_legacy_terminal_attempt(
@@ -1199,6 +1283,70 @@ fn decode_legacy_attempt(
     }
 }
 
+fn decode_admitted_legacy_prepared(
+    value: &serde_json::Value,
+) -> Result<AdmittedLegacyPreparedAttemptV1, ArtifactBuildError> {
+    serde_json::from_value::<AdmittedLegacyPreparedAttemptV1>(value.clone())
+        .ok()
+        .filter(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(value))
+        .ok_or_else(|| {
+            ArtifactBuildError::Storage(
+                "unclassified admitted legacy PREPARED attempt custody".into(),
+            )
+        })
+}
+
+fn verify_admitted_legacy_prepared_binding(
+    row: &sqlx::postgres::PgRow,
+    encoded: &serde_json::Value,
+    legacy: &AdmittedLegacyPreparedAttemptV1,
+) -> Result<LegacyPreparedAttemptBindingV1, ArtifactBuildError> {
+    if legacy.schema_version != 1
+        || legacy.state != AttemptState::Prepared
+        || !matches!(
+            legacy.request.channel,
+            AdmittedLegacyPreparedChannelV1::App | AdmittedLegacyPreparedChannelV1::Mcp
+        )
+        || legacy.candidate_digest.is_some()
+        || legacy.candidate.is_some()
+        || legacy.receipt.is_some()
+        || legacy.request.admission.request_identity != legacy.request.build_request_identity
+        || legacy.request.build_request_identity
+            != row
+                .try_get::<String, _>("build_request_identity")
+                .map_err(storage)?
+        || legacy.request.attempt_identity
+            != row
+                .try_get::<String, _>("attempt_identity")
+                .map_err(storage)?
+        || legacy.request_semantic_digest
+            != row
+                .try_get::<String, _>("semantic_digest")
+                .map_err(storage)?
+        || i64::try_from(legacy.prepared_at_epoch_ms).map_err(json_storage)?
+            != row
+                .try_get::<i64, _>("prepared_at_epoch_ms")
+                .map_err(storage)?
+    {
+        return Err(ArtifactBuildError::Storage(
+            "noncanonical legacy PREPARED attempt custody".into(),
+        ));
+    }
+    if legacy.request_semantic_digest.trim().is_empty() {
+        return Err(ArtifactBuildError::Storage(
+            "legacy PREPARED attempt semantic digest unavailable".into(),
+        ));
+    }
+    Ok(LegacyPreparedAttemptBindingV1 {
+        build_request_identity: legacy.request.build_request_identity.clone(),
+        attempt_identity: legacy.request.attempt_identity.clone(),
+        request_semantic_digest: legacy.request_semantic_digest.clone(),
+        attempt_json_digest: attempt_json_digest(encoded)?,
+        prepared_at_epoch_ms: legacy.prepared_at_epoch_ms,
+        admission: legacy.request.admission.clone(),
+    })
+}
+
 async fn verify_legacy_terminal_attempt(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     row: &sqlx::postgres::PgRow,
@@ -1316,6 +1464,35 @@ async fn verify_legacy_terminal_attempt(
     Ok(())
 }
 
+fn drained_prepared_result(
+    legacy: &AdmittedLegacyPreparedAttemptV1,
+    receipt: &crate::legacy_prepared_attempt_drain::LegacyPreparedAttemptDrainReceiptV1,
+) -> ArtifactBuildResultV1 {
+    ArtifactBuildResultV1 {
+        schema_version: 1,
+        resolution: ArtifactBuildResolution::LegacyTerminalQuarantined,
+        build_request_identity: legacy.request.build_request_identity.clone(),
+        attempt_identity: legacy.request.attempt_identity.clone(),
+        owner_receipt: None,
+        legacy_prepared_attempt_drain: Some(LegacyPreparedAttemptDrainReadbackV1 {
+            schema_version: 1,
+            receipt_identity: receipt.receipt_identity.clone(),
+            receipt_digest: receipt.receipt_digest.clone(),
+            attempt_json_digest: receipt.attempt.attempt_json_digest.clone(),
+            admission_digest: receipt.attempt.admission.admission_digest.clone(),
+            disposition: crate::artifact_build::ArtifactBuildDisposition::OutcomeUnknown,
+            provider_disposition: receipt.provider_disposition.clone(),
+            target_database_fingerprint: receipt.database_resource_fingerprint.clone(),
+        }),
+        research_view: None,
+        artifact_review: None,
+        artifact_review_actions: None,
+        trial_family_resolution: None,
+        artifact_trial_family: None,
+        next_legal_action: ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
+    }
+}
+
 fn legacy_terminal_result(legacy: LegacyStoredAttemptV1) -> ArtifactBuildResultV1 {
     ArtifactBuildResultV1 {
         schema_version: 1,
@@ -1323,6 +1500,7 @@ fn legacy_terminal_result(legacy: LegacyStoredAttemptV1) -> ArtifactBuildResultV
         build_request_identity: legacy.request.build_request_identity,
         attempt_identity: legacy.request.attempt_identity,
         owner_receipt: legacy.receipt,
+        legacy_prepared_attempt_drain: None,
         research_view: None,
         artifact_review: None,
         artifact_review_actions: None,
@@ -1694,6 +1872,7 @@ fn result_from_verified(
         build_request_identity: attempt.request.build_request_identity.clone(),
         attempt_identity: attempt.request.attempt_identity.clone(),
         owner_receipt: attempt.receipt,
+        legacy_prepared_attempt_drain: None,
         research_view,
         artifact_review,
         artifact_review_actions,
@@ -1714,6 +1893,7 @@ fn unknown_result(build_request_identity: &str, attempt_identity: &str) -> Artif
         build_request_identity: build_request_identity.to_string(),
         attempt_identity: attempt_identity.to_string(),
         owner_receipt: None,
+        legacy_prepared_attempt_drain: None,
         research_view: None,
         artifact_review: None,
         artifact_review_actions: None,
@@ -1794,8 +1974,223 @@ fn json_storage(error: impl Display) -> ArtifactBuildError {
     ArtifactBuildError::Storage(error.to_string())
 }
 
+/// Explicit Owner-admin operation for sealing an exact, immutable set of
+/// admitted legacy PREPARED attempts. It never modifies attempt rows or invokes
+/// a provider.
+pub async fn drain_legacy_prepared_attempts_v1(
+    database_url: &str,
+    expected_target_count: u32,
+    expected_target_set_digest: &str,
+    fail_after_receipt_count: Option<u32>,
+) -> Result<LegacyPreparedAttemptDrainSummaryV1, ArtifactBuildError> {
+    if database_url.trim().is_empty() || expected_target_count == 0 {
+        return Err(ArtifactBuildError::Storage(
+            "legacy PREPARED drain requires an explicit database and nonzero target count".into(),
+        ));
+    }
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(database_url)
+        .await
+        .map_err(storage)?;
+    migrate_legacy_drain(&pool).await?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *transaction)
+        .await
+        .map_err(storage)?;
+    for statement in [
+        "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE rd_strategy_artifacts_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE rd_legacy_prepared_attempt_drain_receipts_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE rd_owner_outbox_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE",
+        "LOCK TABLE product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE",
+    ] {
+        sqlx::query(statement)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+    }
+    let rows = sqlx::query("SELECT build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity,attempt_identity FOR SHARE")
+        .fetch_all(&mut *transaction).await.map_err(storage)?;
+    let mut targets = Vec::new();
+    for row in rows {
+        let value: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
+        if let Ok(candidate) = decode_admitted_legacy_prepared(&value) {
+            targets.push(verify_admitted_legacy_prepared_binding(
+                &row, &value, &candidate,
+            )?);
+            continue;
+        }
+        if serde_json::from_value::<StoredAttemptV1>(value.clone())
+            .ok()
+            .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value))
+        {
+            continue;
+        }
+        let (legacy, _) = decode_legacy_attempt(&value)?;
+        if legacy.schema_version != 1 || legacy.state != AttemptState::Terminal {
+            return Err(ArtifactBuildError::Storage(
+                "unknown or undrainable legacy attempt blocks drain".into(),
+            ));
+        }
+    }
+    targets.sort_by(|left, right| {
+        (&left.build_request_identity, &left.attempt_identity)
+            .cmp(&(&right.build_request_identity, &right.attempt_identity))
+    });
+    let target_set_digest = legacy_drain_target_set_digest(&targets)?;
+    if targets.len() != usize::try_from(expected_target_count).map_err(json_storage)?
+        || target_set_digest != expected_target_set_digest
+    {
+        return Err(ArtifactBuildError::Storage(
+            "legacy PREPARED drain target set mismatch".into(),
+        ));
+    }
+    let existing_count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1 WHERE attempt_identity=ANY($1)",
+    )
+    .bind(targets.iter().map(|target| target.attempt_identity.as_str()).collect::<Vec<_>>())
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(storage)?;
+    if existing_count != 0 && existing_count != i64::from(expected_target_count) {
+        return Err(ArtifactBuildError::Storage(
+            "partial legacy PREPARED drain set is forbidden".into(),
+        ));
+    }
+    let committed_at_epoch_ms = current_epoch_ms()?;
+    let mut receipts = Vec::with_capacity(targets.len());
+    if existing_count == 0 {
+        for (index, target) in targets.iter().enumerate() {
+            let (database, absence) =
+                verify_live_predicates_in_transaction(&mut transaction, target).await?;
+            let fingerprint =
+                crate::legacy_prepared_attempt_drain::database_fingerprint(&database)?;
+            let receipt = form_receipt(
+                target.clone(),
+                absence,
+                database,
+                fingerprint,
+                committed_at_epoch_ms,
+            )?;
+            append_receipt_and_outbox_in_transaction(&mut transaction, &receipt).await?;
+            receipts.push(receipt);
+            if fail_after_receipt_count == Some(u32::try_from(index + 1).map_err(json_storage)?) {
+                return Err(ArtifactBuildError::Storage(
+                    "injected legacy PREPARED drain rollback".into(),
+                ));
+            }
+        }
+    } else {
+        for target in &targets {
+            receipts.push(verify_drain_in_transaction(&mut transaction, target).await?);
+        }
+    }
+    transaction.commit().await.map_err(storage)?;
+    Ok(LegacyPreparedAttemptDrainSummaryV1 {
+        schema_version: 1,
+        target_count: expected_target_count,
+        target_set_digest,
+        receipt_identities: receipts
+            .iter()
+            .map(|value| value.receipt_identity.clone())
+            .collect(),
+        receipt_digests: receipts
+            .iter()
+            .map(|value| value.receipt_digest.clone())
+            .collect(),
+    })
+}
+
+fn legacy_drain_target_set_digest(
+    targets: &[LegacyPreparedAttemptBindingV1],
+) -> Result<String, ArtifactBuildError> {
+    let mut digest = sha2::Sha256::new();
+    digest.update(b"rd.legacy-prepared-attempt-drain-target-set.v1\0");
+    digest.update(serde_json::to_vec(targets).map_err(json_storage)?);
+    Ok(format!("sha256:{:x}", digest.finalize()))
+}
+
 fn trial_family_storage(error: &TrialFamilyError) -> ArtifactBuildError {
     ArtifactBuildError::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod admitted_legacy_prepared_tests {
+    use super::*;
+
+    fn fixture(channel: &str) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": 1,
+            "request": {
+                "build_request_identity": "build-1",
+                "attempt_identity": "attempt-1",
+                "intent_identity": "intent-1",
+                "channel": channel,
+                "admission": {
+                    "request_identity": "build-1",
+                    "admission_identity": "admission-1",
+                    "admission_digest": format!("sha256:{}", "a".repeat(64))
+                }
+            },
+            "request_semantic_digest": format!("sha256:{}", "b".repeat(64)),
+            "state": "PREPARED",
+            "candidate_digest": null,
+            "candidate": null,
+            "prepared_at_epoch_ms": 1,
+            "receipt": null
+        })
+    }
+
+    #[test]
+    fn exact_real_app_and_mcp_prepared_shapes_are_uniquely_admitted() {
+        for channel in ["APP", "MCP"] {
+            let value = fixture(channel);
+            let decoded = decode_admitted_legacy_prepared(&value).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), value);
+            assert!(decode_legacy_attempt(&value).is_err());
+        }
+    }
+
+    #[test]
+    fn unknown_admitted_prepared_request_key_or_channel_fails_closed() {
+        let mut unknown_key = fixture("APP");
+        unknown_key["request"]["context"] = serde_json::json!({});
+        assert!(decode_admitted_legacy_prepared(&unknown_key).is_err());
+        let unknown_channel = fixture("WINDMILL_PRODUCT_EDGE");
+        assert!(decode_admitted_legacy_prepared(&unknown_channel).is_err());
+    }
+
+    #[test]
+    fn drained_wire_is_quarantined_and_normal_wire_omits_drain_readback() {
+        let prepared = decode_admitted_legacy_prepared(&fixture("APP")).unwrap();
+        let receipt = crate::legacy_prepared_attempt_drain::tests::fixture_receipt();
+        let drained = drained_prepared_result(&prepared, &receipt);
+        let encoded = serde_json::to_value(&drained).unwrap();
+        assert_eq!(encoded["resolution"], "LEGACY_TERMINAL_QUARANTINED");
+        assert!(encoded["owner_receipt"].is_null());
+        assert_eq!(
+            encoded["legacy_prepared_attempt_drain"]["disposition"],
+            "OUTCOME_UNKNOWN"
+        );
+        assert_eq!(
+            encoded["legacy_prepared_attempt_drain"]["provider_disposition"],
+            "PROVIDER_NEVER_STARTED"
+        );
+        assert!(encoded["research_view"].is_null());
+        assert!(encoded["artifact_review"].is_null());
+        assert!(encoded["trial_family_resolution"].is_null());
+
+        let normal = serde_json::to_value(ArtifactBuildResultV1::submitted_or_unknown(
+            "build-1",
+            "attempt-1",
+        ))
+        .unwrap();
+        assert!(normal.get("legacy_prepared_attempt_drain").is_none());
+    }
 }
 
 #[cfg(test)]
@@ -1843,6 +2238,61 @@ mod postgres_freshness_tests {
     };
 
     #[tokio::test]
+    #[ignore = "requires an explicitly supplied read-only attempt-custody database URL"]
+    async fn stored_attempt_catalog_is_exactly_classifiable_without_writes() {
+        let database_url = std::env::var("RD_OWNER_CLASSIFICATION_DATABASE_URL")
+            .expect("RD_OWNER_CLASSIFICATION_DATABASE_URL must be explicitly supplied");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        let rows: Vec<serde_json::Value> =
+            sqlx::query_scalar("SELECT attempt_json FROM rd_artifact_build_attempts_v1")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+
+        assert!(
+            !rows.is_empty(),
+            "attempt custody catalog must not be empty"
+        );
+        for value in rows {
+            let current = serde_json::from_value::<StoredAttemptV1>(value.clone())
+                .ok()
+                .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value));
+            if !current {
+                if let Err(error) = decode_legacy_attempt(&value) {
+                    let keys = value
+                        .as_object()
+                        .unwrap()
+                        .keys()
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    let digest = format!(
+                        "sha256:{:x}",
+                        Sha256::digest(serde_json::to_vec(&value).unwrap())
+                    );
+                    let complete = serde_json::from_value::<LegacyStoredAttemptV1>(value.clone())
+                        .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                        .map_err(|failure| failure.to_string());
+                    let sparse =
+                        serde_json::from_value::<SparseLegacyStoredAttemptV1>(value.clone())
+                            .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                            .map_err(|failure| failure.to_string());
+                    let family =
+                        serde_json::from_value::<FamilyLegacyStoredAttemptV1>(value.clone())
+                            .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                            .map_err(|failure| failure.to_string());
+                    panic!(
+                        "{error}; digest={digest}; keys={keys:?}; complete={complete:?}; sparse={sparse:?}; family={family:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     async fn exact_origin_terminal_legacy_is_read_only_and_nonterminal_blocks_activation() {
         let test_database = test_database().await;
@@ -1862,7 +2312,7 @@ mod postgres_freshness_tests {
             build_request_identity: build_request_identity.clone(),
             attempt_identity: attempt_identity.clone(),
             intent_identity: format!("rd-research-intent-v1-legacy-{suffix}"),
-            channel: ProductEdgeChannel::WindmillProductEdge,
+            channel: LegacyProductEdgeChannelV1::App,
             context: serde_json::json!({
                 "schema_version": 1,
                 "trusted_principal": "legacy-principal",
@@ -1971,6 +2421,171 @@ mod postgres_freshness_tests {
 
     #[tokio::test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
+    async fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
+        let test_database = test_database().await;
+        let _mutation = test_database.mutation();
+        let database_url = test_database.database_url().to_string();
+        let owner = PostgresArtifactBuildOwnerV1::connect(
+            &database_url,
+            "/tmp/unused-rd-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .unwrap();
+        let suffix = unique_suffix();
+        let research_identity = format!("legacy-drain-research-{suffix}");
+        let (edge, _) =
+            bootstrap_authority(&database_url, &database_url, &research_identity, &suffix).await;
+        let mut target_bindings = Vec::new();
+        let mut identities = Vec::new();
+        for (ordinal, channel) in [(1, "APP"), (2, "MCP")] {
+            let build = format!("legacy-drain-build-{ordinal}-{suffix}");
+            let attempt = format!("legacy-drain-attempt-{ordinal}-{suffix}");
+            let intent = format!("legacy-drain-intent-{ordinal}-{suffix}");
+            let admission = edge
+                .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
+                    request_identity: build.clone(),
+                    typed_payload: serde_json::json!({
+                        "build_request_identity": build,
+                        "attempt_identity": attempt,
+                        "intent_identity": intent,
+                        "channel": channel,
+                    }),
+                    operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
+                    operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
+                    target_owner: RESEARCH_OWNER_V1.to_string(),
+                    requested_effects: vibe_product_edge::ARTIFACT_BUILD_REQUIRED_EFFECTS_V1
+                        .iter()
+                        .map(|effect| (*effect).to_string())
+                        .collect(),
+                    request_proof_digest: "sha256:test-proof".to_string(),
+                    audit_correlation: format!("test:{build}"),
+                })
+                .await
+                .unwrap()
+                .locator()
+                .clone();
+            let semantic = format!(
+                "sha256:{:x}",
+                Sha256::digest(format!("{build}:{attempt}").as_bytes())
+            );
+            let value = serde_json::json!({
+                "schema_version": 1,
+                "request": {
+                    "build_request_identity": build,
+                    "attempt_identity": attempt,
+                    "intent_identity": intent,
+                    "channel": channel,
+                    "admission": admission,
+                },
+                "request_semantic_digest": semantic,
+                "state": "PREPARED",
+                "candidate_digest": null,
+                "candidate": null,
+                "prepared_at_epoch_ms": 1,
+                "receipt": null,
+            });
+            sqlx::query("INSERT INTO rd_artifact_build_attempts_v1(build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms) VALUES($1,$2,$3,$4,1)")
+                .bind(&build).bind(&attempt).bind(&semantic).bind(&value)
+                .execute(&owner.pool).await.unwrap();
+            let row = sqlx::query("SELECT build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1")
+                .bind(&build).fetch_one(&owner.pool).await.unwrap();
+            let decoded = decode_admitted_legacy_prepared(&value).unwrap();
+            target_bindings
+                .push(verify_admitted_legacy_prepared_binding(&row, &value, &decoded).unwrap());
+            identities.push((build, attempt));
+        }
+        target_bindings.sort_by(|left, right| {
+            left.build_request_identity
+                .cmp(&right.build_request_identity)
+        });
+        let target_digest = legacy_drain_target_set_digest(&target_bindings).unwrap();
+        assert!(owner.assert_activation_safe().await.is_err());
+        assert!(
+            drain_legacy_prepared_attempts_v1(
+                &database_url,
+                2,
+                &format!("sha256:{}", "0".repeat(64)),
+                None,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, Some(1))
+                .await
+                .is_err()
+        );
+        let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
+            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND).fetch_one(&owner.pool).await.unwrap();
+        assert_eq!(counts, (0, 0));
+        let first = drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, None)
+            .await
+            .unwrap();
+        let replay = drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, None)
+            .await
+            .unwrap();
+        assert_eq!(first, replay);
+        let restarted = PostgresArtifactBuildOwnerV1::connect(
+            &database_url,
+            "/tmp/unused-rd-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .unwrap();
+        for (build, attempt) in identities {
+            let result = restarted
+                .resolve_legacy_terminal_quarantined(&build, &attempt)
+                .await
+                .unwrap();
+            assert_eq!(
+                result.resolution(),
+                ArtifactBuildResolution::LegacyTerminalQuarantined
+            );
+            assert!(result.owner_receipt().is_none());
+            assert_eq!(
+                result
+                    .legacy_prepared_attempt_drain()
+                    .unwrap()
+                    .provider_disposition(),
+                "PROVIDER_NEVER_STARTED"
+            );
+        }
+        let first_target = &target_bindings[0];
+        sqlx::query("INSERT INTO product_edge_effect_invocation_admissions_v1(receipt_identity,receipt_digest,admission_identity,attempt_identity,claim_identity,receipt_json,write_cut_epoch_ms) VALUES($1,$2,$3,$4,$5,'{}'::jsonb,1)")
+            .bind(format!("effect-receipt-{suffix}"))
+            .bind(format!("sha256:{}", "e".repeat(64)))
+            .bind(&first_target.admission.admission_identity)
+            .bind(&first_target.attempt_identity)
+            .bind(format!("effect-claim-{suffix}"))
+            .execute(&owner.pool).await.unwrap();
+        assert!(owner.assert_activation_safe().await.is_err());
+        sqlx::query(
+            "DELETE FROM product_edge_effect_invocation_admissions_v1 WHERE attempt_identity=$1",
+        )
+        .bind(&first_target.attempt_identity)
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+        let unknown_build = format!("legacy-drain-unknown-build-{suffix}");
+        let unknown_attempt = format!("legacy-drain-unknown-attempt-{suffix}");
+        sqlx::query("INSERT INTO rd_artifact_build_attempts_v1(build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms) VALUES($1,$2,$3,$4,1)")
+            .bind(&unknown_build).bind(&unknown_attempt)
+            .bind(format!("sha256:{}", "f".repeat(64)))
+            .bind(serde_json::json!({"schema_version":1,"state":"PREPARED","unknown":true}))
+            .execute(&owner.pool).await.unwrap();
+        assert!(owner.assert_activation_safe().await.is_err());
+        sqlx::query("DELETE FROM rd_artifact_build_attempts_v1 WHERE build_request_identity=$1")
+            .bind(&unknown_build)
+            .execute(&owner.pool)
+            .await
+            .unwrap();
+        assert!(sqlx::query("UPDATE rd_legacy_prepared_attempt_drain_receipts_v1 SET receipt_digest='sha256:forbidden'")
+            .execute(&owner.pool).await.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     async fn opaque_legacy_success_is_classified_but_never_promoted() {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
@@ -1989,7 +2604,7 @@ mod postgres_freshness_tests {
             build_request_identity: build_request_identity.clone(),
             attempt_identity: attempt_identity.clone(),
             intent_identity: format!("rd-research-intent-v1-legacy-success-{suffix}"),
-            channel: ProductEdgeChannel::WindmillProductEdge,
+            channel: LegacyProductEdgeChannelV1::App,
             context: serde_json::json!({
                 "schema_version": 1,
                 "trusted_principal": "legacy-principal",

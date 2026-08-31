@@ -60,6 +60,7 @@ mod family_adapters;
 mod formation_adapters;
 mod holdout;
 pub mod intent;
+mod legacy_prepared_attempt_drain;
 #[allow(
     dead_code,
     reason = "prepared Native Replay awaits native Instrument Master and complete Owner readbacks"
