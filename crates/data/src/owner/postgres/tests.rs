@@ -716,6 +716,26 @@ async fn prepared_sample_projection_v2(
     .unwrap()
 }
 
+async fn prepared_bar_sample_projection_v2(
+    owner: &MarketDataOwnerPostgres,
+) -> PreparedStrategyInputSampleProjectionV2 {
+    let (binding, frame, timeframe, prepared_sample) =
+        crate::owner::sample_fact::tests::prepared_bar_postgres_fixture_v2();
+    let stored_sample = owner
+        .commit_prepared_sample_v1(&prepared_sample)
+        .await
+        .expect("durable BAR sample custody");
+    prepare_strategy_input_sample_projection_frame_v2(
+        &frame,
+        &[StrategyInputSampleProjectionSourceV2 {
+            binding: &binding,
+            timeframe: &timeframe,
+            sample: &stored_sample,
+        }],
+    )
+    .expect("BAR frame projection from durable native sample")
+}
+
 async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v2",
@@ -727,6 +747,15 @@ async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
 
 async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str, admin: &PgPool) {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let prepared_bar = prepared_bar_sample_projection_v2(&owner).await;
+    let bar_receipt_digest = prepared_bar.receipt_digest();
+    let bar_receipt_bytes = prepared_bar.canonical_bytes().to_vec();
+    let committed_bar = owner
+        .commit_strategy_input_sample_projection_v2(&prepared_bar)
+        .await
+        .expect("durable BAR frame projection");
+    assert_eq!(committed_bar.canonical_bytes(), bar_receipt_bytes);
+
     let prepared = prepared_sample_projection_v2(&owner).await;
     let receipt_digest = prepared.receipt_digest();
     let subject_identity = prepared.subject_identity();
@@ -790,6 +819,11 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
         .await
         .unwrap();
     assert_eq!(after_restart.canonical_bytes(), receipt_bytes);
+    let bar_after_restart = restarted
+        .resolve_strategy_input_sample_projection_v2(bar_receipt_digest)
+        .await
+        .expect("BAR projection survives restart");
+    assert_eq!(bar_after_restart.canonical_bytes(), bar_receipt_bytes);
     assert_eq!(
         restarted
             .resolve_strategy_input_sample_projection_v2(sample_digest(254))

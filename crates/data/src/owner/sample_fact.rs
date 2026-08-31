@@ -1927,11 +1927,11 @@ pub(crate) mod tests {
         (binding, frame, timeframe, stored(&commit))
     }
 
-    pub(crate) fn bar_projection_fixture_v2() -> (
+    fn prepared_bar_projection_fixture_v2() -> (
         StrategyInputBindingReceipt,
         StrategyInputEventFrameReceipt,
         TimeframeProjectionReceiptV1,
-        StoredSampleReadbackV1,
+        PreparedSampleCommitV1,
     ) {
         let batch = batch(bar_row(10, 3), 30);
         let binding = bind_strategy_input_role(&bar_request(&batch), &batch)
@@ -1967,7 +1967,26 @@ pub(crate) mod tests {
             },
         )
         .expect("contract-verified BAR sample");
+        (binding, frame, timeframe, commit)
+    }
+
+    pub(crate) fn bar_projection_fixture_v2() -> (
+        StrategyInputBindingReceipt,
+        StrategyInputEventFrameReceipt,
+        TimeframeProjectionReceiptV1,
+        StoredSampleReadbackV1,
+    ) {
+        let (binding, frame, timeframe, commit) = prepared_bar_projection_fixture_v2();
         (binding, frame, timeframe, stored(&commit))
+    }
+
+    pub(crate) fn prepared_bar_postgres_fixture_v2() -> (
+        StrategyInputBindingReceipt,
+        StrategyInputEventFrameReceipt,
+        TimeframeProjectionReceiptV1,
+        PreparedSampleCommitV1,
+    ) {
+        prepared_bar_projection_fixture_v2()
     }
 
     #[rstest]
