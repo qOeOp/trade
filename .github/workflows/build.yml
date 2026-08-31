@@ -600,6 +600,13 @@ jobs:
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
 
+      - name: Run isolated Market Data PostgreSQL owner tests
+        if: >-
+          ${{ (steps.rust-tests.outcome == 'success' ||
+          steps.rust-tests.outcome == 'failure') && !cancelled() }}
+        run: >-
+          make cargo-test-market-data-owner-postgres-isolated
+
       - name: Report disk space after Rust tests
         if: always()
         run: bash scripts/ci/report-disk-space.bash "after Rust tests"

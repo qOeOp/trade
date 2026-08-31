@@ -8,10 +8,31 @@ admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
 
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
-  docker rm -f "$container" > /dev/null 2>&1 || true
+  local primary_status="${1:-0}"
+  local cleanup_status=0
+  local matching_containers=""
+
+  if ! matching_containers="$(docker ps -aq --filter "name=^/${container}$")"; then
+    cleanup_status=1
+  elif [[ -n "$matching_containers" ]]; then
+    docker rm -f "$container" > /dev/null 2>&1 || cleanup_status=$?
+  fi
+
+  if ! matching_containers="$(docker ps -aq --filter "name=^/${container}$")"; then
+    cleanup_status=1
+  elif [[ -n "$matching_containers" ]]; then
+    cleanup_status=1
+  fi
+
+  if [[ "$primary_status" -ne 0 ]]; then
+    exit "$primary_status"
+  fi
+
+  exit "$cleanup_status"
 }
-trap cleanup EXIT
+trap 'cleanup "$?"' EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
@@ -43,6 +64,11 @@ export MARKET_DATA_READER_TEST_DATABASE_URL="postgres://vibe_test_role_market_da
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$marker"
 
+set +e
 cargo test --manifest-path crates/data/Cargo.toml \
   owner::postgres::tests::postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed \
   --lib -- --ignored --exact
+test_status=$?
+set -e
+
+exit "$test_status"
