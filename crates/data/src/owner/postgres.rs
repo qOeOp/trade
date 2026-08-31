@@ -33,8 +33,8 @@ use super::store_admission::{
 };
 use super::{
     bar_schedule::{
-        BarScheduleIdentity, BarScheduleReadbackV1, PreparedBarScheduleCommitV1,
-        UntrustedBarScheduleLocatorV1,
+        BarScheduleIdentity, BarScheduleReadbackV1, BarScheduleResolverV1,
+        PreparedBarScheduleCommitV1, UntrustedBarScheduleLocatorV1,
         authority::{
             build_readback as build_bar_schedule_readback,
             build_receipt as build_bar_schedule_receipt, decode_cut as decode_bar_schedule_cut,
@@ -106,7 +106,6 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 #[cfg(test)]
 use super::{
-    bar_schedule::BarScheduleResolverV1,
     pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver},
     shared_time_evidence::SharedTimeEvidenceResolver,
 };
@@ -5536,21 +5535,28 @@ impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 impl super::bar_schedule::resolver_seal::Sealed for MarketDataReadPostgres {}
 
-#[cfg(test)]
 #[async_trait::async_trait]
 impl BarScheduleResolverV1 for MarketDataReadPostgres {
     async fn resolve_bar_schedule_v1(
         &self,
         locator: &UntrustedBarScheduleLocatorV1,
     ) -> Result<BarScheduleReadbackV1, super::bar_schedule::BarScheduleError> {
-        resolve_bar_schedule_from_pool(&self.pool, locator)
-            .await
-            .map_err(|error| match error {
-                BarScheduleCustodyErrorV1::UnknownReadback => {
-                    super::bar_schedule::BarScheduleError::UnknownIdentity
-                }
-                _ => super::bar_schedule::BarScheduleError::StoreUnavailable,
-            })
+        #[cfg(test)]
+        {
+            return resolve_bar_schedule_from_pool(&self.pool, locator)
+                .await
+                .map_err(|error| match error {
+                    BarScheduleCustodyErrorV1::UnknownReadback => {
+                        super::bar_schedule::BarScheduleError::UnknownIdentity
+                    }
+                    _ => super::bar_schedule::BarScheduleError::StoreUnavailable,
+                });
+        }
+        #[cfg(not(test))]
+        {
+            let _ = locator;
+            Err(super::bar_schedule::BarScheduleError::StoreUnavailable)
+        }
     }
 }
 
