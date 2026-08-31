@@ -768,6 +768,7 @@ pub(crate) fn prepare_sample_commit_v1(
     } else {
         false
     };
+
     if !compatible {
         return Err(SampleFactUnavailable::UnsupportedDataKind);
     }
@@ -959,6 +960,7 @@ fn validate_instrument_master_timeframe_evidence(
     {
         return Err(SampleFactUnavailable::InstrumentMasterMismatch);
     }
+
     if fact.calendar_identity().is_empty()
         || fact.session_identity().is_empty()
         || fact.time_zone_identity().is_empty()
@@ -1895,6 +1897,7 @@ pub(crate) mod tests {
                 value.partial,
             ),
         };
+
         if partial != BarPartialRuleV1::CompleteOnly {
             return Err(SampleFactUnavailable::UnsupportedTimeframe);
         }
@@ -1918,7 +1921,7 @@ pub(crate) mod tests {
             batch,
             master,
         )
-        .map_err(|error| match error {
+        .map_err(|e| match e {
             BarScheduleError::AmbiguousInstrumentMaster => {
                 SampleFactUnavailable::AmbiguousInstrumentMaster
             }

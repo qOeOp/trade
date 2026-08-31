@@ -869,6 +869,7 @@ pub(super) fn decode_strategy_input_sample_projection_v3(
     if sha256(RECEIPT_DOMAIN_V3, bytes) != expected_digest {
         return Err(StrategyInputSampleProjectionUnavailable::DigestMismatch);
     }
+
     if bytes.len() < RECEIPT_HEADER_LEN_V3
         || !(bytes.len() - RECEIPT_HEADER_LEN_V3).is_multiple_of(RECEIPT_ENTRY_LEN)
     {
@@ -907,6 +908,7 @@ pub(super) fn decode_strategy_input_sample_projection_v3(
     let mut components = Vec::with_capacity(count);
     let mut trigger_digest = None;
     let mut previous_role = None;
+
     for _ in 0..count {
         let role = decoder.identity_nonzero()?;
         if previous_role.is_some_and(|previous| previous >= role) {
@@ -964,6 +966,7 @@ pub(super) fn decode_strategy_input_sample_projection_v3(
         trigger_digest.ok_or(StrategyInputSampleProjectionUnavailable::EmptyFrame)?;
     let evidence_bytes =
         frame_evidence_bytes_v3(trigger_digest, component_count, &evidence_entries);
+
     if sha256(FRAME_EVIDENCE_DOMAIN_V3, &evidence_bytes) != subject_identity {
         return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
     }
@@ -1076,12 +1079,14 @@ fn prepare_frame_evidence_v3(
         .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
     let mut entries = Vec::with_capacity(values.len() * FRAME_EVIDENCE_ENTRY_LEN);
     let mut previous_role = None;
+
     for value in values {
         let role = *value.input_role_identity().as_bytes();
         if previous_role.is_some_and(|previous| previous >= role) {
             return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
         }
         previous_role = Some(role);
+
         if value.trigger_digest() != frame.trigger().digest()
             || value.observation_batch_digest() != frame.trigger().observation_batch_digest()
         {
@@ -1125,6 +1130,7 @@ fn project_component(
         StrategyInputEventKind::Event => timeframe.is_point_event(),
         StrategyInputEventKind::Bar => timeframe.is_bar(),
     };
+
     if !compatible_timeframe
         || timeframe.binding_receipt_digest() != binding_digest
         || timeframe.timeframe_identity() != receipt.timeframe_identity()
