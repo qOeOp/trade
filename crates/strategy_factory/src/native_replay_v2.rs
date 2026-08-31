@@ -27,8 +27,8 @@ const OWNER_SEMANTICS_VERSION_V2: &str = "v2";
 ///
 /// Its fields remain private, it implements neither `Clone` nor a Serde trait, and it retains the
 /// move-only Market Data and Instrument Master evidence that justified preparation. Its sole
-/// decomposition API consumes the capability, constructs the canonical [`ProgramHostV2`], and
-/// atomically transfers the validated evidence to the future Backtest adapter.
+/// handoff API consumes the capability, constructs the canonical [`ProgramHostV2`], and atomically
+/// transfers the validated evidence to the future Backtest adapter.
 ///
 /// An external caller cannot construct one directly:
 ///
@@ -74,8 +74,8 @@ const OWNER_SEMANTICS_VERSION_V2: &str = "v2";
 /// ```compile_fail
 /// use vibe_strategy_factory::PreparedProgramHostCapabilityV2;
 /// fn replay(value: PreparedProgramHostCapabilityV2) {
-///     let _first = value.into_program_host_parts_v2();
-///     let _second = value.into_program_host_parts_v2();
+///     let _first = value.into_program_host_handoff_v2();
+///     let _second = value.into_program_host_handoff_v2();
 /// }
 /// ```
 pub struct PreparedProgramHostCapabilityV2 {
@@ -88,7 +88,7 @@ pub struct PreparedProgramHostCapabilityV2 {
 }
 
 impl PreparedProgramHostCapabilityV2 {
-    /// Consumes this capability into the canonical ProgramHost and its sealed Owner evidence.
+    /// Consumes this capability into one inseparable ProgramHost handoff.
     ///
     /// No raw Plan, Artifact, preparation claim, or private equality binding crosses this boundary.
     /// The returned evidence remains move-only and cannot be reconstructed by the caller.
@@ -97,17 +97,9 @@ impl PreparedProgramHostCapabilityV2 {
     ///
     /// Returns [`ProgramHostV2Error`] if the already-revalidated Plan and Artifact cannot construct
     /// the canonical host. On error, no partial handoff remains available to the caller.
-    pub fn into_program_host_parts_v2(
+    pub fn into_program_host_handoff_v2(
         self,
-    ) -> Result<
-        (
-            ProgramHostV2,
-            SealedReplayInput,
-            InstrumentMasterReadbackV1,
-            Vec<StrategyInputBindingReceipt>,
-        ),
-        ProgramHostV2Error,
-    > {
+    ) -> Result<PreparedProgramHostHandoffV2, ProgramHostV2Error> {
         let Self {
             plan,
             artifact,
@@ -117,8 +109,72 @@ impl PreparedProgramHostCapabilityV2 {
             binding,
         } = self;
         let host = construct_prepared_program_host_v2(plan, artifact)?;
-        drop(binding);
-        Ok((host, replay_input, instrument_master, input_bindings))
+        Ok(PreparedProgramHostHandoffV2 {
+            host,
+            replay_input,
+            instrument_master,
+            input_bindings,
+            binding,
+        })
+    }
+}
+
+/// Move-only, inseparable ProgramHost handoff for a future Strategy Factory Backtest adapter.
+///
+/// This type preserves the canonical host, every Owner-sealed input, and the complete preparation
+/// equality binding behind one private boundary. Public observations carry no preparation or
+/// execution authority.
+///
+/// An external caller cannot construct or destructure the handoff:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn forge() -> PreparedProgramHostHandoffV2 {
+///     PreparedProgramHostHandoffV2 {}
+/// }
+/// ```
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn split(value: PreparedProgramHostHandoffV2) {
+///     let PreparedProgramHostHandoffV2 { host, .. } = value;
+///     drop(host);
+/// }
+/// ```
+///
+/// It cannot be treated as a tuple of independently spliceable capabilities:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn splice(value: PreparedProgramHostHandoffV2) {
+///     let (_host, _replay_input, _instrument_master, _input_bindings) = value;
+/// }
+/// ```
+///
+/// It cannot be cloned:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<PreparedProgramHostHandoffV2>();
+/// ```
+pub struct PreparedProgramHostHandoffV2 {
+    host: ProgramHostV2,
+    replay_input: SealedReplayInput,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    binding: PreparedProgramBindingV2,
+}
+
+impl PreparedProgramHostHandoffV2 {
+    /// Returns the canonical host identity without exposing the prepared host.
+    pub const fn host_identity(&self) -> BindingDigest {
+        self.host.host_identity()
+    }
+
+    /// Returns the number of inseparable Owner input bindings.
+    pub const fn input_binding_count(&self) -> usize {
+        self.input_bindings.len()
     }
 }
 

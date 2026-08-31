@@ -66,7 +66,7 @@ pub mod intent;
 )]
 mod native_replay_v2;
 pub use native_replay_v2::{
-    PreparedProgramHostCapabilityV2, ProgramPreparationFaultV2,
+    PreparedProgramHostCapabilityV2, PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
     prepare_program_host_from_owner_readbacks_v2,
 };
 mod pairs_relative_value;
