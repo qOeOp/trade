@@ -836,12 +836,13 @@ impl From<InstrumentMasterError> for InstrumentAppendAttemptError {
 }
 
 fn classify_instrument_append_error(
-    error: sqlx::Error,
+    error: &sqlx::Error,
     unique_fact_conflict_is_retryable: bool,
 ) -> InstrumentAppendAttemptError {
     let sqlstate = error
         .as_database_error()
         .and_then(sqlx::error::DatabaseError::code);
+
     if matches!(sqlstate.as_deref(), Some("40001" | "40P01"))
         || (unique_fact_conflict_is_retryable && sqlstate.as_deref() == Some("23505"))
     {
@@ -941,6 +942,7 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+
         if let Some(row) = sqlx::query("SELECT receipt_digest,receipt_bytes,custody_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE binding_receipt_digest=$1")
             .bind(binding_receipt_digest.as_slice())
             .fetch_optional(&mut *transaction)
@@ -1179,14 +1181,14 @@ impl MarketDataOwnerPostgres {
             .bind(fact.canonical_bytes())
             .execute(&mut *transaction)
             .await
-            .map_err(|error| classify_instrument_append_error(error, true))?;
+            .map_err(|e| classify_instrument_append_error(&e, true))?;
         if interrupt_before_commit {
             return Err(InstrumentMasterError::CommitInterrupted.into());
         }
         transaction
             .commit()
             .await
-            .map_err(|error| classify_instrument_append_error(error, false))?;
+            .map_err(|e| classify_instrument_append_error(&e, false))?;
         Ok(fact)
     }
 
@@ -1427,6 +1429,7 @@ fn validate_prepared_sample(value: &PreparedSampleCustodyV1) -> Result<(), Sampl
         value.outbox_identity,
         value.outbox_payload_digest,
     ];
+
     if identities.into_iter().any(zero_digest)
         || value.series_predecessor_identity == Some(value.sample_identity)
         || value.correction_predecessor_identity == Some(value.sample_identity)
@@ -1487,6 +1490,7 @@ async fn validate_series_predecessor(
             let prior_sequence = sample_u64_column(&prior, "series_sequence")?;
             let prior_time = sample_u64_column(&prior, "logical_time")?;
             let prior_version = sample_u64_column(&prior, "lineage_version")?;
+
             if prior_series == prepared.series_identity
                 && prepared.series_sequence
                     == prior_sequence
@@ -1520,6 +1524,7 @@ async fn validate_correction_predecessor(
             let prior = sqlx::query("SELECT series_identity,correction_slot_identity,correction_sequence FROM market_data_private.sample_facts_v1 WHERE sample_identity=$1")
                 .bind(predecessor.as_slice()).fetch_optional(&mut **transaction).await.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?
                 .ok_or(SampleCustodyErrorV1::CorrectionHeadConflict)?;
+
             if sample_digest_column(&prior, "series_identity")? == prepared.series_identity
                 && sample_digest_column(&prior, "correction_slot_identity")?
                     == prepared.correction_slot_identity
@@ -1549,7 +1554,9 @@ async fn cas_series_head(
         sqlx::query("INSERT INTO market_data_private.sample_series_heads_v1(series_identity,sample_identity) VALUES ($1,$2) ON CONFLICT (series_identity) DO NOTHING")
             .bind(prepared.series_identity.as_slice()).bind(prepared.sample_identity.as_slice())
             .execute(&mut **transaction).await
-    }.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    }
+    .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+
     if result.rows_affected() == 1 {
         Ok(())
     } else {
@@ -1569,7 +1576,9 @@ async fn cas_correction_head(
         sqlx::query("INSERT INTO market_data_private.sample_correction_heads_v1(correction_slot_identity,series_identity,sample_identity) VALUES ($1,$2,$3) ON CONFLICT (correction_slot_identity) DO NOTHING")
             .bind(prepared.correction_slot_identity.as_slice()).bind(prepared.series_identity.as_slice()).bind(prepared.sample_identity.as_slice())
             .execute(&mut **transaction).await
-    }.map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+    }
+    .map_err(|_| SampleCustodyErrorV1::StoreUnavailable)?;
+
     if result.rows_affected() == 1 {
         Ok(())
     } else {
@@ -1657,6 +1666,7 @@ async fn load_sample_custody(
     let fact_custody = sample_digest_column(&row, "fact_custody_digest")?;
     let receipt_custody = sample_digest_column(&row, "receipt_custody_digest")?;
     let outbox_custody = sample_digest_column(&row, "outbox_custody_digest")?;
+
     if projection_custody
         != projection_custody_digest(
             prepared.projection_receipt_digest,
@@ -1741,8 +1751,8 @@ fn sample_hash(domain: &[u8], fields: &[&[u8]]) -> [u8; 32] {
     hasher.finalize().into()
 }
 
-fn optional_digest_bytes(value: &Option<[u8; 32]>) -> &[u8] {
-    value.as_ref().map_or(&[], |digest| digest.as_slice())
+fn optional_digest_bytes(value: Option<&[u8; 32]>) -> &[u8] {
+    value.map_or(&[], |digest| digest.as_slice())
 }
 
 fn projection_custody_digest(
@@ -1763,10 +1773,10 @@ fn sample_fact_custody_digest(value: &PreparedSampleCustodyV1) -> [u8; 32] {
             &value.sample_identity,
             &value.fact_digest,
             &value.series_identity,
-            optional_digest_bytes(&value.series_predecessor_identity),
+            optional_digest_bytes(value.series_predecessor_identity.as_ref()),
             &value.series_sequence.to_be_bytes(),
             &value.correction_slot_identity,
-            optional_digest_bytes(&value.correction_predecessor_identity),
+            optional_digest_bytes(value.correction_predecessor_identity.as_ref()),
             &value.correction_sequence.to_be_bytes(),
             &value.logical_time.to_be_bytes(),
             &value.lineage_version.to_be_bytes(),

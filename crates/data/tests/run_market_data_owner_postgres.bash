@@ -8,6 +8,7 @@ admin_password="md_d1_admin_test_only"
 owner_password="md_d1_owner_test_only"
 reader_password="md_d1_reader_test_only"
 
+# shellcheck disable=SC2329 # invoked indirectly by the EXIT trap
 cleanup() {
   local primary_status="${1:-0}"
   local cleanup_status=0

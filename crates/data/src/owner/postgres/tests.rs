@@ -609,6 +609,7 @@ async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin
             .await
             .is_err()
     );
+
     for (table, denied_delete) in [
         (
             "timeframe_projection_receipts_v1",
@@ -1368,7 +1369,12 @@ async fn run_postgres_owner_scenario() {
     assert_legacy_sequence_five_migrates(&owner_url).await;
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
-    sample_custody_postgres_oracle(&owner_url, &reader_url, &admin).await;
+    Box::pin(sample_custody_postgres_oracle(
+        &owner_url,
+        &reader_url,
+        &admin,
+    ))
+    .await;
 
     let decision = OwnerSourceBindingDecision {
         blockers: BTreeSet::new(),

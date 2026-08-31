@@ -19,7 +19,7 @@
 //! requires_clone::<TimeframeProjectionReceiptV1>();
 //! ```
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use sha2::{Digest as _, Sha256};
 
@@ -182,6 +182,7 @@ impl TimeframeProjectionReceiptV1 {
         if bytes.len() != TIMEFRAME_PROJECTION_LEN {
             return Err(SampleFactUnavailable::InvalidLength);
         }
+
         if sha256(TIMEFRAME_RECEIPT_DOMAIN, bytes) != expected_digest {
             return Err(SampleFactUnavailable::DigestMismatch);
         }
@@ -191,6 +192,7 @@ impl TimeframeProjectionReceiptV1 {
         let timeframe_identity = decoder.identity()?;
         let spec = TimeframeSpecV1::decode(decoder.take(TIMEFRAME_SPEC_LEN)?)?;
         decoder.end()?;
+
         if spec.identity != timeframe_identity {
             return Err(SampleFactUnavailable::IdentityMismatch);
         }
@@ -334,7 +336,7 @@ pub(crate) enum SampleFactUnavailable {
 }
 
 impl Display for SampleFactUnavailable {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }
@@ -348,6 +350,7 @@ impl From<StrategyInputBindingUnavailable> for SampleFactUnavailable {
 }
 
 /// Owner-known current heads used to prepare one atomic durable commit.
+#[derive(Clone, Copy)]
 pub(crate) struct SampleFactHeadsV1<'a> {
     pub(crate) series: Option<&'a StoredSampleReadbackV1>,
     pub(crate) slot: Option<&'a StoredSampleReadbackV1>,
@@ -522,10 +525,10 @@ pub(crate) fn prepare_sample_commit_v1(
     let series_predecessor = heads
         .series
         .map_or([0; 32], |head| head.fact.sample_identity);
-    if let Some(head) = heads.series {
-        if head.fact.series_identity != series_identity {
-            return Err(SampleFactUnavailable::PredecessorMismatch);
-        }
+    if let Some(head) = heads.series
+        && head.fact.series_identity != series_identity
+    {
+        return Err(SampleFactUnavailable::PredecessorMismatch);
     }
 
     let root_slot = derive_slot_identity(
@@ -542,6 +545,7 @@ pub(crate) fn prepare_sample_commit_v1(
             (head.fact.slot_identity, Some(head.fact.sample_identity))
         }
     };
+
     if heads.slot.is_some() && heads.series.is_none() {
         return Err(SampleFactUnavailable::PredecessorMismatch);
     }
@@ -655,12 +659,17 @@ pub(crate) fn verify_stored_sample_readback_v1(
         projection.lineage_version,
         projection.market_semantics_identity,
     );
+
     if expected.bytes != receipt.bytes {
         return Err(SampleFactUnavailable::ReceiptMismatch);
     }
     Ok(StoredSampleReadbackV1 { fact, receipt })
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the documented fixed-width timeframe tuple is validated without a second representation"
+)]
 fn validate_timeframe_combination(
     kind: u8,
     step: u32,
@@ -703,6 +712,7 @@ fn validate_timeframe_combination(
         }
         _ => return Err(SampleFactUnavailable::InvalidTag),
     };
+
     if valid {
         Ok(())
     } else {
@@ -729,6 +739,10 @@ fn data_kind_tag(value: &str) -> Result<u8, SampleFactUnavailable> {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the documented ordered series projection is encoded directly without an alternate authority type"
+)]
 fn series_projection_bytes(
     instrument: &[u8],
     channel: u8,
@@ -888,6 +902,7 @@ fn decode_fact(
     let universe = d.identity()?;
     let market_semantics = d.identity()?;
     d.end()?;
+
     for identity in [
         series_identity,
         slot_identity,
@@ -917,8 +932,10 @@ fn decode_fact(
     {
         return Err(SampleFactUnavailable::InvalidCombination);
     }
+
     if let Some(predecessor) = correction_predecessor {
         nonzero(predecessor)?;
+
         if series_predecessor == [0; 32] {
             return Err(SampleFactUnavailable::PredecessorMismatch);
         }
@@ -939,6 +956,7 @@ fn decode_fact(
         correction_stream,
         BindingDigest::from_untrusted_bytes(market_semantics),
     )?;
+
     if sha256(SERIES_ID_DOMAIN, &series_bytes) != series_identity {
         return Err(SampleFactUnavailable::IdentityMismatch);
     }
@@ -950,6 +968,7 @@ fn decode_fact(
         preimage.extend_from_slice(&snapshot_fact);
         preimage.extend_from_slice(&batch_digest);
         preimage.extend_from_slice(&canonical_row_digest);
+
         for value in [
             logical_time,
             event_effective,
@@ -967,6 +986,7 @@ fn decode_fact(
         id.copy_from_slice(&digest[..16]);
         id
     };
+
     if expected_event != owner_event_identity {
         return Err(SampleFactUnavailable::IdentityMismatch);
     }
@@ -1058,6 +1078,7 @@ fn decode_receipt(
     if bytes.len() != SAMPLE_RECEIPT_LEN {
         return Err(SampleFactUnavailable::InvalidLength);
     }
+
     if sha256(RECEIPT_DOMAIN, bytes) != expected_digest {
         return Err(SampleFactUnavailable::DigestMismatch);
     }
@@ -1147,6 +1168,7 @@ impl<'a> Decoder<'a> {
         if self.u16()? != expected {
             return Err(SampleFactUnavailable::InvalidTag);
         }
+
         if self.u16()? != 0 {
             return Err(SampleFactUnavailable::ReservedNonZero);
         }
@@ -1209,6 +1231,7 @@ pub(crate) mod tests {
             bind_strategy_input_role,
         },
     };
+    use rstest::rstest;
 
     fn d(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
@@ -1331,7 +1354,7 @@ pub(crate) mod tests {
         .expect("contract-verified point event sample")
     }
 
-    #[test]
+    #[rstest]
     fn point_event_codec_is_fixed_and_domain_separated() {
         let spec = TimeframeSpecV1::point_event();
         assert_eq!(spec.canonical_bytes().len(), 140);
@@ -1347,9 +1370,10 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn timeframe_decoder_rejects_tag_combination_reserved_length_and_trailing_mutations() {
         let valid = TimeframeSpecV1::point_event().canonical_bytes().to_vec();
+
         for (offset, value, expected) in [
             (4, 0xff, SampleFactUnavailable::InvalidTag),
             (5, 2, SampleFactUnavailable::InvalidCombination),
@@ -1371,7 +1395,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn receipt_decoder_enforces_exact_244_bytes_reserved_and_digest() {
         let fact = SampleFactV1 {
             bytes: Box::new([]),
@@ -1403,7 +1427,7 @@ pub(crate) mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn point_event_preparation_reuses_v1_row_digest_and_binds_projection() {
         let batch = batch(row(10, 3), 30);
         let binding =
@@ -1433,7 +1457,7 @@ pub(crate) mod tests {
         assert_ne!(commit.fact_digest(), commit.sample_identity());
     }
 
-    #[test]
+    #[rstest]
     fn equal_value_new_slot_and_correction_have_distinct_predecessor_semantics() {
         let first_batch = batch(row(10, 3), 30);
         let binding =
