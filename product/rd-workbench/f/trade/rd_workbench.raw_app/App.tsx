@@ -8,16 +8,19 @@ import {
   artifactAvailableAt,
   artifactBoundToS1Context,
   artifactContextCurrentAt,
+  replayInvocationAdmission,
   researchAvailableAt,
   resolveCurrentResearchThenRunArtifact,
 } from "./control-policy.mjs"
 import {
   unknownArtifactProjectionV1,
   unknownResearchProjectionV1,
+  unknownReplayProjectionV2,
   deriveVerifiedArtifactS1ContextV1,
   deriveVerifiedS1ConsumerContextV1,
   verifyArtifactConsumerProjectionV1,
   verifyResearchConsumerProjectionV1,
+  verifyReplayConsumerProjectionV2,
 } from "../product_edge/consumer_projection_v1.ts"
 import type { VerifiedS1ConsumerContextV1 } from "../product_edge/consumer_projection_v1.ts"
 import { backend } from "./wmill"
@@ -157,6 +160,21 @@ type ArtifactResult = {
   }
   trial_family_resolution?: "AVAILABLE" | "TRIAL_FAMILY_UNAVAILABLE_LEGACY" | "UNAVAILABLE"
   artifact_trial_family?: {
+    trial_family: {
+      root: {
+        trial_family_identity: string
+        root_digest: string
+        policy: {
+          cost_model_identity: string
+          slippage_model_identity: string
+          capacity_model_identity: string
+        }
+      }
+      census_frontier: {
+        frontier_identity: string
+        frontier_digest: string
+      }
+    }
     binding: {
       binding_identity: string
       artifact_identity: string
@@ -172,6 +190,29 @@ type ArtifactResult = {
       binding_digest: string
     }
   }
+}
+
+type ReplayResult = {
+  resolution: "EXPLORATION_ACTIVE" | "SUBMITTED_OR_UNKNOWN"
+  request_identity: string
+  meaning_digest: string | null
+  locator: {
+    request_identity: string
+    meaning_digest: string
+    receipt_identity: string
+    seal_digest: string
+  } | null
+  owner_receipt: {
+    receipt_identity: string
+    request_identity: string
+    meaning_digest: string
+    seal_digest: string
+    committed_at_epoch_ms: number
+  } | null
+  owner_readback: {
+    owner_cut_epoch_ms: number
+  } | null
+  next_legal_action: "LOCK_BY_LOCATOR" | "RESOLVE_SAME_REQUEST_IDENTITY"
 }
 
 const initial = {
@@ -209,6 +250,11 @@ export default function App() {
   const [artifactResult, setArtifactResult] = useState<ArtifactResult | null>(null)
   const [s1Context, setS1Context] = useState<VerifiedS1ConsumerContextV1 | null>(null)
   const [artifactS1Context, setArtifactS1Context] = useState<VerifiedS1ConsumerContextV1 | null>(null)
+  const [replayProposalText, setReplayProposalText] = useState("")
+  const [replayRequestIdentity, setReplayRequestIdentity] = useState("")
+  const [replayMeaningDigest, setReplayMeaningDigest] = useState("")
+  const [replaySelectorImported, setReplaySelectorImported] = useState(false)
+  const [replayResult, setReplayResult] = useState<ReplayResult | null>(null)
   const [busy, setBusy] = useState(false)
   const ownerCallToken = useRef<symbol | null>(null)
   const [consumerClockEpochMs, setConsumerClockEpochMs] = useState(() => Date.now())
@@ -228,6 +274,27 @@ export default function App() {
   const artifactDisplayResolution = artifactResult && (!artifactEvidenceBound || !artifactDisplayCurrent)
     ? "SUBMITTED_OR_UNKNOWN"
     : artifactResult?.resolution
+  const replayProposal = useMemo(() => {
+    try {
+      const value = JSON.parse(replayProposalText)
+      return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null
+    } catch {
+      return null
+    }
+  }, [replayProposalText])
+  const replayRunAdmitted = replayInvocationAdmission({
+    action: "RUN", replayResult, requestIdentity: replayRequestIdentity,
+    meaningDigest: replayMeaningDigest, proposal: replayProposal, artifactResult,
+    artifactContext: artifactDisplayContext, artifactAvailable: artifactViewAvailable,
+    importedSelector: replaySelectorImported,
+  })
+  const replayResolveAdmitted = replayInvocationAdmission({
+    action: "RESOLVE", replayResult, requestIdentity: replayRequestIdentity,
+    meaningDigest: replayMeaningDigest, proposal: replayProposal, artifactResult,
+    artifactContext: artifactDisplayContext, artifactAvailable: artifactViewAvailable,
+    importedSelector: replaySelectorImported && replayRequestIdentity.trim() !== ""
+      && replayMeaningDigest.trim() !== "",
+  })
   const canResolveImportedRequest = result === null && requestIdentityImported && requestIdentity.trim() !== ""
   const canResolveImportedArtifact = artifactResult === null && buildRequestIdentityImported && attemptIdentityImported && buildRequestIdentity.trim() !== "" && attemptIdentity.trim() !== ""
   const artifactRunAdmission = artifactInvocationAdmission({
@@ -533,6 +600,47 @@ export default function App() {
     }
   }
 
+  async function invokeReplay(action: "RUN" | "RESOLVE") {
+    if (!replayProposal || !replayInvocationAdmission({
+      action, replayResult, requestIdentity: replayRequestIdentity,
+      meaningDigest: replayMeaningDigest, proposal: replayProposal, artifactResult,
+      artifactContext: artifactDisplayContext, artifactAvailable: artifactViewAvailable,
+      importedSelector: replaySelectorImported && replayRequestIdentity.trim() !== ""
+        && replayMeaningDigest.trim() !== "",
+    })) return
+    const token = acquireOwnerCall()
+    if (token === null) return
+    const expectedRequestIdentity = action === "RUN"
+      ? String(replayProposal.request?.request_identity ?? "") : replayRequestIdentity
+    const expectedMeaningDigest = action === "RUN" ? "" : replayMeaningDigest
+    setReplayResult(unknownReplayProjectionV2(
+      expectedRequestIdentity, expectedMeaningDigest || null,
+    ) as ReplayResult)
+    try {
+      const response = await (backend.exploratory_replay({
+        action,
+        request_identity: replayRequestIdentity,
+        meaning_digest: replayMeaningDigest,
+        proposal: replayProposal,
+      }) as Promise<ReplayResult>)
+      const responseIdentity = action === "RUN" ? response.request_identity : replayRequestIdentity
+      const responseDigest = action === "RUN" ? response.meaning_digest ?? "" : replayMeaningDigest
+      const projected = verifyReplayConsumerProjectionV2(
+        response, replayProposal.request, responseIdentity, responseDigest,
+      ) as ReplayResult
+      setReplayRequestIdentity(responseIdentity)
+      setReplayMeaningDigest(responseDigest)
+      setReplaySelectorImported(false)
+      setReplayResult(projected)
+    } catch {
+      setReplayResult(unknownReplayProjectionV2(
+        expectedRequestIdentity, expectedMeaningDigest || null,
+      ) as ReplayResult)
+    } finally {
+      releaseOwnerCall(token)
+    }
+  }
+
   function newArtifactRequest() {
     if (!artifactControls.canCreateSuccessor) return
     setBuildRequestIdentity(`artifact-build-request-${crypto.randomUUID()}`)
@@ -541,6 +649,11 @@ export default function App() {
     setAttemptIdentityImported(false)
     setArtifactResult(null)
     setArtifactS1Context(null)
+    setReplayProposalText("")
+    setReplayRequestIdentity("")
+    setReplayMeaningDigest("")
+    setReplaySelectorImported(false)
+    setReplayResult(null)
   }
 
   return <main className="shell">
@@ -666,6 +779,26 @@ export default function App() {
       {["FAILED_NO_ARTIFACT", "REJECTED_NO_WRITE", "OUTCOME_UNKNOWN"].includes(artifactDisplayResolution ?? "") && <p className="rejected">该终态没有 canonical Artifact；不得把 Windmill job green 或 Agent 文本解释为成功。</p>}
       {artifactDisplayResolution === "SUBMITTED_OR_UNKNOWN" && <p className="unknown">结果未知。只允许用同一 build request / attempt 从 Owner 解析；若 provider invocation fence 已开始但没有权威 provider 回读，只能人工对账，禁止盲目重调。</p>}
       {artifactResult?.resolution === "LEGACY_TERMINAL_QUARANTINED" && <p className="unknown">这是 Product Edge 准入之前的只读 terminal legacy custody。只显示经原始行验证的历史回执；不得启动 provider、创建 Artifact 后继、补写 TrialFamily 或把它提升为当前 authority。</p>}
+    </section>
+
+    <section className={`card result ${replayResult?.resolution ?? "EMPTY"}`}>
+      <div className="section-title"><span>04</span><div><h2>Exploratory Replay Request</h2><p>这里只冻结并回读 R&amp;D Owner 的 Replay V2 请求；不会声明 Market Data 已绑定、Backtest 已执行或策略已获得资格。</p></div></div>
+      <label className="wide">完整 Replay V2 proposal JSON<textarea aria-label="完整 Replay V2 proposal JSON" value={replayProposalText} disabled={busy || replayResult !== null} onChange={(e) => setReplayProposalText(e.target.value)} placeholder="粘贴完整 typed proposal；Workbench 不会补造 StrategyDesign、Plan、PIT 或模型 authority" /></label>
+      <label className="request-id"><span>Replay request identity</span><input aria-label="Replay request identity" value={replayRequestIdentity} disabled={busy || replayResult !== null} onChange={(e) => { setReplayRequestIdentity(e.target.value); setReplaySelectorImported(true) }} /></label>
+      <label className="request-id"><span>Meaning digest</span><input aria-label="Replay meaning digest" value={replayMeaningDigest} disabled={busy || replayResult !== null} onChange={(e) => { setReplayMeaningDigest(e.target.value); setReplaySelectorImported(true) }} /></label>
+      <div className="actions">
+        <button disabled={busy || !replayRunAdmitted} onClick={() => invokeReplay("RUN")}>冻结 Replay Request</button>
+        <button className="secondary" disabled={busy || !replayResolveAdmitted} onClick={() => invokeReplay("RESOLVE")}>用同一 request identity 解析</button>
+      </div>
+      <div className="status-row"><strong>{replayResult?.resolution === "EXPLORATION_ACTIVE" ? "R&D Owner 已密封 Replay Request" : replayResult ? "仅以 Owner 回读为准" : "尚未提交"}</strong><code>{replayResult?.resolution ?? "NOT_SUBMITTED"}</code></div>
+      {replayResult?.resolution === "EXPLORATION_ACTIVE" && replayResult.owner_receipt && replayResult.locator && replayResult.owner_readback && <dl>
+        <dt>Request identity / meaning digest</dt><dd>{replayResult.request_identity}<br />{replayResult.meaning_digest}</dd>
+        <dt>R&amp;D Owner receipt</dt><dd>{replayResult.owner_receipt.receipt_identity}</dd>
+        <dt>Sealed locator</dt><dd>{JSON.stringify(replayResult.locator)}</dd>
+        <dt>Owner cut / committed</dt><dd>{replayResult.owner_readback.owner_cut_epoch_ms} / {replayResult.owner_receipt.committed_at_epoch_ms}</dd>
+        <dt>唯一下一合法动作</dt><dd className="next">{replayResult.next_legal_action}</dd>
+      </dl>}
+      {replayResult?.resolution === "SUBMITTED_OR_UNKNOWN" && <><dl><dt>唯一下一合法动作</dt><dd className="next">RESOLVE_SAME_REQUEST_IDENTITY</dd></dl><p className="unknown">缺少完整且交叉绑定的 R&amp;D Owner locator、receipt 与 canonical readback。只允许用同一 request identity 和 meaning digest 执行 RESOLVE；禁止创建新 identity、attempt 或重试 commit。</p></>}
     </section>
 
     <footer>非 live 产品切片 · 不构成 Alpha、Qualification、部署、资本、Risk、Execution 或交易授权</footer>

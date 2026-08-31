@@ -1,0 +1,149 @@
+summary: Freeze or resolve one exploratory Replay V2 request
+description: >-
+  Identifies one complete Replay V2 proposal, resolves the same R&D Owner selector
+  before any submission, and renders only verified Owner custody. This operation
+  does not bind Market Data, execute Backtest, qualify a strategy, or trade.
+lock: "!inline f/trade/product_edge/exploratory_replay_v2.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  order:
+    - action
+    - request_identity
+    - meaning_digest
+    - proposal
+  properties:
+    action:
+      type: string
+      enum:
+        - RUN
+        - RESOLVE
+    request_identity:
+      type: string
+      description: Exact pre-send request identity; required for RESOLVE.
+    meaning_digest:
+      type: string
+      description: Exact pre-send meaning digest returned by identify; required for RESOLVE.
+    proposal:
+      type: object
+      additionalProperties: false
+      required:
+        - build_request_identity
+        - attempt_identity
+        - build_receipt_identity
+        - artifact_family_binding_identity
+        - request
+      properties:
+        build_request_identity: {type: string}
+        attempt_identity: {type: string}
+        build_receipt_identity: {type: string}
+        artifact_family_binding_identity: {type: string}
+        request:
+          type: object
+          additionalProperties: false
+          required:
+            - schema_version
+            - request_identity
+            - frozen_research_intent
+            - trial_family
+            - trial_family_census_frontier
+            - replay_authority
+            - strategy_design
+            - strategy_plan
+            - artifact
+            - resolved_owner_inputs
+            - pit_scope
+            - pit_snapshot
+            - universe_selection
+            - correction_rule
+            - market_semantics
+            - replay_configuration
+            - models
+            - runner_operational_profile
+            - diagnostic_policy
+            - deterministic_seed
+            - window
+            - calendar
+            - session
+            - time_zone
+            - corporate_action_cut
+            - historical_membership_cut
+          properties:
+            schema_version: {type: integer, const: 2}
+            request_identity: {type: string}
+            frozen_research_intent: {$ref: "#/$defs/contentIdentity"}
+            trial_family: {$ref: "#/$defs/contentIdentity"}
+            trial_family_census_frontier: {$ref: "#/$defs/contentIdentity"}
+            replay_authority:
+              type: object
+              additionalProperties: false
+              required: [namespace]
+              properties:
+                namespace: {type: string, const: EXPLORATORY}
+            strategy_design: {$ref: "#/$defs/contentIdentity"}
+            strategy_plan: {$ref: "#/$defs/contentIdentity"}
+            artifact: {$ref: "#/$defs/contentIdentity"}
+            resolved_owner_inputs: {$ref: "#/$defs/contentIdentity"}
+            pit_scope: {$ref: "#/$defs/contentIdentity"}
+            pit_snapshot: {$ref: "#/$defs/contentIdentity"}
+            universe_selection: {$ref: "#/$defs/contentIdentity"}
+            correction_rule: {$ref: "#/$defs/versionedIdentity"}
+            market_semantics: {$ref: "#/$defs/versionedIdentity"}
+            replay_configuration: {$ref: "#/$defs/contentIdentity"}
+            models:
+              type: object
+              additionalProperties: false
+              required: [runtime_kernel, simulator, cost, slippage, capacity]
+              properties:
+                runtime_kernel: {$ref: "#/$defs/versionedIdentity"}
+                simulator: {$ref: "#/$defs/versionedIdentity"}
+                cost: {$ref: "#/$defs/versionedIdentity"}
+                slippage: {$ref: "#/$defs/versionedIdentity"}
+                capacity: {$ref: "#/$defs/versionedIdentity"}
+            runner_operational_profile: {$ref: "#/$defs/versionedIdentity"}
+            diagnostic_policy: {$ref: "#/$defs/versionedIdentity"}
+            deterministic_seed: {type: integer, minimum: 0}
+            window:
+              type: object
+              additionalProperties: false
+              required: [start_event_ns, end_event_ns_exclusive]
+              properties:
+                start_event_ns: {type: integer, minimum: 0}
+                end_event_ns_exclusive: {type: integer, minimum: 0}
+            calendar: {$ref: "#/$defs/versionedIdentity"}
+            session: {$ref: "#/$defs/versionedIdentity"}
+            time_zone: {$ref: "#/$defs/versionedIdentity"}
+            corporate_action_cut: {$ref: "#/$defs/contentIdentity"}
+            historical_membership_cut: {$ref: "#/$defs/contentIdentity"}
+  required:
+    - action
+    - proposal
+  allOf:
+    - if:
+        properties:
+          action: {const: RESOLVE}
+      then:
+        required:
+          - action
+          - request_identity
+          - meaning_digest
+          - proposal
+  $defs:
+    contentIdentity:
+      type: object
+      additionalProperties: false
+      required: [identity, digest]
+      properties:
+        identity: {type: string}
+        digest: {type: string, pattern: "^(sha256|blake3):[0-9a-f]{64}$"}
+    versionedIdentity:
+      type: object
+      additionalProperties: false
+      required: [identity, version]
+      properties:
+        identity: {type: string}
+        version: {type: string}
+tag: rd-product-edge
+type: script
+path: f/trade/product_edge/exploratory_replay_v2

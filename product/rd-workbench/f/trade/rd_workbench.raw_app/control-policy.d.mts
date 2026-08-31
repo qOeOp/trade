@@ -34,6 +34,22 @@ export function artifactInvocationAdmission(input: {
 }
 export function researchAvailableAt(result: unknown, s1Context: unknown, nowEpochMs: number): boolean
 export function artifactAvailableAt(result: unknown, s1Context: unknown, nowEpochMs: number): boolean
+export function replayProposalBoundToArtifact(proposal: unknown, artifactResult: unknown, s1Context: unknown): boolean
+export function replayActionControls(result: unknown, requestIdentity: string, meaningDigest: string): {
+  canRun: boolean
+  canResolve: boolean
+}
+export function replayInvocationAdmission(input: {
+  action: "RUN" | "RESOLVE"
+  replayResult: unknown | null
+  requestIdentity: string
+  meaningDigest: string
+  proposal: unknown
+  artifactResult: unknown
+  artifactContext: unknown
+  artifactAvailable: boolean
+  importedSelector: boolean
+}): boolean
 export function resolveCurrentResearchThenRunArtifact(input: {
   requestIdentity: string
   intentIdentity: string

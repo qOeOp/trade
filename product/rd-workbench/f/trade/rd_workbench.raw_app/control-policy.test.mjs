@@ -9,9 +9,19 @@ import {
   artifactBoundToS1Context,
   artifactInvocationAdmission,
   freezeS1ContextForOwnedAttempt,
+  replayActionControls,
+  replayInvocationAdmission,
+  replayProposalBoundToArtifact,
   researchAvailableAt,
   resolveCurrentResearchThenRunArtifact,
 } from "./control-policy.mjs"
+
+const replayProjection = {
+  schema_version: 1,
+  operation: "exploratory_replay.consumer_projection.v2",
+  owner_operation: "exploratory_replay.submit_or_resolve.v2",
+  owner_schema: "rd-exploratory-replay-request-v2",
+}
 
 const researchProjection = {
   schema_version: 1,
@@ -230,6 +240,70 @@ test("artifact controls require the exact projected attempt and claim", () => {
     { ...resumable, provider_invocation: { ...resumable.provider_invocation, claim_digest: "" } },
     { ...resumable, provider_invocation: { ...resumable.provider_invocation, request_identity: "build-2" } },
   ]) assert.equal(artifactActionControls(forged, "build-1", "attempt-1").canRun, false)
+})
+
+test("Replay V2 RUN requires the exact current S2 artifact and unknown custody permits only RESOLVE", () => {
+  const context = {
+    intent_identity: "intent-1", intent_semantic_digest: "blake3:intent",
+    trial_family_identity: "family-1", trial_family_root_digest: "blake3:family",
+    census_frontier_identity: "frontier-1", census_frontier_digest: "blake3:frontier",
+  }
+  const artifact = {
+    resolution: "SUCCESS", build_request_identity: "build-1", attempt_identity: "attempt-1",
+    owner_receipt: { artifact_identity: "artifact-1", build_receipt_identity: "receipt-1" },
+    artifact_review: { artifact_identity: { wasm_digest: "blake3:wasm" } },
+    artifact_trial_family: {
+      binding: { binding_identity: "binding-1" },
+      trial_family: { root: { policy: {
+        cost_model_identity: "cost-1", slippage_model_identity: "slippage-1",
+        capacity_model_identity: "capacity-1",
+      } } },
+    },
+  }
+  const proposal = {
+    build_request_identity: "build-1", attempt_identity: "attempt-1",
+    build_receipt_identity: "receipt-1", artifact_family_binding_identity: "binding-1",
+    request: {
+      schema_version: 2, request_identity: "replay-1", replay_authority: { namespace: "EXPLORATORY" },
+      frozen_research_intent: { identity: "intent-1", digest: "blake3:intent" },
+      trial_family: { identity: "family-1", digest: "blake3:family" },
+      trial_family_census_frontier: { identity: "frontier-1", digest: "blake3:frontier" },
+      artifact: { identity: "artifact-1", digest: "blake3:wasm" },
+      models: {
+        cost: { identity: "cost-1", version: "v1" },
+        slippage: { identity: "slippage-1", version: "v1" },
+        capacity: { identity: "capacity-1", version: "v1" },
+      },
+    },
+  }
+  assert.equal(replayProposalBoundToArtifact(proposal, artifact, context), true)
+  assert.equal(replayInvocationAdmission({
+    action: "RUN", replayResult: null, requestIdentity: "", meaningDigest: "", proposal,
+    artifactResult: artifact, artifactContext: context, artifactAvailable: true,
+    importedSelector: false,
+  }), true)
+  for (const changed of [
+    { ...proposal, build_receipt_identity: "other-receipt" },
+    { ...proposal, request: { ...proposal.request, strategy_design: undefined,
+      artifact: { identity: "other-artifact", digest: "blake3:wasm" } } },
+    { ...proposal, request: { ...proposal.request,
+      models: { ...proposal.request.models, cost: { identity: "other-cost", version: "v1" } } } },
+  ]) assert.equal(replayProposalBoundToArtifact(changed, artifact, context), false)
+
+  const unknown = {
+    consumer_projection: replayProjection, resolution: "SUBMITTED_OR_UNKNOWN",
+    request_identity: "replay-1", meaning_digest: "blake3:meaning",
+    next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  }
+  assert.deepEqual(replayActionControls(unknown, "replay-1", "blake3:meaning"), {
+    canRun: false, canResolve: true,
+  })
+  assert.equal(replayInvocationAdmission({
+    action: "RESOLVE", replayResult: unknown, requestIdentity: "replay-1",
+    meaningDigest: "blake3:meaning", proposal, artifactResult: artifact,
+    artifactContext: context, artifactAvailable: false, importedSelector: false,
+  }), true)
+  assert.equal(replayActionControls(unknown, "other-request", "blake3:meaning").canResolve, false)
 })
 
 test("artifact successor requires a terminal Owner receipt", () => {
