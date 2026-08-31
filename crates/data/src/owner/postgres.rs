@@ -32,6 +32,15 @@ use super::store_admission::{
     StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use super::{
+    bar_schedule::{
+        BarScheduleIdentity, BarScheduleReadbackV1, PreparedBarScheduleCommitV1,
+        UntrustedBarScheduleLocatorV1,
+        authority::{
+            build_readback as build_bar_schedule_readback,
+            build_receipt as build_bar_schedule_receipt, decode_cut as decode_bar_schedule_cut,
+            decode_fact as decode_bar_schedule_fact, decode_receipt as decode_bar_schedule_receipt,
+        },
+    },
     instrument_master::{
         InstrumentMasterError, InstrumentMasterFactProposalV1, InstrumentMasterFactV1,
         InstrumentMasterIdentity, InstrumentMasterReadbackV1, InstrumentMasterResolver,
@@ -62,8 +71,11 @@ use super::{
         verify_stored_timeframe_projection_v1,
     },
     sample_projection::{
-        DecodedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV2,
-        decode_strategy_input_sample_projection_v2, verify_decoded_projection_component_native_v2,
+        DecodedStrategyInputSampleProjectionV2, DecodedStrategyInputSampleProjectionV3,
+        PreparedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV3,
+        decode_strategy_input_sample_projection_v2, decode_strategy_input_sample_projection_v3,
+        verify_decoded_projection_component_native_v2,
+        verify_decoded_projection_component_native_v3,
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
@@ -94,6 +106,7 @@ use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 #[cfg(test)]
 use super::{
+    bar_schedule::BarScheduleResolverV1,
     pit_snapshot::{PitSnapshotOwnerReadback, PitSnapshotOwnerResolver},
     shared_time_evidence::SharedTimeEvidenceResolver,
 };
@@ -121,6 +134,13 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_receipts_v1 (sample_identity BYTEA PRIMARY KEY REFERENCES market_data_private.sample_facts_v1(sample_identity), receipt_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_digest)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_receipts_v1(sample_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), payload_bytes BYTEA NOT NULL CHECK (octet_length(payload_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v2 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind=1), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,subject_identity), CHECK (octet_length(receipt_bytes)=41+612*component_count))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), store_generation_identity BYTEA NOT NULL CHECK (octet_length(store_generation_identity)=32), append_sequence BIGINT NOT NULL CHECK (append_sequence>=0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_facts_v1 (fact_digest BYTEA PRIMARY KEY CHECK (octet_length(fact_digest)=32), canonical_instrument TEXT NOT NULL CHECK (canonical_instrument<>''), predecessor_fact_digest BYTEA NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), fact_bytes BYTEA NOT NULL CHECK (octet_length(fact_bytes)>0), UNIQUE(canonical_instrument,predecessor_fact_digest))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_heads_v1 (canonical_instrument TEXT PRIMARY KEY CHECK (canonical_instrument<>''), fact_digest BYTEA UNIQUE NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_cuts_v1 (cut_identity BYTEA PRIMARY KEY CHECK (octet_length(cut_identity)=32), fact_digest BYTEA UNIQUE NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), cut_bytes BYTEA NOT NULL CHECK (octet_length(cut_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_receipts_v1 (fact_digest BYTEA PRIMARY KEY REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), readback_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(readback_identity)=32), receipt_identity BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_identity)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), append_sequence BIGINT UNIQUE NOT NULL CHECK (append_sequence>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), fact_digest BYTEA UNIQUE NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v3 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind=1), lifecycle SMALLINT NOT NULL CHECK (lifecycle=2), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,lifecycle,subject_identity), CHECK (octet_length(receipt_bytes)=42+612*component_count))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
@@ -156,6 +176,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,binding_receipt_digest BYTEA,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest FROM market_data_private.timeframe_projection_receipts_v1 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_binding_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v2 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_v1(p_readback_identity BYTEA) RETURNS TABLE(fact_digest BYTEA,canonical_instrument TEXT,predecessor_fact_digest BYTEA,fact_bytes BYTEA,cut_identity BYTEA,cut_bytes BYTEA,readback_identity BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.fact_digest,f.canonical_instrument,f.predecessor_fact_digest,f.fact_bytes,c.cut_identity,c.cut_bytes,r.readback_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence FROM market_data_private.bar_schedule_receipts_v1 AS r JOIN market_data_private.bar_schedule_facts_v1 AS f ON f.fact_digest=r.fact_digest JOIN market_data_private.bar_schedule_cuts_v1 AS c ON c.fact_digest=f.fact_digest JOIN market_data_private.bar_schedule_outbox_v1 AS o ON o.fact_digest=f.fact_digest AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.bar_schedule_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1) WHERE r.readback_identity=p_readback_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
@@ -176,6 +198,8 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) FROM PUBLIC",
 ];
 
 pub(crate) struct MarketDataOwnerPostgres {
@@ -893,6 +917,69 @@ impl StoredStrategyInputSampleProjectionV2 {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub(super) enum BarScheduleCustodyErrorV1 {
+    #[error("prepared BAR schedule is unavailable")]
+    InvalidPrepared,
+    #[error("BAR schedule identity conflicts with durable custody")]
+    IdentityConflict,
+    #[error("BAR schedule predecessor does not match the durable instrument head")]
+    HeadConflict,
+    #[error("durable BAR schedule custody is unavailable or corrupt")]
+    StoreUnavailable,
+    #[error("BAR schedule commit was deliberately rolled back")]
+    CommitInterrupted,
+    #[error("BAR schedule commit succeeded but its response was lost")]
+    ResponseLost,
+    #[error("BAR schedule readback is unknown")]
+    UnknownReadback,
+}
+
+#[derive(Debug)]
+pub(super) struct StoredStrategyInputSampleProjectionV3 {
+    decoded: DecodedStrategyInputSampleProjectionV3,
+}
+
+impl StoredStrategyInputSampleProjectionV3 {
+    pub(super) const fn receipt_digest(&self) -> [u8; 32] {
+        self.decoded.receipt_digest()
+    }
+
+    pub(super) const fn kind_tag(&self) -> u8 {
+        self.decoded.kind_tag()
+    }
+
+    pub(super) const fn lifecycle_tag(&self) -> u8 {
+        self.decoded.lifecycle_tag()
+    }
+
+    pub(super) const fn subject_identity(&self) -> [u8; 32] {
+        self.decoded.subject_identity()
+    }
+
+    pub(super) const fn component_count(&self) -> u32 {
+        self.decoded.component_count()
+    }
+
+    pub(super) fn canonical_bytes(&self) -> &[u8] {
+        self.decoded.canonical_bytes()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
+pub(super) enum BarScheduleCustodyFaultV1 {
+    RollbackBeforeCommit,
+    ResponseLoss,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
+pub(super) enum SampleProjectionCustodyFaultV3 {
+    RollbackBeforeCommit,
+    ResponseLoss,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg(test)]
 pub(super) enum SampleProjectionCustodyFaultV2 {
@@ -1058,6 +1145,308 @@ impl MarketDataOwnerPostgres {
         receipt_digest: [u8; 32],
     ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
         resolve_strategy_input_sample_projection_from_pool_v2(&self.pool, receipt_digest).await
+    }
+
+    /// Stores one already-verified BAR FRAME projection under the additive V3 lifecycle custody.
+    pub(crate) async fn commit_strategy_input_sample_projection_v3(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV3,
+    ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+        self.commit_strategy_input_sample_projection_inner_v3(prepared, false, false)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn commit_strategy_input_sample_projection_with_fault_v3(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV3,
+        fault: SampleProjectionCustodyFaultV3,
+    ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+        self.commit_strategy_input_sample_projection_inner_v3(
+            prepared,
+            fault == SampleProjectionCustodyFaultV3::RollbackBeforeCommit,
+            fault == SampleProjectionCustodyFaultV3::ResponseLoss,
+        )
+        .await
+    }
+
+    async fn commit_strategy_input_sample_projection_inner_v3(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV3,
+        rollback_before_commit: bool,
+        response_loss: bool,
+    ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+        let decoded = validate_prepared_sample_projection_v3(prepared)?;
+        let receipt_digest = prepared.receipt_digest();
+        let subject_identity = prepared.subject_identity();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        lock_sample_projection_identities_v2(&mut transaction, subject_identity, receipt_digest)
+            .await?;
+        validate_sample_projection_dependencies_v3(&mut transaction, &decoded, true).await?;
+
+        if let Some(stored) =
+            load_strategy_input_sample_projection_v3(&mut transaction, receipt_digest).await?
+        {
+            if stored.kind_tag() != prepared.kind_tag()
+                || stored.lifecycle_tag() != prepared.lifecycle_tag()
+                || stored.subject_identity() != subject_identity
+                || stored.component_count() != prepared.component_count()
+                || stored.canonical_bytes() != prepared.canonical_bytes()
+            {
+                return Err(SampleProjectionCustodyErrorV2::IdentityConflict);
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            return Ok(stored);
+        }
+
+        let subject_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM market_data_private.strategy_input_sample_projection_receipts_v3 WHERE kind=$1 AND lifecycle=$2 AND subject_identity=$3)",
+        )
+        .bind(i16::from(prepared.kind_tag()))
+        .bind(i16::from(prepared.lifecycle_tag()))
+        .bind(subject_identity.as_slice())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if subject_exists {
+            return Err(SampleProjectionCustodyErrorV2::SubjectConflict);
+        }
+
+        let custody_digest = sample_projection_custody_digest_v3(
+            receipt_digest,
+            prepared.kind_tag(),
+            prepared.lifecycle_tag(),
+            subject_identity,
+            prepared.component_count(),
+            prepared.canonical_bytes(),
+        );
+        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v3(receipt_digest,kind,lifecycle,subject_identity,component_count,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+            .bind(receipt_digest.as_slice())
+            .bind(i16::from(prepared.kind_tag()))
+            .bind(i16::from(prepared.lifecycle_tag()))
+            .bind(subject_identity.as_slice())
+            .bind(i64::from(prepared.component_count()))
+            .bind(prepared.canonical_bytes())
+            .bind(custody_digest.as_slice())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+        if rollback_before_commit {
+            return Err(SampleProjectionCustodyErrorV2::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if response_loss {
+            Err(SampleProjectionCustodyErrorV2::ResponseLost)
+        } else {
+            promote_stored_strategy_input_sample_projection_v3(
+                prepared.canonical_bytes(),
+                receipt_digest,
+            )
+        }
+    }
+
+    pub(crate) async fn resolve_strategy_input_sample_projection_v3(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+        resolve_strategy_input_sample_projection_from_pool_v3(&self.pool, receipt_digest).await
+    }
+
+    /// Atomically persists one prepared BAR schedule and its sealed readback custody.
+    pub(crate) async fn commit_prepared_bar_schedule_v1(
+        &self,
+        prepared: &PreparedBarScheduleCommitV1,
+    ) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+        self.commit_prepared_bar_schedule_inner_v1(prepared, false, false)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn commit_prepared_bar_schedule_with_fault_v1(
+        &self,
+        prepared: &PreparedBarScheduleCommitV1,
+        fault: BarScheduleCustodyFaultV1,
+    ) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+        self.commit_prepared_bar_schedule_inner_v1(
+            prepared,
+            fault == BarScheduleCustodyFaultV1::RollbackBeforeCommit,
+            fault == BarScheduleCustodyFaultV1::ResponseLoss,
+        )
+        .await
+    }
+
+    async fn commit_prepared_bar_schedule_inner_v1(
+        &self,
+        prepared: &PreparedBarScheduleCommitV1,
+        rollback_before_commit: bool,
+        response_loss: bool,
+    ) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+        let fact = prepared.fact();
+        let canonical_instrument = fact.canonical_instrument();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(bar_schedule_string_lock(canonical_instrument))
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
+        if let Some(readback) =
+            load_bar_schedule_by_fact(&mut transaction, fact.digest(), true).await?
+        {
+            if readback.fact().canonical_bytes() != fact.canonical_bytes()
+                || readback.fact().digest() != fact.digest()
+                || readback.fact().predecessor_fact_digest() != prepared.expected_predecessor()
+                || readback.fact().cut_effective_instant() != fact.cut_effective_instant()
+            {
+                return Err(BarScheduleCustodyErrorV1::IdentityConflict);
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+            return Ok(readback);
+        }
+
+        let fact_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM market_data_private.bar_schedule_facts_v1 WHERE fact_digest=$1)",
+        )
+        .bind(fact.digest().as_bytes().as_slice())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        if fact_exists {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+        let head =
+            validate_bar_schedule_history(&mut transaction, canonical_instrument, true).await?;
+        if head != prepared.expected_predecessor() {
+            return Err(BarScheduleCustodyErrorV1::HeadConflict);
+        }
+
+        let database_name: String = sqlx::query_scalar("SELECT current_database()")
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let generation = bar_schedule_store_generation(&database_name);
+        sqlx::query("INSERT INTO market_data_private.bar_schedule_state_v1(singleton,store_generation_identity,append_sequence) VALUES (TRUE,$1,0) ON CONFLICT (singleton) DO NOTHING")
+            .bind(generation.as_bytes().as_slice())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let state = sqlx::query("UPDATE market_data_private.bar_schedule_state_v1 SET append_sequence=append_sequence+1 WHERE singleton AND store_generation_identity=$1 RETURNING store_generation_identity,append_sequence")
+            .bind(generation.as_bytes().as_slice())
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?
+            .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let stored_generation = bar_schedule_digest_column(&state, "store_generation_identity")?;
+        let append_sequence = positive_u64(
+            state
+                .try_get("append_sequence")
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+        )
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let receipt = build_bar_schedule_receipt(
+            fact,
+            &decode_bar_schedule_cut(prepared.cut_canonical_bytes(), prepared.cut_digest())
+                .map_err(|_| BarScheduleCustodyErrorV1::InvalidPrepared)?,
+            stored_generation,
+            append_sequence,
+        )
+        .map_err(|_| BarScheduleCustodyErrorV1::InvalidPrepared)?;
+        let readback = build_bar_schedule_readback(
+            decode_bar_schedule_fact(fact.canonical_bytes(), fact.digest())
+                .map_err(|_| BarScheduleCustodyErrorV1::InvalidPrepared)?,
+            decode_bar_schedule_cut(prepared.cut_canonical_bytes(), prepared.cut_digest())
+                .map_err(|_| BarScheduleCustodyErrorV1::InvalidPrepared)?,
+            receipt,
+        )
+        .map_err(|_| BarScheduleCustodyErrorV1::InvalidPrepared)?;
+
+        sqlx::query("INSERT INTO market_data_private.bar_schedule_facts_v1(fact_digest,canonical_instrument,predecessor_fact_digest,fact_bytes) VALUES ($1,$2,$3,$4)")
+            .bind(fact.digest().as_bytes().as_slice())
+            .bind(canonical_instrument)
+            .bind(fact.predecessor_fact_digest().map(|value| value.as_bytes().to_vec()))
+            .bind(fact.canonical_bytes())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("INSERT INTO market_data_private.bar_schedule_cuts_v1(cut_identity,fact_digest,cut_bytes) VALUES ($1,$2,$3)")
+            .bind(prepared.cut_digest().as_bytes().as_slice())
+            .bind(fact.digest().as_bytes().as_slice())
+            .bind(prepared.cut_canonical_bytes())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("INSERT INTO market_data_private.bar_schedule_receipts_v1(fact_digest,readback_identity,receipt_identity,receipt_bytes,append_sequence) VALUES ($1,$2,$3,$4,$5)")
+            .bind(fact.digest().as_bytes().as_slice())
+            .bind(readback.digest().as_bytes().as_slice())
+            .bind(readback.receipt_identity().as_bytes().as_slice())
+            .bind(readback.receipt_canonical_bytes())
+            .bind(i64::try_from(append_sequence).map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        sqlx::query("INSERT INTO market_data_private.bar_schedule_outbox_v1(outbox_identity,fact_digest,receipt_bytes) VALUES ($1,$2,$3)")
+            .bind(readback.outbox_identity().as_bytes().as_slice())
+            .bind(fact.digest().as_bytes().as_slice())
+            .bind(readback.receipt_canonical_bytes())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        if let Some(predecessor) = prepared.expected_predecessor() {
+            let updated = sqlx::query("UPDATE market_data_private.bar_schedule_heads_v1 SET fact_digest=$1 WHERE canonical_instrument=$2 AND fact_digest=$3")
+                .bind(fact.digest().as_bytes().as_slice())
+                .bind(canonical_instrument)
+                .bind(predecessor.as_bytes().as_slice())
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+            if updated.rows_affected() != 1 {
+                return Err(BarScheduleCustodyErrorV1::HeadConflict);
+            }
+        } else {
+            sqlx::query("INSERT INTO market_data_private.bar_schedule_heads_v1(canonical_instrument,fact_digest) VALUES ($1,$2)")
+                .bind(canonical_instrument)
+                .bind(fact.digest().as_bytes().as_slice())
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| BarScheduleCustodyErrorV1::HeadConflict)?;
+        }
+        if rollback_before_commit {
+            return Err(BarScheduleCustodyErrorV1::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        if response_loss {
+            Err(BarScheduleCustodyErrorV1::ResponseLost)
+        } else {
+            Ok(readback)
+        }
     }
 
     /// Persists one contract-verified sample and returns a verified native readback.
@@ -1310,6 +1699,14 @@ impl MarketDataReadPostgres {
         receipt_digest: [u8; 32],
     ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
         resolve_strategy_input_sample_projection_from_pool_v2(&self.pool, receipt_digest).await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn resolve_strategy_input_sample_projection_v3(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+        resolve_strategy_input_sample_projection_from_pool_v3(&self.pool, receipt_digest).await
     }
 
     #[cfg(test)]
@@ -1839,6 +2236,447 @@ fn sample_projection_custody_digest_v2(
     digest.update(component_count.to_le_bytes());
     digest.update(receipt_bytes);
     digest.finalize().into()
+}
+
+fn validate_prepared_sample_projection_v3(
+    prepared: &PreparedStrategyInputSampleProjectionV3,
+) -> Result<DecodedStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+    let stored = decode_strategy_input_sample_projection_v3(
+        prepared.canonical_bytes(),
+        prepared.receipt_digest(),
+    )
+    .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+    if prepared.kind_tag() != 0x01
+        || prepared.lifecycle_tag() != 0x02
+        || stored.kind_tag() != prepared.kind_tag()
+        || stored.lifecycle_tag() != prepared.lifecycle_tag()
+        || stored.subject_identity() != prepared.subject_identity()
+        || stored.component_count() != prepared.component_count()
+        || stored.canonical_bytes() != prepared.canonical_bytes()
+    {
+        return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
+    }
+    Ok(stored)
+}
+
+async fn validate_sample_projection_dependencies_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    decoded: &DecodedStrategyInputSampleProjectionV3,
+    lock_dependencies: bool,
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    for component in decoded.components() {
+        let sample_receipt_digest = component.sample_receipt_digest();
+        let timeframe_projection_digest = component.timeframe_projection_digest();
+        if lock_dependencies {
+            let sample_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(sample_receipt_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            let timeframe_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(timeframe_projection_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            if sample_locked.is_none() || timeframe_locked.is_none() {
+                return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+            }
+        }
+        let stored = load_sample_custody(transaction, sample_receipt_digest)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if stored.prepared.projection_receipt_digest != timeframe_projection_digest {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let sample = verify_stored_sample_readback_v1(
+            &stored.prepared.fact_bytes,
+            stored.prepared.fact_digest,
+            &stored.prepared.receipt_bytes,
+            stored.prepared.receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe = verify_stored_timeframe_projection_v1(
+            &stored.prepared.projection_receipt_bytes,
+            stored.prepared.projection_receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        verify_decoded_projection_component_native_v3(component, &timeframe, &sample)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    }
+    Ok(())
+}
+
+async fn resolve_strategy_input_sample_projection_from_pool_v3(
+    pool: &PgPool,
+    receipt_digest: [u8; 32],
+) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let stored = load_strategy_input_sample_projection_v3(&mut transaction, receipt_digest)
+        .await?
+        .ok_or(SampleProjectionCustodyErrorV2::UnknownReceipt)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    Ok(stored)
+}
+
+async fn load_strategy_input_sample_projection_v3(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected_digest: [u8; 32],
+) -> Result<Option<StoredStrategyInputSampleProjectionV3>, SampleProjectionCustodyErrorV2> {
+    let Some(row) = sqlx::query(
+        "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_v3($1)",
+    )
+    .bind(expected_digest.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
+    let receipt_digest = sample_projection_digest_column_v2(&row, "receipt_digest")?;
+    let subject_identity = sample_projection_digest_column_v2(&row, "subject_identity")?;
+    let custody_digest = sample_projection_digest_column_v2(&row, "custody_digest")?;
+    let kind: u8 = u8::try_from(
+        row.try_get::<i16, _>("kind")
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+    )
+    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let lifecycle: u8 = u8::try_from(
+        row.try_get::<i16, _>("lifecycle")
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+    )
+    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let component_count = u32::try_from(
+        row.try_get::<i64, _>("component_count")
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?,
+    )
+    .ok()
+    .filter(|count| *count != 0)
+    .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    if receipt_digest != expected_digest
+        || kind != 0x01
+        || lifecycle != 0x02
+        || custody_digest
+            != sample_projection_custody_digest_v3(
+                receipt_digest,
+                kind,
+                lifecycle,
+                subject_identity,
+                component_count,
+                &receipt_bytes,
+            )
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    let stored =
+        promote_stored_strategy_input_sample_projection_v3(&receipt_bytes, receipt_digest)?;
+    if stored.kind_tag() != kind
+        || stored.lifecycle_tag() != lifecycle
+        || stored.subject_identity() != subject_identity
+        || stored.component_count() != component_count
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    validate_sample_projection_dependencies_v3(transaction, &stored.decoded, false).await?;
+    Ok(Some(stored))
+}
+
+fn promote_stored_strategy_input_sample_projection_v3(
+    bytes: &[u8],
+    expected_digest: [u8; 32],
+) -> Result<StoredStrategyInputSampleProjectionV3, SampleProjectionCustodyErrorV2> {
+    let decoded = decode_strategy_input_sample_projection_v3(bytes, expected_digest)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    Ok(StoredStrategyInputSampleProjectionV3 { decoded })
+}
+
+fn sample_projection_custody_digest_v3(
+    receipt_digest: [u8; 32],
+    kind: u8,
+    lifecycle: u8,
+    subject_identity: [u8; 32],
+    component_count: u32,
+    receipt_bytes: &[u8],
+) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"market-data.sample-projection-custody.v3\0");
+    digest.update(receipt_digest);
+    digest.update([kind, lifecycle]);
+    digest.update(subject_identity);
+    digest.update(component_count.to_le_bytes());
+    digest.update(receipt_bytes);
+    digest.finalize().into()
+}
+
+fn bar_schedule_store_generation(database_name: &str) -> BarScheduleIdentity {
+    let mut digest = Sha256::new();
+    digest.update(b"market-data.bar-schedule-store-generation.v1\0");
+    digest.update(database_name.as_bytes());
+    BarScheduleIdentity::from_untrusted_bytes(digest.finalize().into())
+}
+
+fn bar_schedule_string_lock(value: &str) -> i64 {
+    let digest = blake3::hash(value.as_bytes());
+    i64::from_be_bytes(digest.as_bytes()[..8].try_into().expect("fixed digest"))
+}
+
+fn bar_schedule_digest_column(
+    row: &sqlx::postgres::PgRow,
+    column: &'static str,
+) -> Result<BarScheduleIdentity, BarScheduleCustodyErrorV1> {
+    let bytes: Vec<u8> = row
+        .try_get(column)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    bytes
+        .try_into()
+        .map(BarScheduleIdentity::from_untrusted_bytes)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+}
+
+async fn load_bar_schedule_by_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact_digest: BarScheduleIdentity,
+    lock: bool,
+) -> Result<Option<BarScheduleReadbackV1>, BarScheduleCustodyErrorV1> {
+    let query = if lock {
+        "SELECT readback_identity FROM market_data_private.bar_schedule_receipts_v1 WHERE fact_digest=$1 FOR UPDATE"
+    } else {
+        "SELECT readback_identity FROM market_data_private.bar_schedule_receipts_v1 WHERE fact_digest=$1"
+    };
+    let identity: Option<Vec<u8>> = sqlx::query_scalar(query)
+        .bind(fact_digest.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let Some(identity) = identity else {
+        return Ok(None);
+    };
+    let identity: [u8; 32] = identity
+        .try_into()
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    load_bar_schedule_readback(
+        transaction,
+        BarScheduleIdentity::from_untrusted_bytes(identity),
+    )
+    .await
+}
+
+async fn load_bar_schedule_readback(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected_identity: BarScheduleIdentity,
+) -> Result<Option<BarScheduleReadbackV1>, BarScheduleCustodyErrorV1> {
+    let Some(row) = sqlx::query("SELECT * FROM market_data_private.resolve_bar_schedule_v1($1)")
+        .bind(expected_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
+    let fact_digest = bar_schedule_digest_column(&row, "fact_digest")?;
+    let cut_identity = bar_schedule_digest_column(&row, "cut_identity")?;
+    let readback_identity = bar_schedule_digest_column(&row, "readback_identity")?;
+    let receipt_identity = bar_schedule_digest_column(&row, "receipt_identity")?;
+    let outbox_identity = bar_schedule_digest_column(&row, "outbox_identity")?;
+    let generation = bar_schedule_digest_column(&row, "store_generation_identity")?;
+    let predecessor: Option<Vec<u8>> = row
+        .try_get("predecessor_fact_digest")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let predecessor = predecessor
+        .map(|value| {
+            value
+                .try_into()
+                .map(BarScheduleIdentity::from_untrusted_bytes)
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+        })
+        .transpose()?;
+    let canonical_instrument: String = row
+        .try_get("canonical_instrument")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let fact_bytes: Vec<u8> = row
+        .try_get("fact_bytes")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let cut_bytes: Vec<u8> = row
+        .try_get("cut_bytes")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let outbox_bytes: Vec<u8> = row
+        .try_get("outbox_receipt_bytes")
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let append_sequence = positive_u64(
+        row.try_get("append_sequence")
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+    )
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let state_append_sequence = nonnegative_u64(
+        row.try_get("state_append_sequence")
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+    )
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let fact = decode_bar_schedule_fact(&fact_bytes, fact_digest)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let cut = decode_bar_schedule_cut(&cut_bytes, cut_identity)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let receipt = decode_bar_schedule_receipt(&receipt_bytes, receipt_identity)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let readback = build_bar_schedule_readback(fact, cut, receipt)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let expected_readback = build_bar_schedule_readback(
+        decode_bar_schedule_fact(&fact_bytes, fact_digest)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+        decode_bar_schedule_cut(&cut_bytes, cut_identity)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+        build_bar_schedule_receipt(
+            &decode_bar_schedule_fact(&fact_bytes, fact_digest)
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+            &decode_bar_schedule_cut(&cut_bytes, cut_identity)
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+            generation,
+            append_sequence,
+        )
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+    )
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    if readback_identity != expected_identity
+        || readback.digest() != expected_identity
+        || readback.fact().canonical_instrument() != canonical_instrument
+        || readback.fact().predecessor_fact_digest() != predecessor
+        || readback.fact().digest() != fact_digest
+        || readback.receipt_identity() != receipt_identity
+        || readback.outbox_identity() != outbox_identity
+        || readback.receipt_canonical_bytes() != receipt_bytes
+        || receipt_bytes != outbox_bytes
+        || readback.receipt_identity() != outbox_identity
+        || state_append_sequence < append_sequence
+        || expected_readback.digest() != readback.digest()
+        || expected_readback.receipt_canonical_bytes() != receipt_bytes
+    {
+        return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+    }
+    Ok(Some(readback))
+}
+
+async fn validate_bar_schedule_history(
+    transaction: &mut Transaction<'_, Postgres>,
+    canonical_instrument: &str,
+    lock: bool,
+) -> Result<Option<BarScheduleIdentity>, BarScheduleCustodyErrorV1> {
+    let query = if lock {
+        "SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=$1 FOR UPDATE"
+    } else {
+        "SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=$1"
+    };
+    let rows = sqlx::query(query)
+        .bind(canonical_instrument)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let head: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=$1",
+    )
+    .bind(canonical_instrument)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    if rows.is_empty() {
+        return if head.is_none() {
+            Ok(None)
+        } else {
+            Err(BarScheduleCustodyErrorV1::StoreUnavailable)
+        };
+    }
+    let head: [u8; 32] = head
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?
+        .try_into()
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let mut entries = std::collections::BTreeMap::new();
+    for row in rows {
+        let digest = bar_schedule_digest_column(&row, "fact_digest")?;
+        let predecessor: Option<Vec<u8>> = row
+            .try_get("predecessor_fact_digest")
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let predecessor = predecessor
+            .map(|value| {
+                value
+                    .try_into()
+                    .map(BarScheduleIdentity::from_untrusted_bytes)
+                    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+            })
+            .transpose()?;
+        let bytes: Vec<u8> = row
+            .try_get("fact_bytes")
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let fact = decode_bar_schedule_fact(&bytes, digest)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        if fact.canonical_instrument() != canonical_instrument
+            || fact.predecessor_fact_digest() != predecessor
+            || entries.insert(digest, predecessor).is_some()
+        {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+    }
+    let head = BarScheduleIdentity::from_untrusted_bytes(head);
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cursor = Some(head);
+    while let Some(identity) = cursor {
+        if !seen.insert(identity) {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+        cursor = *entries
+            .get(&identity)
+            .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    }
+    if seen.len() != entries.len() {
+        return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+    }
+    Ok(Some(head))
+}
+
+async fn resolve_bar_schedule_from_pool(
+    pool: &PgPool,
+    locator: &UntrustedBarScheduleLocatorV1,
+) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let readback = load_bar_schedule_readback(&mut transaction, locator.digest)
+        .await?
+        .ok_or(BarScheduleCustodyErrorV1::UnknownReadback)?;
+    validate_bar_schedule_history(
+        &mut transaction,
+        readback.fact().canonical_instrument(),
+        false,
+    )
+    .await?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    Ok(readback)
 }
 
 fn map_sample_projection_insert_error_v2(error: &sqlx::Error) -> SampleProjectionCustodyErrorV2 {
@@ -4673,6 +5511,25 @@ impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
 
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
+impl super::bar_schedule::resolver_seal::Sealed for MarketDataReadPostgres {}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl BarScheduleResolverV1 for MarketDataReadPostgres {
+    async fn resolve_bar_schedule_v1(
+        &self,
+        locator: &UntrustedBarScheduleLocatorV1,
+    ) -> Result<BarScheduleReadbackV1, super::bar_schedule::BarScheduleError> {
+        resolve_bar_schedule_from_pool(&self.pool, locator)
+            .await
+            .map_err(|error| match error {
+                BarScheduleCustodyErrorV1::UnknownReadback => {
+                    super::bar_schedule::BarScheduleError::UnknownIdentity
+                }
+                _ => super::bar_schedule::BarScheduleError::StoreUnavailable,
+            })
+    }
+}
 
 #[cfg(test)]
 #[async_trait::async_trait]

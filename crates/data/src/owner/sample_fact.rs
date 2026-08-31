@@ -1999,39 +1999,72 @@ pub(crate) mod tests {
         (binding, frame, timeframe, stored(&commit))
     }
 
+    /// Test-only ingredients for proving PostgreSQL BAR schedule custody before deriving a sample.
+    pub(crate) struct BarPostgresScheduleFixtureV1 {
+        pub(crate) binding: StrategyInputBindingReceipt,
+        pub(crate) frame: StrategyInputEventFrameReceipt,
+        pub(crate) batch: VerifiedPitObservationBatch,
+        pub(crate) instrument_master: InstrumentMasterReadbackV1,
+        pub(crate) schedule_proposal: UntrustedBarScheduleProposalV1,
+    }
+
+    pub(crate) fn bar_postgres_schedule_fixture_v1() -> BarPostgresScheduleFixtureV1 {
+        let batch = batch(bar_row(10, 3), 30);
+        let binding =
+            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed V1 BAR binding");
+        let frame = bind_strategy_input_event_frame(std::slice::from_ref(&binding), &batch)
+            .expect("complete V1 BAR frame");
+        let instrument_master = instrument_master_readback(
+            "AAPL.XNAS",
+            batch.market_semantics_identity(),
+            batch.correction_frontier_digest(),
+        );
+        BarPostgresScheduleFixtureV1 {
+            binding,
+            frame,
+            batch,
+            instrument_master,
+            schedule_proposal: UntrustedBarScheduleProposalV1 {
+                canonical_instrument: "AAPL.XNAS".into(),
+                predecessor_fact_digest: None,
+                effective_from: 1,
+                effective_until: Some(100),
+                kind: BarScheduleKindV1::FixedInterval,
+                step: 5,
+                unit: BarScheduleUnitV1::Minute,
+                anchor_identity: d(70),
+                label: BarScheduleLabelV1::IntervalClose,
+                completion: BarScheduleCompletionV1::CompleteOnly,
+            },
+        }
+    }
+
     fn prepared_bar_projection_fixture_v2() -> (
         StrategyInputBindingReceipt,
         StrategyInputEventFrameReceipt,
         TimeframeProjectionReceiptV1,
         PreparedSampleCommitV1,
     ) {
-        let batch = batch(bar_row(10, 3), 30);
-        let binding =
-            bind_strategy_input_role(&bar_request(&batch), &batch).expect("sealed V1 BAR binding");
-        let frame = bind_strategy_input_event_frame(std::slice::from_ref(&binding), &batch)
-            .expect("complete V1 BAR frame");
-        let master = instrument_master_readback(
-            "AAPL.XNAS",
-            batch.market_semantics_identity(),
-            batch.correction_frontier_digest(),
-        );
-        let schedule = bar_schedule_readback(
-            &binding,
-            &batch,
-            &master,
-            UntrustedBarTimeframeProposalV1::FixedInterval(UntrustedFixedIntervalBarTimeframeV1 {
-                step: 5,
-                unit: BarTimeframeUnitV1::Minute,
-                label: BarLabelRuleV1::IntervalClose,
-                partial: BarPartialRuleV1::CompleteOnly,
-            }),
+        let fixture = bar_postgres_schedule_fixture_v1();
+        let schedule = prepare_bar_schedule_commit_v1(
+            fixture.schedule_proposal,
+            &fixture.binding,
+            &fixture.batch,
+            &fixture.instrument_master,
         )
+        .and_then(|prepared| {
+            let receipt =
+                bar_schedule_authority::build_receipt(&prepared.fact, &prepared.cut, d(71), 1)?;
+            bar_schedule_authority::build_readback(prepared.fact, prepared.cut, receipt)
+        })
+        .map_err(|_| SampleFactUnavailable::InstrumentMasterMismatch)
         .expect("Owner-derived BAR schedule");
-        let timeframe = prepare_bar_timeframe_projection_v1(&binding, &batch, &schedule)
-            .expect("Owner-derived BAR timeframe");
+        let timeframe =
+            prepare_bar_timeframe_projection_v1(&fixture.binding, &fixture.batch, &schedule)
+                .expect("Owner-derived BAR timeframe");
         let commit = prepare_sample_commit_v1(
-            &binding,
-            &batch,
+            &fixture.binding,
+            &fixture.batch,
             &timeframe,
             SampleFactHeadsV1 {
                 series: None,
@@ -2039,7 +2072,7 @@ pub(crate) mod tests {
             },
         )
         .expect("contract-verified BAR sample");
-        (binding, frame, timeframe, commit)
+        (fixture.binding, fixture.frame, timeframe, commit)
     }
 
     pub(crate) fn bar_projection_fixture_v2() -> (
