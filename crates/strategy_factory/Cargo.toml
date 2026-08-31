@@ -51,6 +51,7 @@ vibe-persistence = { workspace = true }
 vibe-product-edge = { workspace = true }
 vibe-qualification = { workspace = true }
 vibe-rd-artifact-invocation-custody = { workspace = true }
+vibe-rd-exploratory-replay-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
 vibe-scheduled-events = { workspace = true }
 vibe-trading = { workspace = true }

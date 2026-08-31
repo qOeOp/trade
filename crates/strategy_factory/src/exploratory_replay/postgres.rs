@@ -32,10 +32,6 @@ use crate::{
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
-const INTERNAL_VERIFY_FUNCTION_V2: &str =
-    "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
-const RD_RESOLVE_FUNCTION_V2: &str =
-    "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
 
@@ -1235,20 +1231,50 @@ pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-    validate_rd_resolution_binding_v2(rd_pool).await?;
-    let value: Option<serde_json::Value> =
-        sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
-            .bind(&selector.request_identity)
-            .bind(&selector.meaning_digest)
-            .fetch_one(rd_pool)
-            .await
-            .map_err(storage)?;
-    decode_v2_read_result(
-        &selector.request_identity,
-        &selector.meaning_digest,
-        None,
-        value,
+    use vibe_rd_exploratory_replay_custody::{
+        ExploratoryReplayAvailabilityV2 as CustodyAvailability,
+        ExploratoryReplayRecoverySelectorV2 as CustodySelector,
+        resolve_sealed_exploratory_replay_request_v2,
+    };
+
+    let custody = resolve_sealed_exploratory_replay_request_v2(
+        rd_pool,
+        &CustodySelector {
+            request_identity: selector.request_identity.clone(),
+            meaning_digest: selector.meaning_digest.clone(),
+        },
     )
+    .await
+    .map_err(unavailable)?;
+    let availability = match custody.availability() {
+        CustodyAvailability::Available => ExploratoryReplayAvailabilityV1::Available,
+        CustodyAvailability::Stale => ExploratoryReplayAvailabilityV1::Stale,
+        CustodyAvailability::Unavailable => ExploratoryReplayAvailabilityV1::Unavailable,
+    };
+    let projection = projection_v2(custody.request_identity(), availability);
+    let Some(readback) = custody.into_readback() else {
+        return Ok(ExploratoryReplayReadResultV2 {
+            projection,
+            readback: None,
+        });
+    };
+    Ok(ExploratoryReplayReadResultV2 {
+        projection,
+        readback: Some(SealedExploratoryReplayReadbackV2 {
+            request: readback.request().clone(),
+            canonical_request_bytes: readback.canonical_request_bytes().to_vec(),
+            meaning_digest: readback.meaning_digest().to_string(),
+            receipt: ExploratoryReplayCommitReceiptV2 {
+                schema_version: 2,
+                receipt_identity: readback.receipt_identity().to_string(),
+                request_identity: selector.request_identity.clone(),
+                meaning_digest: readback.meaning_digest().to_string(),
+                seal_digest: readback.seal_digest().to_string(),
+                committed_at_epoch_ms: readback.committed_at_epoch_ms(),
+            },
+            owner_cut_epoch_ms: readback.owner_cut_epoch_ms(),
+        }),
+    })
 }
 
 fn decode_v2_read_result(
@@ -1328,12 +1354,12 @@ fn decode_v2_read_result(
 
     if availability == ExploratoryReplayAvailabilityV1::Stale {
         return Ok(ExploratoryReplayReadResultV2 {
-            projection: projection(&receipt.request_identity, availability),
+            projection: projection_v2(&receipt.request_identity, availability),
             readback: None,
         });
     }
     Ok(ExploratoryReplayReadResultV2 {
-        projection: projection(
+        projection: projection_v2(
             &receipt.request_identity,
             ExploratoryReplayAvailabilityV1::Available,
         ),
@@ -1345,66 +1371,6 @@ fn decode_v2_read_result(
             owner_cut_epoch_ms: validated.owner_cut_epoch_ms,
         }),
     })
-}
-
-async fn validate_rd_resolution_binding_v2(
-    rd_pool: &PgPool,
-) -> Result<(), ExploratoryReplayOwnerError> {
-    let function_ok: bool = sqlx::query_scalar(
-        "SELECT current_user='rd_owner'
-             AND NOT procedure.prosecdef
-             AND procedure.provolatile='v'
-             AND procedure.proparallel='u'
-             AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-             AND procedure.proargtypes='25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
-             AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
-             AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee <> owner.oid
-             )
-           FROM pg_catalog.pg_proc procedure
-           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
-           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
-             AND EXISTS (
-               SELECT 1
-                 FROM pg_catalog.pg_proc helper
-                 JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-                WHERE helper.oid=pg_catalog.to_regprocedure($2)
-                  AND helper_owner.rolname='rd_owner'
-                  AND NOT helper.prosecdef
-                  AND helper.provolatile='v'
-                  AND helper.proparallel='u'
-                  AND helper.proisstrict
-                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.privilege_type='EXECUTE'
-                       AND helper_acl.grantee<>helper_owner.oid
-                  )
-             )
-          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
-    )
-    .bind(RD_RESOLVE_FUNCTION_V2)
-    .bind(INTERNAL_VERIFY_FUNCTION_V2)
-    .fetch_optional(rd_pool)
-    .await
-    .map_err(storage)?
-    .unwrap_or(false);
-
-    if !function_ok {
-        return Err(ExploratoryReplayOwnerError::Unavailable(
-            "sealed R&D Replay V2 resolve API unavailable".into(),
-        ));
-    }
-    Ok(())
 }
 
 async fn validate_backtest_binding_v2(
@@ -2230,7 +2196,7 @@ fn assemble_v2(
         seal_digest: receipt.seal_digest.clone(),
     };
     ExploratoryReplayCommitResultV2 {
-        projection: projection(
+        projection: projection_v2(
             &receipt.request_identity,
             ExploratoryReplayAvailabilityV1::Available,
         ),
@@ -2305,6 +2271,26 @@ fn projection(
     }
 }
 
+fn projection_v2(
+    request_identity: &str,
+    availability: ExploratoryReplayAvailabilityV1,
+) -> ExploratoryReplayRequestProjectionV1 {
+    ExploratoryReplayRequestProjectionV1 {
+        schema_version: 1,
+        request_identity: request_identity.to_string(),
+        availability,
+        next_legal_action: match availability {
+            ExploratoryReplayAvailabilityV1::Available => {
+                ExploratoryReplayNextLegalActionV1::LockByLocator
+            }
+            ExploratoryReplayAvailabilityV1::Stale
+            | ExploratoryReplayAvailabilityV1::Unavailable => {
+                ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
+            }
+        },
+    }
+}
+
 fn unavailable_result(request_identity: &str) -> ExploratoryReplayReadResultV1 {
     ExploratoryReplayReadResultV1 {
         projection: projection(
@@ -2317,7 +2303,7 @@ fn unavailable_result(request_identity: &str) -> ExploratoryReplayReadResultV1 {
 
 fn unavailable_result_v2(request_identity: &str) -> ExploratoryReplayReadResultV2 {
     ExploratoryReplayReadResultV2 {
-        projection: projection(
+        projection: projection_v2(
             request_identity,
             ExploratoryReplayAvailabilityV1::Unavailable,
         ),
