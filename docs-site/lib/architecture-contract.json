@@ -2393,6 +2393,16 @@
         "noAuthorityBasis": "The custody seam cannot transfer either Owner authority authorize provider execution production writes or trading or construct positive custody from caller input"
       },
       {
+        "inventoryId": "rd-exploratory-replay-custody",
+        "memberPaths": ["crates/rd_exploratory_replay_custody"],
+        "disposition": "OWNER_NATIVE_IMPLEMENTATION",
+        "destinationIds": ["rd"],
+        "capabilityPortIds": [],
+        "providerMemberPortEvidence": [],
+        "adoptionRule": "Resolve sealed Exploratory Replay V2 reads through the fixed R&D Owner PostgreSQL API, then verify complete request, receipt, seal, and outbox binding before canonical readback",
+        "noAuthorityBasis": "The recovery selector is query-only and cannot mint positive authority; no provider execution, production write, Windmill effect, qualification, deployment, or trading authority is granted"
+      },
+      {
         "inventoryId": "rd-artifact-invocation-custody",
         "memberPaths": ["crates/rd_artifact_invocation_custody"],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
