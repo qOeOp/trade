@@ -129,6 +129,17 @@ pub(super) struct DecodedStrategyInputSampleProjectionV2 {
     digest: Identity,
     subject_identity: Identity,
     component_count: u32,
+    components: Box<[DecodedStrategyInputSampleProjectionComponentV2]>,
+}
+
+#[derive(Debug)]
+pub(super) struct DecodedStrategyInputSampleProjectionComponentV2 {
+    role_identity: Identity,
+    binding_receipt_digest: Identity,
+    timeframe_projection_digest: Identity,
+    sample_identity: Identity,
+    sample_receipt_digest: Identity,
+    coordinate: [u8; COORDINATE_LEN],
 }
 
 impl DecodedStrategyInputSampleProjectionV2 {
@@ -150,6 +161,20 @@ impl DecodedStrategyInputSampleProjectionV2 {
 
     pub(super) fn canonical_bytes(&self) -> &[u8] {
         &self.bytes
+    }
+
+    pub(super) fn components(&self) -> &[DecodedStrategyInputSampleProjectionComponentV2] {
+        &self.components
+    }
+}
+
+impl DecodedStrategyInputSampleProjectionComponentV2 {
+    pub(super) const fn timeframe_projection_digest(&self) -> Identity {
+        self.timeframe_projection_digest
+    }
+
+    pub(super) const fn sample_receipt_digest(&self) -> Identity {
+        self.sample_receipt_digest
     }
 }
 
@@ -279,6 +304,7 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
     }
 
     let mut evidence_entries = Vec::with_capacity(count * FRAME_EVIDENCE_ENTRY_LEN);
+    let mut components = Vec::with_capacity(count);
     let mut trigger_digest = None;
     let mut previous_role = None;
     for _ in 0..count {
@@ -304,13 +330,16 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
             return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
         }
         let value_digest = decoder.identity_nonzero()?;
-        let _timeframe_projection_digest = decoder.identity_nonzero()?;
+        let timeframe_projection_digest = decoder.identity_nonzero()?;
         let sample_identity = decoder.identity_nonzero()?;
         let sample_receipt_digest = decoder.identity_nonzero()?;
         let coordinate_digest = decoder.identity_nonzero()?;
-        let coordinate = decoder.take(COORDINATE_LEN)?;
+        let coordinate: [u8; COORDINATE_LEN] = decoder
+            .take(COORDINATE_LEN)?
+            .try_into()
+            .expect("fixed coordinate width");
         verify_coordinate(
-            coordinate,
+            &coordinate,
             coordinate_digest,
             role,
             binding_digest,
@@ -320,6 +349,14 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         evidence_entries.extend_from_slice(&role);
         evidence_entries.extend_from_slice(&binding_digest);
         evidence_entries.extend_from_slice(&value_digest);
+        components.push(DecodedStrategyInputSampleProjectionComponentV2 {
+            role_identity: role,
+            binding_receipt_digest: binding_digest,
+            timeframe_projection_digest,
+            sample_identity,
+            sample_receipt_digest,
+            coordinate,
+        });
     }
     decoder.end()?;
     let trigger_digest =
@@ -334,7 +371,30 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         digest: expected_digest,
         subject_identity,
         component_count,
+        components: components.into_boxed_slice(),
     })
+}
+
+pub(super) fn verify_decoded_projection_component_native_v2(
+    component: &DecodedStrategyInputSampleProjectionComponentV2,
+    timeframe: &TimeframeProjectionReceiptV1,
+    sample: &StoredSampleReadbackV1,
+) -> Result<(), StrategyInputSampleProjectionUnavailable> {
+    if !timeframe.is_point_event()
+        || timeframe.digest() != component.timeframe_projection_digest
+        || timeframe.binding_receipt_digest() != component.binding_receipt_digest
+        || sample.receipt().sample_identity() != component.sample_identity
+        || sample.receipt().digest() != component.sample_receipt_digest
+        || sample.receipt().timeframe_identity() != timeframe.timeframe_identity()
+        || coordinate_from_native_receipt(
+            component.role_identity,
+            component.binding_receipt_digest,
+            sample.receipt(),
+        )? != component.coordinate
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::SampleMismatch);
+    }
+    Ok(())
 }
 
 fn prepare_frame_evidence(
@@ -423,6 +483,14 @@ fn project_component(
         return Err(StrategyInputSampleProjectionUnavailable::SampleMismatch);
     }
 
+    coordinate_from_native_receipt(role, binding_digest, receipt)
+}
+
+fn coordinate_from_native_receipt(
+    role: Identity,
+    binding_digest: Identity,
+    receipt: &super::sample_fact::SampleReceiptV1,
+) -> Result<[u8; COORDINATE_LEN], StrategyInputSampleProjectionUnavailable> {
     let mut bytes = Vec::with_capacity(COORDINATE_LEN);
     put_u16(&mut bytes, 1);
     put_u16(&mut bytes, 0);

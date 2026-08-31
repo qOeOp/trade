@@ -676,7 +676,33 @@ async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin
         .execute(restarted.pool()).await.unwrap();
 }
 
-fn prepared_sample_projection_v2() -> PreparedStrategyInputSampleProjectionV2 {
+async fn prepared_sample_projection_v2(
+    owner: &MarketDataOwnerPostgres,
+) -> PreparedStrategyInputSampleProjectionV2 {
+    let (missing_binding, missing_frame, missing_timeframe, missing_sample) =
+        crate::owner::sample_fact::tests::point_event_projection_fixture_variant_v2(
+            777,
+            19,
+            201,
+            BindingDigest::from_untrusted_bytes([91; 32]),
+        );
+    let missing = prepare_strategy_input_sample_projection_frame_v2(
+        &missing_frame,
+        &[StrategyInputSampleProjectionSourceV2 {
+            binding: &missing_binding,
+            timeframe: &missing_timeframe,
+            sample: &missing_sample,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_v2(&missing)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+
     let (binding, frame, timeframe, sample) =
         crate::owner::sample_fact::tests::point_event_projection_fixture_v2();
     prepare_strategy_input_sample_projection_frame_v2(
@@ -701,7 +727,7 @@ async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
 
 async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str, admin: &PgPool) {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
-    let prepared = prepared_sample_projection_v2();
+    let prepared = prepared_sample_projection_v2(&owner).await;
     let receipt_digest = prepared.receipt_digest();
     let subject_identity = prepared.subject_identity();
     let receipt_bytes = prepared.canonical_bytes().to_vec();

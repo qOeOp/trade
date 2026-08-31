@@ -53,10 +53,11 @@ use super::{
     },
     sample_fact::{
         PreparedSampleCommitV1, StoredSampleReadbackV1, verify_stored_sample_readback_v1,
+        verify_stored_timeframe_projection_v1,
     },
     sample_projection::{
         DecodedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV2,
-        decode_strategy_input_sample_projection_v2,
+        decode_strategy_input_sample_projection_v2, verify_decoded_projection_component_native_v2,
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
@@ -942,7 +943,7 @@ impl MarketDataOwnerPostgres {
         rollback_before_commit: bool,
         response_loss: bool,
     ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
-        validate_prepared_sample_projection_v2(prepared)?;
+        let decoded = validate_prepared_sample_projection_v2(prepared)?;
         let receipt_digest = prepared.receipt_digest();
         let subject_identity = prepared.subject_identity();
         let mut transaction = self
@@ -956,6 +957,7 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
         lock_sample_projection_identities_v2(&mut transaction, subject_identity, receipt_digest)
             .await?;
+        validate_sample_projection_dependencies_v2(&mut transaction, &decoded, true).await?;
 
         if let Some(stored) =
             load_strategy_input_sample_projection_v2(&mut transaction, receipt_digest).await?
@@ -1603,7 +1605,7 @@ struct StoredSampleCustodyV1 {
 
 fn validate_prepared_sample_projection_v2(
     prepared: &PreparedStrategyInputSampleProjectionV2,
-) -> Result<(), SampleProjectionCustodyErrorV2> {
+) -> Result<DecodedStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
     let stored = decode_strategy_input_sample_projection_v2(
         prepared.canonical_bytes(),
         prepared.receipt_digest(),
@@ -1616,6 +1618,59 @@ fn validate_prepared_sample_projection_v2(
         || stored.canonical_bytes() != prepared.canonical_bytes()
     {
         return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
+    }
+    Ok(stored)
+}
+
+async fn validate_sample_projection_dependencies_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    decoded: &DecodedStrategyInputSampleProjectionV2,
+    lock_dependencies: bool,
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    for component in decoded.components() {
+        let sample_receipt_digest = component.sample_receipt_digest();
+        let timeframe_projection_digest = component.timeframe_projection_digest();
+        if lock_dependencies {
+            let sample_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(sample_receipt_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            let timeframe_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(timeframe_projection_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            if sample_locked.is_none() || timeframe_locked.is_none() {
+                return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+            }
+        }
+
+        let stored = load_sample_custody(transaction, sample_receipt_digest)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if stored.prepared.projection_receipt_digest != timeframe_projection_digest {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let sample = verify_stored_sample_readback_v1(
+            &stored.prepared.fact_bytes,
+            stored.prepared.fact_digest,
+            &stored.prepared.receipt_bytes,
+            stored.prepared.receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe = verify_stored_timeframe_projection_v1(
+            &stored.prepared.projection_receipt_bytes,
+            stored.prepared.projection_receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        verify_decoded_projection_component_native_v2(component, &timeframe, &sample)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
     }
     Ok(())
 }
@@ -1712,6 +1767,7 @@ async fn load_strategy_input_sample_projection_v2(
     {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }
+    validate_sample_projection_dependencies_v2(transaction, &stored.decoded, false).await?;
     Ok(Some(stored))
 }
 
