@@ -322,6 +322,46 @@ manifests omit the feature. A release build that explicitly enables it remains a
 never a production build. This fixture proves only the compile-time acceptance topology: it provides no PostgreSQL
 custody, provider connectivity, deployed Windmill readiness, production composition, or trading authority.
 
+### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`
+
+**TARGET / ISOLATED_ACCEPTANCE_ONLY:** this explicitly selected, request-driven profile authorizes the smallest
+dynamic PostgreSQL acceptance topology; it is separate from the compile-time fixture above and is never a default or
+production route. Its disposable PostgreSQL store may be constructed only after the Market Data-private Deployment
+Store Admission custodian consumes an immutable acceptance trust bundle provisioned by the canonical management plane
+outside the repository, candidate, caller, consumer, and tested process. The bundle pins the environment, signer key fingerprint, witness, credential-
+resolver, and direct-measurer identities. Separately executed principals issue signed append-only manifest/history and
+its exact current head, maintain the anti-rollback witness, lease an opaque least-privilege credential handle, measure
+the target directly, and close the rotation fence. The candidate and caller possess no signer private key, witness
+write authority, credential material, or measurement authority; the sealed admission receipt cross-binds the bundle
+and every observation. Signature, predecessor/generation, current-head, rotation, endpoint/TLS/
+server/database, schema/migration/function/role/ACL, credential audience/version, and measurement identity must all
+match before repository construction and again at the protected use boundary. The custodian retains all raw admission,
+credential, measurement, PIT, Source Binding, clock, and head evidence inside Market Data.
+
+The input is one exact R&D Owner-issued sealed request locator and receipt, never a caller-authored request DTO. Market
+Data must use the fixed read-only R&D Owner port to resolve and verify the canonical request bytes, digest, Owner,
+requester role, and request identity; neither the locator label nor a Market Data attestation is sufficient. Under one
+Market Data transaction, the Owner resolves that request, selects its exact `EVENT` projection and native event receipt, and commits
+the request-to-projection/event locator plus durable Owner readback. Exact same-meaning replay returns byte-identical
+locator and readback bytes; changed meaning or same identity with different bytes conflicts and performs no write.
+The existing Replay V2 `resolved_owner_inputs` content identity is generic content addressing and, by itself, is not
+this authority and must not be reinterpreted as one. The isolated route requires an additive, versioned Owner binding
+receipt that cross-binds the sealed R&D request identity, the exact Market Data projection receipt digest, and the
+Owner-native event identity before any resolver can be issued.
+After restart, resolution of that locator must return the same canonical request, projection, and event identities and
+bytes. The only value crossing to Strategy Factory or Backtest composition is the sealed, read-only
+`StrategyInputSampleEventResolverV1` capability for that exact request-selected event; no insert, update, delete, head
+advance, generic query, raw DSN, credential, admission receipt, or evidence accessor crosses the Owner boundary.
+
+A caller digest, DSN, fixture, fixed corpus, in-memory or temporary-file writer, or signer/witness/credential/measurer
+derived by the candidate, caller, consumer, or tested process
+cannot mint the request locator, resolver, event, or readback. Missing, stale, superseded, or mismatched head, rotation,
+ACL, credential, measurement, request, role, projection, event, locator, or readback fails before `ProgramHost` or
+Backtest state mutation and produces no positive resolver or terminal result. Successful proof authorizes only this
+disposable profile; production resolver, signer, anti-rollback witness, credential-resolver, and direct-measurement
+adapters and the default product entry remain `UNAVAILABLE`. It establishes no provider authenticity, production
+readiness or deployment authority, Dashboard, Paper, Live, real trading, or other production write.
+
 The runtime handoff consumes the existing static receipts plus one verified batch and re-resolves each selection;
 the frame contains only its trigger and dynamic value receipts. Market Data issues its trigger only from selected rows
 in one Owner-verified observation batch with identical snapshot/fact/batch identities, event-effective,

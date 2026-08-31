@@ -69,6 +69,38 @@ cost/slippage/capacity models, seed, range, calendar/time-zone meaning and seman
 unmatched consumption evidence produces no positive receipt; equality between two caller-authored DTOs is never
 request-result correlation.
 
+### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` terminal-result route
+
+**TARGET / ISOLATED_ACCEPTANCE_ONLY:** this explicitly selected, request-driven route is the only admitted dynamic
+acceptance consumer for the matching Market Data isolated profile. Backtest accepts only the exact R&D Owner-issued
+sealed request locator and receipt after resolving its canonical bytes and digest through the fixed read-only R&D Owner
+port, plus the Market Data-sealed, read-only `StrategyInputSampleEventResolverV1` capability for that request.
+It also requires the additive versioned Owner binding receipt that cross-binds that sealed request, the exact Market
+Data projection receipt digest, and the Owner-native event identity; Replay V2 `resolved_owner_inputs` alone is generic
+content addressing and cannot authorize or reconstruct this binding.
+It resolves the exact request-selected Owner `EVENT` input through `ProgramHost`, executes it with the real
+BacktestEngine and Sim Exchange, and derives the actual-consumption record, complete diagnosis, semantic trace, and
+terminal result from what those components consumed. A caller-supplied request, digest, DSN, fixture, fixed corpus, or
+reconstructed input cannot substitute either Owner handoff or mint a result.
+The accepted Store Admission receipt must bind the immutable external acceptance trust bundle and the distinct signer,
+witness, credential-resolver, and direct-measurer identities; no authority derived by the candidate, caller, consumer,
+or tested process may satisfy that prerequisite.
+
+One Backtest Owner transaction commits the exact request identity and canonical bytes, one attempt, the sealed actual-
+consumption and diagnosis records, and the terminal result together. A byte-identical retry joins the same attempt and
+returns the same canonical result receipt bytes; the same identity with different request, consumption, diagnosis, or
+result bytes is a conflict and performs no write. After process and repository restart, the Owner must resolve the
+request locator and return byte-identical attempt, result receipt, and actual-consumption readback. No separate pool,
+in-memory or temporary-file writer, caller persistence, or response-loss retry may split or reconstruct that atomic
+custody.
+
+Any missing, stale, superseded, wrong-role, or mismatched Store Admission head/rotation/ACL/credential/measurement,
+Owner request, projection/event locator, sealed resolver, event, or readback fails before `ProgramHost` invocation or
+Backtest mutation and produces no positive receipt or result. The isolated proof covers only this disposable
+PostgreSQL topology. It never establishes production readiness, default-product reachability, deployment authority,
+protected replay acceptance, Paper, Live, real trading, or another production write; all distinct production adapters
+remain `UNAVAILABLE`.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits one frozen Exploratory Replay Request bound to the exact immutable artifact,

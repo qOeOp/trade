@@ -304,6 +304,45 @@ request、locator、digest、clock、provider、persistence 或 runtime selector
 build。此 fixture 只证明编译期验收拓扑，不证明 PostgreSQL custody、provider 连通性、已部署 Windmill
 readiness、生产 composition 或任何交易权威。
 
+### `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`
+
+**TARGET / ISOLATED_ACCEPTANCE_ONLY：** 这个被显式选择、由 request 驱动的 profile 授权最小动态 PostgreSQL
+验收拓扑；它与上面的编译期 fixture 分离，绝不是默认或生产路径。只有在 Market Data 私有 Deployment
+Store Admission custodian 消费 canonical management plane 在 repository、candidate、caller、consumer 与被测进程之外
+预置的 immutable acceptance trust bundle 后，才可构造其 disposable PostgreSQL store。bundle 固定 environment、
+signer key fingerprint、witness、credential-resolver 与 direct-measurer identity。分别执行的独立 principal 签发
+signed append-only manifest/history 及其准确 current head、维护 anti-rollback witness、租赁 opaque least-
+privilege credential handle、直接测量 target 并关闭 rotation fence；candidate/caller 不拥有 signer private key、
+witness write authority、credential material 或 measurement authority。sealed admission receipt 交叉绑定 bundle
+与每项 observation。signature、predecessor/generation、current-
+head、rotation、endpoint/TLS/server/database、schema/migration/function/role/ACL、credential audience/version 与
+measurement identity 必须在 repository 构造前和受保护 use boundary 再次校验时全部相等。custodian 将全部 raw
+admission、credential、measurement、PIT、Source Binding、clock 与 head evidence 保留在 Market Data 内部。
+
+输入是一个准确的 R&D Owner-issued 密封 request locator 与 receipt，绝不是 caller-authored request DTO。
+Market Data 必须通过固定只读 R&D Owner port resolve 并验证 canonical request bytes digest Owner 请求者角色与
+request identity；locator 标签或 Market Data 自己的证明都不充分。在一个 Market Data transaction 内，Owner
+解析该 request，选择其准确 `EVENT` projection 与 native event receipt，并提交 request
+到 projection/event locator 及 durable Owner readback。完全相同含义的 replay 返回逐字节相同 locator/readback
+bytes；含义变化或同一 identity 不同 bytes 均冲突且零写入。restart 后解析该 locator 必须返回相同 canonical
+request、projection、event identity 与 bytes。现有 Replay V2 的 `resolved_owner_inputs` content identity 只是
+通用 content addressing，单独并不构成这项权威，也绝不能被静默重新解释。隔离路径必须新增一个版本化 Owner
+binding receipt，在签发任何 resolver 之前交叉绑定 sealed R&D request identity、准确 Market Data projection
+receipt digest 与 Owner-native event identity。
+越过边界交给 Strategy Factory 或 Backtest composition 的唯一值
+是针对该 request-selected event 的密封、只读 `StrategyInputSampleEventResolverV1` capability；insert、update、
+delete、head advance、generic query、raw DSN、credential、admission receipt 或 evidence accessor 均不得越过
+Owner 边界。
+
+caller digest、DSN、fixture、fixed corpus、in-memory/temp-file writer，以及由 candidate、caller、consumer 或
+被测进程派生的 signer/witness/credential/measurer 均不能铸造
+request locator、resolver、event 或 readback。head、rotation、ACL、credential、measurement、request、role、
+projection、event、locator 或 readback 任一缺失、过期、已取代或不匹配，都必须在 `ProgramHost` 或 Backtest
+state mutation 前失败，且不产生正向 resolver 或 terminal result。成功证明只授权该 disposable profile；
+production resolver、signer、anti-rollback witness、credential-resolver、direct-measurement adapter 与默认产品
+入口仍保持 `UNAVAILABLE`。它不证明 provider authenticity、production readiness/deployment authority、
+Dashboard、Paper、Live、real trading 或其他 production write。
+
 runtime handoff 使用既有静态 receipts 与一个 verified batch 重新解析每个 selection；frame 只携带
 trigger 与动态 value receipts，不复制静态 receipt。Market Data 只有在同一个 Owner-verified
 observation batch 中所选 rows 具有完全相同的 snapshot/fact/batch identity、event-effective、

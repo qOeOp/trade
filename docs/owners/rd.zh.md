@@ -21,6 +21,11 @@
 - **TARGET：** R&D 冻结的规范 `BoundedFeatureProgramV1` identity/digest 及其准确 Design/plugin binding，
   以及 tagged V3 first-party lowering/build capsule 与持久 receipt；这些不是 CURRENT executable fact。
 - 冻结 Exploratory Replay Request，绑定准确意图 TrialFamily 工件 请求 PIT 数据范围 重放配置和成本容量模型。
+- **TARGET / `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`：** 版本化 密封的 Exploratory Replay Request locator 与
+  receipt，只能由 R&D 根据该 canonical 请求签发，并绑定其准确 canonical bytes 与 digest Owner 请求者角色和
+  请求身份。只有 R&D 提供该 locator 的固定只读 resolver 与持久 逐字节一致的 readback。locator caller 提供的
+  digest 或其他 Owner 的 binding 都不能构造 反序列化 签名 替换或证明该 receipt。Market Data 只有先通过固定
+  Owner port resolve 并验证这个 R&D-native receipt 与 canonical 请求，才能独立签发任何 event-binding receipt。
 - 探索请求与结果必须在 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot Universe Selection Record
   与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份上完全相等。只有请求相等的
   `TERMINAL_RESULT` 可以进入 Research Selection。
@@ -326,7 +331,9 @@ purge 与 embargo 派生规则、TrialFamily-aware multiplicity policy、attempt
 - 向 [Market Data](./market-data/) 只在已提交 `REPAIR_INPUTS` Iteration Decision 后发出 Market Data
   Repair Request。请求要求原生 Owner 修复证据，不指定 adapter 不改写旧 snapshot 也不宣称数据可用。
 - 向 [Backtest](./backtest/) 交付一个由 R&D 拥有的冻结 Exploratory Replay Request，绑定准确意图
-  工件 数据范围 重放配置以及成本 滑点与容量模型身份。
+  工件 数据范围 重放配置以及成本 滑点与容量模型身份。隔离 EVENT replay 路径只交付其 R&D-native 密封
+  locator/receipt；每个下游 Owner 都必须重新 resolve 固定 R&D 只读 port 并验证 canonical request bytes 与
+  digest，不能信任 locator 标签或下游 Owner 的自我证明。
   `REPAIR_INPUTS_SIMULATOR` 或 `REPAIR_INPUTS_BACKTEST_OPERATIONAL` 决定还可创建一个关联
   `native-repair-request`；只有 Backtest 能针对该准确类别专属 attempt 返回 `REPAIRED` `UNAVAILABLE`
   或 `OUTCOME_UNKNOWN`。

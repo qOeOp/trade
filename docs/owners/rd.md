@@ -22,6 +22,12 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - **TARGET:** R&D-frozen canonical `BoundedFeatureProgramV1` identity/digest and its exact Design/plugin binding,
   plus a tagged V3 first-party lowering/build capsule and durable receipt. These are not CURRENT executable facts.
 - Frozen Exploratory Replay Request binding the exact intent, TrialFamily, artifact, requested PIT data scope, replay configuration, and cost-capacity model.
+- **TARGET / `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`:** versioned sealed Exploratory Replay Request locator and
+  receipt, issued only by R&D from that canonical request and bound to its exact canonical bytes and digest, Owner,
+  requester role, and request identity. R&D alone provides the fixed read-only resolver and durable byte-identical
+  readback for that locator. The locator, a caller-supplied digest, or another Owner's binding cannot construct,
+  deserialize, sign, replace, or attest the receipt. Market Data must resolve and verify this R&D-native receipt and
+  canonical request through the fixed Owner port before it may independently issue any event-binding receipt.
 - Exploratory request-result equality across Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
   slippage, and capacity-model identities. Only a request-equal `TERMINAL_RESULT` may enter Research Selection.
@@ -354,7 +360,10 @@ Decision, Selection, and Candidate. Changing one creates a successor lineage rat
   Repair Request. The request asks its native Owner to repair evidence; it does not prescribe an adapter, rewrite
   the old snapshot, or claim availability.
 - To [Backtest](./backtest/): one R&D-owned frozen Exploratory Replay Request bound to the exact intent,
-  artifact, data scope, replay configuration, and cost, slippage, and capacity-model identities.
+  artifact, data scope, replay configuration, and cost, slippage, and capacity-model identities. The isolated EVENT
+  replay route supplies only its R&D-native sealed locator/receipt; every downstream Owner re-resolves the fixed
+  read-only R&D port and verifies the canonical request bytes and digest rather than trusting a locator label or a
+  downstream attestation.
   A `REPAIR_INPUTS_SIMULATOR` or `REPAIR_INPUTS_BACKTEST_OPERATIONAL` decision may additionally create one
   correlated `native-repair-request`; Backtest alone returns `REPAIRED`, `UNAVAILABLE`, or `OUTCOME_UNKNOWN` for
   that exact category-specific attempt.

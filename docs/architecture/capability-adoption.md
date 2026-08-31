@@ -145,8 +145,8 @@ strategy source code do not exist.
   evidence accessor. The generic S3 catalog still supplies mechanism, not authority.
 - **TARGET:** one non-business Deployment Store Admission Custodian, private to Market Data, owns only signed append-only manifest/history, one
   unique signed current head, direct target measurements, immutable admission receipts, rotation fencing, and custody
-  incidents. It is not a business `authorityOwner`, Flow or Dashboard node. Its first exact deployment/bootstrap
-  consumer is `product/rd-workbench/docker-compose.yml#services.rd-owner-api`, rooted at
+  incidents. It is not a business `authorityOwner`, Flow or Dashboard node. The intended default deployment/bootstrap
+  consumer remains `product/rd-workbench/docker-compose.yml#services.rd-owner-api`, rooted at
   `crates/strategy_factory_rd_owner_api/src/main.rs::main`. Before Market Data constructs the governed PostgreSQL
   repository, its private seam must consume a sealed receipt bound to the exact environment, deployment,
   Market Data Owner, `rd-owner-api` consumer, PostgreSQL backend, endpoint/TLS/server/database identities,
@@ -154,16 +154,37 @@ strategy source code do not exist.
   predecessor/generation/validity/recovery, signature, head, anti-rollback witness, direct measurement, credential
   lease, and closed rotation fence. Restart or cache loss repeats signature/head verification and direct measurement;
   ambiguity constructs no Owner repository and triggers no business retry. The receipt and raw store evidence remain
-  private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`.
+  private; the first ordinary-consumer value is the Market Data-sealed `ResearchPitTerminal`. That default product
+  entry remains `UNAVAILABLE` until its distinct production resolver, signer, witness, credential-resolver, and direct-
+  measurement adapters exist.
+- **`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET:** this explicitly selected, request-driven profile is the only
+  admitted non-default topology for dynamic acceptance before those production adapters exist. A disposable PostgreSQL
+  target is admitted only under an immutable acceptance trust bundle provisioned by the canonical management plane
+  outside the repository, candidate, caller, consumer, and tested process. That bundle pins the acceptance environment, signer key fingerprint, witness,
+  credential-resolver, and direct-measurer identities. Separately executed principals issue signed append-only
+  manifest/history and its exact current head, maintain the anti-rollback witness, lease an opaque credential handle,
+  measure the target directly, and close the rotation fence; the candidate and caller possess no signer private key,
+  witness write authority, credential material, or measurement authority. The sealed admission receipt cross-binds the
+  complete trust bundle and every observation. The Market Data-private custodian retains that evidence and the
+  credentials; an Owner-issued request
+  then resolves to its exact projection/event locator and durable readback, and the consumer receives only the sealed,
+  read-only `StrategyInputSampleEventResolverV1`. `ProgramHost` passes the request-selected Owner inputs through the real
+  BacktestEngine and Sim Exchange; Backtest seals actual consumption and diagnosis and atomically commits the exact
+  request, attempt, and terminal result. Byte-identical retry joins the same bytes, conflicting meaning is rejected,
+  and restart must return the same Owner readbacks. A caller digest, raw DSN, fixture, fixed corpus, in-memory or
+  temporary-file writer, or signer/witness/credential/measurer derived by the candidate, caller, consumer, or tested
+  process cannot mint either positive authority.
 - **TARGET / UNAVAILABLE:** S3 fan-out waits for a real catalog consumer and a pinned disposable S3-compatible test
   authority. Production signer, resolver, and anti-rollback witness adapters remain unavailable without evidence.
 - **NOT_ADMITTED:** no business fact or receipt, global registry, scheduler, deployment service, caller-authored
   positive evidence, raw DSN/secret/private key in artifacts or logs, automatic DDL/role/credential/bucket mutation,
-  provider probe, production write, Dashboard implementation, or trading.
+  provider probe, production write, Dashboard implementation, or trading. Isolated acceptance never promotes
+  production readiness, deployment authority, Paper, Live, real trading, or another production write.
 
 Shared Time producer work precedes its Portfolio consumer. Disposable PostgreSQL acceptance must exercise the private
-admission, its pre/post revalidation, Market Data current-head checks, and the sealed RD Workbench consumer boundary;
-fixture proof is not production adapter evidence. S3 fan-out remains later and conditional.
+admission, its pre/post revalidation, Market Data current-head checks, and the explicitly selected isolated consumer
+boundary; fixture proof is not production adapter evidence. The default RD Workbench path and S3 fan-out remain later,
+unavailable, and conditional on their distinct adapters.
 
 ## Provider typed-port evidence
 

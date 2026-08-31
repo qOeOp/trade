@@ -399,21 +399,43 @@ signature, current head, anti-rollback witness, direct measurement, credential l
 cannot be assembled from caller-authored positive evidence. Restart or cache loss re-verifies signatures and the head
 and remeasures the target. Ambiguity yields no Owner repository and no business retry.
 
-The first exact consumer is the default `product/rd-workbench` `rd-owner-api` bootstrap composition. Before Market Data
+The intended default consumer is the `product/rd-workbench` `rd-owner-api` bootstrap composition. Before Market Data
 constructs the governed PostgreSQL repository, its private seam must consume one sealed store-admission receipt for the
 exact Market Data Owner, PostgreSQL backend, environment, deployment, and consumer identity. S3 remains TARGET and
 `UNAVAILABLE` until a real catalog consumer and pinned disposable S3-compatible test authority exist. Receipt and raw
 store/PIT/source/clock evidence stay inside Market Data; the first ordinary-consumer value is a sealed
-`ResearchPitTerminal`.
+`ResearchPitTerminal`. The default product entry remains `UNAVAILABLE` until its distinct production resolver, signer,
+anti-rollback witness, credential-resolver, and direct-measurement adapters exist.
+
+**`ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1` / TARGET:** This explicitly selected profile is the only admitted non-default,
+non-production dynamic acceptance topology before those adapters exist. An immutable acceptance trust bundle is
+provisioned by the canonical management plane outside the repository, candidate, caller, consumer, and tested process and pins the environment, signer key
+fingerprint, witness, credential-resolver, and direct-measurer identities. Separately executed principals issue the
+signed append-only manifest/history and exact current head, maintain the witness, lease the opaque credential handle,
+measure the disposable PostgreSQL target, and close rotation; the candidate and caller have none of those write or
+secret authorities. The admission receipt cross-binds that bundle and every observation. The remaining stages are:
+Market Data-private admission and custodian; an Owner-issued
+request-to-projection/event locator and durable readback; sealed read-only `StrategyInputSampleEventResolverV1`;
+`ProgramHost`; the real BacktestEngine and Sim Exchange; and a Backtest Owner terminal-result receipt with restart
+readback. Raw custody evidence never crosses to the consumer. Backtest atomically commits the exact request, attempt,
+actual-consumption record, diagnosis, and result; byte-identical retry joins the same canonical bytes, while changed
+meaning conflicts and performs no write.
+
+The profile fails closed before `ProgramHost` or Backtest mutation when any signature, head, rotation, ACL, credential,
+measurement, request, locator, projection, event, role, or readback binding is missing or mismatched. A raw DSN, caller
+digest, fixture, fixed corpus, in-memory or temporary-file writer, or signer/witness/credential/measurer derived by the
+candidate, caller, consumer, or tested process cannot create a
+positive resolver or result. Successful isolated evidence proves only that exact disposable topology; it cannot promote
+production readiness, deployment authority, Paper, Live, real trading, or another production write.
 
 **NOT_ADMITTED:** the custodian creates no business fact or receipt, global registry, scheduler, or deployment service;
 stores no raw DSN, secret, or private key in artifacts or logs; performs no automatic DDL, role, credential, bucket, or
 provider mutation or probe; and authorizes no production write, Dashboard implementation, or trading.
 
 The Shared Time producer state machine precedes its Portfolio consumer. Disposable PostgreSQL acceptance must cover
-private admission, pre/post revalidation, Market Data current-head checks, and the sealed RD Workbench consumer path;
-fixtures do not prove production adapters. Production signer, resolver, witness, and S3 adapters remain unavailable
-without their own evidence.
+private admission, pre/post revalidation, Market Data current-head checks, and the explicitly selected isolated consumer
+path; fixtures do not prove production adapters. Production signer, resolver, witness, credential-resolver, direct-
+measurement, default-product, and S3 adapters remain unavailable without their own evidence.
 
 Execution's Product Edge Effect Closure View distinguishes `UNKNOWN_EFFECT`, `NO_EFFECT`, and `SETTLED`, and binds the exact
 effect frontier, readback/reconciliation cuts, blockers, freshness, and responsible Owner. Recovery projection
