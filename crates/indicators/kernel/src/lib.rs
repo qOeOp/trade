@@ -1,6 +1,11 @@
 #![no_std]
 #![deny(unsafe_code)]
 
+mod fixed_i128;
+mod i256;
+
+pub use fixed_i128::{CanonicalDecodeError, DecimalScale, FixedI128, NumericFailure, RoundingMode};
+
 /// Complete externally stored state after one EMA transition.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EmaTransition {
