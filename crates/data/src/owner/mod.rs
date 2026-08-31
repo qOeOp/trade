@@ -243,7 +243,11 @@ async fn consume_sample_projection_store_admission_bootstrap_v2(
                 .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
-            let port = capability.into_sample_projection_snapshot_port();
+            let port = capability
+                .into_sample_projection_snapshot_port()
+                .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

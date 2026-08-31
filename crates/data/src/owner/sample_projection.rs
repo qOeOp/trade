@@ -105,7 +105,10 @@ impl StrategyInputSampleProjectionReadbackV2 {
         &self.canonical_bytes
     }
 
-    pub(super) fn from_verified(decoded: DecodedStrategyInputSampleProjectionV2) -> Self {
+    pub(super) fn from_postgres_verified(
+        proof: super::postgres::StrategyInputSampleProjectionPostgresProofV2,
+    ) -> Self {
+        let decoded = proof.into_decoded();
         Self {
             receipt_digest: decoded.digest,
             subject_identity: decoded.subject_identity,
@@ -120,9 +123,11 @@ impl StrategyInputSampleProjectionReadbackV2 {
 #[error("Market Data sample projection is unavailable")]
 pub struct StrategyInputSampleProjectionResolveErrorV2;
 
-pub(super) mod sealed {
+mod sealed {
     pub trait Sealed {}
 }
+
+impl sealed::Sealed for super::postgres::MarketDataReadPostgres {}
 
 /// Sealed fixed resolver for one exact, admission-verified historical V2 projection.
 ///
@@ -136,10 +141,7 @@ pub trait StrategyInputSampleProjectionResolverV2: sealed::Sealed + Send + Sync 
     async fn resolve_strategy_input_sample_projection_v2(
         &self,
         locator: &UntrustedStrategyInputSampleProjectionLocatorV2,
-    ) -> Result<
-        StrategyInputSampleProjectionReadbackV2,
-        StrategyInputSampleProjectionResolveErrorV2,
-    >;
+    ) -> Result<StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2>;
 }
 
 /// Additive identity over one complete unchanged V1 event frame.

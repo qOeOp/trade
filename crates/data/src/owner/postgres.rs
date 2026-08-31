@@ -16,6 +16,11 @@ use super::research_pit_terminal::{
     seal_research_pit_terminal,
 };
 #[cfg(not(test))]
+use super::sample_projection::{
+    StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2,
+    StrategyInputSampleProjectionResolverV2, UntrustedStrategyInputSampleProjectionLocatorV2,
+};
+#[cfg(not(test))]
 use super::sealed_replay_input::{
     SealedReplayInput, SealedReplayInputResolver, UntrustedSealedReplayInputRequest,
     seal_replay_input,
@@ -77,11 +82,6 @@ use super::{
             verify_stored_aggregate as verify_source_aggregate,
         },
     },
-};
-#[cfg(not(test))]
-use super::sample_projection::{
-    StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2,
-    StrategyInputSampleProjectionResolverV2, UntrustedStrategyInputSampleProjectionLocatorV2,
 };
 #[cfg(test)]
 use super::{
@@ -187,6 +187,24 @@ pub(crate) struct MarketDataReadPostgres {
     pub(crate) pool: PgPool,
     #[cfg(not(test))]
     admitted_port: AdmittedMarketDataSnapshotPort,
+}
+
+/// Unforgeable proof that PostgreSQL custody and every native dependency were verified.
+///
+/// Only this module can construct the proof. The projection contract may consume it, while other
+/// Owner siblings cannot promote structurally coherent caller-authored bytes.
+pub(super) struct StrategyInputSampleProjectionPostgresProofV2 {
+    decoded: DecodedStrategyInputSampleProjectionV2,
+}
+
+impl StrategyInputSampleProjectionPostgresProofV2 {
+    fn new(decoded: DecodedStrategyInputSampleProjectionV2) -> Self {
+        Self { decoded }
+    }
+
+    pub(super) fn into_decoded(self) -> DecodedStrategyInputSampleProjectionV2 {
+        self.decoded
+    }
 }
 
 impl MarketDataOwnerPostgres {
@@ -4633,10 +4651,8 @@ impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
     async fn resolve_strategy_input_sample_projection_v2(
         &self,
         locator: &UntrustedStrategyInputSampleProjectionLocatorV2,
-    ) -> Result<
-        StrategyInputSampleProjectionReadbackV2,
-        StrategyInputSampleProjectionResolveErrorV2,
-    > {
+    ) -> Result<StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2>
+    {
         let evidence = self
             .admitted_port
             .resolve_sample_projection_v2(locator.receipt_digest())
@@ -4646,8 +4662,6 @@ impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
             .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)
     }
 }
-
-impl super::sample_projection::sealed::Sealed for MarketDataReadPostgres {}
 
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
@@ -4799,14 +4813,12 @@ fn verify_admitted_sample_projection_v2(
     let receipt_digest = projection_raw_digest(projection, "receipt_digest")?;
     let subject_identity = projection_raw_digest(projection, "subject_identity")?;
     let custody_digest = projection_raw_digest(projection, "custody_digest")?;
-    let kind = projection_raw_u64(projection, "kind")
-        .and_then(|value| {
-            u8::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
-        })?;
-    let component_count = projection_raw_u64(projection, "component_count")
-        .and_then(|value| {
-            u32::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
-        })?;
+    let kind = projection_raw_u64(projection, "kind").and_then(|value| {
+        u8::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+    })?;
+    let component_count = projection_raw_u64(projection, "component_count").and_then(|value| {
+        u32::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+    })?;
     let receipt_bytes = projection_raw_bytes_field(projection, "receipt_bytes")?;
     if receipt_digest != expected_digest
         || kind != 0x01
@@ -4850,11 +4862,7 @@ fn verify_admitted_sample_projection_v2(
         let timeframe_custody = projection_raw_digest(timeframe, "custody_digest")?;
         if timeframe_digest != component.timeframe_projection_digest()
             || timeframe_custody
-                != projection_custody_digest(
-                    timeframe_digest,
-                    timeframe_binding,
-                    &timeframe_bytes,
-                )
+                != projection_custody_digest(timeframe_digest, timeframe_binding, &timeframe_bytes)
         {
             return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
         }
@@ -4883,10 +4891,7 @@ fn verify_admitted_sample_projection_v2(
             correction_sequence: projection_raw_u64(sample, "correction_sequence")?,
             logical_time: projection_raw_u64(sample, "logical_time")?,
             lineage_version: projection_raw_u64(sample, "lineage_version")?,
-            projection_receipt_digest: projection_raw_digest(
-                sample,
-                "projection_receipt_digest",
-            )?,
+            projection_receipt_digest: projection_raw_digest(sample, "projection_receipt_digest")?,
             projection_binding_receipt_digest: projection_raw_digest(
                 sample,
                 "projection_binding_receipt_digest",
@@ -4936,9 +4941,11 @@ fn verify_admitted_sample_projection_v2(
         verify_decoded_projection_component_native_v2(component, &timeframe, &sample)
             .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
     }
-    Ok(StrategyInputSampleProjectionReadbackV2::from_verified(
-        decoded,
-    ))
+    Ok(
+        StrategyInputSampleProjectionReadbackV2::from_postgres_verified(
+            StrategyInputSampleProjectionPostgresProofV2::new(decoded),
+        ),
+    )
 }
 
 fn projection_raw_u64(

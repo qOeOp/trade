@@ -105,6 +105,31 @@ impl PostgresMeasurementSpec {
         }
         Ok(spec)
     }
+
+    /// Returns whether this exact admitted measurement covers every catalog surface used by the
+    /// fixed V2 sample-projection snapshot consumer.
+    pub(super) fn covers_sample_projection_floor_v2(&self) -> bool {
+        const FUNCTIONS: [&str; 3] = [
+            "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
+            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+            "market_data_private.resolve_sample_receipt_v1(bytea)",
+        ];
+        const RELATIONS: [&str; 5] = [
+            "market_data_private.strategy_input_sample_projection_receipts_v2",
+            "market_data_private.timeframe_projection_receipts_v1",
+            "market_data_private.sample_facts_v1",
+            "market_data_private.sample_receipts_v1",
+            "market_data_private.sample_outbox_v1",
+        ];
+
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
 }
 
 /// Secret-bearing credential lease resolved from one opaque handle.
@@ -340,8 +365,8 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
     let mut sample_rows = Vec::with_capacity(component_count);
     for ordinal in 0..component_count {
         let entry = HEADER_LEN + ENTRY_LEN * ordinal;
-        let timeframe_digest = &receipt_bytes
-            [entry + TIMEFRAME_DIGEST_OFFSET..entry + TIMEFRAME_DIGEST_OFFSET + 32];
+        let timeframe_digest =
+            &receipt_bytes[entry + TIMEFRAME_DIGEST_OFFSET..entry + TIMEFRAME_DIGEST_OFFSET + 32];
         let sample_receipt_digest = &receipt_bytes
             [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
         let timeframe: serde_json::Value = sqlx::query_scalar(
