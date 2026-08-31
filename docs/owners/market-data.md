@@ -58,23 +58,24 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 
 ### Status and fixed consumer
 
-**CURRENT/PARTIAL:** the PIT and Strategy Input paths carry an `instrument_master_digest` supplied on the
-request and compare it with the digest carried by an Owner-verified batch. That digest is provenance for the
-current bounded path, but it is not a native Instrument Master fact, cut, write receipt, or sealed readback.
-The representative Strategy Factory path also freezes a data-Owner role string and an AAPL/MSFT fixture. Those
-hard-coded role and mapping choices are an implementation target, not Instrument Master authority. No current
-code or dynamic acceptance establishes the TARGET contract below.
+**CURRENT/PARTIAL:** Market Data implements the native `InstrumentMasterFactV1`, `InstrumentMasterCutV1`,
+write-once receipt/outbox, move-only `InstrumentMasterReadbackV1`, and sealed PostgreSQL resolver/recovery path
+described below for the exact `BACKTEST_OWNER_V1` role. The PIT and Strategy Input product paths still carry a
+request-supplied `instrument_master_digest` and compare it with an Owner-verified batch; the representative
+Strategy Factory path still freezes a data-Owner role string and an AAPL/MSFT fixture. Those legacy provenance,
+role, and mapping paths do not replace the native authority and do not establish product consumption of it.
 
-**TARGET:** Market Data is the sole writer and resolver of the native Instrument Master state path. Its fixed
-cross-Owner consumer role is the exact ASCII identity `BACKTEST_OWNER_V1`. R&D declares research scope and the
-Strategy compiler consumes Owner-sealed resolutions, but neither may query Instrument Master storage directly,
-maintain a symbol-to-instrument or venue mapping, or synthesize a resolution. Replacing the current hard-coded
-Strategy Factory role/mapping path with direct Owner resolution is required implementation work.
+**TARGET:** direct Backtest product consumption replaces the legacy digest and hard-coded Strategy Factory
+role/mapping paths with the existing Owner-sealed resolution. R&D declares research scope and the Strategy
+compiler consumes that resolution, but neither may query Instrument Master storage directly, maintain a
+symbol-to-instrument or venue mapping, or synthesize a resolution.
 
-**NOT_ADMITTED:** this contract does not admit Rust implementation, a schema migration, provider ingestion,
-production/default database writes, Dashboard work, dynamic product acceptance, or trading. A caller-carried
-digest, canonical-looking string, static fixture, transport success, or documentation check cannot claim native
-Instrument Master custody.
+**NOT_ADMITTED:** this status does not claim provider ingestion or authenticity, production migration or
+production/default database writes, deployment, Dashboard work, dynamic Backtest product acceptance, inverse or
+quanto target-consumption semantics, or trading. BAR custody itself is instrument-class neutral when its exact
+Instrument Master evidence supports the canonical fixed/session bar. A caller-carried digest, canonical-looking
+string, static fixture, transport success,
+Owner-only test, or documentation check cannot claim product closure.
 
 ### Native immutable records
 
@@ -375,12 +376,13 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
-### TARGET sample-fact and sample-receipt authority
+### CURRENT/PARTIAL sample-fact and sample-receipt authority
 
-This is an additive architecture contract, not executable readiness. Market Data remains the sole writer of the
-versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and `SampleReceiptV1`, and alone
-implements their native exact-receipt resolvers. Every existing V1 binding, event, value, frame, joined-cut, row,
-digest, and byte meaning remains
+Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
+`SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The
+additive BAR extension admitted here is limited to complete fixed-interval and exchange-session bars; partial bars
+remain TARGET. Market Data remains the sole writer of all these records. Every existing V1 binding, event, value,
+frame, joined-cut, row, digest, and byte meaning remains
 authoritative and byte-identical; no V1 record is deleted, synthesized, backfilled, garbage-collected, reinterpreted,
 or promoted. The additive `StrategyInputSampleProjectionReceiptV2` is the single canonical frame/join projection
 over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut codecs;
@@ -419,9 +421,24 @@ identity; it can never replace or alias the completed slot. Every bar interval i
 the bound anchor and schedule; `INTERVAL_OPEN` uses `open` as event-effective time and `INTERVAL_CLOSE` uses
 `close`. `POINT_EVENT` uses the source event-effective time.
 
-The existing V1 binding's free-form timeframe string is provenance only and never determines these bytes.
-Market Data issues one additive, immutable `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt
-digest. Its canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, V1 binding-receipt digest `[u8; 32]`,
+The first admitted BAR slice accepts only `COMPLETE_ONLY` for `FIXED_INTERVAL_BAR` and
+`EXCHANGE_SESSION_BAR`. The canonical `ADMIT_PARTIAL_AS_DISTINCT_SLOT` codec is preserved for a later TARGET, but
+it is not executable admission in this slice and produces no positive projection, fact, receipt, or resolver result.
+
+The existing V1 binding's free-form timeframe string is provenance only and is never parsed or used to determine
+these bytes. `UntrustedTimeframeProjectionProposalV1` is a structured additive proposal keyed to one exact V1
+binding-receipt identity. It carries only that binding identity and typed kind, positive step, unit, label, and
+partial-bar rule; caller-supplied anchor, calendar, session, time-zone, or free-form label fields are not authority.
+Market Data alone re-resolves the exact binding and selected row in the exact `VerifiedPitObservationBatch`,
+derives the anchor from that row's exact verified Source Binding evidence, and verifies the binding, batch, Source
+Binding identity, lineage root, and lineage version as one unchanged anchor. For a BAR proposal it also resolves
+one exact single-fact `InstrumentMasterReadbackV1` and derives the applicable calendar, session, and time-zone
+evidence identities from that fact; zero calendar/session is admitted only when that exact Owner evidence proves a
+continuous clock. Missing, multiple, stale, mismatched, or caller-derived evidence produces no projection.
+
+Only after that validation does Market Data issue one additive, immutable `TimeframeProjectionReceiptV1` keyed by
+the exact V1 binding-receipt digest. Its canonical bytes are schema `u16LE = 1`, reserved-zero `u16LE`, V1
+binding-receipt digest `[u8; 32]`,
 timeframe identity `[u8; 32]`, and the complete fixed-width canonical `TimeframeSpecV1` bytes; its receipt identity
 is SHA-256 over `market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes`. The spec's four
 identities are the exact Owner-admitted calendar/session/time-zone/anchor evidence identities. The same
@@ -548,7 +565,7 @@ replays, or retroactively advances predecessor state. An ordinary equal-valued n
 and advances exactly once. Reusing one 1-hour or exchange-session `1d` sample under later 1-minute triggers returns
 the same receipt and coordinate bytes and causes no second sample-clock advance.
 
-The additive PostgreSQL target has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot
+The additive PostgreSQL path has Owner-owned timeframe-projection-receipt, sample-fact, series-head, per-slot
 correction-head, sample-receipt, and outbox tables plus exact native resolvers. One Market Data transaction inserts
 the fact, receipt, and outbox row
 and compare-and-swap advances both the series and correction heads from the predecessors bound by the fact; an
@@ -578,7 +595,9 @@ ACL denial for every non-Owner write path. The consumer oracle repeats the same 
 samples across 1-minute triggers without a double advance, advances once for an equal-valued new sample and once
 for an accepted correction, and returns identical native receipt bytes after restart. Until that dynamic evidence
 exists, this contract claims no provider authenticity, production migration or deployment, Dashboard, Paper, Live,
-BFP executable maturity, or trading authority.
+BFP executable maturity, Backtest product closure including inverse or quanto target-consumption semantics,
+Windmill/default-database admission, or trading authority. These Backtest limitations do not create a Market Data
+instrument-class rejection.
 
 ## Input handoffs
 

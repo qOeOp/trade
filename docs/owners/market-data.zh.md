@@ -50,21 +50,22 @@
 
 ### 状态与固定消费者
 
-**CURRENT/PARTIAL：** PIT 与 Strategy Input 路径携带 request 提供的 `instrument_master_digest`，并将其与
-Owner-verified batch 携带的 digest 比对。该 digest 是当前有界路径的 provenance，但不是原生 Instrument
-Master fact、cut、write receipt 或 sealed readback。代表性 Strategy Factory 路径还冻结了一个 data-Owner
-role 字符串以及 AAPL/MSFT fixture。这些硬编码 role 与 mapping 是 implementation target，不是 Instrument
-Master 权威。当前代码或动态验收均未建立下述 TARGET 契约。
+**CURRENT/PARTIAL：** Market Data 已实现下文描述的原生 `InstrumentMasterFactV1`、
+`InstrumentMasterCutV1`、write-once receipt/outbox、move-only `InstrumentMasterReadbackV1`，以及面向准确
+`BACKTEST_OWNER_V1` role 的 sealed PostgreSQL resolver/recovery 路径。PIT 与 Strategy Input 产品路径仍携带
+request 提供的 `instrument_master_digest` 并与 Owner-verified batch 比对；代表性 Strategy Factory 路径仍冻结
+data-Owner role 字符串与 AAPL/MSFT fixture。这些旧 provenance、role 与 mapping 路径不能替代原生权威，也
+不证明产品已消费该权威。
 
-**TARGET：** Market Data 是原生 Instrument Master 状态路径的唯一 writer 与 resolver。其固定跨 Owner
-consumer role 是准确 ASCII 身份 `BACKTEST_OWNER_V1`。R&D 声明研究 scope，Strategy compiler 消费
-Owner-sealed resolution，但两者均不得直接查询 Instrument Master storage、维护 symbol-to-instrument 或
-venue mapping，也不得合成 resolution。用直接 Owner resolution 替换当前硬编码 Strategy Factory
-role/mapping 路径是必需的后续实现工作。
+**TARGET：** Backtest 产品直接消费既有 Owner-sealed resolution，并以它替换旧 digest 与硬编码 Strategy
+Factory role/mapping 路径。R&D 声明研究 scope，Strategy compiler 消费该 resolution，但两者均不得直接
+查询 Instrument Master storage、维护 symbol-to-instrument 或 venue mapping，也不得合成 resolution。
 
-**NOT_ADMITTED：** 本契约不准入 Rust 实现、schema migration、provider ingestion、production/default
-database write、Dashboard 工作、动态产品验收或交易。caller-carried digest、看似规范的字符串、静态
-fixture、transport success 或文档检查都不能声称原生 Instrument Master custody。
+**NOT_ADMITTED：** 本状态不声称 provider ingestion/authenticity、production migration、
+production/default database write、deployment、Dashboard 工作、Backtest 动态产品验收、inverse/quanto
+target-consumption 语义或交易。只要准确 Instrument Master evidence 支持 canonical fixed/session bar，BAR
+custody 本身不区分 instrument class。caller-carried digest、看似规范的字符串、静态 fixture、transport
+success、仅 Owner test 或文档检查都不能声称产品闭合。
 
 ### 原生不可变记录
 
@@ -356,11 +357,12 @@ row digest，并交叉绑定 trigger 和 observation-batch digest。consumer 必
 envelope，不能从 caller 选择的 value 或 order key 铸造。Market Data 绝不签发 `TIMER` 或 `FILL`
 trigger；在真实 Time/Scheduler 与 Execution Owner contract 分别存在前，两者都保持 unavailable。
 
-### TARGET sample-fact 与 sample-receipt 权威
+### CURRENT/PARTIAL sample-fact 与 sample-receipt 权威
 
-这是增量架构合同，不代表 executable readiness。Market Data 仍是版本化 `TimeframeSpecV1`、
-`TimeframeProjectionReceiptV1`、`SampleFactV1` 与 `SampleReceiptV1` 的唯一 writer，也只有它实现这些
-原生 exact-receipt resolver。所有既有 V1
+Market Data 已实现版本化 `TimeframeSpecV1`、`TimeframeProjectionReceiptV1`、`SampleFactV1`、
+`SampleReceiptV1`、其原生 exact-receipt resolver，以及 `POINT_EVENT` 的 durable PostgreSQL custody。本契约
+新准入的增量 BAR extension 仅限完整 fixed-interval bar 与 exchange-session bar；partial bar 仍是 TARGET。
+Market Data 仍是所有这些 record 的唯一 writer。所有既有 V1
 binding、event、value、frame、joined-cut、row、digest 与 byte 含义继续保持权威且逐字节不变；不得删除、
 合成、backfill、garbage-collect、reinterpret 或 promote 任何 V1 record。新增的
 `StrategyInputSampleProjectionReceiptV2` 是 Owner fact 之上的唯一 canonical frame/join projection，不是替代
@@ -401,9 +403,23 @@ not-applicable identity；每个 applicable identity 都必须非零。
 `INTERVAL_OPEN` 使用 `open` 作为 event-effective time，`INTERVAL_CLOSE` 使用 `close`；`POINT_EVENT` 使用
 source event-effective time。
 
-既有 V1 binding 的 free-form timeframe string 仅是 provenance，绝不决定这些 bytes。Market Data 签发一份
-以准确 V1 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其 canonical bytes
-是 schema `u16LE = 1`、reserved-zero
+首个获准 BAR slice 对 `FIXED_INTERVAL_BAR` 与 `EXCHANGE_SESSION_BAR` 只接受 `COMPLETE_ONLY`。规范
+`ADMIT_PARTIAL_AS_DISTINCT_SLOT` codec 为后续 TARGET 保留，但本 slice 不准入其执行，且不生成 positive
+projection、fact、receipt 或 resolver result。
+
+既有 V1 binding 的 free-form timeframe string 仅是 provenance，绝不解析，也绝不用于决定这些 bytes。
+`UntrustedTimeframeProjectionProposalV1` 是以一份准确 V1 binding-receipt identity 为键的结构化增量 proposal。
+它只携带该 binding identity 与类型化 kind、正 step、unit、label 和 partial-bar rule；caller 提供的 anchor、
+calendar、session、time-zone 或 free-form label field 都不是权威。只有 Market Data 能重新解析准确 binding 与
+准确 `VerifiedPitObservationBatch` 中的 selected row，从该 row 的准确 verified Source Binding evidence 派生
+anchor，并将 binding、batch、Source Binding identity、lineage root 与 lineage version 作为一个未改变 anchor
+验证。对 BAR proposal，Market Data 还解析一份准确 single-fact `InstrumentMasterReadbackV1`，并从该 fact
+派生适用的 calendar、session 与 time-zone evidence identity；只有准确 Owner evidence 证明 continuous clock
+时，才可准入 calendar/session 零值。evidence 缺失、多份、过期、不匹配或由 caller 派生时，都不生成
+projection。
+
+只有完成该验证后，Market Data 才签发一份以准确 V1 binding-receipt digest 为键的新增 immutable
+`TimeframeProjectionReceiptV1`。其 canonical bytes 是 schema `u16LE = 1`、reserved-zero
 `u16LE`、V1 binding-receipt digest `[u8; 32]`、timeframe identity `[u8; 32]` 与完整 fixed-width canonical
 `TimeframeSpecV1` bytes；receipt identity 是
 `market-data.timeframe-projection-receipt.v1\0 || canonical receipt bytes` 的 SHA-256。spec 的四个 identity
@@ -524,7 +540,7 @@ V2 projection 随其 V1 frame 或 joined cut 正确改变。任何 projection �
 state。普通的等值新 slot 同样是新 sample，并准确推进一次。同一 1-hour 或 exchange-session `1d` sample 被
 后续 1-minute trigger 携带时，返回相同 receipt/coordinate bytes，且不会第二次推进 sample clock。
 
-增量 PostgreSQL TARGET 包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot
+增量 PostgreSQL 路径包含 Owner-owned timeframe-projection-receipt、sample-fact、series-head、per-slot
 correction-head、sample-receipt、outbox table 与 exact native resolver。一个 Market Data transaction 插入 fact、receipt、outbox row，并从 fact
 绑定的 predecessor 对 series/correction head 执行 compare-and-swap 前进；普通新 slot 从规范 absence 把其
 correction head 推进到首个 fact。逐字节相同的 replay 执行零次
@@ -550,7 +566,9 @@ rejection、V1 byte/meaning preservation，以及所有 non-Owner write path 的
 oracle 在 1-minute trigger 间重复同一 1-hour 与 exchange-session `1d` sample 而不 double advance；等值新
 sample 与已接纳 correction 各推进一次；restart 后返回相同 native receipt bytes。在具备该 dynamic evidence
 前，本合同不声称 provider authenticity、production migration/deployment、Dashboard、Paper、Live、BFP
-executable maturity 或 trading authority。
+executable maturity、Backtest 产品闭合（包括 inverse/quanto target-consumption 语义）、
+Windmill/default-database 准入或 trading authority。这些 Backtest 限制不创建 Market Data instrument-class
+rejection。
 
 ## 输入交接
 
