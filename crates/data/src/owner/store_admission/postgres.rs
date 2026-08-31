@@ -456,6 +456,7 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
     const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
 
     let target = parse_target(lease.database_url())?;
+
     if ambient_pg_configuration_present() {
         return Err(PostgresMeasurementError::InvalidTarget);
     }

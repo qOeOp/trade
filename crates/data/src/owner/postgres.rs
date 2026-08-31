@@ -1216,6 +1216,7 @@ impl MarketDataOwnerPostgres {
             let stored_dependencies =
                 load_sample_projection_schedule_dependencies_v3(&mut transaction, receipt_digest)
                     .await?;
+
             if stored.kind_tag() != prepared.kind_tag()
                 || stored.lifecycle_tag() != prepared.lifecycle_tag()
                 || stored.subject_identity() != subject_identity
@@ -1264,13 +1265,14 @@ impl MarketDataOwnerPostgres {
             .bind(custody_digest.as_slice())
             .execute(&mut *transaction)
             .await
-            .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+            .map_err(|e| map_sample_projection_insert_error_v2(&e))?;
         insert_sample_projection_schedule_dependencies_v3(
             &mut transaction,
             receipt_digest,
             &dependencies,
         )
         .await?;
+
         if rollback_before_commit {
             return Err(SampleProjectionCustodyErrorV2::CommitInterrupted);
         }
@@ -1370,6 +1372,7 @@ impl MarketDataOwnerPostgres {
         }
         let head =
             validate_bar_schedule_history(&mut transaction, canonical_instrument, true).await?;
+
         if head != prepared.expected_predecessor() {
             return Err(BarScheduleCustodyErrorV1::HeadConflict);
         }
@@ -1445,6 +1448,7 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
         if let Some(predecessor) = prepared.expected_predecessor() {
             let updated = sqlx::query("UPDATE market_data_private.bar_schedule_heads_v1 SET fact_digest=$1 WHERE canonical_instrument=$2 AND fact_digest=$3")
                 .bind(fact.digest().as_bytes().as_slice())
@@ -1464,6 +1468,7 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| BarScheduleCustodyErrorV1::HeadConflict)?;
         }
+
         if rollback_before_commit {
             return Err(BarScheduleCustodyErrorV1::CommitInterrupted);
         }
@@ -2281,6 +2286,7 @@ fn validate_prepared_sample_projection_v3(
         prepared.receipt_digest(),
     )
     .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+
     if prepared.kind_tag() != 0x01
         || prepared.lifecycle_tag() != 0x02
         || stored.kind_tag() != prepared.kind_tag()
@@ -2302,6 +2308,7 @@ fn validate_prepared_sample_projection_v3(
                 .ok_or(SampleProjectionCustodyErrorV2::InvalidPrepared)?;
             let component_ordinal = u32::try_from(ordinal)
                 .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+
             if component.role_identity() != dependency.role_identity()
                 || component.binding_receipt_digest() != dependency.binding_receipt_digest()
             {
@@ -2329,6 +2336,7 @@ fn validate_prepared_sample_projection_v3(
             })
         })
         .collect::<Result<Vec<_>, _>>()?;
+
     if dependencies.len() != stored.components().len() {
         return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
     }
@@ -2344,6 +2352,7 @@ async fn validate_sample_projection_dependencies_v3(
     if schedule_dependencies.len() != decoded.components().len() {
         return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
     }
+
     for (ordinal, (component, schedule_dependency)) in decoded
         .components()
         .iter()
@@ -2360,6 +2369,7 @@ async fn validate_sample_projection_dependencies_v3(
         }
         let sample_receipt_digest = component.sample_receipt_digest();
         let timeframe_projection_digest = component.timeframe_projection_digest();
+
         if lock_dependencies {
             let sample_locked: Option<Vec<u8>> = sqlx::query_scalar(
                 "SELECT receipt_digest FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
@@ -2506,7 +2516,7 @@ async fn insert_sample_projection_schedule_dependencies_v3(
             .bind(dependency.schedule_receipt_identity.as_bytes().as_slice())
             .execute(&mut **transaction)
             .await
-            .map_err(|error| map_sample_projection_insert_error_v2(&error))?;
+            .map_err(|e| map_sample_projection_insert_error_v2(&e))?;
     }
     Ok(())
 }
@@ -2636,6 +2646,7 @@ async fn load_strategy_input_sample_projection_v3(
     }
     let stored =
         promote_stored_strategy_input_sample_projection_v3(&receipt_bytes, receipt_digest)?;
+
     if stored.kind_tag() != kind
         || stored.lifecycle_tag() != lifecycle
         || stored.subject_identity() != subject_identity
@@ -2816,6 +2827,7 @@ fn verify_bar_schedule_storage_evidence(
             .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
     let readback = build_bar_schedule_readback(fact, cut, receipt)
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
     if readback_identity != expected_identity
         || readback.digest() != expected_identity
         || readback.fact().canonical_instrument() != canonical_instrument
@@ -2843,6 +2855,7 @@ fn verify_bar_schedule_history_evidence(
 ) -> Result<(), BarScheduleCustodyErrorV1> {
     let mut head = None;
     let mut entries = std::collections::BTreeMap::new();
+
     for raw in history_rows {
         let value: Value =
             serde_json::from_slice(raw).map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
@@ -2861,6 +2874,7 @@ fn verify_bar_schedule_history_evidence(
         let bytes = bar_schedule_raw_bytes(row, "fact_bytes")?;
         let fact = decode_bar_schedule_fact(&bytes, digest)
             .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
         if fact.canonical_instrument() != canonical_instrument
             || fact.predecessor_fact_digest() != predecessor
             || entries.insert(digest, predecessor).is_some()
@@ -2881,6 +2895,7 @@ fn verify_bar_schedule_history_evidence(
             .get(&identity)
             .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
     }
+
     if seen.len() != entries.len() || !entries.contains_key(&expected_fact) {
         return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
     }
@@ -2985,6 +3000,7 @@ async fn validate_bar_schedule_history(
                     .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
             })
             .transpose()?;
+
         if rows.iter().any(|row| {
             row.try_get::<Option<Vec<u8>>, _>("head_fact_digest")
                 .map_or(true, |value| value != head)
@@ -2993,6 +3009,7 @@ async fn validate_bar_schedule_history(
         }
         (head, rows)
     };
+
     if rows.is_empty() {
         return if head.is_none() {
             Ok(None)
@@ -3004,7 +3021,9 @@ async fn validate_bar_schedule_history(
         .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?
         .try_into()
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
     let mut entries = std::collections::BTreeMap::new();
+
     for row in rows {
         let digest = bar_schedule_digest_column(&row, "fact_digest")?;
         let predecessor: Option<Vec<u8>> = row
@@ -3023,6 +3042,7 @@ async fn validate_bar_schedule_history(
             .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
         let fact = decode_bar_schedule_fact(&bytes, digest)
             .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+
         if fact.canonical_instrument() != canonical_instrument
             || fact.predecessor_fact_digest() != predecessor
             || entries.insert(digest, predecessor).is_some()
@@ -3041,6 +3061,7 @@ async fn validate_bar_schedule_history(
             .get(&identity)
             .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
     }
+
     if seen.len() != entries.len() {
         return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
     }
@@ -5919,7 +5940,7 @@ impl BarScheduleResolverV1 for MarketDataReadPostgres {
         {
             return resolve_bar_schedule_from_pool(&self.pool, locator)
                 .await
-                .map_err(|error| match error {
+                .map_err(|e| match e {
                     BarScheduleCustodyErrorV1::UnknownReadback => {
                         super::bar_schedule::BarScheduleError::UnknownIdentity
                     }

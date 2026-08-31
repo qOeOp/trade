@@ -842,6 +842,7 @@ fn validate_bar_schedule_revalidation_v1(
             AdmissionFailureCode::DirectMeasurementMismatch,
         ));
     }
+
     if !same_snapshot_cut(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
