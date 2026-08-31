@@ -376,14 +376,15 @@ cross-binds the trigger and observation-batch digest. Consumers derive the lifec
 they cannot mint it from caller-selected values or order keys. Market Data never issues `TIMER` or `FILL` triggers:
 those remain unavailable pending real Time/Scheduler and Execution Owner contracts respectively.
 
-### CURRENT/PARTIAL EVENT authority; TARGET BAR authority
+### CURRENT/PARTIAL EVENT and BAR Owner custody; TARGET BAR product authority
 
 Market Data implements the versioned `TimeframeSpecV1`, `TimeframeProjectionReceiptV1`, `SampleFactV1`, and
 `SampleReceiptV1`, their native exact-receipt resolvers, and durable PostgreSQL custody for `POINT_EVENT`. The code
-also contains crate-private structural codecs for the additive BAR schedule artifacts and V3 FRAME projection, but
-they confer no current BAR authority. BAR schedule/sample persistence, outbox, custody-bearing readback, resolver,
-and V3 PostgreSQL integration remain `TARGET / PENDING` until Hub integrates the concurrent persistence lane and
-the required dynamic PostgreSQL evidence passes. When admitted, BAR is limited to complete fixed-interval and
+also implements durable PostgreSQL custody for BAR schedule fact/cut/receipt/outbox/head state, admitted exact
+schedule readback, and V3 BAR FRAME projection receipts. These paths are `CURRENT / PARTIAL` Owner authority after
+their isolated dynamic PostgreSQL acceptance; they do not make BAR reachable by a product or composite consumer.
+Production-admitted/public V3 resolution and product consumption remain `TARGET / UNAVAILABLE`. BAR is limited to
+complete fixed-interval and
 exchange-session bars, while partial bars remain TARGET. Market Data remains the sole writer of all admitted
 records. Every existing V1
 binding, event, value, frame, joined-cut, row, digest, and byte meaning remains
@@ -391,8 +392,9 @@ authoritative and byte-identical; no V1 record is deleted, synthesized, backfill
 or promoted. The additive `StrategyInputSampleProjectionReceiptV2` remains the canonical EVENT FRAME
 projection over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut
 codecs; the unchanged V1 event/value/frame receipts remain its exact evidence inputs. V2 JOINED_CUT projection is
-unimplemented and remains TARGET. BAR uses only the separate TARGET V3 FRAME projection described below and never
-widens or reinterprets V2.
+unimplemented and remains TARGET. BAR uses only the separate V3 FRAME projection described below; its durable Owner
+custody is CURRENT/PARTIAL, while production-admitted/public and product resolution remain TARGET/UNAVAILABLE. It
+never widens or reinterprets V2.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -436,7 +438,7 @@ bytes and changing it cannot change a schedule identity, timeframe identity, or 
 an untrusted desired BAR shape, but that input has no direct projection authority and cannot mint, select, or mutate
 schedule, calendar, session, time-zone, anchor, label, partial rule, or instrument evidence.
 
-The crate-private structural `BarScheduleFactV1` codec is TARGET evidence, not current PostgreSQL authority. Its
+The structural `BarScheduleFactV1` codec underpins the CURRENT/PARTIAL durable PostgreSQL schedule authority. Its
 canonical bytes are, in order: schema `u16LE = 1`, reserved-zero `u16LE`, canonical instrument as
 `u16LE length || UTF-8 bytes`, predecessor-fact presence `u8` followed by its digest `[u8; 32]` only when present,
 effective-from `i128LE`, effective-until presence `u8` followed by `i128LE` only when present, kind `u8`, positive
@@ -467,22 +469,23 @@ identity and digest are the same SHA-256 over
 cut, and receipt as schema `u16LE = 1`, reserved-zero `u16LE`, then for each artifact its identity `[u8; 32]`, byte
 length `u32LE`, and canonical bytes. Its identity and digest are the same SHA-256 over
 `market-data.bar-schedule-readback.v1\0 || canonical readback bytes`; its outbox identity is defined to equal the
-receipt identity. The readback has no public constructor, `Clone`, or deserialization path, but the current code has
-no BAR PostgreSQL table, transaction, outbox, public resolver, or custody promotion. Durable append, idempotency,
-response-loss recovery, historical lookup, and PostgreSQL verification remain TARGET/PENDING. A caller locator,
-structural decode, or reconstructed bytes confers no schedule authority.
+receipt identity. The readback has no public constructor, `Clone`, or deserialization path. The current Owner has
+BAR schedule fact, cut, receipt, outbox, and head tables; one atomic append/recovery path; fixed `SECURITY DEFINER`
+exact and historical reads; reader ACLs; admitted capability issuance and revalidation; and a public startup
+resolver. Byte-identical recovery returns the exact stored readback, while mismatch or tamper fails closed. This is
+CURRENT/PARTIAL schedule custody and admitted read authority, not Windmill, Backtest, composite, or other product
+reachability. A caller locator, structural decode, or reconstructed bytes confers no schedule authority.
 
-In the TARGET/PENDING BAR path, only a future custody-verified readback may authorize the additive immutable
+In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
 remain unchanged: schema `u16LE = 1`,
 reserved-zero `u16LE`, V1 binding-receipt digest `[u8; 32]`, timeframe identity `[u8; 32]`, and the complete
 fixed-width canonical `TimeframeSpecV1` bytes, with SHA-256 domain
 `market-data.timeframe-projection-receipt.v1\0`. The same V1 digest plus byte-identical projection is idempotent;
 different bytes conflict. Missing, ambiguous, non-unique, or non-durable schedule readback is unavailable. No
-consumer may parse `1D`, `1h`, another label, venue convention, or default into a spec. Once the persistence lane is
-integrated and verified, exact historical schedule and projection readback must remain available after later Owner
-mapping or calendar changes; those changes require a new Owner schedule fact/cut and cannot be smuggled through a
-free-form binding label.
+consumer may parse `1D`, `1h`, another label, venue convention, or default into a spec. Exact historical schedule
+and projection readback remains available after later Owner mapping or calendar changes; those changes require a
+new Owner schedule fact/cut and cannot be smuggled through a free-form binding label.
 
 The `Owner event identity` carried by `SampleFactV1`, `SampleReceiptV1`, and the 308-byte coordinate is a new
 role-independent Market Data identity; it is not the existing V1 frame-trigger event identity. Its canonical
@@ -596,7 +599,7 @@ Owner sample keeps one native receipt and, for one role/binding, byte-identical 
 later trigger, while the enclosing V2 projection correctly changes with its V1 frame. No projection
 can mint or alter the Owner sample receipt.
 
-The crate-private TARGET `StrategyInputSampleProjectionReceiptV3` structural codec is the only BAR role-bound
+The crate-private `StrategyInputSampleProjectionReceiptV3` structural codec is the only BAR role-bound
 projection shape currently present. Its header is, in order: schema `u16LE = 3`, reserved-zero `u16LE`, projection
 kind `u8 = 0x01 FRAME`, lifecycle `u8 = 0x02 BAR`, exact frame-evidence identity `[u8; 32]`, and positive component
 count `u32LE`. Each entry is exactly the same 612-byte component layout listed for V2; the current V3 codec appends
@@ -611,11 +614,13 @@ byte is unsupported.
 
 The current V3 source cross-binds the exact V1 binding, BAR `TimeframeProjectionReceiptV1`, native
 `SampleReceiptV1`, coordinate, trigger, value, and frame evidence; native verification requires a BAR timeframe and
-byte-identical sample/timeframe dependencies. It does not yet carry a `BarScheduleReceiptV1` or
-`BarScheduleCutV1`, and there is no V3 PostgreSQL table, outbox, custody promotion, public locator/readback/resolver,
-restart recovery, or dynamic evidence. Integrating schedule dependency verification and durable V3 issuance remains
-TARGET/PENDING for the concurrent PostgreSQL lane. Until Hub integrates and verifies that lane, structural V3 bytes
-produce no current BAR authority, positive custody-bearing readback, or consumer mutation.
+byte-identical sample/timeframe dependencies. Its canonical bytes do not carry a `BarScheduleReceiptV1` or
+`BarScheduleCutV1`; durable dependency columns cross-bind those Owner artifacts outside the codec. The V3
+PostgreSQL table, atomic commit, byte-identical recovery, tamper rejection, and writer/reader ACL oracle are
+CURRENT/PARTIAL durable Owner custody and passed the isolated dynamic PostgreSQL acceptance. V3 still has no
+production-admitted/public resolver and remains `TARGET / UNAVAILABLE` to Strategy Factory, ProgramHost, Backtest,
+composite, Windmill, and every other product consumer. A stored V3 row or structural V3 bytes alone produces no
+consumer authority or mutation.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the
@@ -637,9 +642,11 @@ readable after successors and corrections. No caller, Strategy Factory, ProgramH
 or reconciliation process receives insert/update/delete, head-advance, synthesis, backfill, or garbage-collection
 authority.
 
-The BAR schedule fact/cut/receipt/readback PostgreSQL custody, BAR sample custody, and V3 projection PostgreSQL path
-described above remain TARGET/PENDING and confer no current authority until Hub integrates the persistence lane and
-the required dynamic evidence lands. The crate-private structural codecs alone are not acceptance evidence.
+The BAR schedule fact/cut/receipt/readback PostgreSQL path, BAR sample custody, and V3 projection PostgreSQL path are
+CURRENT/PARTIAL durable Owner custody after isolated dynamic acceptance. Schedule has admitted capability,
+revalidation, fixed read/history, reader ACL, and public startup resolution. V3 has durable commit/recovery/tamper/ACL
+evidence but no production-admitted/public resolver; V3 product and composite consumption remain
+TARGET/UNAVAILABLE. The crate-private structural codecs or stored rows alone are not product acceptance evidence.
 
 For EVENT, the V2 projection receipt binds each selected component's exact `sample_identity`, `SampleReceiptV1`
 digest, admitted V1 role/binding evidence, and existing 308-byte coordinate bytes/digest. It preserves all V1
