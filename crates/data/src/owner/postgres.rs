@@ -177,6 +177,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_binding_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v2 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_v1(p_readback_identity BYTEA) RETURNS TABLE(fact_digest BYTEA,canonical_instrument TEXT,predecessor_fact_digest BYTEA,fact_bytes BYTEA,cut_identity BYTEA,cut_bytes BYTEA,readback_identity BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.fact_digest,f.canonical_instrument,f.predecessor_fact_digest,f.fact_bytes,c.cut_identity,c.cut_bytes,r.readback_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence FROM market_data_private.bar_schedule_receipts_v1 AS r JOIN market_data_private.bar_schedule_facts_v1 AS f ON f.fact_digest=r.fact_digest JOIN market_data_private.bar_schedule_cuts_v1 AS c ON c.fact_digest=f.fact_digest JOIN market_data_private.bar_schedule_outbox_v1 AS o ON o.fact_digest=f.fact_digest AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.bar_schedule_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1) WHERE r.readback_identity=p_readback_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_history_v1(p_canonical_instrument TEXT) RETURNS TABLE(head_fact_digest BYTEA,fact_digest BYTEA,predecessor_fact_digest BYTEA,fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT h.fact_digest,f.fact_digest,f.predecessor_fact_digest,f.fact_bytes FROM (SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=p_canonical_instrument) AS h FULL OUTER JOIN (SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=p_canonical_instrument) AS f ON TRUE $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
@@ -199,6 +200,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) FROM PUBLIC",
 ];
 
@@ -2580,23 +2582,44 @@ async fn validate_bar_schedule_history(
     canonical_instrument: &str,
     lock: bool,
 ) -> Result<Option<BarScheduleIdentity>, BarScheduleCustodyErrorV1> {
-    let query = if lock {
-        "SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=$1 FOR UPDATE"
-    } else {
-        "SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=$1"
-    };
-    let rows = sqlx::query(query)
+    let (head, rows) = if lock {
+        let rows = sqlx::query(
+            "SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=$1 FOR UPDATE",
+        )
         .bind(canonical_instrument)
         .fetch_all(&mut **transaction)
         .await
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let head: Option<Vec<u8>> = sqlx::query_scalar(
-        "SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=$1",
-    )
-    .bind(canonical_instrument)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let head: Option<Vec<u8>> = sqlx::query_scalar(
+            "SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=$1",
+        )
+        .bind(canonical_instrument)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        (head, rows)
+    } else {
+        let rows =
+            sqlx::query("SELECT * FROM market_data_private.resolve_bar_schedule_history_v1($1)")
+                .bind(canonical_instrument)
+                .fetch_all(&mut **transaction)
+                .await
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let head = rows
+            .first()
+            .map(|row| {
+                row.try_get("head_fact_digest")
+                    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+            })
+            .transpose()?;
+        if rows.iter().any(|row| {
+            row.try_get::<Option<Vec<u8>>, _>("head_fact_digest")
+                .map_or(true, |value| value != head)
+        }) {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+        (head, rows)
+    };
     if rows.is_empty() {
         return if head.is_none() {
             Ok(None)

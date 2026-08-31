@@ -400,6 +400,7 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
@@ -857,6 +858,11 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
         .await
         .unwrap();
     assert!(!public_schedule_execute);
+    let public_schedule_history_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_bar_schedule_history_v1(text)','EXECUTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(!public_schedule_history_execute);
     let prepared = prepared_bar_sample_projection_v3(
         &owner,
         &fixture.binding,
