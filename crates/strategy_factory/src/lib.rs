@@ -60,6 +60,15 @@ mod family_adapters;
 mod formation_adapters;
 mod holdout;
 pub mod intent;
+#[allow(
+    dead_code,
+    reason = "prepared Native Replay awaits native Instrument Master and complete Owner readbacks"
+)]
+mod native_replay_v2;
+pub use native_replay_v2::{
+    PreparedProgramHostCapabilityV2, PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
+    prepare_program_host_from_owner_readbacks_v2,
+};
 mod pairs_relative_value;
 pub mod pilot;
 pub mod plugin_wire_v2;
