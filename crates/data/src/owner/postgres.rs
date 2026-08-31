@@ -27,9 +27,9 @@ use super::sealed_replay_input::{
 };
 #[cfg(not(test))]
 use super::store_admission::{
-    AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
-    MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
-    StrategyInputSampleProjectionStorageEvidenceV2,
+    AdmittedMarketDataSnapshotPort, BarScheduleStorageEvidenceV1,
+    MarketDataPitEvaluationStorageEvidence, MarketDataPitTerminalStorageEvidence,
+    MarketDataSourceBindingStorageEvidence, StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use super::{
     bar_schedule::{
@@ -2483,80 +2483,79 @@ async fn load_bar_schedule_readback(
     transaction: &mut Transaction<'_, Postgres>,
     expected_identity: BarScheduleIdentity,
 ) -> Result<Option<BarScheduleReadbackV1>, BarScheduleCustodyErrorV1> {
-    let Some(row) = sqlx::query("SELECT * FROM market_data_private.resolve_bar_schedule_v1($1)")
-        .bind(expected_identity.as_bytes().as_slice())
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?
+    let Some(row) = sqlx::query_scalar::<_, Value>(
+        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+    )
+    .bind(expected_identity.as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?
     else {
         return Ok(None);
     };
-    let fact_digest = bar_schedule_digest_column(&row, "fact_digest")?;
-    let cut_identity = bar_schedule_digest_column(&row, "cut_identity")?;
-    let readback_identity = bar_schedule_digest_column(&row, "readback_identity")?;
-    let receipt_identity = bar_schedule_digest_column(&row, "receipt_identity")?;
-    let outbox_identity = bar_schedule_digest_column(&row, "outbox_identity")?;
-    let generation = bar_schedule_digest_column(&row, "store_generation_identity")?;
-    let predecessor: Option<Vec<u8>> = row
-        .try_get("predecessor_fact_digest")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let predecessor = predecessor
-        .map(|value| {
-            value
-                .try_into()
-                .map(BarScheduleIdentity::from_untrusted_bytes)
-                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
-        })
-        .transpose()?;
-    let canonical_instrument: String = row
-        .try_get("canonical_instrument")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let fact_bytes: Vec<u8> = row
-        .try_get("fact_bytes")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let cut_bytes: Vec<u8> = row
-        .try_get("cut_bytes")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let receipt_bytes: Vec<u8> = row
-        .try_get("receipt_bytes")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let outbox_bytes: Vec<u8> = row
-        .try_get("outbox_receipt_bytes")
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let append_sequence = positive_u64(
-        row.try_get("append_sequence")
-            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
+    let object = row
+        .as_object()
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let canonical_instrument = bar_schedule_raw_text(object, "canonical_instrument")?;
+    let history = sqlx::query_scalar::<_, Value>(
+        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
     )
-    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let state_append_sequence = nonnegative_u64(
-        row.try_get("state_append_sequence")
-            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-    )
-    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    .bind(canonical_instrument)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?
+    .into_iter()
+    .map(|value| {
+        serde_json::to_vec(&value).map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+    })
+    .collect::<Result<Vec<_>, _>>()?;
+    let row = serde_json::to_vec(&row).map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    verify_bar_schedule_storage_evidence(expected_identity, &row, &history).map(Some)
+}
+
+/// Verifies fixed raw BAR readback and history evidence from either the test pool or admitted port.
+fn verify_bar_schedule_storage_evidence(
+    expected_identity: BarScheduleIdentity,
+    readback_row: &[u8],
+    history_rows: &[Vec<u8>],
+) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+    let value: Value = serde_json::from_slice(readback_row)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let row = value
+        .as_object()
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let fact_digest = bar_schedule_raw_digest(row, "fact_digest")?;
+    let cut_identity = bar_schedule_raw_digest(row, "cut_identity")?;
+    let readback_identity = bar_schedule_raw_digest(row, "readback_identity")?;
+    let receipt_identity = bar_schedule_raw_digest(row, "receipt_identity")?;
+    let outbox_identity = bar_schedule_raw_digest(row, "outbox_identity")?;
+    let generation = bar_schedule_raw_digest(row, "store_generation_identity")?;
+    let predecessor = bar_schedule_raw_optional_digest(row, "predecessor_fact_digest")?;
+    let canonical_instrument = bar_schedule_raw_text(row, "canonical_instrument")?;
+    let fact_bytes = bar_schedule_raw_bytes(row, "fact_bytes")?;
+    let cut_bytes = bar_schedule_raw_bytes(row, "cut_bytes")?;
+    let receipt_bytes = bar_schedule_raw_bytes(row, "receipt_bytes")?;
+    let outbox_bytes = bar_schedule_raw_bytes(row, "outbox_receipt_bytes")?;
+    let append_sequence = bar_schedule_raw_u64(row, "append_sequence", true)?;
+    let state_append_sequence = bar_schedule_raw_u64(row, "state_append_sequence", false)?;
     let fact = decode_bar_schedule_fact(&fact_bytes, fact_digest)
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
     let cut = decode_bar_schedule_cut(&cut_bytes, cut_identity)
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
     let receipt = decode_bar_schedule_receipt(&receipt_bytes, receipt_identity)
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let expected_fact = decode_bar_schedule_fact(&fact_bytes, fact_digest)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let expected_cut = decode_bar_schedule_cut(&cut_bytes, cut_identity)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let expected_receipt =
+        build_bar_schedule_receipt(&expected_fact, &expected_cut, generation, append_sequence)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let expected_readback =
+        build_bar_schedule_readback(expected_fact, expected_cut, expected_receipt)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
     let readback = build_bar_schedule_readback(fact, cut, receipt)
         .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
-    let expected_readback = build_bar_schedule_readback(
-        decode_bar_schedule_fact(&fact_bytes, fact_digest)
-            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-        decode_bar_schedule_cut(&cut_bytes, cut_identity)
-            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-        build_bar_schedule_receipt(
-            &decode_bar_schedule_fact(&fact_bytes, fact_digest)
-                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-            &decode_bar_schedule_cut(&cut_bytes, cut_identity)
-                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-            generation,
-            append_sequence,
-        )
-        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?,
-    )
-    .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
     if readback_identity != expected_identity
         || readback.digest() != expected_identity
         || readback.fact().canonical_instrument() != canonical_instrument
@@ -2566,14 +2565,129 @@ async fn load_bar_schedule_readback(
         || readback.outbox_identity() != outbox_identity
         || readback.receipt_canonical_bytes() != receipt_bytes
         || receipt_bytes != outbox_bytes
-        || readback.receipt_identity() != outbox_identity
+        || receipt_identity != outbox_identity
         || state_append_sequence < append_sequence
         || expected_readback.digest() != readback.digest()
         || expected_readback.receipt_canonical_bytes() != receipt_bytes
     {
         return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
     }
-    Ok(Some(readback))
+    verify_bar_schedule_history_evidence(canonical_instrument, fact_digest, history_rows)?;
+    Ok(readback)
+}
+
+fn verify_bar_schedule_history_evidence(
+    canonical_instrument: &str,
+    expected_fact: BarScheduleIdentity,
+    history_rows: &[Vec<u8>],
+) -> Result<(), BarScheduleCustodyErrorV1> {
+    let mut head = None;
+    let mut entries = std::collections::BTreeMap::new();
+    for raw in history_rows {
+        let value: Value =
+            serde_json::from_slice(raw).map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let row = value
+            .as_object()
+            .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        let observed_head = bar_schedule_raw_optional_digest(row, "head_fact_digest")?;
+        if head
+            .replace(observed_head)
+            .is_some_and(|prior| prior != observed_head)
+        {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+        let digest = bar_schedule_raw_digest(row, "fact_digest")?;
+        let predecessor = bar_schedule_raw_optional_digest(row, "predecessor_fact_digest")?;
+        let bytes = bar_schedule_raw_bytes(row, "fact_bytes")?;
+        let fact = decode_bar_schedule_fact(&bytes, digest)
+            .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)?;
+        if fact.canonical_instrument() != canonical_instrument
+            || fact.predecessor_fact_digest() != predecessor
+            || entries.insert(digest, predecessor).is_some()
+        {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+    }
+    let head = head
+        .flatten()
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    let mut seen = std::collections::BTreeSet::new();
+    let mut cursor = Some(head);
+    while let Some(identity) = cursor {
+        if !seen.insert(identity) {
+            return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+        }
+        cursor = *entries
+            .get(&identity)
+            .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    }
+    if seen.len() != entries.len() || !entries.contains_key(&expected_fact) {
+        return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+    }
+    Ok(())
+}
+
+fn bar_schedule_raw_text<'a>(
+    row: &'a serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<&'a str, BarScheduleCustodyErrorV1> {
+    row.get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)
+}
+
+fn bar_schedule_raw_bytes(
+    row: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Vec<u8>, BarScheduleCustodyErrorV1> {
+    let encoded = row
+        .get(field)
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix("\\x"))
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)?;
+    if encoded.len() % 2 != 0 {
+        return Err(BarScheduleCustodyErrorV1::StoreUnavailable);
+    }
+    (0..encoded.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&encoded[offset..offset + 2], 16)
+                .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+        })
+        .collect()
+}
+
+fn bar_schedule_raw_digest(
+    row: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<BarScheduleIdentity, BarScheduleCustodyErrorV1> {
+    bar_schedule_raw_bytes(row, field)?
+        .try_into()
+        .map(BarScheduleIdentity::from_untrusted_bytes)
+        .map_err(|_| BarScheduleCustodyErrorV1::StoreUnavailable)
+}
+
+fn bar_schedule_raw_optional_digest(
+    row: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<BarScheduleIdentity>, BarScheduleCustodyErrorV1> {
+    match row.get(field) {
+        Some(Value::Null) => Ok(None),
+        Some(_) => bar_schedule_raw_digest(row, field).map(Some),
+        None => Err(BarScheduleCustodyErrorV1::StoreUnavailable),
+    }
+}
+
+fn bar_schedule_raw_u64(
+    row: &serde_json::Map<String, Value>,
+    field: &'static str,
+    positive: bool,
+) -> Result<u64, BarScheduleCustodyErrorV1> {
+    row.get(field)
+        .and_then(Value::as_u64)
+        .filter(|value| !positive || *value > 0)
+        .ok_or(BarScheduleCustodyErrorV1::StoreUnavailable)
 }
 
 async fn validate_bar_schedule_history(
@@ -5554,10 +5668,34 @@ impl BarScheduleResolverV1 for MarketDataReadPostgres {
         }
         #[cfg(not(test))]
         {
-            let _ = locator;
-            Err(super::bar_schedule::BarScheduleError::StoreUnavailable)
+            let evidence = self
+                .admitted_port
+                .resolve_bar_schedule_v1(*locator.digest.as_bytes())
+                .await
+                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+            let evidence =
+                evidence.ok_or(super::bar_schedule::BarScheduleError::UnknownIdentity)?;
+            let readback = verify_admitted_bar_schedule_v1(locator.digest, &evidence)
+                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+            self.admitted_port
+                .revalidate_bar_schedule_v1_before_return()
+                .await
+                .map_err(|_| super::bar_schedule::BarScheduleError::StoreUnavailable)?;
+            Ok(readback)
         }
     }
+}
+
+#[cfg(not(test))]
+fn verify_admitted_bar_schedule_v1(
+    expected_identity: BarScheduleIdentity,
+    evidence: &BarScheduleStorageEvidenceV1,
+) -> Result<BarScheduleReadbackV1, BarScheduleCustodyErrorV1> {
+    verify_bar_schedule_storage_evidence(
+        expected_identity,
+        evidence.readback_row(),
+        evidence.history_rows(),
+    )
 }
 
 #[cfg(test)]

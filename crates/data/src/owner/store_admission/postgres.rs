@@ -130,6 +130,30 @@ impl PostgresMeasurementSpec {
             .iter()
             .all(|required| self.acl_relations.iter().any(|value| value == required))
     }
+
+    /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
+    pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
+        const FUNCTIONS: [&str; 2] = [
+            "market_data_private.resolve_bar_schedule_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_history_v1(text)",
+        ];
+        const RELATIONS: [&str; 6] = [
+            "market_data_private.bar_schedule_state_v1",
+            "market_data_private.bar_schedule_facts_v1",
+            "market_data_private.bar_schedule_heads_v1",
+            "market_data_private.bar_schedule_cuts_v1",
+            "market_data_private.bar_schedule_receipts_v1",
+            "market_data_private.bar_schedule_outbox_v1",
+        ];
+
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
 }
 
 /// Secret-bearing credential lease resolved from one opaque handle.
@@ -410,6 +434,107 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         timeframe_rows,
         sample_rows,
     })
+}
+
+/// Exact raw BAR custody observed inside one fixed read-only snapshot.
+///
+/// This private DTO is deliberately opaque to callers. The Market Data Owner alone validates its
+/// canonical bytes and complete append-only history.
+pub(super) struct RawBarScheduleSnapshotV1 {
+    pub(super) readback_row: Vec<u8>,
+    pub(super) history_rows: Vec<Vec<u8>>,
+}
+
+/// Reads one BAR schedule readback and its complete instrument history through fixed resolver
+/// functions. There is no caller-supplied SQL, relation, or kind selector.
+pub(super) async fn read_bar_schedule_snapshot_v1(
+    lease: &PostgresCredentialLease,
+    readback_identity: &[u8; 32],
+) -> Result<Option<RawBarScheduleSnapshotV1>, PostgresMeasurementError> {
+    const MAX_HISTORY_ROWS: usize = 10_000;
+    const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
+    const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
+
+    let target = parse_target(lease.database_url())?;
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let options = connect_options(&target, "vibe-market-data-bar-schedule-v1");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    let Some(readback_json) = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+    )
+    .bind(readback_identity.as_slice())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+    else {
+        transaction
+            .commit()
+            .await
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        return Ok(None);
+    };
+    let canonical_instrument = raw_bar_schedule_canonical_instrument(&readback_json)?;
+    let readback_row = serde_json::to_vec(&readback_json)
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if readback_row.len() > MAX_EVIDENCE_ROW_BYTES {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let history_json = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+    )
+    .bind(canonical_instrument)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if history_json.len() > MAX_HISTORY_ROWS {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let mut evidence_bytes = readback_row.len();
+    let mut history_rows = Vec::with_capacity(history_json.len());
+    for row in history_json {
+        let row =
+            serde_json::to_vec(&row).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        if row.len() > MAX_EVIDENCE_ROW_BYTES {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        evidence_bytes = evidence_bytes
+            .checked_add(row.len())
+            .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        history_rows.push(row);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(Some(RawBarScheduleSnapshotV1 {
+        readback_row,
+        history_rows,
+    }))
+}
+
+fn raw_bar_schedule_canonical_instrument(
+    value: &serde_json::Value,
+) -> Result<&str, PostgresMeasurementError> {
+    value
+        .as_object()
+        .and_then(|object| object.get("canonical_instrument"))
+        .and_then(serde_json::Value::as_str)
+        .filter(|instrument| !instrument.is_empty())
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)
 }
 
 pub(crate) struct RawPitEvaluationSnapshot {

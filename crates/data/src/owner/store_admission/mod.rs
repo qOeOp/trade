@@ -302,6 +302,19 @@ impl AdmittedMarketDataPostgresCapability {
         }
         Ok(self.into_source_binding_snapshot_port())
     }
+
+    /// Consumes this authority into the fixed BAR schedule read operation.
+    pub(super) fn into_bar_schedule_snapshot_port(
+        self,
+    ) -> Result<AdmittedMarketDataSnapshotPort, DeploymentStoreAdmissionError> {
+        if !self.measurement_spec.covers_bar_schedule_floor_v1() {
+            return Err(rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementMismatch,
+            ));
+        }
+        Ok(self.into_source_binding_snapshot_port())
+    }
 }
 
 /// Owner-private opaque port exposing only fixed Market Data snapshot operations.
@@ -401,6 +414,26 @@ impl StrategyInputSampleProjectionStorageEvidenceV2 {
             timeframe_rows: raw.timeframe_rows,
             sample_rows: raw.sample_rows,
         })
+    }
+}
+
+/// Exact raw BAR readback and append-only history observed inside one admitted snapshot.
+///
+/// The evidence never leaves the Market Data Owner and has no public constructor.
+pub(super) struct BarScheduleStorageEvidenceV1 {
+    readback_row: Vec<u8>,
+    history_rows: Vec<Vec<u8>>,
+}
+
+impl BarScheduleStorageEvidenceV1 {
+    #[must_use]
+    pub(super) fn readback_row(&self) -> &[u8] {
+        &self.readback_row
+    }
+
+    #[must_use]
+    pub(super) fn history_rows(&self) -> &[Vec<u8>] {
+        &self.history_rows
     }
 }
 
@@ -509,6 +542,62 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
+    /// Reads one fixed BAR schedule readback and complete history after admission before and after.
+    pub(super) async fn resolve_bar_schedule_v1(
+        &self,
+        readback_identity: [u8; 32],
+    ) -> Result<Option<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_bar_schedule_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
+        let raw =
+            postgres::read_bar_schedule_snapshot_v1(&before.credential_lease, &readback_identity)
+                .await
+                .map_err(|_| {
+                    rejection(
+                        &self.scope,
+                        AdmissionFailureCode::DirectMeasurementUnavailable,
+                    )
+                })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_bar_schedule_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
+        Ok(raw.map(|raw| BarScheduleStorageEvidenceV1 {
+            readback_row: raw.readback_row,
+            history_rows: raw.history_rows,
+        }))
+    }
+
+    /// Revalidates the BAR measurement floor and admission cut immediately before return.
+    pub(super) async fn revalidate_bar_schedule_v1_before_return(
+        &self,
+    ) -> Result<(), DeploymentStoreAdmissionError> {
+        let current = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_bar_schedule_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &current.receipt,
+            &current.measurement_spec,
+        )
+    }
+
     /// Reads one fixed V2 projection and all referenced V1 custody after admission before and after.
     pub(super) async fn resolve_sample_projection_v2(
         &self,
@@ -735,6 +824,24 @@ fn validate_sample_projection_revalidation_v2(
         ));
     }
 
+    if !same_snapshot_cut(expected, observed) {
+        return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
+    }
+    Ok(())
+}
+
+fn validate_bar_schedule_revalidation_v1(
+    scope: &AdmissionScope,
+    expected: &SealedDeploymentStoreAdmissionReceipt,
+    observed: &SealedDeploymentStoreAdmissionReceipt,
+    observed_measurement_spec: &PostgresMeasurementSpec,
+) -> Result<(), DeploymentStoreAdmissionError> {
+    if !observed_measurement_spec.covers_bar_schedule_floor_v1() {
+        return Err(rejection(
+            scope,
+            AdmissionFailureCode::DirectMeasurementMismatch,
+        ));
+    }
     if !same_snapshot_cut(expected, observed) {
         return Err(rejection(scope, AdmissionFailureCode::AdmissionCutExpired));
     }
@@ -2452,6 +2559,94 @@ mod tests {
         rotated.rotation_fence_identity = "rotation:new".to_string();
         assert_eq!(
             validate_sample_projection_revalidation_v2(
+                &port.scope,
+                &port.receipt,
+                &rotated,
+                &complete.history.manifests[1].manifest.measurement_spec,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::AdmissionCutExpired
+        );
+    }
+
+    #[tokio::test]
+    async fn bar_schedule_capability_requires_and_preserves_exact_measurement_floor() {
+        let unrelated = Fixture::new();
+        let capability = unrelated
+            .custodian(Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)))
+            .admit_capability(unrelated.request.scope())
+            .await
+            .expect("unrelated admission remains valid for unrelated consumers");
+        assert_eq!(
+            capability
+                .into_bar_schedule_snapshot_port()
+                .unwrap_err()
+                .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+
+        let complete = Fixture::with_spec(
+            &PostgresMeasurementSpec::new(
+                "market_data_private",
+                "market_data_private.schema_migrations_v1",
+                vec![
+                    "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                    "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
+                ],
+                vec![
+                    "market_data_private.bar_schedule_state_v1".to_string(),
+                    "market_data_private.bar_schedule_facts_v1".to_string(),
+                    "market_data_private.bar_schedule_heads_v1".to_string(),
+                    "market_data_private.bar_schedule_cuts_v1".to_string(),
+                    "market_data_private.bar_schedule_receipts_v1".to_string(),
+                    "market_data_private.bar_schedule_outbox_v1".to_string(),
+                ],
+            )
+            .unwrap(),
+        );
+        let measurement_calls = Arc::new(AtomicUsize::new(0));
+        let custodian = complete.custodian(
+            Arc::new(AtomicUsize::new(0)),
+            Arc::clone(&measurement_calls),
+        );
+        let initial = custodian
+            .admit_capability(complete.request.scope())
+            .await
+            .expect("complete BAR floor admitted");
+        assert!(initial.measurement_spec.covers_bar_schedule_floor_v1());
+        let port = initial
+            .into_bar_schedule_snapshot_port()
+            .expect("complete floor promotes BAR port");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 1);
+        port.revalidate_bar_schedule_v1_before_return()
+            .await
+            .expect("return performs a distinct complete BAR revalidation");
+        assert_eq!(measurement_calls.load(Ordering::SeqCst), 2);
+
+        let incomplete = PostgresMeasurementSpec::new(
+            "market_data_private",
+            "market_data_private.schema_migrations_v1",
+            vec!["market_data_private.resolve_bar_schedule_v1(bytea)".to_string()],
+            vec!["market_data_private.bar_schedule_facts_v1".to_string()],
+        )
+        .unwrap();
+        assert_eq!(
+            validate_bar_schedule_revalidation_v1(
+                &port.scope,
+                &port.receipt,
+                &port.receipt,
+                &incomplete,
+            )
+            .unwrap_err()
+            .code(),
+            AdmissionFailureCode::DirectMeasurementMismatch
+        );
+
+        let mut rotated = port.receipt.clone();
+        rotated.rotation_fence_identity = "rotation:new".to_string();
+        assert_eq!(
+            validate_bar_schedule_revalidation_v1(
                 &port.scope,
                 &port.receipt,
                 &rotated,
