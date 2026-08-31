@@ -5,6 +5,9 @@ use sqlx::{PgPool, Row, postgres::PgPoolOptions};
 
 use super::*;
 use crate::owner::{
+    bar_schedule::{
+        BarScheduleResolverV1, UntrustedBarScheduleLocatorV1, prepare_bar_schedule_commit_v1,
+    },
     instrument_master::{
         BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
         InstrumentMasterFactProposalV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
@@ -23,8 +26,13 @@ use crate::owner::{
         derive_license_binding_digest, derive_provenance_binding_digest,
         derive_snapshot_correction_rule_digest,
     },
+    sample_fact::{
+        SampleFactHeadsV1, prepare_bar_timeframe_projection_v1, prepare_sample_commit_v1,
+    },
     sample_projection::{
-        PreparedStrategyInputSampleProjectionV2, StrategyInputSampleProjectionSourceV2,
+        PreparedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV3,
+        StrategyInputSampleProjectionSourceV2, StrategyInputSampleProjectionSourceV3,
+        prepare_strategy_input_sample_projection_bar_v3,
         prepare_strategy_input_sample_projection_frame_v2,
     },
     source_binding::{
@@ -391,6 +399,10 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
 fn sample_digest(byte: u8) -> [u8; 32] {
@@ -716,6 +728,41 @@ async fn prepared_sample_projection_v2(
     .unwrap()
 }
 
+async fn prepared_bar_sample_projection_v3(
+    owner: &MarketDataOwnerPostgres,
+    binding: &crate::owner::strategy_input_binding::StrategyInputBindingReceipt,
+    frame: &crate::owner::strategy_input_binding::StrategyInputEventFrameReceipt,
+    batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+    schedule: &crate::owner::bar_schedule::BarScheduleReadbackV1,
+) -> PreparedStrategyInputSampleProjectionV3 {
+    let timeframe = prepare_bar_timeframe_projection_v1(binding, batch, schedule)
+        .expect("BAR timeframe from sealed durable schedule");
+    let prepared_sample = prepare_sample_commit_v1(
+        binding,
+        batch,
+        &timeframe,
+        SampleFactHeadsV1 {
+            series: None,
+            slot: None,
+        },
+    )
+    .expect("BAR sample from sealed durable schedule");
+    let stored_sample = owner
+        .commit_prepared_sample_v1(&prepared_sample)
+        .await
+        .expect("durable BAR sample custody");
+    prepare_strategy_input_sample_projection_bar_v3(
+        frame,
+        &[StrategyInputSampleProjectionSourceV3 {
+            binding,
+            timeframe: &timeframe,
+            sample: &stored_sample,
+            schedule,
+        }],
+    )
+    .expect("BAR lifecycle projection from durable native sample")
+}
+
 async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
     sqlx::query_scalar(
         "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v2",
@@ -723,6 +770,351 @@ async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+async fn sample_projection_count_v3(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v3",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn sample_projection_schedule_dependency_count_v3(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str, admin: &PgPool) {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let fixture = crate::owner::sample_fact::tests::bar_postgres_schedule_fixture_v1();
+    let prepared_schedule = prepare_bar_schedule_commit_v1(
+        fixture.schedule_proposal.clone(),
+        &fixture.binding,
+        &fixture.batch,
+        &fixture.instrument_master,
+    )
+    .expect("prepared BAR schedule");
+    let before_schedule: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1),(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1),(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1)",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        owner
+            .commit_prepared_bar_schedule_with_fault_v1(
+                &prepared_schedule,
+                BarScheduleCustodyFaultV1::RollbackBeforeCommit,
+            )
+            .await
+            .unwrap_err(),
+        BarScheduleCustodyErrorV1::CommitInterrupted,
+    );
+    assert_eq!(
+        sqlx::query_as::<_, (i64, i64, i64)>(
+            "SELECT (SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1),(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1),(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1)",
+        )
+        .fetch_one(owner.pool())
+        .await
+        .unwrap(),
+        before_schedule,
+    );
+    assert_eq!(
+        owner
+            .commit_prepared_bar_schedule_with_fault_v1(
+                &prepared_schedule,
+                BarScheduleCustodyFaultV1::ResponseLoss,
+            )
+            .await
+            .unwrap_err(),
+        BarScheduleCustodyErrorV1::ResponseLost,
+    );
+    let schedule = owner
+        .commit_prepared_bar_schedule_v1(&prepared_schedule)
+        .await
+        .expect("same request recovers BAR schedule after response loss");
+    let schedule_bytes = schedule.canonical_bytes().to_vec();
+    let schedule_locator = UntrustedBarScheduleLocatorV1 {
+        digest: schedule.digest(),
+    };
+    let reader = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    assert_eq!(
+        reader
+            .resolve_bar_schedule_v1(&schedule_locator)
+            .await
+            .expect("sealed read resolver recovers BAR schedule")
+            .canonical_bytes(),
+        schedule_bytes,
+    );
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.bar_schedule_facts_v1")
+            .fetch_all(&reader.pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM market_data_private.bar_schedule_receipts_v1")
+            .execute(&reader.pool)
+            .await
+            .is_err()
+    );
+    let public_schedule_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_bar_schedule_v1(bytea)','EXECUTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(!public_schedule_execute);
+    let public_schedule_history_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_bar_schedule_history_v1(text)','EXECUTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(!public_schedule_history_execute);
+    let prepared = prepared_bar_sample_projection_v3(
+        &owner,
+        &fixture.binding,
+        &fixture.frame,
+        &fixture.batch,
+        &schedule,
+    )
+    .await;
+    let receipt_digest = prepared.receipt_digest();
+    let subject_identity = prepared.subject_identity();
+    let receipt_bytes = prepared.canonical_bytes().to_vec();
+    assert_eq!(prepared.kind_tag(), 0x01);
+    assert_eq!(prepared.lifecycle_tag(), 0x02);
+    assert_eq!(prepared.component_count(), 1);
+    assert_eq!(receipt_bytes.len(), 42 + 612);
+    let initial_count = sample_projection_count_v3(owner.pool()).await;
+    let initial_dependency_count =
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await;
+
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_with_fault_v3(
+                &prepared,
+                SampleProjectionCustodyFaultV3::RollbackBeforeCommit,
+            )
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::CommitInterrupted,
+    );
+    assert_eq!(
+        sample_projection_count_v3(owner.pool()).await,
+        initial_count
+    );
+    assert_eq!(
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await,
+        initial_dependency_count
+    );
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_with_fault_v3(
+                &prepared,
+                SampleProjectionCustodyFaultV3::ResponseLoss,
+            )
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::ResponseLost,
+    );
+    assert_eq!(
+        sample_projection_count_v3(owner.pool()).await,
+        initial_count + 1
+    );
+    assert_eq!(
+        sample_projection_schedule_dependency_count_v3(owner.pool()).await,
+        initial_dependency_count + 1
+    );
+
+    let recovered = owner
+        .commit_strategy_input_sample_projection_v3(&prepared)
+        .await
+        .unwrap();
+    assert_eq!(recovered.receipt_digest(), receipt_digest);
+    assert_eq!(recovered.lifecycle_tag(), 0x02);
+    assert_eq!(recovered.subject_identity(), subject_identity);
+    assert_eq!(recovered.canonical_bytes(), receipt_bytes);
+
+    let mut successor_proposal = fixture.schedule_proposal.clone();
+    successor_proposal.predecessor_fact_digest = Some(schedule.fact().digest());
+    let successor_prepared = prepare_bar_schedule_commit_v1(
+        successor_proposal,
+        &fixture.binding,
+        &fixture.batch,
+        &fixture.instrument_master,
+    )
+    .expect("same BAR shape with successor schedule custody");
+    let successor_schedule = owner
+        .commit_prepared_bar_schedule_v1(&successor_prepared)
+        .await
+        .expect("durable successor schedule");
+    let alternate_schedule_prepared = prepared_bar_sample_projection_v3(
+        &owner,
+        &fixture.binding,
+        &fixture.frame,
+        &fixture.batch,
+        &successor_schedule,
+    )
+    .await;
+    assert_eq!(alternate_schedule_prepared.canonical_bytes(), receipt_bytes);
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_v3(&alternate_schedule_prepared)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::IdentityConflict,
+    );
+    drop(owner);
+
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap()
+            .canonical_bytes(),
+        receipt_bytes
+    );
+    let reader = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    assert_eq!(
+        reader
+            .resolve_bar_schedule_v1(&schedule_locator)
+            .await
+            .expect("BAR schedule readback survives restart")
+            .canonical_bytes(),
+        schedule_bytes,
+    );
+    assert_eq!(
+        reader
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap()
+            .canonical_bytes(),
+        receipt_bytes
+    );
+    assert!(
+        sqlx::query(
+            "SELECT * FROM market_data_private.strategy_input_sample_projection_receipts_v3",
+        )
+        .fetch_all(&reader.pool)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM market_data_private.strategy_input_sample_projection_receipts_v3")
+            .execute(&reader.pool)
+            .await
+            .is_err()
+    );
+    let public_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_strategy_input_sample_projection_v3(bytea)','EXECUTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(!public_execute);
+
+    let mut cross_lifecycle_bytes = receipt_bytes.clone();
+    cross_lifecycle_bytes[5] = 0x01;
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind(&cross_lifecycle_bytes)
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind(&receipt_bytes)
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .expect("restored V3 BAR lifecycle")
+            .canonical_bytes(),
+        receipt_bytes,
+    );
+
+    let foreign_schedule_prepared =
+        crate::owner::sample_fact::tests::foreign_bar_schedule_commit_v1(
+            BindingDigest::from_untrusted_bytes([81; 32]),
+            BindingDigest::from_untrusted_bytes([82; 32]),
+            BindingDigest::from_untrusted_bytes([83; 32]),
+            Some(successor_schedule.fact().digest()),
+        );
+    let foreign_schedule = restarted
+        .commit_prepared_bar_schedule_v1(&foreign_schedule_prepared)
+        .await
+        .expect("durable internally consistent foreign schedule");
+    let original_dependency = &prepared.schedule_dependencies()[0];
+    let foreign_dependency = StoredStrategyInputSampleProjectionScheduleDependencyV3 {
+        component_ordinal: 0,
+        role_identity: original_dependency.role_identity(),
+        binding_receipt_digest: original_dependency.binding_receipt_digest(),
+        schedule_readback_identity: foreign_schedule.identity(),
+        schedule_fact_digest: foreign_schedule.fact().digest(),
+        schedule_cut_identity: foreign_schedule.cut.identity,
+        schedule_cut_digest: foreign_schedule.cut.identity,
+        schedule_receipt_identity: foreign_schedule.receipt_identity(),
+    };
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 SET schedule_readback_identity=$1,schedule_fact_digest=$2,schedule_cut_identity=$3,schedule_cut_digest=$4,schedule_receipt_identity=$5 WHERE receipt_digest=$6 AND component_ordinal=0")
+        .bind(foreign_dependency.schedule_readback_identity.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_fact_digest.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_cut_identity.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_cut_digest.as_bytes().as_slice())
+        .bind(foreign_dependency.schedule_receipt_identity.as_bytes().as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    let foreign_custody_digest = sample_projection_custody_digest_v3(
+        receipt_digest,
+        0x01,
+        0x02,
+        subject_identity,
+        1,
+        &receipt_bytes,
+        &[foreign_dependency],
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v3 SET custody_digest=$1 WHERE receipt_digest=$2")
+        .bind(foreign_custody_digest.as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    drop(restarted);
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+
+    sqlx::query("DELETE FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 WHERE receipt_digest=$1")
+        .bind(receipt_digest.as_slice())
+        .execute(restarted.pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v3(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
 }
 
 async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str, admin: &PgPool) {
@@ -1693,6 +2085,12 @@ async fn run_postgres_owner_scenario() {
     ))
     .await;
     Box::pin(sample_projection_postgres_oracle_v2(
+        &owner_url,
+        &reader_url,
+        &admin,
+    ))
+    .await;
+    Box::pin(sample_projection_postgres_oracle_v3(
         &owner_url,
         &reader_url,
         &admin,

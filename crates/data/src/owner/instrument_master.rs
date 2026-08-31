@@ -194,6 +194,34 @@ impl InstrumentMasterFactV1 {
     pub const fn predecessor_fact_digest(&self) -> Option<InstrumentMasterIdentity> {
         self.proposal.predecessor_fact_digest
     }
+    /// Returns the exact class sealed into this historical fact.
+    pub const fn instrument_class(&self) -> InstrumentClass {
+        self.proposal.instrument_class
+    }
+    /// Returns the exact calendar evidence field sealed into this historical fact.
+    pub fn calendar_identity(&self) -> &str {
+        &self.proposal.calendar_identity
+    }
+    /// Returns the exact session evidence field sealed into this historical fact.
+    pub fn session_identity(&self) -> &str {
+        &self.proposal.session_identity
+    }
+    /// Returns the exact time-zone evidence field sealed into this historical fact.
+    pub fn time_zone_identity(&self) -> &str {
+        &self.proposal.time_zone_identity
+    }
+    /// Returns the Market Semantics identity sealed into this historical fact.
+    pub const fn market_semantics_identity(&self) -> InstrumentMasterIdentity {
+        self.proposal.market_semantics_identity
+    }
+    /// Returns the correction frontier sealed into this historical fact.
+    pub const fn correction_frontier(&self) -> InstrumentMasterIdentity {
+        self.proposal.correction_frontier
+    }
+    /// Returns the source frontier sealed into this historical fact.
+    pub const fn source_frontier(&self) -> InstrumentMasterIdentity {
+        self.proposal.source_frontier
+    }
     pub const fn effective_from(&self) -> i128 {
         self.proposal.effective_from
     }
@@ -237,6 +265,10 @@ impl InstrumentMasterCutV1 {
     }
     pub fn expected_members(&self) -> &[String] {
         &self.expected_members
+    }
+    /// Returns the exact effective instant resolved by this cut.
+    pub const fn effective_instant(&self) -> i128 {
+        self.effective_instant
     }
 }
 

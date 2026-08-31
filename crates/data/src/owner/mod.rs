@@ -3,6 +3,7 @@
 #[cfg(not(test))]
 use std::sync::Arc;
 
+pub mod bar_schedule;
 pub mod instrument_master;
 pub mod pit_snapshot;
 pub mod research_pit_terminal;
@@ -22,7 +23,8 @@ mod store_admission;
 
 #[cfg(not(test))]
 use self::{
-    postgres::MarketDataReadPostgres, research_pit_terminal::ResearchPitTerminalResolver,
+    bar_schedule::BarScheduleResolverV1, postgres::MarketDataReadPostgres,
+    research_pit_terminal::ResearchPitTerminalResolver,
     sample_projection::StrategyInputSampleProjectionResolverV2,
     sealed_replay_input::SealedReplayInputResolver,
 };
@@ -55,6 +57,20 @@ pub struct SealedReplayInputBootstrapError {
 #[error("Market Data sample-projection bootstrap rejected: {failure:?}")]
 pub struct StrategyInputSampleProjectionBootstrapErrorV2 {
     failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed BAR schedule resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data BAR schedule bootstrap rejected: {failure:?}")]
+pub struct BarScheduleBootstrapErrorV1 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+impl BarScheduleBootstrapErrorV1 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
 }
 
 impl StrategyInputSampleProjectionBootstrapErrorV2 {
@@ -192,6 +208,44 @@ pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_l
     consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
 }
 
+/// Resolves store admission and returns only the sealed BAR schedule resolver.
+///
+/// Disabled mode returns `None`. Required mode fails closed unless admission retains the exact
+/// BAR measurement floor and fixed read-only capability.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn bar_schedule_resolver_v1_from_store_admission_environment()
+-> Result<Option<Arc<dyn BarScheduleResolverV1>>, BarScheduleBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            BarScheduleBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed BAR schedule startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn bar_schedule_resolver_v1_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn BarScheduleResolverV1>>, BarScheduleBootstrapErrorV1> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            BarScheduleBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
+}
+
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
@@ -248,6 +302,28 @@ async fn consume_sample_projection_store_admission_bootstrap_v2(
                 .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_bar_schedule_store_admission_bootstrap_v1(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<Option<Arc<dyn BarScheduleResolverV1>>, BarScheduleBootstrapErrorV1> {
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| BarScheduleBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability.into_bar_schedule_snapshot_port().map_err(|_| {
+                BarScheduleBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                }
+            })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

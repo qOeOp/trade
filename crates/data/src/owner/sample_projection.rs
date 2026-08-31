@@ -14,6 +14,10 @@ use async_trait::async_trait;
 use sha2::{Digest as _, Sha256};
 
 use super::{
+    bar_schedule::{
+        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
+        BarScheduleUnitV1, authority as bar_schedule_authority,
+    },
     sample_fact::{StoredSampleReadbackV1, TimeframeProjectionReceiptV1},
     strategy_input_binding::{
         StrategyInputBindingReceipt, StrategyInputEventFrameReceipt, StrategyInputEventKind,
@@ -25,11 +29,17 @@ const FRAME_EVIDENCE_HEADER_LEN: usize = 40;
 const FRAME_EVIDENCE_ENTRY_LEN: usize = 96;
 const RECEIPT_HEADER_LEN: usize = 41;
 const RECEIPT_ENTRY_LEN: usize = 612;
+const FRAME_EVIDENCE_HEADER_LEN_V3: usize = 41;
+const RECEIPT_HEADER_LEN_V3: usize = 42;
 const COORDINATE_LEN: usize = 308;
 const FRAME_KIND: u8 = 0x01;
+const JOINED_CUT_KIND: u8 = 0x02;
+const BAR_LIFECYCLE_KIND: u8 = 0x02;
 
 const FRAME_EVIDENCE_DOMAIN: &[u8] = b"market-data.strategy-input-frame-evidence.identity.v2\0";
 const RECEIPT_DOMAIN: &[u8] = b"market-data.sample-projection-receipt.v2\0";
+const FRAME_EVIDENCE_DOMAIN_V3: &[u8] = b"market-data.strategy-input-frame-evidence.identity.v3\0";
+const RECEIPT_DOMAIN_V3: &[u8] = b"market-data.sample-projection-receipt.v3\0";
 const COORDINATE_DOMAIN: &[u8] = b"strategy.input.sample-coordinate.v1\0";
 
 type Identity = [u8; 32];
@@ -201,6 +211,14 @@ pub(crate) struct StrategyInputSampleProjectionSourceV2<'a> {
     pub(crate) sample: &'a StoredSampleReadbackV1,
 }
 
+/// Owner-local sources for one role in a complete V3 BAR projection.
+pub(crate) struct StrategyInputSampleProjectionSourceV3<'a> {
+    pub(crate) binding: &'a StrategyInputBindingReceipt,
+    pub(crate) timeframe: &'a TimeframeProjectionReceiptV1,
+    pub(crate) sample: &'a StoredSampleReadbackV1,
+    pub(crate) schedule: &'a BarScheduleReadbackV1,
+}
+
 /// Prepared bytes handed to the durable Owner without exposing construction authority.
 #[derive(Debug)]
 pub(crate) struct PreparedStrategyInputSampleProjectionV2 {
@@ -280,6 +298,211 @@ impl DecodedStrategyInputSampleProjectionV2 {
 }
 
 impl DecodedStrategyInputSampleProjectionComponentV2 {
+    pub(super) const fn timeframe_projection_digest(&self) -> Identity {
+        self.timeframe_projection_digest
+    }
+
+    pub(super) const fn sample_receipt_digest(&self) -> Identity {
+        self.sample_receipt_digest
+    }
+}
+
+/// Additive identity over one complete V1 BAR frame with an explicit lifecycle discriminator.
+#[derive(Debug)]
+pub(crate) struct StrategyInputFrameEvidenceIdentityV3 {
+    bytes: Box<[u8]>,
+    identity: Identity,
+}
+
+impl StrategyInputFrameEvidenceIdentityV3 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) const fn identity(&self) -> Identity {
+        self.identity
+    }
+}
+
+/// Exact opaque V3 BAR projection receipt.
+#[derive(Debug)]
+pub(crate) struct StrategyInputSampleProjectionReceiptV3 {
+    bytes: Box<[u8]>,
+    digest: Identity,
+    frame_evidence: StrategyInputFrameEvidenceIdentityV3,
+    component_count: u32,
+}
+
+impl StrategyInputSampleProjectionReceiptV3 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(crate) const fn digest(&self) -> Identity {
+        self.digest
+    }
+
+    pub(crate) const fn frame_evidence(&self) -> &StrategyInputFrameEvidenceIdentityV3 {
+        &self.frame_evidence
+    }
+
+    pub(crate) const fn component_count(&self) -> u32 {
+        self.component_count
+    }
+}
+
+/// Prepared V3 BAR bytes handed to the durable Owner without exposing construction authority.
+#[derive(Debug)]
+pub(crate) struct PreparedStrategyInputSampleProjectionV3 {
+    receipt: StrategyInputSampleProjectionReceiptV3,
+    schedule_dependencies: Box<[StrategyInputSampleProjectionScheduleDependencyV3]>,
+}
+
+/// Move-only schedule authority retained outside the stable V3 canonical codec.
+#[derive(Debug)]
+pub(super) struct StrategyInputSampleProjectionScheduleDependencyV3 {
+    role_identity: Identity,
+    binding_receipt_digest: Identity,
+    schedule_readback_identity: Identity,
+    schedule_fact_digest: Identity,
+    schedule_cut_identity: Identity,
+    schedule_cut_digest: Identity,
+    schedule_receipt_identity: Identity,
+}
+
+impl PreparedStrategyInputSampleProjectionV3 {
+    pub(crate) const fn receipt_digest(&self) -> Identity {
+        self.receipt.digest
+    }
+
+    pub(crate) const fn kind_tag(&self) -> u8 {
+        FRAME_KIND
+    }
+
+    pub(crate) const fn lifecycle_kind(&self) -> StrategyInputEventKind {
+        StrategyInputEventKind::Bar
+    }
+
+    pub(crate) const fn lifecycle_tag(&self) -> u8 {
+        BAR_LIFECYCLE_KIND
+    }
+
+    pub(crate) const fn subject_identity(&self) -> Identity {
+        self.receipt.frame_evidence.identity
+    }
+
+    pub(crate) const fn component_count(&self) -> u32 {
+        self.receipt.component_count
+    }
+
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.receipt.bytes
+    }
+
+    pub(super) fn schedule_dependencies(
+        &self,
+    ) -> &[StrategyInputSampleProjectionScheduleDependencyV3] {
+        &self.schedule_dependencies
+    }
+}
+
+impl StrategyInputSampleProjectionScheduleDependencyV3 {
+    pub(super) const fn role_identity(&self) -> Identity {
+        self.role_identity
+    }
+
+    pub(super) const fn binding_receipt_digest(&self) -> Identity {
+        self.binding_receipt_digest
+    }
+
+    pub(super) const fn schedule_readback_identity(&self) -> Identity {
+        self.schedule_readback_identity
+    }
+
+    pub(super) const fn schedule_fact_digest(&self) -> Identity {
+        self.schedule_fact_digest
+    }
+
+    pub(super) const fn schedule_cut_identity(&self) -> Identity {
+        self.schedule_cut_identity
+    }
+
+    pub(super) const fn schedule_cut_digest(&self) -> Identity {
+        self.schedule_cut_digest
+    }
+
+    pub(super) const fn schedule_receipt_identity(&self) -> Identity {
+        self.schedule_receipt_identity
+    }
+}
+
+/// Structurally decoded V3 BAR bytes without durable Owner-custody authority.
+#[derive(Debug)]
+pub(super) struct DecodedStrategyInputSampleProjectionV3 {
+    bytes: Box<[u8]>,
+    digest: Identity,
+    kind_tag: u8,
+    lifecycle_kind: StrategyInputEventKind,
+    lifecycle_tag: u8,
+    subject_identity: Identity,
+    component_count: u32,
+    components: Box<[DecodedStrategyInputSampleProjectionComponentV3]>,
+}
+
+#[derive(Debug)]
+pub(super) struct DecodedStrategyInputSampleProjectionComponentV3 {
+    lifecycle_kind: StrategyInputEventKind,
+    role_identity: Identity,
+    binding_receipt_digest: Identity,
+    timeframe_projection_digest: Identity,
+    sample_identity: Identity,
+    sample_receipt_digest: Identity,
+    coordinate: [u8; COORDINATE_LEN],
+}
+
+impl DecodedStrategyInputSampleProjectionV3 {
+    pub(super) const fn receipt_digest(&self) -> Identity {
+        self.digest
+    }
+
+    pub(super) const fn kind_tag(&self) -> u8 {
+        self.kind_tag
+    }
+
+    pub(super) const fn lifecycle_kind(&self) -> StrategyInputEventKind {
+        self.lifecycle_kind
+    }
+
+    pub(super) const fn lifecycle_tag(&self) -> u8 {
+        self.lifecycle_tag
+    }
+
+    pub(super) const fn subject_identity(&self) -> Identity {
+        self.subject_identity
+    }
+
+    pub(super) const fn component_count(&self) -> u32 {
+        self.component_count
+    }
+
+    pub(super) fn canonical_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub(super) fn components(&self) -> &[DecodedStrategyInputSampleProjectionComponentV3] {
+        &self.components
+    }
+}
+
+impl DecodedStrategyInputSampleProjectionComponentV3 {
+    pub(super) const fn role_identity(&self) -> Identity {
+        self.role_identity
+    }
+
+    pub(super) const fn binding_receipt_digest(&self) -> Identity {
+        self.binding_receipt_digest
+    }
+
     pub(super) const fn timeframe_projection_digest(&self) -> Identity {
         self.timeframe_projection_digest
     }
@@ -377,6 +600,161 @@ pub(crate) fn prepare_strategy_input_sample_projection_frame_v2(
             component_count,
         },
     })
+}
+
+/// Prepares one complete BAR FRAME projection with an explicit lifecycle discriminator.
+pub(crate) fn prepare_strategy_input_sample_projection_bar_v3(
+    frame: &StrategyInputEventFrameReceipt,
+    sources: &[StrategyInputSampleProjectionSourceV3<'_>],
+) -> Result<PreparedStrategyInputSampleProjectionV3, StrategyInputSampleProjectionUnavailable> {
+    if frame.trigger().lifecycle().kind() != StrategyInputEventKind::Bar {
+        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
+    }
+    let frame_evidence = prepare_frame_evidence_v3(frame)?;
+    let values = frame.values();
+    if values.len() != sources.len() {
+        return Err(StrategyInputSampleProjectionUnavailable::CountMismatch);
+    }
+    let component_count = u32::try_from(values.len())
+        .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let capacity = RECEIPT_HEADER_LEN_V3
+        .checked_add(
+            RECEIPT_ENTRY_LEN
+                .checked_mul(values.len())
+                .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?,
+        )
+        .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let mut bytes = Vec::with_capacity(capacity);
+    put_u16(&mut bytes, 3);
+    put_u16(&mut bytes, 0);
+    bytes.push(FRAME_KIND);
+    bytes.push(BAR_LIFECYCLE_KIND);
+    bytes.extend_from_slice(&frame_evidence.identity);
+    put_u32(&mut bytes, component_count);
+
+    let mut previous_role = None;
+    let mut schedule_dependencies = Vec::with_capacity(values.len());
+    for (value, source) in values.iter().zip(sources) {
+        let role = *value.input_role_identity().as_bytes();
+        if previous_role.is_some_and(|previous| previous >= role) {
+            return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
+        }
+        previous_role = Some(role);
+        let v2_source = StrategyInputSampleProjectionSourceV2 {
+            binding: source.binding,
+            timeframe: source.timeframe,
+            sample: source.sample,
+        };
+        let schedule_dependency = prepare_schedule_dependency_v3(role, source)?;
+        let coordinate = project_component(frame, value, &v2_source)?;
+        let coordinate_digest = sha256(COORDINATE_DOMAIN, &coordinate);
+
+        bytes.extend_from_slice(&role);
+        bytes.extend_from_slice(value.binding_receipt_digest().as_bytes());
+        bytes.extend_from_slice(&frame_evidence.identity);
+        bytes.extend_from_slice(frame.trigger().digest().as_bytes());
+        bytes.extend_from_slice(&frame.trigger().lifecycle().event_identity());
+        bytes.extend_from_slice(value.digest().as_bytes());
+        bytes.extend_from_slice(&source.timeframe.digest());
+        bytes.extend_from_slice(&source.sample.receipt().sample_identity());
+        bytes.extend_from_slice(&source.sample.receipt().digest());
+        bytes.extend_from_slice(&coordinate_digest);
+        bytes.extend_from_slice(&coordinate);
+        schedule_dependencies.push(schedule_dependency);
+    }
+    debug_assert_eq!(bytes.len(), capacity);
+    let digest = sha256(RECEIPT_DOMAIN_V3, &bytes);
+    Ok(PreparedStrategyInputSampleProjectionV3 {
+        receipt: StrategyInputSampleProjectionReceiptV3 {
+            bytes: bytes.into_boxed_slice(),
+            digest,
+            frame_evidence,
+            component_count,
+        },
+        schedule_dependencies: schedule_dependencies.into_boxed_slice(),
+    })
+}
+
+fn prepare_schedule_dependency_v3(
+    role_identity: Identity,
+    source: &StrategyInputSampleProjectionSourceV3<'_>,
+) -> Result<
+    StrategyInputSampleProjectionScheduleDependencyV3,
+    StrategyInputSampleProjectionUnavailable,
+> {
+    if !bar_schedule_authority::verify_readback(source.schedule) {
+        return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+    }
+    let fact = source.schedule.fact();
+    if schedule_timeframe_spec_bytes_v3(source.schedule)?
+        != source.timeframe.spec().canonical_bytes().as_slice()
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::TimeframeMismatch);
+    }
+    let receipt = source.sample.receipt();
+    let event_effective = i128::from(receipt.event_effective());
+    if fact.canonical_instrument() != source.binding.locator().instrument()
+        || fact.cut_effective_instant() != event_effective
+        || event_effective < fact.effective_from()
+        || fact
+            .effective_until()
+            .is_some_and(|until| event_effective >= until)
+        || fact.market_semantics_identity() != source.binding.locator().market_semantics_identity()
+        || *fact.market_semantics_identity().as_bytes() != receipt.market_semantics_identity()
+        || fact.instrument_master_digest().as_bytes()
+            != &source.sample.fact().instrument_master_digest()
+        || fact.schedule_source_frontier().as_bytes()
+            != &source.sample.fact().source_frontier_digest()
+        || fact.schedule_correction_frontier().as_bytes()
+            != &source.sample.fact().correction_frontier_digest()
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::SampleMismatch);
+    }
+
+    let schedule_cut_identity = *source.schedule.cut.identity.as_bytes();
+    Ok(StrategyInputSampleProjectionScheduleDependencyV3 {
+        role_identity,
+        binding_receipt_digest: *source.binding.digest().as_bytes(),
+        schedule_readback_identity: *source.schedule.identity().as_bytes(),
+        schedule_fact_digest: *fact.digest().as_bytes(),
+        schedule_cut_identity,
+        schedule_cut_digest: schedule_cut_identity,
+        schedule_receipt_identity: *source.schedule.receipt_identity().as_bytes(),
+    })
+}
+
+fn schedule_timeframe_spec_bytes_v3(
+    schedule: &BarScheduleReadbackV1,
+) -> Result<Vec<u8>, StrategyInputSampleProjectionUnavailable> {
+    let fact = schedule.fact();
+    let (kind, unit) = match (fact.kind(), fact.unit()) {
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Second) => (0x02, 0x01),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Minute) => (0x02, 0x02),
+        (BarScheduleKindV1::FixedInterval, BarScheduleUnitV1::Hour) => (0x02, 0x03),
+        (BarScheduleKindV1::ExchangeSession, BarScheduleUnitV1::ExchangeSessionDay) => (0x03, 0x04),
+        _ => return Err(StrategyInputSampleProjectionUnavailable::TimeframeMismatch),
+    };
+    let label = match fact.label() {
+        BarScheduleLabelV1::IntervalOpen => 0x01,
+        BarScheduleLabelV1::IntervalClose => 0x02,
+    };
+    let partial = match fact.completion() {
+        BarScheduleCompletionV1::CompleteOnly => 0x01,
+    };
+    let mut bytes = Vec::with_capacity(140);
+    put_u16(&mut bytes, 1);
+    put_u16(&mut bytes, 0);
+    bytes.push(kind);
+    put_u32(&mut bytes, fact.step());
+    bytes.push(unit);
+    bytes.extend_from_slice(fact.anchor_identity().as_bytes());
+    bytes.extend_from_slice(fact.calendar_identity().as_bytes());
+    bytes.extend_from_slice(fact.session_identity().as_bytes());
+    bytes.extend_from_slice(fact.time_zone_identity().as_bytes());
+    bytes.push(label);
+    bytes.push(partial);
+    debug_assert_eq!(bytes.len(), 140);
+    Ok(bytes)
 }
 
 /// Decodes exact FRAME bytes without conferring durable Owner-custody authority.
@@ -489,12 +867,157 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
     })
 }
 
+/// Decodes exact V3 BAR bytes without conferring durable Owner-custody authority.
+pub(super) fn decode_strategy_input_sample_projection_v3(
+    bytes: &[u8],
+    expected_digest: Identity,
+) -> Result<DecodedStrategyInputSampleProjectionV3, StrategyInputSampleProjectionUnavailable> {
+    if sha256(RECEIPT_DOMAIN_V3, bytes) != expected_digest {
+        return Err(StrategyInputSampleProjectionUnavailable::DigestMismatch);
+    }
+
+    if bytes.len() < RECEIPT_HEADER_LEN_V3
+        || !(bytes.len() - RECEIPT_HEADER_LEN_V3).is_multiple_of(RECEIPT_ENTRY_LEN)
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::InvalidLength);
+    }
+    let mut decoder = Decoder::new(bytes);
+    decoder.schema(3)?;
+    let kind_tag = decoder.u8()?;
+    if kind_tag != FRAME_KIND {
+        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
+    }
+    let lifecycle_tag = decoder.u8()?;
+    if lifecycle_tag != BAR_LIFECYCLE_KIND {
+        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
+    }
+    let lifecycle_kind = StrategyInputEventKind::Bar;
+    let subject_identity = decoder.identity_nonzero()?;
+    let component_count = decoder.u32()?;
+    if component_count == 0 {
+        return Err(StrategyInputSampleProjectionUnavailable::EmptyFrame);
+    }
+    let count = usize::try_from(component_count)
+        .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let expected_len = RECEIPT_HEADER_LEN_V3
+        .checked_add(
+            RECEIPT_ENTRY_LEN
+                .checked_mul(count)
+                .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?,
+        )
+        .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    if bytes.len() != expected_len {
+        return Err(StrategyInputSampleProjectionUnavailable::CountMismatch);
+    }
+
+    let mut evidence_entries = Vec::with_capacity(count * FRAME_EVIDENCE_ENTRY_LEN);
+    let mut components = Vec::with_capacity(count);
+    let mut trigger_digest = None;
+    let mut previous_role = None;
+
+    for _ in 0..count {
+        let role = decoder.identity_nonzero()?;
+        if previous_role.is_some_and(|previous| previous >= role) {
+            return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
+        }
+        previous_role = Some(role);
+        let binding_digest = decoder.identity_nonzero()?;
+        let entry_frame_evidence = decoder.identity_nonzero()?;
+        if entry_frame_evidence != subject_identity {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
+        let entry_trigger = decoder.identity_nonzero()?;
+        if trigger_digest
+            .replace(entry_trigger)
+            .is_some_and(|prior| prior != entry_trigger)
+        {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
+        let role_bound_event_identity = decoder.identity16_nonzero()?;
+        if role_bound_event_identity != entry_trigger[..16] {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
+        let value_digest = decoder.identity_nonzero()?;
+        let timeframe_projection_digest = decoder.identity_nonzero()?;
+        let sample_identity = decoder.identity_nonzero()?;
+        let sample_receipt_digest = decoder.identity_nonzero()?;
+        let coordinate_digest = decoder.identity_nonzero()?;
+        let coordinate: [u8; COORDINATE_LEN] = decoder
+            .take(COORDINATE_LEN)?
+            .try_into()
+            .expect("fixed coordinate width");
+        verify_coordinate(
+            &coordinate,
+            coordinate_digest,
+            role,
+            binding_digest,
+            sample_identity,
+            sample_receipt_digest,
+        )?;
+        evidence_entries.extend_from_slice(&role);
+        evidence_entries.extend_from_slice(&binding_digest);
+        evidence_entries.extend_from_slice(&value_digest);
+        components.push(DecodedStrategyInputSampleProjectionComponentV3 {
+            lifecycle_kind,
+            role_identity: role,
+            binding_receipt_digest: binding_digest,
+            timeframe_projection_digest,
+            sample_identity,
+            sample_receipt_digest,
+            coordinate,
+        });
+    }
+    decoder.end()?;
+    let trigger_digest =
+        trigger_digest.ok_or(StrategyInputSampleProjectionUnavailable::EmptyFrame)?;
+    let evidence_bytes =
+        frame_evidence_bytes_v3(trigger_digest, component_count, &evidence_entries);
+
+    if sha256(FRAME_EVIDENCE_DOMAIN_V3, &evidence_bytes) != subject_identity {
+        return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+    }
+
+    Ok(DecodedStrategyInputSampleProjectionV3 {
+        bytes: bytes.to_vec().into_boxed_slice(),
+        digest: expected_digest,
+        kind_tag,
+        lifecycle_kind,
+        lifecycle_tag,
+        subject_identity,
+        component_count,
+        components: components.into_boxed_slice(),
+    })
+}
+
 pub(super) fn verify_decoded_projection_component_native_v2(
     component: &DecodedStrategyInputSampleProjectionComponentV2,
     timeframe: &TimeframeProjectionReceiptV1,
     sample: &StoredSampleReadbackV1,
 ) -> Result<(), StrategyInputSampleProjectionUnavailable> {
     if !timeframe.is_point_event()
+        || timeframe.digest() != component.timeframe_projection_digest
+        || timeframe.binding_receipt_digest() != component.binding_receipt_digest
+        || sample.receipt().sample_identity() != component.sample_identity
+        || sample.receipt().digest() != component.sample_receipt_digest
+        || sample.receipt().timeframe_identity() != timeframe.timeframe_identity()
+        || coordinate_from_native_receipt(
+            component.role_identity,
+            component.binding_receipt_digest,
+            sample.receipt(),
+        )? != component.coordinate
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::SampleMismatch);
+    }
+    Ok(())
+}
+
+pub(super) fn verify_decoded_projection_component_native_v3(
+    component: &DecodedStrategyInputSampleProjectionComponentV3,
+    timeframe: &TimeframeProjectionReceiptV1,
+    sample: &StoredSampleReadbackV1,
+) -> Result<(), StrategyInputSampleProjectionUnavailable> {
+    if component.lifecycle_kind != StrategyInputEventKind::Bar
+        || !timeframe.is_bar()
         || timeframe.digest() != component.timeframe_projection_digest
         || timeframe.binding_receipt_digest() != component.binding_receipt_digest
         || sample.receipt().sample_identity() != component.sample_identity
@@ -548,6 +1071,46 @@ fn prepare_frame_evidence(
     })
 }
 
+fn prepare_frame_evidence_v3(
+    frame: &StrategyInputEventFrameReceipt,
+) -> Result<StrategyInputFrameEvidenceIdentityV3, StrategyInputSampleProjectionUnavailable> {
+    if frame.trigger().lifecycle().kind() != StrategyInputEventKind::Bar {
+        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
+    }
+    let values = frame.values();
+    if values.is_empty() {
+        return Err(StrategyInputSampleProjectionUnavailable::EmptyFrame);
+    }
+    let count = u32::try_from(values.len())
+        .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let mut entries = Vec::with_capacity(values.len() * FRAME_EVIDENCE_ENTRY_LEN);
+    let mut previous_role = None;
+
+    for value in values {
+        let role = *value.input_role_identity().as_bytes();
+        if previous_role.is_some_and(|previous| previous >= role) {
+            return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
+        }
+        previous_role = Some(role);
+
+        if value.trigger_digest() != frame.trigger().digest()
+            || value.observation_batch_digest() != frame.trigger().observation_batch_digest()
+        {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
+        entries.extend_from_slice(&role);
+        entries.extend_from_slice(value.binding_receipt_digest().as_bytes());
+        entries.extend_from_slice(value.digest().as_bytes());
+    }
+    let bytes = frame_evidence_bytes_v3(*frame.trigger().digest().as_bytes(), count, &entries);
+    debug_assert_eq!(bytes.len(), FRAME_EVIDENCE_HEADER_LEN_V3 + entries.len());
+    let identity = sha256(FRAME_EVIDENCE_DOMAIN_V3, &bytes);
+    Ok(StrategyInputFrameEvidenceIdentityV3 {
+        bytes: bytes.into_boxed_slice(),
+        identity,
+    })
+}
+
 fn project_component(
     frame: &StrategyInputEventFrameReceipt,
     value: &StrategyInputEventValueReceipt,
@@ -569,7 +1132,12 @@ fn project_component(
         return Err(StrategyInputSampleProjectionUnavailable::BindingMismatch);
     }
 
-    if !timeframe.is_point_event()
+    let compatible_timeframe = match lifecycle.kind() {
+        StrategyInputEventKind::Event => timeframe.is_point_event(),
+        StrategyInputEventKind::Bar => timeframe.is_bar(),
+    };
+
+    if !compatible_timeframe
         || timeframe.binding_receipt_digest() != binding_digest
         || timeframe.timeframe_identity() != receipt.timeframe_identity()
     {
@@ -672,6 +1240,17 @@ fn frame_evidence_bytes(trigger_digest: Identity, count: u32, entries: &[u8]) ->
     let mut bytes = Vec::with_capacity(FRAME_EVIDENCE_HEADER_LEN + entries.len());
     put_u16(&mut bytes, 2);
     put_u16(&mut bytes, 0);
+    bytes.extend_from_slice(&trigger_digest);
+    put_u32(&mut bytes, count);
+    bytes.extend_from_slice(entries);
+    bytes
+}
+
+fn frame_evidence_bytes_v3(trigger_digest: Identity, count: u32, entries: &[u8]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(FRAME_EVIDENCE_HEADER_LEN_V3 + entries.len());
+    put_u16(&mut bytes, 3);
+    put_u16(&mut bytes, 0);
+    bytes.push(BAR_LIFECYCLE_KIND);
     bytes.extend_from_slice(&trigger_digest);
     put_u32(&mut bytes, count);
     bytes.extend_from_slice(entries);
@@ -782,7 +1361,12 @@ impl<'a> Decoder<'a> {
 pub(crate) mod tests {
     use super::*;
     use crate::owner::{
+        bar_schedule::{
+            BarScheduleReadbackV1, authority as bar_schedule_authority,
+            prepare_bar_schedule_commit_v1,
+        },
         sample_fact::tests::{
+            bar_postgres_schedule_fixture_v1, bar_projection_fixture_v2, foreign_bar_schedule_v1,
             point_event_projection_fixture_v2, point_event_projection_fixture_variant_v2,
         },
         source_binding::BindingDigest,
@@ -800,6 +1384,42 @@ pub(crate) mod tests {
             }],
         )
         .expect("complete point-event FRAME projection")
+    }
+
+    fn bar_fixture_v3() -> PreparedStrategyInputSampleProjectionV3 {
+        let (binding, frame, timeframe, sample) = bar_projection_fixture_v2();
+        let schedule = bar_schedule(5, [71; 32]);
+        prepare_strategy_input_sample_projection_bar_v3(
+            &frame,
+            &[StrategyInputSampleProjectionSourceV3 {
+                binding: &binding,
+                timeframe: &timeframe,
+                sample: &sample,
+                schedule: &schedule,
+            }],
+        )
+        .expect("complete BAR FRAME projection")
+    }
+
+    fn bar_schedule(step: u32, store_generation: Identity) -> BarScheduleReadbackV1 {
+        let mut fixture = bar_postgres_schedule_fixture_v1();
+        fixture.schedule_proposal.step = step;
+        let prepared = prepare_bar_schedule_commit_v1(
+            fixture.schedule_proposal,
+            &fixture.binding,
+            &fixture.batch,
+            &fixture.instrument_master,
+        )
+        .expect("valid BAR schedule");
+        let receipt = bar_schedule_authority::build_receipt(
+            &prepared.fact,
+            &prepared.cut,
+            BindingDigest::from_untrusted_bytes(store_generation),
+            1,
+        )
+        .expect("valid schedule receipt");
+        bar_schedule_authority::build_readback(prepared.fact, prepared.cut, receipt)
+            .expect("valid schedule readback")
     }
 
     pub(crate) fn recomputed_coordinate_mutation_fixture_v2() -> (Vec<u8>, [u8; 32]) {
@@ -832,6 +1452,281 @@ pub(crate) mod tests {
         assert_eq!(stored.component_count(), prepared.component_count());
         assert_eq!(stored.canonical_bytes(), prepared.canonical_bytes());
         assert_eq!(stored.receipt_digest(), prepared.receipt_digest());
+    }
+
+    #[rstest]
+    fn v2_remains_event_only_and_v3_bar_requires_bar_timeframe() {
+        let (bar_binding, bar_frame, bar_timeframe, bar_sample) = bar_projection_fixture_v2();
+        let bar_schedule = bar_schedule(5, [71; 32]);
+        assert_eq!(
+            prepare_strategy_input_sample_projection_frame_v2(
+                &bar_frame,
+                &[StrategyInputSampleProjectionSourceV2 {
+                    binding: &bar_binding,
+                    timeframe: &bar_timeframe,
+                    sample: &bar_sample,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::UnsupportedKind
+        );
+
+        let prepared_v2 = fixture();
+        let decoded_v2 = decode_strategy_input_sample_projection_v2(
+            prepared_v2.canonical_bytes(),
+            prepared_v2.receipt_digest(),
+        )
+        .expect("valid event-only V2 projection");
+        assert_eq!(
+            verify_decoded_projection_component_native_v2(
+                &decoded_v2.components()[0],
+                &bar_timeframe,
+                &bar_sample,
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::SampleMismatch
+        );
+
+        let prepared = prepare_strategy_input_sample_projection_bar_v3(
+            &bar_frame,
+            &[StrategyInputSampleProjectionSourceV3 {
+                binding: &bar_binding,
+                timeframe: &bar_timeframe,
+                sample: &bar_sample,
+                schedule: &bar_schedule,
+            }],
+        )
+        .expect("V3 BAR lifecycle and BAR native timeframe");
+        assert_eq!(prepared.component_count(), 1);
+        assert_eq!(prepared.kind_tag(), FRAME_KIND);
+        assert_eq!(prepared.lifecycle_kind(), StrategyInputEventKind::Bar);
+
+        let (_, _, event_timeframe, _) = point_event_projection_fixture_v2();
+        assert_eq!(
+            prepare_strategy_input_sample_projection_bar_v3(
+                &bar_frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding: &bar_binding,
+                    timeframe: &event_timeframe,
+                    sample: &bar_sample,
+                    schedule: &bar_schedule,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::TimeframeMismatch
+        );
+
+        let (event_binding, event_frame, _, event_sample) = point_event_projection_fixture_v2();
+        assert_eq!(
+            prepare_strategy_input_sample_projection_bar_v3(
+                &event_frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding: &event_binding,
+                    timeframe: &bar_timeframe,
+                    sample: &event_sample,
+                    schedule: &bar_schedule,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::UnsupportedKind
+        );
+    }
+
+    #[rstest]
+    fn v3_bar_codec_retains_lifecycle_and_cannot_cross_reinterpret_v2() {
+        let prepared_v2 = fixture();
+        let prepared_v3 = bar_fixture_v3();
+        assert_eq!(prepared_v3.canonical_bytes().len(), 654);
+
+        let decoded = decode_strategy_input_sample_projection_v3(
+            prepared_v3.canonical_bytes(),
+            prepared_v3.receipt_digest(),
+        )
+        .expect("exact stored V3 BAR projection");
+        assert_eq!(decoded.kind_tag(), FRAME_KIND);
+        assert_eq!(decoded.lifecycle_kind(), StrategyInputEventKind::Bar);
+        assert_eq!(decoded.lifecycle_tag(), BAR_LIFECYCLE_KIND);
+        assert_eq!(decoded.subject_identity(), prepared_v3.subject_identity());
+        assert_eq!(decoded.component_count(), prepared_v3.component_count());
+        assert_eq!(decoded.canonical_bytes(), prepared_v3.canonical_bytes());
+        assert_eq!(decoded.receipt_digest(), prepared_v3.receipt_digest());
+        assert_eq!(prepared_v3.schedule_dependencies().len(), 1);
+        assert_eq!(decoded.components().len(), 1);
+        assert_eq!(
+            prepared_v3.schedule_dependencies()[0].role_identity(),
+            decoded.components()[0].role_identity()
+        );
+        assert_eq!(
+            prepared_v3.schedule_dependencies()[0].binding_receipt_digest(),
+            decoded.components()[0].binding_receipt_digest()
+        );
+
+        assert_eq!(
+            decode_strategy_input_sample_projection_v2(
+                prepared_v3.canonical_bytes(),
+                sha256(RECEIPT_DOMAIN, prepared_v3.canonical_bytes()),
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::InvalidLength
+        );
+        assert_eq!(
+            decode_strategy_input_sample_projection_v3(
+                prepared_v2.canonical_bytes(),
+                sha256(RECEIPT_DOMAIN_V3, prepared_v2.canonical_bytes()),
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::InvalidLength
+        );
+    }
+
+    #[rstest]
+    fn v3_bar_retains_exact_schedule_dependency_outside_stable_codec() {
+        let (binding, frame, timeframe, sample) = bar_projection_fixture_v2();
+        let first_schedule = bar_schedule(5, [71; 32]);
+        let second_schedule = bar_schedule(5, [72; 32]);
+        let first = prepare_strategy_input_sample_projection_bar_v3(
+            &frame,
+            &[StrategyInputSampleProjectionSourceV3 {
+                binding: &binding,
+                timeframe: &timeframe,
+                sample: &sample,
+                schedule: &first_schedule,
+            }],
+        )
+        .expect("first exact schedule custody");
+        let second = prepare_strategy_input_sample_projection_bar_v3(
+            &frame,
+            &[StrategyInputSampleProjectionSourceV3 {
+                binding: &binding,
+                timeframe: &timeframe,
+                sample: &sample,
+                schedule: &second_schedule,
+            }],
+        )
+        .expect("second shape-identical schedule custody");
+
+        assert_eq!(first.canonical_bytes().len(), 654);
+        assert_eq!(first.canonical_bytes(), second.canonical_bytes());
+        assert_eq!(first.receipt_digest(), second.receipt_digest());
+        let first_dependency = &first.schedule_dependencies()[0];
+        let second_dependency = &second.schedule_dependencies()[0];
+        assert_ne!(
+            first_dependency.schedule_readback_identity(),
+            second_dependency.schedule_readback_identity()
+        );
+        assert_ne!(
+            first_dependency.schedule_receipt_identity(),
+            second_dependency.schedule_receipt_identity()
+        );
+        assert_eq!(
+            first_dependency.schedule_fact_digest(),
+            second_dependency.schedule_fact_digest()
+        );
+        assert_eq!(
+            first_dependency.schedule_cut_identity(),
+            second_dependency.schedule_cut_identity()
+        );
+        assert_eq!(
+            first_dependency.schedule_cut_digest(),
+            first_dependency.schedule_cut_identity()
+        );
+    }
+
+    #[rstest]
+    fn v3_bar_rejects_shape_mismatched_schedule_timeframe_splice() {
+        let (binding, frame, timeframe, sample) = bar_projection_fixture_v2();
+        let mismatched_schedule = bar_schedule(10, [73; 32]);
+        assert_eq!(
+            prepare_strategy_input_sample_projection_bar_v3(
+                &frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding: &binding,
+                    timeframe: &timeframe,
+                    sample: &sample,
+                    schedule: &mismatched_schedule,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::TimeframeMismatch
+        );
+    }
+
+    #[rstest]
+    #[case([81; 32], [7; 32], [11; 32])]
+    #[case([9; 32], [82; 32], [11; 32])]
+    #[case([9; 32], [7; 32], [83; 32])]
+    #[case([81; 32], [82; 32], [83; 32])]
+    fn v3_bar_rejects_shape_identical_foreign_authority_schedule_splice(
+        #[case] instrument_master_digest: Identity,
+        #[case] source_frontier: Identity,
+        #[case] correction_frontier: Identity,
+    ) {
+        let (binding, frame, timeframe, sample) = bar_projection_fixture_v2();
+        let foreign_schedule = foreign_bar_schedule_v1(
+            BindingDigest::from_untrusted_bytes(instrument_master_digest),
+            BindingDigest::from_untrusted_bytes(source_frontier),
+            BindingDigest::from_untrusted_bytes(correction_frontier),
+        );
+        assert!(bar_schedule_authority::verify_readback(&foreign_schedule));
+
+        assert_eq!(
+            prepare_strategy_input_sample_projection_bar_v3(
+                &frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding: &binding,
+                    timeframe: &timeframe,
+                    sample: &sample,
+                    schedule: &foreign_schedule,
+                }],
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::SampleMismatch
+        );
+    }
+
+    #[rstest]
+    fn v3_bar_codec_rejects_lifecycle_tamper_and_native_event_reinterpretation() {
+        let (bar_binding, bar_frame, bar_timeframe, bar_sample) = bar_projection_fixture_v2();
+        let bar_schedule = bar_schedule(5, [71; 32]);
+        let prepared = prepare_strategy_input_sample_projection_bar_v3(
+            &bar_frame,
+            &[StrategyInputSampleProjectionSourceV3 {
+                binding: &bar_binding,
+                timeframe: &bar_timeframe,
+                sample: &bar_sample,
+                schedule: &bar_schedule,
+            }],
+        )
+        .expect("valid BAR projection");
+        let mut bytes = prepared.canonical_bytes().to_vec();
+        bytes[5] = 0x01;
+        let digest = sha256(RECEIPT_DOMAIN_V3, &bytes);
+        assert_eq!(
+            decode_strategy_input_sample_projection_v3(&bytes, digest).unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::UnsupportedKind
+        );
+
+        let decoded = decode_strategy_input_sample_projection_v3(
+            prepared.canonical_bytes(),
+            prepared.receipt_digest(),
+        )
+        .expect("valid V3 BAR projection");
+        verify_decoded_projection_component_native_v3(
+            &decoded.components()[0],
+            &bar_timeframe,
+            &bar_sample,
+        )
+        .expect("decoded BAR and durable native BAR dependencies agree");
+        let (_, _, event_timeframe, event_sample) = point_event_projection_fixture_v2();
+        assert_eq!(
+            verify_decoded_projection_component_native_v3(
+                &decoded.components()[0],
+                &event_timeframe,
+                &event_sample,
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::SampleMismatch
+        );
     }
 
     #[rstest]
@@ -915,6 +1810,17 @@ pub(crate) mod tests {
                 expected
             );
         }
+
+        let mut joined_cut = valid.to_vec();
+        joined_cut[4] = JOINED_CUT_KIND;
+        assert_eq!(
+            decode_strategy_input_sample_projection_v2(
+                &joined_cut,
+                sha256(RECEIPT_DOMAIN, &joined_cut),
+            )
+            .unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::UnsupportedKind
+        );
 
         let mut zero_count = valid.to_vec();
         zero_count[37..41].copy_from_slice(&0_u32.to_le_bytes());
