@@ -83,8 +83,15 @@ impl UntrustedStrategyInputSampleProjectionLocatorV2 {
 /// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV2;
 /// let _ = StrategyInputSampleProjectionReadbackV2 {
 ///     receipt_digest: [1; 32], subject_identity: [2; 32], component_count: 1,
-///     canonical_bytes: vec![].into_boxed_slice(),
+///     canonical_bytes: vec![].into_boxed_slice(), components: vec![].into_boxed_slice(),
 /// };
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV2;
+/// fn extract_raw_bytes(value: &StrategyInputSampleProjectionReadbackV2) {
+///     let _ = value.canonical_bytes();
+/// }
 /// ```
 #[derive(Debug)]
 pub struct StrategyInputSampleProjectionReadbackV2 {
@@ -92,6 +99,36 @@ pub struct StrategyInputSampleProjectionReadbackV2 {
     subject_identity: Identity,
     component_count: u32,
     canonical_bytes: Box<[u8]>,
+    components: Box<[StrategyInputSampleProjectionComponentViewV2]>,
+}
+
+/// Borrowed identity-only view of one Owner-verified projection component.
+///
+/// The view exposes only the opaque identities required for an exact consumer admission. It has
+/// no public constructor and does not expose coordinate, sample, receipt, or storage bytes.
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionComponentViewV2;
+/// let _ = StrategyInputSampleProjectionComponentViewV2 {
+///     role_identity: [1; 32], binding_receipt_digest: [2; 32],
+/// };
+/// ```
+#[derive(Debug)]
+pub struct StrategyInputSampleProjectionComponentViewV2 {
+    role_identity: Identity,
+    binding_receipt_digest: Identity,
+}
+
+impl StrategyInputSampleProjectionComponentViewV2 {
+    #[must_use]
+    pub const fn role_identity(&self) -> Identity {
+        self.role_identity
+    }
+
+    #[must_use]
+    pub const fn binding_receipt_digest(&self) -> Identity {
+        self.binding_receipt_digest
+    }
 }
 
 impl StrategyInputSampleProjectionReadbackV2 {
@@ -111,7 +148,11 @@ impl StrategyInputSampleProjectionReadbackV2 {
     }
 
     #[must_use]
-    pub fn canonical_bytes(&self) -> &[u8] {
+    pub fn components(&self) -> &[StrategyInputSampleProjectionComponentViewV2] {
+        &self.components
+    }
+
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
 
@@ -119,11 +160,21 @@ impl StrategyInputSampleProjectionReadbackV2 {
         proof: super::postgres::StrategyInputSampleProjectionPostgresProofV2,
     ) -> Self {
         let decoded = proof.into_decoded();
+        let components = decoded
+            .components
+            .iter()
+            .map(|component| StrategyInputSampleProjectionComponentViewV2 {
+                role_identity: component.role_identity,
+                binding_receipt_digest: component.binding_receipt_digest,
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
         Self {
             receipt_digest: decoded.digest,
             subject_identity: decoded.subject_identity,
             component_count: decoded.component_count,
             canonical_bytes: decoded.bytes,
+            components,
         }
     }
 }

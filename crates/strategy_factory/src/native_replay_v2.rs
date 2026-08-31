@@ -16,6 +16,7 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayRequestV2;
 use vibe_data::owner::{
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
+    sample_projection::StrategyInputSampleProjectionReadbackV2,
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
     strategy_input_binding::StrategyInputBindingReceipt,
@@ -85,6 +86,7 @@ pub struct PreparedProgramHostCapabilityV2 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    sample_projection: StrategyInputSampleProjectionReadbackV2,
     binding: PreparedProgramBindingV2,
 }
 
@@ -108,8 +110,17 @@ impl PreparedProgramHostCapabilityV2 {
             replay_input,
             instrument_master,
             input_bindings,
+            sample_projection,
             binding,
         } = self;
+        if !prepared_projection_binding_matches_v2(
+            &binding,
+            sample_projection.receipt_digest(),
+            sample_projection.subject_identity(),
+            sample_projection.component_count(),
+        ) {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
         let host = construct_prepared_program_host_v2(plan, artifact)?;
         Ok(PreparedProgramHostHandoffV2 {
             host,
@@ -117,6 +128,7 @@ impl PreparedProgramHostCapabilityV2 {
             replay_input,
             instrument_master,
             input_bindings,
+            sample_projection,
             binding,
         })
     }
@@ -186,6 +198,7 @@ pub struct PreparedProgramHostHandoffV2 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    sample_projection: StrategyInputSampleProjectionReadbackV2,
     binding: PreparedProgramBindingV2,
 }
 
@@ -198,6 +211,16 @@ impl PreparedProgramHostHandoffV2 {
     /// Returns the number of inseparable Owner input bindings.
     pub const fn input_binding_count(&self) -> usize {
         self.input_bindings.len()
+    }
+
+    /// Returns the exact Owner projection receipt digest admitted before Host construction.
+    pub const fn sample_projection_digest(&self) -> [u8; 32] {
+        self.binding.sample_projection_digest
+    }
+
+    /// Returns the complete Owner projection component count admitted with the Plan bindings.
+    pub const fn sample_projection_component_count(&self) -> u32 {
+        self.binding.sample_projection_component_count
     }
 }
 
@@ -221,6 +244,9 @@ pub(crate) struct PreparedProgramBindingV2 {
     artifact: BindingDigest,
     market_frame_cut: BindingDigest,
     instrument_cut: BindingDigest,
+    sample_projection_digest: [u8; 32],
+    sample_projection_subject: [u8; 32],
+    sample_projection_component_count: u32,
 }
 
 /// Prepares the sole ProgramHost package from R&D and Market Data Owner-sealed evidence.
@@ -239,6 +265,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    sample_projection: StrategyInputSampleProjectionReadbackV2,
 ) -> Result<PreparedProgramHostCapabilityV2, ProgramPreparationFaultV2> {
     if !verify_instrument_master_readback(&instrument_master) {
         return Err(ProgramPreparationFaultV2::Unavailable);
@@ -250,7 +277,11 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         &instrument_master,
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
-    let (plan, artifact, binding) = prepare_program_package_v2(&claims, verified_bindings)?;
+    let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
+    validate_sample_projection_admission_v2(&sample_projection, plan.input_bindings())?;
+    binding.sample_projection_digest = sample_projection.receipt_digest();
+    binding.sample_projection_subject = sample_projection.subject_identity();
+    binding.sample_projection_component_count = sample_projection.component_count();
     Ok(PreparedProgramHostCapabilityV2 {
         plan,
         artifact,
@@ -258,6 +289,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         replay_input,
         instrument_master,
         input_bindings,
+        sample_projection,
         binding,
     })
 }
@@ -476,8 +508,78 @@ fn prepare_program_package_v2(
             artifact: claims.composer_artifact_identity,
             market_frame_cut: claims.market.frame_cut,
             instrument_cut: claims.instrument.cut,
+            sample_projection_digest: [0; 32],
+            sample_projection_subject: [0; 32],
+            sample_projection_component_count: 0,
         },
     ))
+}
+
+fn validate_sample_projection_admission_v2(
+    projection: &StrategyInputSampleProjectionReadbackV2,
+    plan_bindings: &[BindingProjectionV2],
+) -> Result<(), ProgramPreparationFaultV2> {
+    let components = projection
+        .components()
+        .iter()
+        .map(|component| {
+            (
+                component.role_identity(),
+                component.binding_receipt_digest(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let expected = plan_bindings
+        .iter()
+        .map(|binding| {
+            (
+                *binding.input_role_identity().as_bytes(),
+                *binding.receipt_digest().as_bytes(),
+            )
+        })
+        .collect::<Vec<_>>();
+    validate_sample_projection_binding_set_v2(
+        projection.receipt_digest(),
+        projection.subject_identity(),
+        projection.component_count(),
+        &components,
+        &expected,
+    )
+}
+
+fn validate_sample_projection_binding_set_v2(
+    receipt_digest: [u8; 32],
+    subject_identity: [u8; 32],
+    component_count: u32,
+    components: &[([u8; 32], [u8; 32])],
+    expected: &[([u8; 32], [u8; 32])],
+) -> Result<(), ProgramPreparationFaultV2> {
+    let count =
+        usize::try_from(component_count).map_err(|_| ProgramPreparationFaultV2::OwnerMismatch)?;
+    if receipt_digest == [0; 32]
+        || subject_identity == [0; 32]
+        || count != components.len()
+        || count != expected.len()
+        || components.windows(2).any(|pair| pair[0].0 >= pair[1].0)
+        || components
+            .iter()
+            .zip(expected)
+            .any(|(component, expected)| component != expected)
+    {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
+    Ok(())
+}
+
+fn prepared_projection_binding_matches_v2(
+    binding: &PreparedProgramBindingV2,
+    receipt_digest: [u8; 32],
+    subject_identity: [u8; 32],
+    component_count: u32,
+) -> bool {
+    binding.sample_projection_digest == receipt_digest
+        && binding.sample_projection_subject == subject_identity
+        && binding.sample_projection_component_count == component_count
 }
 
 fn validate_request_seal(
@@ -820,6 +922,75 @@ mod preparation_tests {
 
     use super::*;
     use crate::program_host_v2_backtest_tests::preparation_fixture;
+
+    #[rstest]
+    fn projection_binding_set_requires_exact_complete_strict_plan_order() {
+        let first = ([1; 32], [11; 32]);
+        let second = ([2; 32], [22; 32]);
+        let expected = [first, second];
+        let accepts = |count, components: &[([u8; 32], [u8; 32])]| {
+            validate_sample_projection_binding_set_v2(
+                [31; 32], [41; 32], count, components, &expected,
+            )
+        };
+
+        assert_eq!(accepts(2, &expected), Ok(()));
+        assert_eq!(
+            accepts(1, &expected[..1]),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            accepts(3, &[first, second, ([3; 32], [33; 32])]),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            accepts(2, &[first, first]),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            accepts(2, &[second, first]),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            accepts(2, &[([1; 32], [99; 32]), second]),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            validate_sample_projection_binding_set_v2([0; 32], [41; 32], 2, &expected, &expected),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            validate_sample_projection_binding_set_v2([31; 32], [0; 32], 2, &expected, &expected),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+        assert_eq!(
+            validate_sample_projection_binding_set_v2([31; 32], [41; 32], 1, &expected, &expected),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+    }
+
+    #[rstest]
+    fn projection_identity_binding_rejects_cross_projection_splice() {
+        let (claims, bindings) = claims(67).expect("complete Owner meaning");
+        let (_, _, mut prepared) =
+            prepare_program_package_v2(&claims, bindings).expect("canonical prepared package");
+        prepared.sample_projection_digest = [31; 32];
+        prepared.sample_projection_subject = [41; 32];
+        prepared.sample_projection_component_count = 1;
+
+        assert!(prepared_projection_binding_matches_v2(
+            &prepared, [31; 32], [41; 32], 1
+        ));
+        assert!(!prepared_projection_binding_matches_v2(
+            &prepared, [32; 32], [41; 32], 1
+        ));
+        assert!(!prepared_projection_binding_matches_v2(
+            &prepared, [31; 32], [42; 32], 1
+        ));
+        assert!(!prepared_projection_binding_matches_v2(
+            &prepared, [31; 32], [41; 32], 2
+        ));
+    }
 
     #[rstest]
     fn two_owner_meanings_prepare_through_one_program_boundary() {
