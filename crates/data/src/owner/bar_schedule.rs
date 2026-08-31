@@ -241,6 +241,9 @@ impl BarScheduleReadbackV1 {
     pub const fn outbox_identity(&self) -> BarScheduleIdentity {
         self.receipt.identity
     }
+    pub(crate) fn receipt_canonical_bytes(&self) -> &[u8] {
+        &self.receipt.canonical_bytes
+    }
 }
 
 #[derive(Debug)]
@@ -467,7 +470,7 @@ pub(super) mod authority {
     ) -> Result<BarScheduleReadbackV1, BarScheduleError> {
         if receipt.fact_digest != fact.digest()
             || receipt.cut_digest != cut.identity
-            || cut.fact_digest != fact.digest()
+            || !cut_matches_fact(&fact, &cut)
         {
             return Err(BarScheduleError::ReceiptMismatch);
         }
@@ -601,6 +604,18 @@ pub(super) mod authority {
         decode_readback(&readback.canonical_bytes, readback.identity).is_ok()
     }
 
+    fn cut_matches_fact(fact: &BarScheduleFactV1, cut: &BarScheduleCutV1) -> bool {
+        cut.fact_digest == fact.digest()
+            && cut.canonical_instrument == fact.canonical_instrument
+            && cut.effective_instant == fact.cut_effective_instant
+            && cut.instrument_master_digest == fact.instrument_master_digest
+            && cut.instrument_master_fact_digest == fact.instrument_master_fact_digest
+            && cut.instrument_master_cut_digest == fact.instrument_master_cut_digest
+            && cut.market_semantics_identity == fact.market_semantics_identity
+            && cut.source_frontier == fact.schedule_source_frontier
+            && cut.correction_frontier == fact.schedule_correction_frontier
+    }
+
     fn encode_fact(f: &BarScheduleFactV1) -> Result<Vec<u8>, BarScheduleError> {
         let mut e = Encoder::new();
         e.string(&f.canonical_instrument)?;
@@ -704,6 +719,108 @@ pub(super) mod authority {
             return Err(BarScheduleError::InvalidCanonicalBytes);
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn id(value: u8) -> BarScheduleIdentity {
+            BarScheduleIdentity::from_untrusted_bytes([value; 32])
+        }
+
+        fn fact_and_cut() -> (BarScheduleFactV1, BarScheduleCutV1) {
+            let mut fact = BarScheduleFactV1 {
+                canonical_instrument: "AAPL.XNAS".into(),
+                predecessor_fact_digest: None,
+                effective_from: 1,
+                effective_until: Some(100),
+                kind: BarScheduleKindV1::FixedInterval,
+                step: 5,
+                unit: BarScheduleUnitV1::Minute,
+                anchor_identity: id(1),
+                calendar_identity: id(2),
+                session_identity: id(3),
+                time_zone_identity: id(4),
+                label: BarScheduleLabelV1::IntervalClose,
+                completion: BarScheduleCompletionV1::CompleteOnly,
+                instrument_master_digest: id(5),
+                instrument_master_fact_digest: id(6),
+                instrument_master_cut_digest: id(7),
+                market_semantics_identity: id(8),
+                schedule_source_frontier: id(9),
+                schedule_correction_frontier: id(10),
+                cut_effective_instant: 10,
+                canonical_bytes: Vec::new(),
+                identity: zero(),
+            };
+            fact.canonical_bytes = encode_fact(&fact).expect("canonical fact");
+            fact.identity = digest(FACT_DOMAIN, &fact.canonical_bytes);
+            let mut cut = BarScheduleCutV1 {
+                fact_digest: fact.digest(),
+                canonical_instrument: fact.canonical_instrument.clone(),
+                effective_instant: fact.cut_effective_instant,
+                instrument_master_digest: fact.instrument_master_digest,
+                instrument_master_fact_digest: fact.instrument_master_fact_digest,
+                instrument_master_cut_digest: fact.instrument_master_cut_digest,
+                market_semantics_identity: fact.market_semantics_identity,
+                source_frontier: fact.schedule_source_frontier,
+                correction_frontier: fact.schedule_correction_frontier,
+                canonical_bytes: Vec::new(),
+                identity: zero(),
+            };
+            cut.canonical_bytes = encode_cut(&cut).expect("canonical cut");
+            cut.identity = digest(CUT_DOMAIN, &cut.canonical_bytes);
+            (fact, cut)
+        }
+
+        fn assert_recomputed_splice_rejected(mut mutate: impl FnMut(&mut BarScheduleCutV1)) {
+            let (fact, mut cut) = fact_and_cut();
+            mutate(&mut cut);
+            cut.canonical_bytes = encode_cut(&cut).expect("recomputed cut");
+            cut.identity = digest(CUT_DOMAIN, &cut.canonical_bytes);
+            let receipt = build_receipt(&fact, &cut, id(11), 1).expect("recomputed receipt");
+            let canonical_bytes = encode_readback(&fact, &cut, &receipt).expect("spliced readback");
+            let identity = digest(READBACK_DOMAIN, &canonical_bytes);
+
+            assert_eq!(
+                decode_readback(&canonical_bytes, identity).unwrap_err(),
+                BarScheduleError::ReceiptMismatch
+            );
+            assert!(!verify_readback(&BarScheduleReadbackV1 {
+                fact,
+                cut,
+                receipt,
+                canonical_bytes,
+                identity,
+            }));
+        }
+
+        #[test]
+        fn exact_readback_replays_unchanged() {
+            let (fact, cut) = fact_and_cut();
+            let receipt = build_receipt(&fact, &cut, id(11), 1).expect("stored receipt");
+            let readback = build_readback(fact, cut, receipt).expect("exact readback");
+            let replay = decode_readback(readback.canonical_bytes(), readback.digest())
+                .expect("exact replay");
+
+            assert_eq!(replay.canonical_bytes(), readback.canonical_bytes());
+            assert_eq!(
+                replay.receipt_canonical_bytes(),
+                readback.receipt_canonical_bytes()
+            );
+            assert!(verify_readback(&readback));
+        }
+
+        #[test]
+        fn recomputed_cut_effective_instant_splice_fails_closed() {
+            assert_recomputed_splice_rejected(|cut| cut.effective_instant += 1);
+        }
+
+        #[test]
+        fn recomputed_instrument_master_cut_splice_fails_closed() {
+            assert_recomputed_splice_rejected(|cut| cut.instrument_master_cut_digest = id(12));
+        }
     }
 }
 
