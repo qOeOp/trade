@@ -15,6 +15,7 @@ readonly guarded_roots=(
 # package/binary/test filter changes, so nextest can reuse the workspace build
 # while the database-sensitive tests still run one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
+  'vibe-strategy-factory|exploratory_replay_request_owner|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
@@ -33,13 +34,13 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 9 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all nine ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 10 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all ten ordered tests." >&2
     return 1
   fi
-  if [[ "${rd_owner_postgres_tests[0]}" != *'|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates' ]] ||
-    [[ "${rd_owner_postgres_tests[7]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[8]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
+  if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[9]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -424,6 +425,57 @@ ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
 SQL
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE TABLE public.rd_exploratory_replay_requests_v1 (
+  replay_request_identity text PRIMARY KEY,
+  run_attempt_identity text NOT NULL UNIQUE,
+  semantic_digest text NOT NULL,
+  request_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  handoff_json jsonb,
+  committed_at_epoch_ms bigint NOT NULL,
+  research_view_json jsonb,
+  request_schema_version smallint NOT NULL,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_requests_v1 OWNER TO rd_owner;
+COMMENT ON TABLE public.rd_exploratory_replay_requests_v1 IS 'legacy Replay sentinel v1';
+INSERT INTO public.rd_exploratory_replay_requests_v1 (
+  replay_request_identity,
+  run_attempt_identity,
+  semantic_digest,
+  request_json,
+  receipt_json,
+  handoff_json,
+  committed_at_epoch_ms,
+  research_view_json,
+  request_schema_version,
+  v2_canonical_request_bytes,
+  v2_meaning_digest,
+  v2_seal_digest,
+  v2_receipt_json
+)
+SELECT
+  'legacy-replay-' || ordinal::text,
+  'legacy-attempt-' || ordinal::text,
+  'sha256:legacy-' || ordinal::text,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-request'),
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-receipt'),
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-handoff'),
+  ordinal,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-research-view'),
+  2,
+  pg_catalog.decode(pg_catalog.lpad(pg_catalog.to_hex(ordinal),2,'0'),'hex'),
+  'sha256:legacy-meaning-' || ordinal::text,
+  'sha256:legacy-seal-' || ordinal::text,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
+FROM pg_catalog.generate_series(0,25) ordinal;
+SQL
+
 port_mapping="$(docker port "$container" 5432/tcp)"
 postgres_port="${port_mapping##*:}"
 case "$postgres_port" in
@@ -667,7 +719,7 @@ BEGIN
 
   IF pg_catalog.has_table_privilege(
        'backtest_owner',
-       'public.rd_exploratory_replay_requests_v1',
+       'public.rd_exploratory_replay_request_custody_v1',
        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
      )
      OR pg_catalog.has_table_privilege(
@@ -799,7 +851,7 @@ BEGIN
 
   IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_owner'
      OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_owner'
-     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_exploratory_replay_requests_v1') <> 'rd_owner'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_exploratory_replay_request_custody_v1') <> 'rd_owner'
   THEN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
   END IF;
