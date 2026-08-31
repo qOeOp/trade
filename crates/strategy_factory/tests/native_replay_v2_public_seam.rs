@@ -28,6 +28,10 @@ fn accepts_handoff_transition(
 
 fn accepts_backtest_consumer(_: impl FnOnce(PreparedProgramHostHandoffV2)) {}
 
+type ExactBacktestConsumerV2 = fn(PreparedProgramHostHandoffV2);
+
+fn accepts_exact_backtest_consumer(_: ExactBacktestConsumerV2) {}
+
 #[rstest]
 fn external_backtest_application_compiles_the_real_consuming_handoff() {
     let issuer: OwnerSealedIssuerV2 = prepare_program_host_from_owner_readbacks_v2;
@@ -41,4 +45,5 @@ fn external_backtest_application_compiles_the_real_consuming_handoff() {
     let _owner_sealed_issuer = issuer;
     accepts_handoff_transition(transition);
     accepts_backtest_consumer(consumer);
+    accepts_exact_backtest_consumer(consumer);
 }

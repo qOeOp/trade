@@ -7,7 +7,7 @@
 use crate::{
     artifact_v2::StrategyArtifactV2,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
-    exploratory_replay::SealedExploratoryReplayReadbackV2,
+    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     program_host_v2::{ProgramHostV2, ProgramHostV2Error},
     strategy_plan_v2::{BindingProjectionV2, StrategyPlanV2, VerifiedStrategyInputBindingsV2},
 };
@@ -81,6 +81,7 @@ const OWNER_SEMANTICS_VERSION_V2: &str = "v2";
 pub struct PreparedProgramHostCapabilityV2 {
     plan: StrategyPlanV2,
     artifact: StrategyArtifactV2,
+    request: ReplayRequestV2,
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
@@ -103,6 +104,7 @@ impl PreparedProgramHostCapabilityV2 {
         let Self {
             plan,
             artifact,
+            request,
             replay_input,
             instrument_master,
             input_bindings,
@@ -111,6 +113,7 @@ impl PreparedProgramHostCapabilityV2 {
         let host = construct_prepared_program_host_v2(plan, artifact)?;
         Ok(PreparedProgramHostHandoffV2 {
             host,
+            request,
             replay_input,
             instrument_master,
             input_bindings,
@@ -142,6 +145,25 @@ impl PreparedProgramHostCapabilityV2 {
 /// }
 /// ```
 ///
+/// The request and its Owner correlation remain private:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn extract_request(value: &PreparedProgramHostHandoffV2) {
+///     let _request = value.request();
+/// }
+/// ```
+///
+/// A consumer cannot require a separately supplied request:
+///
+/// ```compile_fail
+/// use vibe_backtest_owner_contracts::ReplayRequestV2;
+/// use vibe_strategy_factory::PreparedProgramHostHandoffV2;
+/// fn accepts_consumer(_: impl FnOnce(PreparedProgramHostHandoffV2)) {}
+/// fn consume(_: PreparedProgramHostHandoffV2, _: ReplayRequestV2) {}
+/// accepts_consumer(consume);
+/// ```
+///
 /// It cannot be treated as a tuple of independently spliceable capabilities:
 ///
 /// ```compile_fail
@@ -160,6 +182,7 @@ impl PreparedProgramHostCapabilityV2 {
 /// ```
 pub struct PreparedProgramHostHandoffV2 {
     host: ProgramHostV2,
+    request: ReplayRequestV2,
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
@@ -188,7 +211,12 @@ fn construct_prepared_program_host_v2(
 /// Immutable equality binding over the complete preparation inputs.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) struct PreparedProgramBindingV2 {
+    request_identity: String,
     request_meaning: String,
+    request_receipt_identity: String,
+    request_seal_digest: String,
+    request_owner_cut_epoch_ms: u64,
+    canonical_request_bytes_identity: BindingDigest,
     plan: BindingDigest,
     artifact: BindingDigest,
     market_frame_cut: BindingDigest,
@@ -226,6 +254,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
     Ok(PreparedProgramHostCapabilityV2 {
         plan,
         artifact,
+        request: claims.request,
         replay_input,
         instrument_master,
         input_bindings,
@@ -236,7 +265,8 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
 struct ProgramPreparationClaimsV2 {
     request: ReplayRequestV2,
     request_bytes: Vec<u8>,
-    request_meaning: String,
+    request_locator: ExploratoryReplayRequestLocatorV2,
+    request_bytes_identity: BindingDigest,
     owner_cut_epoch_ms: u64,
     composer_research_request: BindingDigest,
     composer_intent: BindingDigest,
@@ -333,7 +363,11 @@ impl ProgramPreparationClaimsV2 {
         Self {
             request: replay.request().clone(),
             request_bytes: replay.canonical_request_bytes().to_vec(),
-            request_meaning: replay.meaning_digest().to_owned(),
+            request_locator: replay.locator(),
+            request_bytes_identity: canonical_blob_digest(
+                b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+                replay.canonical_request_bytes(),
+            ),
             owner_cut_epoch_ms: replay.owner_cut_epoch_ms(),
             composer_research_request: composer.research_request_identity(),
             composer_intent: composer.intent_identity(),
@@ -432,7 +466,12 @@ fn prepare_program_package_v2(
         plan,
         artifact,
         PreparedProgramBindingV2 {
-            request_meaning: claims.request_meaning.clone(),
+            request_identity: claims.request_locator.request_identity.clone(),
+            request_meaning: claims.request_locator.meaning_digest.clone(),
+            request_receipt_identity: claims.request_locator.receipt_identity.clone(),
+            request_seal_digest: claims.request_locator.seal_digest.clone(),
+            request_owner_cut_epoch_ms: claims.owner_cut_epoch_ms,
+            canonical_request_bytes_identity: claims.request_bytes_identity,
             plan: claims.composer_plan_digest,
             artifact: claims.composer_artifact_identity,
             market_frame_cut: claims.market.frame_cut,
@@ -454,8 +493,15 @@ fn validate_request_seal(
         .map_err(|_| ProgramPreparationFaultV2::Unavailable)?;
 
     if claims.owner_cut_epoch_ms == 0
+        || claims.request.request_identity().as_str() != claims.request_locator.request_identity
         || canonical != claims.request_bytes
-        || meaning.as_str() != claims.request_meaning
+        || meaning.as_str() != claims.request_locator.meaning_digest
+        || claims.request_locator.receipt_identity.trim().is_empty()
+        || claims.request_locator.seal_digest.trim().is_empty()
+        || canonical_blob_digest(
+            b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+            &claims.request_bytes,
+        ) != claims.request_bytes_identity
     {
         return Err(ProgramPreparationFaultV2::OwnerMismatch);
     }
@@ -779,6 +825,11 @@ mod preparation_tests {
     fn two_owner_meanings_prepare_through_one_program_boundary() {
         let (first, first_bindings) = claims(71).expect("first complete Owner meaning");
         let (second, second_bindings) = claims(91).expect("second complete Owner meaning");
+        let first_correlation = (
+            first.request_locator.clone(),
+            first.owner_cut_epoch_ms,
+            first.request_bytes_identity,
+        );
         let (first_plan, first_artifact, first) =
             prepare_program_package_v2(&first, first_bindings).expect("first meaning must prepare");
         let (second_plan, second_artifact, second) =
@@ -790,7 +841,21 @@ mod preparation_tests {
             .expect("second prepared meaning constructs the canonical host");
 
         assert_ne!(first, second);
+        assert_eq!(first.request_identity, first_correlation.0.request_identity);
+        assert_eq!(first.request_meaning, first_correlation.0.meaning_digest);
+        assert_eq!(
+            first.request_receipt_identity,
+            first_correlation.0.receipt_identity
+        );
+        assert_eq!(first.request_seal_digest, first_correlation.0.seal_digest);
+        assert_eq!(first.request_owner_cut_epoch_ms, first_correlation.1);
+        assert_eq!(first.canonical_request_bytes_identity, first_correlation.2);
+        assert_ne!(first.request_identity, second.request_identity);
         assert_ne!(first.request_meaning, second.request_meaning);
+        assert_ne!(
+            first.canonical_request_bytes_identity,
+            second.canonical_request_bytes_identity
+        );
         assert_ne!(first.plan, second.plan);
         assert_ne!(first.artifact, second.artifact);
         assert_ne!(first.market_frame_cut, second.market_frame_cut);
@@ -800,7 +865,7 @@ mod preparation_tests {
 
     #[rstest]
     fn every_owner_cut_cross_splice_fails_before_a_capability_exists() {
-        for mutation in 0..28 {
+        for mutation in 0..32 {
             let (mut claims, bindings) = claims(101).expect("complete Owner meaning");
             let different = BindingDigest::from_untrusted_bytes([mutation + 131; 32]);
             match mutation {
@@ -828,7 +893,7 @@ mod preparation_tests {
                 16 => claims.artifact_package_bytes.push(0),
                 17 => claims.build_receipt_bytes[0].push(0),
                 18 => claims.owner_cut_epoch_ms = 0,
-                19 => claims.request_meaning.push('0'),
+                19 => claims.request_locator.meaning_digest.push('0'),
                 20 => claims.composer_artifact_locator.push('0'),
                 21 => claims.market.source_binding_lineage_root = different,
                 22 => claims.market.correction_stream_identity.push('0'),
@@ -837,6 +902,10 @@ mod preparation_tests {
                 25 => claims.market.frames[0].timeframe.push('0'),
                 26 => claims.market.frames[0].scale = 3,
                 27 => claims.market.frames[0].data_kind.push('0'),
+                28 => claims.request_locator.request_identity.push('0'),
+                29 => claims.request_locator.receipt_identity.clear(),
+                30 => claims.request_locator.seal_digest.clear(),
+                31 => claims.request_bytes_identity = different,
                 _ => unreachable!(),
             }
             assert!(
@@ -874,12 +943,16 @@ mod preparation_tests {
             .request
             .to_canonical_bytes()
             .expect("canonical sealed request B bytes");
-        semantics_splice.request_meaning = semantics_splice
+        semantics_splice.request_locator.meaning_digest = semantics_splice
             .request
             .meaning_digest()
             .expect("sealed request B meaning")
             .as_str()
             .to_owned();
+        semantics_splice.request_bytes_identity = canonical_blob_digest(
+            b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+            &semantics_splice.request_bytes,
+        );
         semantics_splice.market.market_semantics = semantics_b;
         assert!(matches!(
             prepare_program_package_v2(&semantics_splice, semantics_bindings),
@@ -904,12 +977,16 @@ mod preparation_tests {
                 .request
                 .to_canonical_bytes()
                 .expect("canonical version-spliced request bytes");
-            claims.request_meaning = claims
+            claims.request_locator.meaning_digest = claims
                 .request
                 .meaning_digest()
                 .expect("version-spliced request meaning")
                 .as_str()
                 .to_owned();
+            claims.request_bytes_identity = canonical_blob_digest(
+                b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+                &claims.request_bytes,
+            );
 
             assert!(matches!(
                 prepare_program_package_v2(&claims, bindings),
@@ -932,12 +1009,16 @@ mod preparation_tests {
             .request
             .to_canonical_bytes()
             .expect("canonical request bytes");
-        claims.request_meaning = claims
+        claims.request_locator.meaning_digest = claims
             .request
             .meaning_digest()
             .expect("request meaning")
             .as_str()
             .to_owned();
+        claims.request_bytes_identity = canonical_blob_digest(
+            b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+            &claims.request_bytes,
+        );
 
         assert!(matches!(
             prepare_program_package_v2(&claims, bindings),
@@ -1014,6 +1095,19 @@ mod preparation_tests {
         })?;
         let request_bytes = request.to_canonical_bytes()?;
         let request_meaning = request.meaning_digest()?.as_str().to_owned();
+        let request_locator = ExploratoryReplayRequestLocatorV2 {
+            request_identity: request.request_identity().as_str().to_owned(),
+            meaning_digest: request_meaning,
+            receipt_identity: format!(
+                "rd-exploratory-replay-receipt-v2-{}",
+                hex(binding(23).as_bytes())
+            ),
+            seal_digest: format!("sha256:{}", hex(binding(24).as_bytes())),
+        };
+        let request_bytes_identity = canonical_blob_digest(
+            b"rd.exploratory-replay-request.canonical-bytes.v2\0",
+            &request_bytes,
+        );
         let design_bytes = plan.canonical_design_durable_bytes();
         let plan_bytes = plan.durable_bytes();
         let artifact_package_bytes = artifact.durable_package_bytes();
@@ -1078,7 +1172,8 @@ mod preparation_tests {
             ProgramPreparationClaimsV2 {
                 request,
                 request_bytes,
-                request_meaning,
+                request_locator,
+                request_bytes_identity,
                 owner_cut_epoch_ms: 1,
                 composer_research_request: plan.research_request_identity(),
                 composer_intent: plan.intent_identity(),
