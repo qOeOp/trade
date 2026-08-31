@@ -996,6 +996,28 @@ async fn sample_projection_postgres_oracle_v3(owner_url: &str, reader_url: &str,
             .canonical_bytes(),
         receipt_bytes
     );
+    let production_evidence =
+        StrategyInputSampleProjectionStorageEvidenceV3::from_disposable_postgres(
+            reader_url.to_string(),
+            receipt_digest,
+        )
+        .await
+        .expect("fixed production V3 snapshot evidence");
+    let production_readback =
+        verify_admitted_sample_projection_v3(receipt_digest, &production_evidence)
+            .expect("complete V3 BAR evidence promotes");
+    assert_eq!(production_readback.receipt_digest(), receipt_digest);
+    assert_eq!(production_readback.subject_identity(), subject_identity);
+    assert_eq!(production_readback.component_count(), 1);
+    assert_eq!(production_readback.canonical_bytes(), receipt_bytes);
+    assert!(
+        StrategyInputSampleProjectionStorageEvidenceV3::from_disposable_postgres(
+            reader_url.to_string(),
+            sample_digest(253),
+        )
+        .await
+        .is_err()
+    );
     assert!(
         sqlx::query(
             "SELECT * FROM market_data_private.strategy_input_sample_projection_receipts_v3",
@@ -1272,6 +1294,22 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
         .await
         .is_err()
     );
+    assert!(
+        sqlx::query(
+            "SELECT * FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+        )
+        .fetch_all(&reader.pool)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query(
+            "DELETE FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+        )
+        .execute(&reader.pool)
+        .await
+        .is_err()
+    );
     let restored_custody_digest =
         sample_projection_custody_digest_v2(receipt_digest, 1, subject_identity, 1, &receipt_bytes);
     sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
@@ -1313,6 +1351,11 @@ async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str,
     let public_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_strategy_input_sample_projection_v2(bytea)','EXECUTE')")
         .fetch_one(admin).await.unwrap();
     assert!(!public_execute);
+    let public_dependency_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)','EXECUTE')")
+        .fetch_one(admin)
+        .await
+        .unwrap();
+    assert!(!public_dependency_execute);
     let resolver_security_definer: bool = sqlx::query_scalar("SELECT p.prosecdef FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname='resolve_strategy_input_sample_projection_v2'")
         .fetch_one(admin).await.unwrap();
     assert!(resolver_security_definer);

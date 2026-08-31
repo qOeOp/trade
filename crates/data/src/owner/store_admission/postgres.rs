@@ -131,6 +131,40 @@ impl PostgresMeasurementSpec {
             .all(|required| self.acl_relations.iter().any(|value| value == required))
     }
 
+    /// Returns whether this admitted measurement covers the complete fixed V3 BAR projection read.
+    pub(super) fn covers_sample_projection_floor_v3(&self) -> bool {
+        const FUNCTIONS: [&str; 6] = [
+            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
+            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+            "market_data_private.resolve_sample_receipt_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_history_v1(text)",
+        ];
+        const RELATIONS: [&str; 12] = [
+            "market_data_private.strategy_input_sample_projection_receipts_v3",
+            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+            "market_data_private.timeframe_projection_receipts_v1",
+            "market_data_private.sample_facts_v1",
+            "market_data_private.sample_receipts_v1",
+            "market_data_private.sample_outbox_v1",
+            "market_data_private.bar_schedule_state_v1",
+            "market_data_private.bar_schedule_facts_v1",
+            "market_data_private.bar_schedule_heads_v1",
+            "market_data_private.bar_schedule_cuts_v1",
+            "market_data_private.bar_schedule_receipts_v1",
+            "market_data_private.bar_schedule_outbox_v1",
+        ];
+
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
+
     /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
     pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
         const FUNCTIONS: [&str; 2] = [
@@ -320,6 +354,16 @@ pub(crate) struct RawStrategyInputSampleProjectionSnapshotV2 {
     pub(crate) sample_rows: Vec<Vec<u8>>,
 }
 
+/// Raw fixed-function evidence for one V3 BAR projection and every native dependency.
+pub(crate) struct RawStrategyInputSampleProjectionSnapshotV3 {
+    pub(crate) projection_row: Vec<u8>,
+    pub(crate) dependency_rows: Vec<Vec<u8>>,
+    pub(crate) timeframe_rows: Vec<Vec<u8>>,
+    pub(crate) sample_rows: Vec<Vec<u8>>,
+    pub(crate) schedule_rows: Vec<Vec<u8>>,
+    pub(crate) schedule_history_rows: Vec<Vec<Vec<u8>>>,
+}
+
 /// Reads one bounded projection dependency set inside one PostgreSQL snapshot.
 pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
     lease: &PostgresCredentialLease,
@@ -434,6 +478,213 @@ pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
         timeframe_rows,
         sample_rows,
     })
+}
+
+/// Reads one exact V3 BAR projection and its complete dependency graph in one read-only snapshot.
+pub(crate) async fn read_strategy_input_sample_projection_snapshot_v3(
+    lease: &PostgresCredentialLease,
+    receipt_digest: &[u8; 32],
+) -> Result<RawStrategyInputSampleProjectionSnapshotV3, PostgresMeasurementError> {
+    const HEADER_LEN: usize = 42;
+    const ENTRY_LEN: usize = 612;
+    const TIMEFRAME_DIGEST_OFFSET: usize = 176;
+    const SAMPLE_RECEIPT_DIGEST_OFFSET: usize = 240;
+    const MAX_COMPONENTS: usize = 10_000;
+    const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
+    const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
+
+    let target = parse_target(lease.database_url())?;
+
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let options = connect_options(&target, "vibe-market-data-sample-projection-v3");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    let row = sqlx::query(
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v3($1) AS p",
+    )
+    .bind(receipt_digest.as_slice())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+    .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let component_count = usize::try_from(
+        row.try_get::<i64, _>("component_count")
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+    )
+    .ok()
+    .filter(|count| (1..=MAX_COMPONENTS).contains(count))
+    .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let expected_len = ENTRY_LEN
+        .checked_mul(component_count)
+        .and_then(|entries| HEADER_LEN.checked_add(entries))
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    if receipt_bytes.len() != expected_len {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let projection_row = serde_json::to_vec(
+        &row.try_get::<serde_json::Value, _>("evidence")
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?,
+    )
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if projection_row.len() > MAX_EVIDENCE_ROW_BYTES {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let dependencies = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(d) FROM market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3($1) AS d",
+    )
+    .bind(receipt_digest.as_slice())
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if dependencies.len() != component_count {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+
+    let mut evidence_bytes = projection_row.len();
+    let mut dependency_rows = Vec::with_capacity(component_count);
+    let mut timeframe_rows = Vec::with_capacity(component_count);
+    let mut sample_rows = Vec::with_capacity(component_count);
+    let mut schedule_rows = Vec::with_capacity(component_count);
+    let mut schedule_history_rows = Vec::with_capacity(component_count);
+
+    for (ordinal, dependency) in dependencies.into_iter().enumerate() {
+        let object = dependency
+            .as_object()
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let observed_ordinal = object
+            .get("component_ordinal")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        if observed_ordinal != ordinal {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        let schedule_identity = raw_bytea_digest(object, "schedule_readback_identity")?;
+        let dependency_row = serde_json::to_vec(&dependency)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        let entry = HEADER_LEN + ENTRY_LEN * ordinal;
+        let timeframe_digest =
+            &receipt_bytes[entry + TIMEFRAME_DIGEST_OFFSET..entry + TIMEFRAME_DIGEST_OFFSET + 32];
+        let sample_receipt_digest = &receipt_bytes
+            [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
+        let timeframe = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+        )
+        .bind(timeframe_digest)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let sample = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+        )
+        .bind(sample_receipt_digest)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let schedule = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_v1($1) AS r",
+        )
+        .bind(schedule_identity.as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let canonical_instrument = raw_bar_schedule_canonical_instrument(&schedule)?;
+        let history = sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+        )
+        .bind(canonical_instrument)
+        .fetch_all(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        if history.len() > MAX_COMPONENTS {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        let timeframe = serde_json::to_vec(&timeframe)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        let sample = serde_json::to_vec(&sample)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        let schedule = serde_json::to_vec(&schedule)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        let history = history
+            .into_iter()
+            .map(|value| {
+                serde_json::to_vec(&value)
+                    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        for raw in std::iter::once(&dependency_row)
+            .chain(std::iter::once(&timeframe))
+            .chain(std::iter::once(&sample))
+            .chain(std::iter::once(&schedule))
+            .chain(history.iter())
+        {
+            if raw.len() > MAX_EVIDENCE_ROW_BYTES {
+                return Err(PostgresMeasurementError::SnapshotUnavailable);
+            }
+            evidence_bytes = evidence_bytes
+                .checked_add(raw.len())
+                .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+                .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        }
+        dependency_rows.push(dependency_row);
+        timeframe_rows.push(timeframe);
+        sample_rows.push(sample);
+        schedule_rows.push(schedule);
+        schedule_history_rows.push(history);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawStrategyInputSampleProjectionSnapshotV3 {
+        projection_row,
+        dependency_rows,
+        timeframe_rows,
+        sample_rows,
+        schedule_rows,
+        schedule_history_rows,
+    })
+}
+
+fn raw_bytea_digest(
+    object: &serde_json::Map<String, serde_json::Value>,
+    field: &'static str,
+) -> Result<[u8; 32], PostgresMeasurementError> {
+    let value = object
+        .get(field)
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| value.strip_prefix("\\x"))
+        .filter(|value| value.len() == 64)
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let bytes = (0..value.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&value[offset..offset + 2], 16)
+                .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    bytes
+        .try_into()
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
 }
 
 /// Exact raw BAR custody observed inside one fixed read-only snapshot.

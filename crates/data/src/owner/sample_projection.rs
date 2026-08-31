@@ -154,6 +154,110 @@ pub trait StrategyInputSampleProjectionResolverV2: sealed::Sealed + Send + Sync 
     ) -> Result<StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2>;
 }
 
+/// Untrusted content-addressed locator for one historical V3 BAR sample projection.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UntrustedStrategyInputSampleProjectionLocatorV3 {
+    receipt_digest: Identity,
+}
+
+impl UntrustedStrategyInputSampleProjectionLocatorV3 {
+    /// Creates an exact-digest locator from caller-supplied bytes. This confers no authority.
+    #[must_use]
+    pub const fn from_untrusted(receipt_digest: Identity) -> Self {
+        Self { receipt_digest }
+    }
+
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Identity {
+        self.receipt_digest
+    }
+}
+
+/// Opaque historical V3 BAR projection promoted only after complete Owner verification.
+///
+/// This value deliberately implements neither `Clone` nor `Deserialize` and has no public
+/// constructor. It exposes only the exact canonical projection bytes and their indexed identity.
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV3;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<StrategyInputSampleProjectionReadbackV3>();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV3;
+/// let _: StrategyInputSampleProjectionReadbackV3 = serde_json::from_slice(b"{}").unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionReadbackV3;
+/// let _ = StrategyInputSampleProjectionReadbackV3 {
+///     receipt_digest: [1; 32], subject_identity: [2; 32], component_count: 1,
+///     canonical_bytes: vec![].into_boxed_slice(),
+/// };
+/// ```
+#[derive(Debug)]
+pub struct StrategyInputSampleProjectionReadbackV3 {
+    receipt_digest: Identity,
+    subject_identity: Identity,
+    component_count: u32,
+    canonical_bytes: Box<[u8]>,
+}
+
+impl StrategyInputSampleProjectionReadbackV3 {
+    #[must_use]
+    pub const fn receipt_digest(&self) -> Identity {
+        self.receipt_digest
+    }
+
+    #[must_use]
+    pub const fn subject_identity(&self) -> Identity {
+        self.subject_identity
+    }
+
+    #[must_use]
+    pub const fn component_count(&self) -> u32 {
+        self.component_count
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(super) fn from_postgres_verified(
+        proof: super::postgres::StrategyInputSampleProjectionPostgresProofV3,
+    ) -> Self {
+        let decoded = proof.into_decoded();
+        Self {
+            receipt_digest: decoded.receipt_digest(),
+            subject_identity: decoded.subject_identity(),
+            component_count: decoded.component_count(),
+            canonical_bytes: decoded.canonical_bytes().to_vec().into_boxed_slice(),
+        }
+    }
+}
+
+/// Redacted fail-closed error for the public V3 BAR projection resolver.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("Market Data V3 BAR sample projection is unavailable")]
+pub struct StrategyInputSampleProjectionResolveErrorV3;
+
+/// Sealed fixed resolver contract for one exact admission-verified historical V3 BAR projection.
+///
+/// ```compile_fail
+/// use vibe_data::owner::sample_projection::StrategyInputSampleProjectionResolverV3;
+/// struct ForgedResolver;
+/// impl StrategyInputSampleProjectionResolverV3 for ForgedResolver {}
+/// ```
+#[async_trait]
+pub trait StrategyInputSampleProjectionResolverV3: sealed::Sealed + Send + Sync {
+    async fn resolve_strategy_input_sample_projection_v3(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV3,
+    ) -> Result<StrategyInputSampleProjectionReadbackV3, StrategyInputSampleProjectionResolveErrorV3>;
+}
+
 /// Additive identity over one complete unchanged V1 event frame.
 #[derive(Debug)]
 pub struct StrategyInputFrameEvidenceIdentityV2 {
