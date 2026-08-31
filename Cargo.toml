@@ -54,6 +54,7 @@ members = [
   "crates/pyo3",
   "crates/qualification",
   "crates/rd_artifact_invocation_custody",
+  "crates/rd_exploratory_replay_custody",
   "crates/rd_source_intake_invocation_custody",
   "crates/runtime",
   "crates/risk",
@@ -105,6 +106,7 @@ vibe-product-edge-contracts = { path = "crates/product_edge_contracts", version 
 vibe-pyo3 = { path = "crates/pyo3", version = "0.62.0" }
 vibe-qualification = { path = "crates/qualification", version = "0.62.0" }
 vibe-rd-artifact-invocation-custody = { path = "crates/rd_artifact_invocation_custody", version = "0.62.0" }
+vibe-rd-exploratory-replay-custody = { path = "crates/rd_exploratory_replay_custody", version = "0.62.0" }
 vibe-rd-source-intake-invocation-custody = { path = "crates/rd_source_intake_invocation_custody", version = "0.62.0" }
 vibe-risk = { path = "crates/risk", version = "0.62.0" }
 vibe-scanner = { path = "crates/scanner", version = "0.62.0" }

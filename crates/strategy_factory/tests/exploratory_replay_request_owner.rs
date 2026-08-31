@@ -35,11 +35,11 @@ use vibe_strategy_factory::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2,
-        ExploratoryReplayAvailabilityV1, ExploratoryReplayOwnerError,
-        ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
-        ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
-        ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2, IdentityDigestV1,
-        VersionedIdentityV1,
+        ExploratoryReplayAvailabilityV1, ExploratoryReplayNextLegalActionV1,
+        ExploratoryReplayOwnerError, ExploratoryReplayRecoverySelectorV2,
+        ExploratoryReplayRequestLocatorV1, ExploratoryReplayRequestLocatorV2,
+        ExploratoryReplayRequestProposalV1, ExploratoryReplayRequestProposalV2,
+        ExploratoryReplaySealedReadPortV2, IdentityDigestV1, VersionedIdentityV1,
     },
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
@@ -698,6 +698,10 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         stale_v2.projection().availability,
         ExploratoryReplayAvailabilityV1::Stale
     );
+    assert_eq!(
+        stale_v2.projection().next_legal_action,
+        ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
+    );
     assert!(stale_v2.readback().is_none());
     sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
@@ -1293,6 +1297,10 @@ async fn assert_recovery_stale_v2(
     assert_eq!(
         resolved.projection().availability,
         ExploratoryReplayAvailabilityV1::Stale
+    );
+    assert_eq!(
+        resolved.projection().next_legal_action,
+        ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
     );
     assert!(resolved.readback().is_none());
 }
