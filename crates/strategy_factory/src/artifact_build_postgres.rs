@@ -16,7 +16,7 @@ use crate::{
         ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
-        ArtifactRequestIdentityPreflightV1, ArtifactReviewV1, ReservedArtifactBuildInvocationV1,
+        ArtifactRequestIdentityPreflightV1, ReservedArtifactBuildInvocationV1,
         StoredArtifactBuildInvocationSnapshotV1, UnixArtifactBuildSandboxV1, artifact_review,
         artifact_review_action_projection, build_receipt, build_request_semantic_digest,
         canonical_intent_bytes, issue_artifact, sandbox_request, validate_candidate,
@@ -61,7 +61,7 @@ struct LegacyStoredAttemptV1 {
     prepared_at_epoch_ms: u64,
     receipt: Option<ArtifactBuildReceiptV1>,
     research_view: Option<crate::product_edge::ResearchViewV1>,
-    artifact_review: Option<ArtifactReviewV1>,
+    artifact_review: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -92,7 +92,7 @@ struct FamilyLegacyStoredAttemptV1 {
     prepared_at_epoch_ms: u64,
     receipt: Option<ArtifactBuildReceiptV1>,
     research_view: Option<crate::product_edge::ResearchViewV1>,
-    artifact_review: Option<ArtifactReviewV1>,
+    artifact_review: Option<serde_json::Value>,
     trial_family_resolution: serde_json::Value,
     artifact_trial_family: serde_json::Value,
 }
@@ -1284,87 +1284,9 @@ async fn verify_legacy_terminal_attempt(
 
     match receipt.disposition {
         ArtifactBuildDisposition::Success => {
-            let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
-                ArtifactBuildError::Storage("legacy success artifact identity missing".into())
-            })?;
-            let build_receipt_identity =
-                receipt.build_receipt_identity.as_deref().ok_or_else(|| {
-                    ArtifactBuildError::Storage("legacy success build receipt missing".into())
-                })?;
-            let artifact_row = artifact_rows.first().ok_or_else(|| {
-                ArtifactBuildError::Storage("legacy success artifact row missing".into())
-            })?;
-            let stored_review: ArtifactReviewV1 = serde_json::from_value(
-                artifact_row
-                    .try_get::<serde_json::Value, _>("artifact_review_json")
-                    .map_err(storage)?,
-            )
-            .map_err(json_storage)?;
-            let review = legacy.artifact_review.as_ref().unwrap_or(&stored_review);
-            let expected_receipt_identity = format!(
-                "rd-artifact-build-receipt-v1-{}",
-                artifact_identity.trim_start_matches("blake3:")
-            );
-
-            if receipt.receipt_identity != expected_receipt_identity
-                || receipt.failure_code.is_some()
-                || review.artifact_identity.artifact_digest != artifact_identity
-                || review.build_receipt.build_receipt_identity != build_receipt_identity
-                || review.build_receipt.attempt_identity != legacy.request.attempt_identity
-                || review.intent_identity != legacy.request.intent_identity
-                || receipt.intent_identity.as_deref()
-                    != Some(legacy.request.intent_identity.as_str())
-                || receipt.intent_semantic_digest.as_deref()
-                    != Some(review.intent_semantic_digest.as_str())
-                || (complete_projection_fields
-                    && legacy.research_view.as_ref().is_none_or(|view| {
-                        view.attempt_identity.as_deref() != Some(attempt_identity)
-                            || view.artifact_identity.as_deref() != Some(artifact_identity)
-                            || view.build_receipt_identity.as_deref()
-                                != Some(build_receipt_identity)
-                            || view.artifact_review_identity.as_deref()
-                                != Some(review.review_identity.as_str())
-                    }))
-                || artifact_rows.len() != 1
-            {
-                return Err(ArtifactBuildError::Storage(
-                    "legacy success custody mismatch".into(),
-                ));
-            }
-
-            if artifact_row
-                .try_get::<String, _>("artifact_digest")
-                .map_err(storage)?
-                != artifact_identity
-                || artifact_row
-                    .try_get::<String, _>("intent_identity")
-                    .map_err(storage)?
-                    != legacy.request.intent_identity
-                || artifact_row
-                    .try_get::<String, _>("attempt_identity")
-                    .map_err(storage)?
-                    != legacy.request.attempt_identity
-                || artifact_row
-                    .try_get::<serde_json::Value, _>("identity_json")
-                    .map_err(storage)?
-                    != serde_json::to_value(&review.artifact_identity).map_err(json_storage)?
-                || artifact_row
-                    .try_get::<serde_json::Value, _>("build_receipt_json")
-                    .map_err(storage)?
-                    != serde_json::to_value(&review.build_receipt).map_err(json_storage)?
-                || artifact_row
-                    .try_get::<serde_json::Value, _>("artifact_review_json")
-                    .map_err(storage)?
-                    != serde_json::to_value(review).map_err(json_storage)?
-                || artifact_row
-                    .try_get::<i64, _>("committed_at_epoch_ms")
-                    .map_err(storage)?
-                    != i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
-            {
-                return Err(ArtifactBuildError::Storage(
-                    "legacy artifact row mismatch".into(),
-                ));
-            }
+            return Err(ArtifactBuildError::Storage(
+                "legacy successful artifact lacks sealed build security evidence".into(),
+            ));
         }
         ArtifactBuildDisposition::FailedNoArtifact
         | ArtifactBuildDisposition::RejectedNoWrite
@@ -2045,6 +1967,124 @@ mod postgres_freshness_tests {
                 .unwrap(),
             result
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires admitted OA/PE/R&D test database URLs"]
+    async fn opaque_legacy_success_is_classified_but_never_promoted() {
+        let test_database = test_database().await;
+        let _mutation = test_database.mutation();
+        let database_url = test_database.database_url().to_string();
+        let owner = PostgresArtifactBuildOwnerV1::connect(
+            &database_url,
+            "/tmp/unused-rd-sandbox.sock",
+            u64::MAX,
+        )
+        .await
+        .unwrap();
+        let suffix = unique_suffix();
+        let build_request_identity = format!("artifact-build-request-legacy-success-{suffix}");
+        let attempt_identity = format!("artifact-build-attempt-legacy-success-{suffix}");
+        let request = LegacyArtifactBuildRequestV1 {
+            build_request_identity: build_request_identity.clone(),
+            attempt_identity: attempt_identity.clone(),
+            intent_identity: format!("rd-research-intent-v1-legacy-success-{suffix}"),
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            context: serde_json::json!({
+                "schema_version": 1,
+                "trusted_principal": "legacy-principal",
+                "authorized_scope": ["research:artifact-build"],
+                "authorization_policy_cut": "legacy-policy-cut"
+            }),
+        };
+        let semantic_digest = format!(
+            "sha256:{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&LegacyRequestMeaningV1 {
+                    build_request_identity: &request.build_request_identity,
+                    attempt_identity: &request.attempt_identity,
+                    intent_identity: &request.intent_identity,
+                    context: &request.context,
+                })
+                .unwrap()
+            )
+        );
+        let committed_at = current_epoch_ms().unwrap();
+        let legacy = LegacyStoredAttemptV1 {
+            schema_version: 1,
+            request,
+            request_semantic_digest: semantic_digest.clone(),
+            intent: None,
+            state: AttemptState::Terminal,
+            candidate_digest: Some("sha256:legacy-candidate".to_string()),
+            candidate: Some(serde_json::json!({"historical_candidate": true})),
+            prepared_at_epoch_ms: committed_at,
+            receipt: Some(ArtifactBuildReceiptV1 {
+                schema_version: 1,
+                receipt_identity: format!("rd-artifact-build-receipt-v1-{suffix}"),
+                build_request_identity: build_request_identity.clone(),
+                attempt_identity: attempt_identity.clone(),
+                request_semantic_digest: semantic_digest.clone(),
+                intent_identity: None,
+                intent_semantic_digest: None,
+                disposition: ArtifactBuildDisposition::Success,
+                artifact_identity: Some(format!("blake3:legacy-artifact-{suffix}")),
+                build_receipt_identity: Some(format!("legacy-build-receipt-{suffix}")),
+                failure_code: None,
+                committed_at_epoch_ms: committed_at,
+            }),
+            research_view: None,
+            artifact_review: Some(serde_json::json!({
+                "schema_version": 1,
+                "historical_security_review": {
+                    "policy": "pre-sealed-evidence",
+                    "accepted": true
+                }
+            })),
+        };
+        let terminal_json = serde_json::to_value(&legacy).unwrap();
+        sqlx::query("INSERT INTO rd_artifact_build_attempts_v1 (build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms) VALUES ($1,$2,$3,$4,$5)")
+            .bind(&build_request_identity).bind(&attempt_identity).bind(&semantic_digest)
+            .bind(&terminal_json).bind(i64::try_from(committed_at).unwrap())
+            .execute(&owner.pool).await.unwrap();
+
+        owner.assert_activation_safe().await.unwrap();
+        assert_eq!(
+            owner
+                .preflight_request_identity(&build_request_identity, &attempt_identity)
+                .await
+                .unwrap(),
+            ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined
+        );
+        assert!(matches!(
+            owner
+                .resolve_legacy_terminal_quarantined(&build_request_identity, &attempt_identity)
+                .await,
+            Err(ArtifactBuildError::Storage(message))
+                if message == "legacy successful artifact lacks sealed build security evidence"
+        ));
+
+        let mut nonterminal = terminal_json.clone();
+        nonterminal["state"] = serde_json::json!("PREPARED");
+        sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
+            .bind(nonterminal).bind(&build_request_identity)
+            .execute(&owner.pool).await.unwrap();
+        assert!(matches!(
+            owner.assert_activation_safe().await,
+            Err(ArtifactBuildError::Storage(message))
+                if message.contains("undrained legacy nonterminal")
+        ));
+
+        let mut unknown = terminal_json;
+        unknown["unrecognized_custody"] = serde_json::json!(true);
+        sqlx::query("UPDATE rd_artifact_build_attempts_v1 SET attempt_json=$1 WHERE build_request_identity=$2")
+            .bind(unknown).bind(&build_request_identity)
+            .execute(&owner.pool).await.unwrap();
+        assert!(matches!(
+            owner.assert_activation_safe().await,
+            Err(ArtifactBuildError::Storage(message))
+                if message.contains("unclassified legacy attempt custody")
+        ));
     }
 
     #[tokio::test]
