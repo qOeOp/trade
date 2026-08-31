@@ -68,6 +68,19 @@ admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect
 失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、digest
 不匹配或混合截面时，不得创建 Product Edge admission、downstream Owner 写入或 provider 调用。
 
+`LegacyPreparedAttemptDrainV1` 是唯一的有界例外，且仅适用于准确的历史 schema-v1 `PREPARED` APP 或
+MCP 请求。原始 attempt 字节保持不可变。显式有界 admin 只有在绑定准确 attempt 与列 digest、build 与
+attempt identity、canonical Product Edge admission、目标数据库，以及 canonical effect admission、claim、
+state、artifact、provider-start custody 和非 drain attempt/build outbox 全部为零的事实后，才可在同一事务
+追加仅 Owner 可用的 canonical receipt 及其 Owner outbox event。startup、请求处理与 `Resolve` 都不能创建
+该 receipt。准确的全目标操作幂等；部分完成集合、目标变化或多出、digest 不匹配、已有 effect 或故障均
+不得写入任何内容。已验证 receipt 只投影 legacy-quarantined `OUTCOME_UNKNOWN` 与
+`PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与 `Resolve`；它绝不创建当前 custody、freshness、
+authorization、artifact、family、successor、provider retry 或 effect authority。只有 canonical receipt 与
+outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
+activation。隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Windmill 或产品
+成熟度 acceptance。
+
 请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入
 `ACTIVE` Shell binding 与准确 deployment history head Operator Authorization 和 Agent Operation
 Manifest。Governance 接受的每个生命周期决定必须声明 `ATTENDED_REQUEST` 或

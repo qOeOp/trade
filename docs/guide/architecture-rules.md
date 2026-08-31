@@ -78,6 +78,20 @@ stops while any legacy nonterminal S2 custody remains undrained. Missing, dual, 
 wrong-issuer, wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched,
 or mixed-cut authority creates no Product Edge admission and no downstream Owner write or provider call.
 
+`LegacyPreparedAttemptDrainV1` is the only bounded exception for an exact historical schema-v1 `PREPARED`
+APP or MCP request. The original attempt bytes remain immutable. An explicit bounded admin may append an
+Owner-only canonical receipt and its Owner outbox event in the same transaction only when they bind the exact
+attempt and column digests, build and attempt identities, canonical Product Edge admission, target database,
+and exhaustive zero canonical effect-admission, claim, state, artifact, provider-start custody, and non-drain
+attempt/build outbox facts. Startup, request handling, and `Resolve` cannot create this receipt. The exact
+all-target operation is idempotent; a partial completed set, changed or extra target, digest mismatch, effect,
+or fault writes nothing. A verified receipt projects only legacy-quarantined `OUTCOME_UNKNOWN` with
+`PROVIDER_NEVER_STARTED` and permits only same-identity read and `Resolve`; it never creates current custody,
+freshness, authorization, artifact, family, successor, provider retry, or effect authority. Startup may ignore
+that exact row only after the canonical receipt and outbox both verify; every undrained, malformed, mismatched,
+or unknown row still blocks activation. Isolated local recovery evidence is not production authority and does
+not establish default-database, Windmill, or product maturity acceptance.
+
 The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal and
 scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator Authorization, and Agent
 Operation Manifest. Every accepted Governance lifecycle decision declares either `ATTENDED_REQUEST` or
