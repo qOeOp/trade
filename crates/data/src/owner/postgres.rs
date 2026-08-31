@@ -16,6 +16,11 @@ use super::research_pit_terminal::{
     seal_research_pit_terminal,
 };
 #[cfg(not(test))]
+use super::sample_projection::{
+    StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2,
+    StrategyInputSampleProjectionResolverV2, UntrustedStrategyInputSampleProjectionLocatorV2,
+};
+#[cfg(not(test))]
 use super::sealed_replay_input::{
     SealedReplayInput, SealedReplayInputResolver, UntrustedSealedReplayInputRequest,
     seal_replay_input,
@@ -24,6 +29,7 @@ use super::sealed_replay_input::{
 use super::store_admission::{
     AdmittedMarketDataSnapshotPort, MarketDataPitEvaluationStorageEvidence,
     MarketDataPitTerminalStorageEvidence, MarketDataSourceBindingStorageEvidence,
+    StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use super::{
     instrument_master::{
@@ -53,6 +59,11 @@ use super::{
     },
     sample_fact::{
         PreparedSampleCommitV1, StoredSampleReadbackV1, verify_stored_sample_readback_v1,
+        verify_stored_timeframe_projection_v1,
+    },
+    sample_projection::{
+        DecodedStrategyInputSampleProjectionV2, PreparedStrategyInputSampleProjectionV2,
+        decode_strategy_input_sample_projection_v2, verify_decoded_projection_component_native_v2,
     },
     shared_time_evidence::{
         ClockHeadFact, ClockHeadHandoff, ClockHeadSuccessorReadback, EpochSuccessorProof,
@@ -71,6 +82,11 @@ use super::{
             verify_stored_aggregate as verify_source_aggregate,
         },
     },
+};
+#[cfg(test)]
+use super::{
+    sample_projection::StrategyInputSampleProjectionReadbackV2,
+    store_admission::StrategyInputSampleProjectionStorageEvidenceV2,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -104,6 +120,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_correction_heads_v1 (correction_slot_identity BYTEA PRIMARY KEY CHECK (octet_length(correction_slot_identity)=32), series_identity BYTEA NOT NULL CHECK (octet_length(series_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_facts_v1(sample_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_receipts_v1 (sample_identity BYTEA PRIMARY KEY REFERENCES market_data_private.sample_facts_v1(sample_identity), receipt_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_digest)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_receipts_v1(sample_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), payload_bytes BYTEA NOT NULL CHECK (octet_length(payload_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v2 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind=1), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,subject_identity), CHECK (octet_length(receipt_bytes)=41+612*component_count))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoffs_v1 (head_identity BYTEA PRIMARY KEY CHECK (octet_length(head_identity) = 32), head_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(head_digest) = 32), predecessor_head_digest BYTEA NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_digest) CHECK (predecessor_head_digest IS NULL OR octet_length(predecessor_head_digest) = 32), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), head_identity BYTEA NOT NULL UNIQUE REFERENCES market_data_private.clock_handoffs_v1(head_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_handoff_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), materialized BOOLEAN NOT NULL, handoff_count BIGINT NOT NULL CHECK (handoff_count >= 0), epoch_transition_count BIGINT NOT NULL CHECK (epoch_transition_count >= 0), CHECK ((NOT materialized AND handoff_count = 0 AND epoch_transition_count = 0) OR (materialized AND handoff_count > 0 AND epoch_transition_count < handoff_count)))",
@@ -138,6 +155,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_instrument_master_receipt_v1(p_request_identity BYTEA) RETURNS TABLE(request_identity BYTEA,request_meaning_digest BYTEA,cut_identity BYTEA,cut_bytes BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT r.request_identity,r.request_meaning_digest,c.cut_identity,c.cut_bytes,r.receipt_identity,r.receipt_bytes,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,r.append_sequence FROM market_data_private.instrument_master_receipts_v1 AS r JOIN market_data_private.instrument_master_cuts_v1 AS c ON c.request_identity=r.request_identity AND c.cut_identity=r.cut_identity JOIN market_data_private.instrument_master_outbox_v1 AS o ON o.request_identity=r.request_identity AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.instrument_master_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1) WHERE r.request_identity=p_request_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,binding_receipt_digest BYTEA,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest FROM market_data_private.timeframe_projection_receipts_v1 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_binding_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v2 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "REVOKE ALL ON ALL TABLES IN SCHEMA market_data_private FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_source_binding_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_pit_snapshot_v1(BYTEA) FROM PUBLIC",
@@ -157,6 +175,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_instrument_master_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) FROM PUBLIC",
 ];
 
 pub(crate) struct MarketDataOwnerPostgres {
@@ -168,6 +187,24 @@ pub(crate) struct MarketDataReadPostgres {
     pub(crate) pool: PgPool,
     #[cfg(not(test))]
     admitted_port: AdmittedMarketDataSnapshotPort,
+}
+
+/// Unforgeable proof that PostgreSQL custody and every native dependency were verified.
+///
+/// Only this module can construct the proof. The projection contract may consume it, while other
+/// Owner siblings cannot promote structurally coherent caller-authored bytes.
+pub(super) struct StrategyInputSampleProjectionPostgresProofV2 {
+    decoded: DecodedStrategyInputSampleProjectionV2,
+}
+
+impl StrategyInputSampleProjectionPostgresProofV2 {
+    fn new(decoded: DecodedStrategyInputSampleProjectionV2) -> Self {
+        Self { decoded }
+    }
+
+    pub(super) fn into_decoded(self) -> DecodedStrategyInputSampleProjectionV2 {
+        self.decoded
+    }
 }
 
 impl MarketDataOwnerPostgres {
@@ -810,6 +847,59 @@ pub(super) enum SampleCustodyErrorV1 {
     UnknownReceipt,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub(super) enum SampleProjectionCustodyErrorV2 {
+    #[error("prepared FRAME projection is unavailable")]
+    InvalidPrepared,
+    #[error("projection receipt identity conflicts with durable custody")]
+    IdentityConflict,
+    #[error("FRAME evidence subject already has a different projection receipt")]
+    SubjectConflict,
+    #[error("durable FRAME projection custody is unavailable or corrupt")]
+    StoreUnavailable,
+    #[error("FRAME projection commit was deliberately rolled back")]
+    CommitInterrupted,
+    #[error("FRAME projection commit succeeded but its response was lost")]
+    ResponseLost,
+    #[error("FRAME projection receipt is unknown")]
+    UnknownReceipt,
+}
+
+/// Exact historical projection promoted only by the durable Market Data Owner.
+#[derive(Debug)]
+pub(super) struct StoredStrategyInputSampleProjectionV2 {
+    decoded: DecodedStrategyInputSampleProjectionV2,
+}
+
+impl StoredStrategyInputSampleProjectionV2 {
+    pub(super) const fn receipt_digest(&self) -> [u8; 32] {
+        self.decoded.receipt_digest()
+    }
+
+    pub(super) const fn kind_tag(&self) -> u8 {
+        self.decoded.kind_tag()
+    }
+
+    pub(super) const fn subject_identity(&self) -> [u8; 32] {
+        self.decoded.subject_identity()
+    }
+
+    pub(super) const fn component_count(&self) -> u32 {
+        self.decoded.component_count()
+    }
+
+    pub(super) fn canonical_bytes(&self) -> &[u8] {
+        self.decoded.canonical_bytes()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg(test)]
+pub(super) enum SampleProjectionCustodyFaultV2 {
+    RollbackBeforeCommit,
+    ResponseLoss,
+}
+
 #[derive(Debug)]
 enum InstrumentAppendAttemptError {
     Public(InstrumentMasterError),
@@ -853,6 +943,123 @@ fn classify_instrument_append_error(
 }
 
 impl MarketDataOwnerPostgres {
+    /// Stores one already-verified point-event FRAME projection as an immutable Owner receipt.
+    pub(crate) async fn commit_strategy_input_sample_projection_v2(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV2,
+    ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+        self.commit_strategy_input_sample_projection_inner_v2(prepared, false, false)
+            .await
+    }
+
+    #[cfg(test)]
+    pub(super) async fn commit_strategy_input_sample_projection_with_fault_v2(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV2,
+        fault: SampleProjectionCustodyFaultV2,
+    ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+        self.commit_strategy_input_sample_projection_inner_v2(
+            prepared,
+            fault == SampleProjectionCustodyFaultV2::RollbackBeforeCommit,
+            fault == SampleProjectionCustodyFaultV2::ResponseLoss,
+        )
+        .await
+    }
+
+    async fn commit_strategy_input_sample_projection_inner_v2(
+        &self,
+        prepared: &PreparedStrategyInputSampleProjectionV2,
+        rollback_before_commit: bool,
+        response_loss: bool,
+    ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+        let decoded = validate_prepared_sample_projection_v2(prepared)?;
+        let receipt_digest = prepared.receipt_digest();
+        let subject_identity = prepared.subject_identity();
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        lock_sample_projection_identities_v2(&mut transaction, subject_identity, receipt_digest)
+            .await?;
+        validate_sample_projection_dependencies_v2(&mut transaction, &decoded, true).await?;
+
+        if let Some(stored) =
+            load_strategy_input_sample_projection_v2(&mut transaction, receipt_digest).await?
+        {
+            if stored.kind_tag() != prepared.kind_tag()
+                || stored.subject_identity() != subject_identity
+                || stored.component_count() != prepared.component_count()
+                || stored.canonical_bytes() != prepared.canonical_bytes()
+            {
+                return Err(SampleProjectionCustodyErrorV2::IdentityConflict);
+            }
+            transaction
+                .commit()
+                .await
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            return Ok(stored);
+        }
+
+        let subject_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM market_data_private.strategy_input_sample_projection_receipts_v2 WHERE kind=$1 AND subject_identity=$2)",
+        )
+        .bind(i16::from(prepared.kind_tag()))
+        .bind(subject_identity.as_slice())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if subject_exists {
+            return Err(SampleProjectionCustodyErrorV2::SubjectConflict);
+        }
+
+        let custody_digest = sample_projection_custody_digest_v2(
+            receipt_digest,
+            prepared.kind_tag(),
+            subject_identity,
+            prepared.component_count(),
+            prepared.canonical_bytes(),
+        );
+        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v2(receipt_digest,kind,subject_identity,component_count,receipt_bytes,custody_digest) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(receipt_digest.as_slice())
+            .bind(i16::from(prepared.kind_tag()))
+            .bind(subject_identity.as_slice())
+            .bind(i64::from(prepared.component_count()))
+            .bind(prepared.canonical_bytes())
+            .bind(custody_digest.as_slice())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| map_sample_projection_insert_error_v2(&e))?;
+        if rollback_before_commit {
+            return Err(SampleProjectionCustodyErrorV2::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if response_loss {
+            Err(SampleProjectionCustodyErrorV2::ResponseLost)
+        } else {
+            promote_stored_strategy_input_sample_projection_v2(
+                prepared.canonical_bytes(),
+                receipt_digest,
+            )
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+        }
+    }
+
+    /// Resolves one exact historical FRAME projection through its fixed Owner resolver.
+    pub(crate) async fn resolve_strategy_input_sample_projection_v2(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+        resolve_strategy_input_sample_projection_from_pool_v2(&self.pool, receipt_digest).await
+    }
+
     /// Persists one contract-verified sample and returns a verified native readback.
     ///
     /// The timeframe projection is idempotently stored first under its own immutable receipt;
@@ -1097,6 +1304,14 @@ impl MarketDataOwnerPostgres {
 }
 
 impl MarketDataReadPostgres {
+    #[cfg(test)]
+    pub(super) async fn resolve_strategy_input_sample_projection_v2(
+        &self,
+        receipt_digest: [u8; 32],
+    ) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+        resolve_strategy_input_sample_projection_from_pool_v2(&self.pool, receipt_digest).await
+    }
+
     #[cfg(test)]
     pub(super) async fn resolve_sample_receipt_custody_v1(
         &self,
@@ -1415,6 +1630,226 @@ impl MarketDataReadPostgres {
 #[derive(Clone, Debug)]
 struct StoredSampleCustodyV1 {
     prepared: PreparedSampleCustodyV1,
+}
+
+fn validate_prepared_sample_projection_v2(
+    prepared: &PreparedStrategyInputSampleProjectionV2,
+) -> Result<DecodedStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+    let stored = decode_strategy_input_sample_projection_v2(
+        prepared.canonical_bytes(),
+        prepared.receipt_digest(),
+    )
+    .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
+
+    if prepared.kind_tag() != 0x01
+        || stored.kind_tag() != prepared.kind_tag()
+        || stored.subject_identity() != prepared.subject_identity()
+        || stored.component_count() != prepared.component_count()
+        || stored.canonical_bytes() != prepared.canonical_bytes()
+    {
+        return Err(SampleProjectionCustodyErrorV2::InvalidPrepared);
+    }
+    Ok(stored)
+}
+
+async fn validate_sample_projection_dependencies_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    decoded: &DecodedStrategyInputSampleProjectionV2,
+    lock_dependencies: bool,
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    for component in decoded.components() {
+        let sample_receipt_digest = component.sample_receipt_digest();
+        let timeframe_projection_digest = component.timeframe_projection_digest();
+
+        if lock_dependencies {
+            let sample_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(sample_receipt_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            let timeframe_locked: Option<Vec<u8>> = sqlx::query_scalar(
+                "SELECT receipt_digest FROM market_data_private.timeframe_projection_receipts_v1 WHERE receipt_digest=$1 FOR KEY SHARE",
+            )
+            .bind(timeframe_projection_digest.as_slice())
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+            if sample_locked.is_none() || timeframe_locked.is_none() {
+                return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+            }
+        }
+
+        let stored = load_sample_custody(transaction, sample_receipt_digest)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        if stored.prepared.projection_receipt_digest != timeframe_projection_digest {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let sample = verify_stored_sample_readback_v1(
+            &stored.prepared.fact_bytes,
+            stored.prepared.fact_digest,
+            &stored.prepared.receipt_bytes,
+            stored.prepared.receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe = verify_stored_timeframe_projection_v1(
+            &stored.prepared.projection_receipt_bytes,
+            stored.prepared.projection_receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        verify_decoded_projection_component_native_v2(component, &timeframe, &sample)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    }
+    Ok(())
+}
+
+async fn lock_sample_projection_identities_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    subject_identity: [u8; 32],
+    receipt_digest: [u8; 32],
+) -> Result<(), SampleProjectionCustodyErrorV2> {
+    let mut identities = [subject_identity, receipt_digest];
+    identities.sort_unstable();
+    for identity in identities {
+        sqlx::query("SELECT pg_advisory_xact_lock($1)")
+            .bind(sample_advisory_key(identity))
+            .execute(&mut **transaction)
+            .await
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    }
+    Ok(())
+}
+
+async fn resolve_strategy_input_sample_projection_from_pool_v2(
+    pool: &PgPool,
+    receipt_digest: [u8; 32],
+) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let stored = load_strategy_input_sample_projection_v2(&mut transaction, receipt_digest)
+        .await?
+        .ok_or(SampleProjectionCustodyErrorV2::UnknownReceipt)?;
+    transaction
+        .commit()
+        .await
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    Ok(stored)
+}
+
+async fn load_strategy_input_sample_projection_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected_digest: [u8; 32],
+) -> Result<Option<StoredStrategyInputSampleProjectionV2>, SampleProjectionCustodyErrorV2> {
+    let Some(row) = sqlx::query(
+        "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_v2($1)",
+    )
+    .bind(expected_digest.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
+    let receipt_digest = sample_projection_digest_column_v2(&row, "receipt_digest")?;
+    let subject_identity = sample_projection_digest_column_v2(&row, "subject_identity")?;
+    let custody_digest = sample_projection_digest_column_v2(&row, "custody_digest")?;
+    let kind: i16 = row
+        .try_get("kind")
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let kind = u8::try_from(kind).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let component_count: i64 = row
+        .try_get("component_count")
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let component_count = u32::try_from(component_count)
+        .ok()
+        .filter(|count| *count != 0)
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
+    if receipt_digest != expected_digest
+        || kind != 0x01
+        || custody_digest
+            != sample_projection_custody_digest_v2(
+                receipt_digest,
+                kind,
+                subject_identity,
+                component_count,
+                &receipt_bytes,
+            )
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    let stored =
+        promote_stored_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)?;
+
+    if stored.kind_tag() != kind
+        || stored.subject_identity() != subject_identity
+        || stored.component_count() != component_count
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    validate_sample_projection_dependencies_v2(transaction, &stored.decoded, false).await?;
+    Ok(Some(stored))
+}
+
+fn promote_stored_strategy_input_sample_projection_v2(
+    bytes: &[u8],
+    expected_digest: [u8; 32],
+) -> Result<StoredStrategyInputSampleProjectionV2, SampleProjectionCustodyErrorV2> {
+    let decoded = decode_strategy_input_sample_projection_v2(bytes, expected_digest)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    Ok(StoredStrategyInputSampleProjectionV2 { decoded })
+}
+
+fn sample_projection_digest_column_v2(
+    row: &sqlx::postgres::PgRow,
+    column: &'static str,
+) -> Result<[u8; 32], SampleProjectionCustodyErrorV2> {
+    let bytes: Vec<u8> = row
+        .try_get(column)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    bytes
+        .try_into()
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+fn sample_projection_custody_digest_v2(
+    receipt_digest: [u8; 32],
+    kind: u8,
+    subject_identity: [u8; 32],
+    component_count: u32,
+    receipt_bytes: &[u8],
+) -> [u8; 32] {
+    let mut digest = Sha256::new();
+    digest.update(b"market-data.sample-projection-custody.v2\0");
+    digest.update(receipt_digest);
+    digest.update([kind]);
+    digest.update(subject_identity);
+    digest.update(component_count.to_le_bytes());
+    digest.update(receipt_bytes);
+    digest.finalize().into()
+}
+
+fn map_sample_projection_insert_error_v2(error: &sqlx::Error) -> SampleProjectionCustodyErrorV2 {
+    if error
+        .as_database_error()
+        .is_some_and(sqlx::error::DatabaseError::is_unique_violation)
+    {
+        SampleProjectionCustodyErrorV2::IdentityConflict
+    } else {
+        SampleProjectionCustodyErrorV2::StoreUnavailable
+    }
 }
 
 fn validate_prepared_sample(value: &PreparedSampleCustodyV1) -> Result<(), SampleCustodyErrorV1> {
@@ -4213,6 +4648,29 @@ impl SealedReplayInputResolver for MarketDataReadPostgres {
     }
 }
 
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl StrategyInputSampleProjectionResolverV2 for MarketDataReadPostgres {
+    async fn resolve_strategy_input_sample_projection_v2(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV2,
+    ) -> Result<StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionResolveErrorV2>
+    {
+        let evidence = self
+            .admitted_port
+            .resolve_sample_projection_v2(locator.receipt_digest())
+            .await
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        let readback = verify_admitted_sample_projection_v2(locator.receipt_digest(), &evidence)
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        self.admitted_port
+            .revalidate_sample_projection_v2_before_return()
+            .await
+            .map_err(|_| StrategyInputSampleProjectionResolveErrorV2)?;
+        Ok(readback)
+    }
+}
+
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 
@@ -4349,6 +4807,208 @@ impl ResearchPitTerminalResolver for MarketDataReadPostgres {
 struct StoredEnvelope {
     aggregate: Value,
     native: NativeIndex,
+}
+
+fn verify_admitted_sample_projection_v2(
+    expected_digest: [u8; 32],
+    evidence: &StrategyInputSampleProjectionStorageEvidenceV2,
+) -> Result<StrategyInputSampleProjectionReadbackV2, SampleProjectionCustodyErrorV2> {
+    let projection: Value = serde_json::from_slice(evidence.projection_row())
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let projection = projection
+        .as_object()
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    let receipt_digest = projection_raw_digest(projection, "receipt_digest")?;
+    let subject_identity = projection_raw_digest(projection, "subject_identity")?;
+    let custody_digest = projection_raw_digest(projection, "custody_digest")?;
+    let kind = projection_raw_u64(projection, "kind").and_then(|value| {
+        u8::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+    })?;
+    let component_count = projection_raw_u64(projection, "component_count").and_then(|value| {
+        u32::try_from(value).map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+    })?;
+    let receipt_bytes = projection_raw_bytes_field(projection, "receipt_bytes")?;
+
+    if receipt_digest != expected_digest
+        || kind != 0x01
+        || component_count == 0
+        || custody_digest
+            != sample_projection_custody_digest_v2(
+                receipt_digest,
+                kind,
+                subject_identity,
+                component_count,
+                &receipt_bytes,
+            )
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    let decoded = decode_strategy_input_sample_projection_v2(&receipt_bytes, receipt_digest)
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
+    if decoded.kind_tag() != kind
+        || decoded.subject_identity() != subject_identity
+        || decoded.component_count() != component_count
+        || decoded.components().len() != evidence.sample_rows().len()
+        || decoded.components().len() != evidence.timeframe_rows().len()
+    {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+
+    for ((component, timeframe_row), sample_row) in decoded
+        .components()
+        .iter()
+        .zip(evidence.timeframe_rows())
+        .zip(evidence.sample_rows())
+    {
+        let timeframe: Value = serde_json::from_slice(timeframe_row)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe = timeframe
+            .as_object()
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let timeframe_digest = projection_raw_digest(timeframe, "receipt_digest")?;
+        let timeframe_binding = projection_raw_digest(timeframe, "binding_receipt_digest")?;
+        let timeframe_bytes = projection_raw_bytes_field(timeframe, "receipt_bytes")?;
+        let timeframe_custody = projection_raw_digest(timeframe, "custody_digest")?;
+        if timeframe_digest != component.timeframe_projection_digest()
+            || timeframe_custody
+                != projection_custody_digest(timeframe_digest, timeframe_binding, &timeframe_bytes)
+        {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let timeframe = verify_stored_timeframe_projection_v1(&timeframe_bytes, timeframe_digest)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
+        let sample: Value = serde_json::from_slice(sample_row)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let sample = sample
+            .as_object()
+            .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        let prepared = PreparedSampleCustodyV1 {
+            sample_identity: projection_raw_digest(sample, "sample_identity")?,
+            fact_digest: projection_raw_digest(sample, "fact_digest")?,
+            series_identity: projection_raw_digest(sample, "series_identity")?,
+            series_predecessor_identity: projection_raw_optional_digest(
+                sample,
+                "series_predecessor_identity",
+            )?,
+            series_sequence: projection_raw_u64(sample, "series_sequence")?,
+            correction_slot_identity: projection_raw_digest(sample, "correction_slot_identity")?,
+            correction_predecessor_identity: projection_raw_optional_digest(
+                sample,
+                "correction_predecessor_identity",
+            )?,
+            correction_sequence: projection_raw_u64(sample, "correction_sequence")?,
+            logical_time: projection_raw_u64(sample, "logical_time")?,
+            lineage_version: projection_raw_u64(sample, "lineage_version")?,
+            projection_receipt_digest: projection_raw_digest(sample, "projection_receipt_digest")?,
+            projection_binding_receipt_digest: projection_raw_digest(
+                sample,
+                "projection_binding_receipt_digest",
+            )?,
+            projection_receipt_bytes: projection_raw_bytes_field(
+                sample,
+                "projection_receipt_bytes",
+            )?,
+            fact_bytes: projection_raw_bytes_field(sample, "fact_bytes")?,
+            receipt_digest: projection_raw_digest(sample, "receipt_digest")?,
+            receipt_bytes: projection_raw_bytes_field(sample, "receipt_bytes")?,
+            outbox_identity: projection_raw_digest(sample, "outbox_identity")?,
+            outbox_payload_digest: projection_raw_digest(sample, "outbox_payload_digest")?,
+            outbox_payload_bytes: projection_raw_bytes_field(sample, "outbox_payload_bytes")?,
+        };
+        validate_prepared_sample(&prepared)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+
+        if prepared.projection_receipt_digest != timeframe_digest
+            || prepared.projection_binding_receipt_digest != timeframe_binding
+            || prepared.projection_receipt_bytes != timeframe_bytes
+            || projection_raw_digest(sample, "projection_custody_digest")?
+                != projection_custody_digest(
+                    prepared.projection_receipt_digest,
+                    prepared.projection_binding_receipt_digest,
+                    &prepared.projection_receipt_bytes,
+                )
+            || projection_raw_digest(sample, "fact_custody_digest")?
+                != sample_fact_custody_digest(&prepared)
+            || projection_raw_digest(sample, "receipt_custody_digest")?
+                != sample_receipt_custody_digest(
+                    prepared.sample_identity,
+                    prepared.receipt_digest,
+                    &prepared.receipt_bytes,
+                )
+            || projection_raw_digest(sample, "outbox_custody_digest")?
+                != sample_outbox_custody_digest(&prepared)
+        {
+            return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+        }
+        let sample = verify_stored_sample_readback_v1(
+            &prepared.fact_bytes,
+            prepared.fact_digest,
+            &prepared.receipt_bytes,
+            prepared.receipt_digest,
+        )
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+        verify_decoded_projection_component_native_v2(component, &timeframe, &sample)
+            .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    }
+    Ok(
+        StrategyInputSampleProjectionReadbackV2::from_postgres_verified(
+            StrategyInputSampleProjectionPostgresProofV2::new(decoded),
+        ),
+    )
+}
+
+fn projection_raw_u64(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<u64, SampleProjectionCustodyErrorV2> {
+    object
+        .get(field)
+        .and_then(Value::as_u64)
+        .filter(|value| *value != 0)
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+fn projection_raw_digest(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<[u8; 32], SampleProjectionCustodyErrorV2> {
+    projection_raw_bytes_field(object, field)?
+        .try_into()
+        .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+}
+
+fn projection_raw_optional_digest(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Option<[u8; 32]>, SampleProjectionCustodyErrorV2> {
+    match object.get(field) {
+        Some(Value::Null) => Ok(None),
+        Some(_) => projection_raw_digest(object, field).map(Some),
+        None => Err(SampleProjectionCustodyErrorV2::StoreUnavailable),
+    }
+}
+
+fn projection_raw_bytes_field(
+    object: &serde_json::Map<String, Value>,
+    field: &'static str,
+) -> Result<Vec<u8>, SampleProjectionCustodyErrorV2> {
+    let encoded = object
+        .get(field)
+        .and_then(Value::as_str)
+        .and_then(|value| value.strip_prefix("\\x"))
+        .ok_or(SampleProjectionCustodyErrorV2::StoreUnavailable)?;
+    if encoded.len() % 2 != 0 {
+        return Err(SampleProjectionCustodyErrorV2::StoreUnavailable);
+    }
+    (0..encoded.len())
+        .step_by(2)
+        .map(|offset| {
+            u8::from_str_radix(&encoded[offset..offset + 2], 16)
+                .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)
+        })
+        .collect()
 }
 
 #[cfg(not(test))]

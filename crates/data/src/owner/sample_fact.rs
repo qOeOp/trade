@@ -228,6 +228,9 @@ impl TimeframeProjectionReceiptV1 {
     pub const fn spec(&self) -> &TimeframeSpecV1 {
         &self.spec
     }
+    pub(crate) fn is_point_event(&self) -> bool {
+        self.spec.bytes[4] == TimeframeKind::PointEvent as u8
+    }
 }
 
 /// Canonical immutable fact for one series slot.
@@ -238,6 +241,9 @@ pub struct SampleFactV1 {
     slot_identity: Identity,
     series_predecessor: Identity,
     correction_predecessor: Option<Identity>,
+    snapshot_identity: Identity,
+    snapshot_fact_digest: Identity,
+    observation_batch_digest: Identity,
     timeframe_identity: Identity,
     owner_event_identity: [u8; 16],
     fact_digest: Identity,
@@ -265,6 +271,18 @@ impl SampleFactV1 {
     #[must_use]
     pub const fn correction_predecessor(&self) -> Option<Identity> {
         self.correction_predecessor
+    }
+    #[must_use]
+    pub const fn snapshot_identity(&self) -> Identity {
+        self.snapshot_identity
+    }
+    #[must_use]
+    pub const fn snapshot_fact_digest(&self) -> Identity {
+        self.snapshot_fact_digest
+    }
+    #[must_use]
+    pub const fn observation_batch_digest(&self) -> Identity {
+        self.observation_batch_digest
     }
     #[must_use]
     pub const fn timeframe_identity(&self) -> Identity {
@@ -295,6 +313,15 @@ pub struct SampleReceiptV1 {
     digest: Identity,
     sample_identity: Identity,
     fact_digest: Identity,
+    timeframe_identity: Identity,
+    owner_event_identity: [u8; 16],
+    logical_time: u64,
+    event_effective: u64,
+    owner_sequence: u64,
+    canonical_row_digest: Identity,
+    source_binding_lineage_root: Identity,
+    source_binding_lineage_version: u64,
+    market_semantics_identity: Identity,
 }
 
 impl SampleReceiptV1 {
@@ -313,6 +340,42 @@ impl SampleReceiptV1 {
     #[must_use]
     pub const fn fact_digest(&self) -> Identity {
         self.fact_digest
+    }
+    #[must_use]
+    pub const fn timeframe_identity(&self) -> Identity {
+        self.timeframe_identity
+    }
+    #[must_use]
+    pub const fn owner_event_identity(&self) -> [u8; 16] {
+        self.owner_event_identity
+    }
+    #[must_use]
+    pub const fn logical_time(&self) -> u64 {
+        self.logical_time
+    }
+    #[must_use]
+    pub const fn event_effective(&self) -> u64 {
+        self.event_effective
+    }
+    #[must_use]
+    pub const fn owner_sequence(&self) -> u64 {
+        self.owner_sequence
+    }
+    #[must_use]
+    pub const fn canonical_row_digest(&self) -> Identity {
+        self.canonical_row_digest
+    }
+    #[must_use]
+    pub const fn source_binding_lineage_root(&self) -> Identity {
+        self.source_binding_lineage_root
+    }
+    #[must_use]
+    pub const fn source_binding_lineage_version(&self) -> u64 {
+        self.source_binding_lineage_version
+    }
+    #[must_use]
+    pub const fn market_semantics_identity(&self) -> Identity {
+        self.market_semantics_identity
     }
 }
 
@@ -609,6 +672,9 @@ pub(crate) fn prepare_sample_commit_v1(
         slot_identity,
         series_predecessor,
         correction_predecessor,
+        snapshot_identity: *batch.snapshot_identity().as_bytes(),
+        snapshot_fact_digest: *batch.fact_digest().as_bytes(),
+        observation_batch_digest: *batch.digest().as_bytes(),
         timeframe_identity: timeframe.timeframe_identity,
         owner_event_identity,
         fact_digest,
@@ -845,6 +911,15 @@ fn receipt_from_fact(
         bytes,
         sample_identity: fact.sample_identity,
         fact_digest: fact.fact_digest,
+        timeframe_identity: fact.timeframe_identity,
+        owner_event_identity: fact.owner_event_identity,
+        logical_time,
+        event_effective,
+        owner_sequence,
+        canonical_row_digest: fact.canonical_row_digest,
+        source_binding_lineage_root: lineage_root,
+        source_binding_lineage_version: lineage_version,
+        market_semantics_identity: market_semantics,
     }
 }
 
@@ -998,6 +1073,9 @@ fn decode_fact(
         slot_identity,
         series_predecessor,
         correction_predecessor,
+        snapshot_identity,
+        snapshot_fact_digest: snapshot_fact,
+        observation_batch_digest: batch_digest,
         timeframe_identity,
         owner_event_identity,
         fact_digest: expected_digest,
@@ -1086,10 +1164,32 @@ fn decode_receipt(
     d.schema(1)?;
     let sample_identity = d.identity()?;
     let fact_digest = d.identity()?;
-    d.take(32 + 16 + 8 * 3 + 32 + 32 + 8 + 32)?;
+    let timeframe_identity = d.identity()?;
+    let owner_event_identity = d.identity16()?;
+    let logical_time = d.u64()?;
+    let event_effective = d.u64()?;
+    let owner_sequence = d.u64()?;
+    let canonical_row_digest = d.identity()?;
+    let source_binding_lineage_root = d.identity()?;
+    let source_binding_lineage_version = d.u64()?;
+    let market_semantics_identity = d.identity()?;
     d.end()?;
-    nonzero(sample_identity)?;
-    nonzero(fact_digest)?;
+
+    for identity in [
+        sample_identity,
+        fact_digest,
+        timeframe_identity,
+        canonical_row_digest,
+        source_binding_lineage_root,
+        market_semantics_identity,
+    ] {
+        nonzero(identity)?;
+    }
+
+    if owner_event_identity == [0; 16] || owner_sequence == 0 || source_binding_lineage_version == 0
+    {
+        return Err(SampleFactUnavailable::InvalidCombination);
+    }
     let bytes: [u8; SAMPLE_RECEIPT_LEN] = bytes
         .try_into()
         .map_err(|_| SampleFactUnavailable::InvalidLength)?;
@@ -1098,6 +1198,15 @@ fn decode_receipt(
         digest: expected_digest,
         sample_identity,
         fact_digest,
+        timeframe_identity,
+        owner_event_identity,
+        logical_time,
+        event_effective,
+        owner_sequence,
+        canonical_row_digest,
+        source_binding_lineage_root,
+        source_binding_lineage_version,
+        market_semantics_identity,
     })
 }
 
@@ -1226,9 +1335,9 @@ pub(crate) mod tests {
             VerifiedPitObservationBatch,
         },
         strategy_input_binding::{
-            MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-            UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-            bind_strategy_input_role,
+            MarketDataFieldSemantic, StrategyInputChannel, StrategyInputEventFrameReceipt,
+            StrategyInputUnit, UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+            bind_strategy_input_event_frame, bind_strategy_input_role,
         },
     };
     use rstest::rstest;
@@ -1354,6 +1463,46 @@ pub(crate) mod tests {
         .expect("contract-verified point event sample")
     }
 
+    pub(crate) fn point_event_projection_fixture_v2() -> (
+        StrategyInputBindingReceipt,
+        StrategyInputEventFrameReceipt,
+        TimeframeProjectionReceiptV1,
+        StoredSampleReadbackV1,
+    ) {
+        point_event_projection_fixture_variant_v2(10, 1, 30, d(22))
+    }
+
+    pub(crate) fn point_event_projection_fixture_variant_v2(
+        event_effective: u64,
+        sequence: u64,
+        fact: u8,
+        role: BindingDigest,
+    ) -> (
+        StrategyInputBindingReceipt,
+        StrategyInputEventFrameReceipt,
+        TimeframeProjectionReceiptV1,
+        StoredSampleReadbackV1,
+    ) {
+        let batch = batch(row(event_effective, sequence), fact);
+        let mut request = request(&batch);
+        request.input_role_identity = role;
+        let binding = bind_strategy_input_role(&request, &batch).expect("sealed V1 binding");
+        let frame = bind_strategy_input_event_frame(std::slice::from_ref(&binding), &batch)
+            .expect("complete V1 event frame");
+        let timeframe = prepare_point_event_timeframe_projection_v1(&binding);
+        let commit = prepare_sample_commit_v1(
+            &binding,
+            &batch,
+            &timeframe,
+            SampleFactHeadsV1 {
+                series: None,
+                slot: None,
+            },
+        )
+        .expect("contract-verified point event sample");
+        (binding, frame, timeframe, stored(&commit))
+    }
+
     #[rstest]
     fn point_event_codec_is_fixed_and_domain_separated() {
         let spec = TimeframeSpecV1::point_event();
@@ -1403,6 +1552,9 @@ pub(crate) mod tests {
             slot_identity: [2; 32],
             series_predecessor: [0; 32],
             correction_predecessor: None,
+            snapshot_identity: [14; 32],
+            snapshot_fact_digest: [15; 32],
+            observation_batch_digest: [16; 32],
             timeframe_identity: [3; 32],
             owner_event_identity: [4; 16],
             fact_digest: [5; 32],

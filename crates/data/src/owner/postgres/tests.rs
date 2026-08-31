@@ -23,6 +23,10 @@ use crate::owner::{
         derive_license_binding_digest, derive_provenance_binding_digest,
         derive_snapshot_correction_rule_digest,
     },
+    sample_projection::{
+        PreparedStrategyInputSampleProjectionV2, StrategyInputSampleProjectionSourceV2,
+        prepare_strategy_input_sample_projection_frame_v2,
+    },
     source_binding::{
         SourceBindingBlocker, SourceBindingOwnerResolver, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -386,6 +390,7 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_instrument_master_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_timeframe_projection_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+    sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
 }
 
 fn sample_digest(byte: u8) -> [u8; 32] {
@@ -668,6 +673,318 @@ async fn sample_custody_postgres_oracle(owner_url: &str, reader_url: &str, admin
     );
     sqlx::query("UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2")
         .bind(&first.receipt_bytes).bind(first.receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+}
+
+async fn prepared_sample_projection_v2(
+    owner: &MarketDataOwnerPostgres,
+) -> PreparedStrategyInputSampleProjectionV2 {
+    let (missing_binding, missing_frame, missing_timeframe, missing_sample) =
+        crate::owner::sample_fact::tests::point_event_projection_fixture_variant_v2(
+            777,
+            19,
+            201,
+            BindingDigest::from_untrusted_bytes([91; 32]),
+        );
+    let missing = prepare_strategy_input_sample_projection_frame_v2(
+        &missing_frame,
+        &[StrategyInputSampleProjectionSourceV2 {
+            binding: &missing_binding,
+            timeframe: &missing_timeframe,
+            sample: &missing_sample,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_v2(&missing)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+
+    let (binding, frame, timeframe, sample) =
+        crate::owner::sample_fact::tests::point_event_projection_fixture_v2();
+    prepare_strategy_input_sample_projection_frame_v2(
+        &frame,
+        &[StrategyInputSampleProjectionSourceV2 {
+            binding: &binding,
+            timeframe: &timeframe,
+            sample: &sample,
+        }],
+    )
+    .unwrap()
+}
+
+async fn sample_projection_count_v2(pool: &PgPool) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v2",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn sample_projection_postgres_oracle_v2(owner_url: &str, reader_url: &str, admin: &PgPool) {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let prepared = prepared_sample_projection_v2(&owner).await;
+    let receipt_digest = prepared.receipt_digest();
+    let subject_identity = prepared.subject_identity();
+    let receipt_bytes = prepared.canonical_bytes().to_vec();
+    assert_eq!(prepared.kind_tag(), 0x01);
+    assert_eq!(prepared.component_count(), 1);
+    assert_eq!(receipt_bytes.len(), 41 + 612);
+    let initial_count = sample_projection_count_v2(owner.pool()).await;
+
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_with_fault_v2(
+                &prepared,
+                SampleProjectionCustodyFaultV2::RollbackBeforeCommit,
+            )
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::CommitInterrupted,
+    );
+    assert_eq!(
+        sample_projection_count_v2(owner.pool()).await,
+        initial_count
+    );
+    assert_eq!(
+        owner
+            .commit_strategy_input_sample_projection_with_fault_v2(
+                &prepared,
+                SampleProjectionCustodyFaultV2::ResponseLoss,
+            )
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::ResponseLost,
+    );
+    assert_eq!(
+        sample_projection_count_v2(owner.pool()).await,
+        initial_count + 1
+    );
+
+    let recovered = owner
+        .commit_strategy_input_sample_projection_v2(&prepared)
+        .await
+        .unwrap();
+    assert_eq!(recovered.receipt_digest(), receipt_digest);
+    assert_eq!(recovered.subject_identity(), subject_identity);
+    assert_eq!(recovered.canonical_bytes(), receipt_bytes);
+    let (replay_one, replay_two) = tokio::join!(
+        owner.commit_strategy_input_sample_projection_v2(&prepared),
+        owner.commit_strategy_input_sample_projection_v2(&prepared),
+    );
+    assert_eq!(replay_one.unwrap().canonical_bytes(), receipt_bytes);
+    assert_eq!(replay_two.unwrap().canonical_bytes(), receipt_bytes);
+    assert_eq!(
+        sample_projection_count_v2(owner.pool()).await,
+        initial_count + 1
+    );
+
+    drop(owner);
+    let restarted = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let after_restart = restarted
+        .resolve_strategy_input_sample_projection_v2(receipt_digest)
+        .await
+        .unwrap();
+    assert_eq!(after_restart.canonical_bytes(), receipt_bytes);
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v2(sample_digest(254))
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::UnknownReceipt,
+    );
+
+    let reader = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    let admitted = reader
+        .resolve_strategy_input_sample_projection_v2(receipt_digest)
+        .await
+        .unwrap();
+    assert_eq!(admitted.canonical_bytes(), receipt_bytes);
+    let production_evidence =
+        StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+            reader_url.to_string(),
+            receipt_digest,
+        )
+        .await
+        .unwrap();
+    let production_readback =
+        verify_admitted_sample_projection_v2(receipt_digest, &production_evidence).unwrap();
+    assert_eq!(production_readback.receipt_digest(), receipt_digest);
+    assert_eq!(production_readback.subject_identity(), subject_identity);
+    assert_eq!(production_readback.component_count(), 1);
+    assert_eq!(production_readback.canonical_bytes(), receipt_bytes);
+
+    let sample_receipt_digest: [u8; 32] = receipt_bytes[41 + 240..41 + 272].try_into().unwrap();
+    let original_sample_receipt_bytes: Vec<u8> = sqlx::query_scalar(
+        "SELECT receipt_bytes FROM market_data_private.sample_receipts_v1 WHERE receipt_digest=$1",
+    )
+    .bind(sample_receipt_digest.as_slice())
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2",
+    )
+    .bind([0x7f_u8; 32].as_slice())
+    .bind(sample_receipt_digest.as_slice())
+    .execute(admin)
+    .await
+    .unwrap();
+    let tampered_dependency =
+        StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+            reader_url.to_string(),
+            receipt_digest,
+        )
+        .await
+        .unwrap();
+    assert!(verify_admitted_sample_projection_v2(receipt_digest, &tampered_dependency).is_err());
+    sqlx::query(
+        "UPDATE market_data_private.sample_receipts_v1 SET receipt_bytes=$1 WHERE receipt_digest=$2",
+    )
+    .bind(&original_sample_receipt_bytes)
+    .bind(sample_receipt_digest.as_slice())
+    .execute(admin)
+    .await
+    .unwrap();
+
+    let mut missing_dependency_bytes = receipt_bytes.clone();
+    missing_dependency_bytes[41 + 240..41 + 272].copy_from_slice(&sample_digest(254));
+    let mut missing_receipt_hasher = Sha256::new();
+    missing_receipt_hasher.update(b"market-data.sample-projection-receipt.v2\0");
+    missing_receipt_hasher.update(&missing_dependency_bytes);
+    let missing_receipt_digest: [u8; 32] = missing_receipt_hasher.finalize().into();
+    let missing_custody_digest = sample_projection_custody_digest_v2(
+        missing_receipt_digest,
+        1,
+        subject_identity,
+        1,
+        &missing_dependency_bytes,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
+        .bind(missing_receipt_digest.as_slice())
+        .bind(&missing_dependency_bytes)
+        .bind(missing_custody_digest.as_slice())
+        .bind(receipt_digest.as_slice())
+        .execute(admin)
+        .await
+        .unwrap();
+    assert!(
+        StrategyInputSampleProjectionStorageEvidenceV2::from_disposable_postgres(
+            reader_url.to_string(),
+            missing_receipt_digest,
+        )
+        .await
+        .is_err()
+    );
+    let restored_custody_digest =
+        sample_projection_custody_digest_v2(receipt_digest, 1, subject_identity, 1, &receipt_bytes);
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2,custody_digest=$3 WHERE receipt_digest=$4")
+        .bind(receipt_digest.as_slice())
+        .bind(&receipt_bytes)
+        .bind(restored_custody_digest.as_slice())
+        .bind(missing_receipt_digest.as_slice())
+        .execute(admin)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "SELECT * FROM market_data_private.strategy_input_sample_projection_receipts_v2",
+        )
+        .fetch_all(&reader.pool)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM market_data_private.strategy_input_sample_projection_receipts_v2")
+            .execute(&reader.pool)
+            .await
+            .is_err()
+    );
+
+    for privilege in ["INSERT", "UPDATE", "DELETE"] {
+        let admitted: bool = sqlx::query_scalar("SELECT has_table_privilege($1,$2,$3)")
+            .bind(READER_ROLE)
+            .bind("market_data_private.strategy_input_sample_projection_receipts_v2")
+            .bind(privilege)
+            .fetch_one(admin)
+            .await
+            .unwrap();
+        assert!(!admitted);
+    }
+    let table_owner: String = sqlx::query_scalar("SELECT pg_catalog.pg_get_userbyid(c.relowner) FROM pg_catalog.pg_class AS c JOIN pg_catalog.pg_namespace AS n ON n.oid=c.relnamespace WHERE n.nspname='market_data_private' AND c.relname='strategy_input_sample_projection_receipts_v2'")
+        .fetch_one(admin).await.unwrap();
+    assert_eq!(table_owner, OWNER_ROLE);
+    let public_execute: bool = sqlx::query_scalar("SELECT has_function_privilege('public','market_data_private.resolve_strategy_input_sample_projection_v2(bytea)','EXECUTE')")
+        .fetch_one(admin).await.unwrap();
+    assert!(!public_execute);
+    let resolver_security_definer: bool = sqlx::query_scalar("SELECT p.prosecdef FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname='resolve_strategy_input_sample_projection_v2'")
+        .fetch_one(admin).await.unwrap();
+    assert!(resolver_security_definer);
+    let resolver_config: Vec<String> = sqlx::query_scalar("SELECT p.proconfig FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname='resolve_strategy_input_sample_projection_v2'")
+        .fetch_one(admin).await.unwrap();
+    assert_eq!(resolver_config, ["search_path=pg_catalog"]);
+
+    // Content hashes alone are not Owner authority: even a structurally valid projection whose
+    // coordinate and outer digests were both recomputed cannot be promoted through durable
+    // readback when it does not match the Owner-sealed custody row.
+    let (recomputed_bytes, recomputed_digest) =
+        crate::owner::sample_projection::tests::recomputed_coordinate_mutation_fixture_v2();
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2 WHERE receipt_digest=$3")
+        .bind(recomputed_digest.as_slice()).bind(&recomputed_bytes).bind(receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v2(recomputed_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1,receipt_bytes=$2 WHERE receipt_digest=$3")
+        .bind(receipt_digest.as_slice()).bind(&receipt_bytes).bind(recomputed_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+
+    assert!(
+        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v2(receipt_digest,kind,subject_identity,component_count,receipt_bytes,custody_digest) VALUES ($1,1,$2,1,$3,$4)")
+            .bind(sample_digest(250).as_slice())
+            .bind(sample_digest(251).as_slice())
+            .bind([0_u8; 652].as_slice())
+            .bind(sample_digest(252).as_slice())
+            .execute(restarted.pool()).await.is_err()
+    );
+
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1 WHERE receipt_digest=$2")
+        .bind(sample_digest(253).as_slice()).bind(receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+    assert_eq!(
+        restarted
+            .commit_strategy_input_sample_projection_v2(&prepared)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::SubjectConflict,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_digest=$1 WHERE receipt_digest=$2")
+        .bind(receipt_digest.as_slice()).bind(sample_digest(253).as_slice())
+        .execute(restarted.pool()).await.unwrap();
+
+    let mut tampered = receipt_bytes.clone();
+    let last = tampered.len() - 1;
+    tampered[last] ^= 1;
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind(&tampered).bind(receipt_digest.as_slice())
+        .execute(restarted.pool()).await.unwrap();
+    assert_eq!(
+        restarted
+            .resolve_strategy_input_sample_projection_v2(receipt_digest)
+            .await
+            .unwrap_err(),
+        SampleProjectionCustodyErrorV2::StoreUnavailable,
+    );
+    sqlx::query("UPDATE market_data_private.strategy_input_sample_projection_receipts_v2 SET receipt_bytes=$1 WHERE receipt_digest=$2")
+        .bind(&receipt_bytes).bind(receipt_digest.as_slice())
         .execute(restarted.pool()).await.unwrap();
 }
 
@@ -1370,6 +1687,12 @@ async fn run_postgres_owner_scenario() {
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
     Box::pin(sample_custody_postgres_oracle(
+        &owner_url,
+        &reader_url,
+        &admin,
+    ))
+    .await;
+    Box::pin(sample_projection_postgres_oracle_v2(
         &owner_url,
         &reader_url,
         &admin,

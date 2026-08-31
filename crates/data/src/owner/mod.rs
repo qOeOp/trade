@@ -7,6 +7,7 @@ pub mod instrument_master;
 pub mod pit_snapshot;
 pub mod research_pit_terminal;
 pub mod sample_fact;
+pub mod sample_projection;
 pub mod sealed_replay_input;
 pub mod shared_time_evidence;
 pub mod source_binding;
@@ -22,6 +23,7 @@ mod store_admission;
 #[cfg(not(test))]
 use self::{
     postgres::MarketDataReadPostgres, research_pit_terminal::ResearchPitTerminalResolver,
+    sample_projection::StrategyInputSampleProjectionResolverV2,
     sealed_replay_input::SealedReplayInputResolver,
 };
 
@@ -46,6 +48,20 @@ pub struct ResearchPitTerminalBootstrapError {
 #[error("Market Data sealed replay-input bootstrap rejected: {failure:?}")]
 pub struct SealedReplayInputBootstrapError {
     failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed V2 sample-projection resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data sample-projection bootstrap rejected: {failure:?}")]
+pub struct StrategyInputSampleProjectionBootstrapErrorV2 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+impl StrategyInputSampleProjectionBootstrapErrorV2 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
 }
 
 impl SealedReplayInputBootstrapError {
@@ -132,6 +148,50 @@ pub async fn sealed_replay_input_resolver_from_store_admission_lookup(
     consume_replay_input_store_admission_bootstrap(bootstrap).await
 }
 
+/// Resolves store admission and returns only the sealed V2 sample-projection resolver.
+///
+/// Disabled mode returns `None`. Required mode fails closed unless the complete admission cut and
+/// credential lease are available; no raw row or storage capability crosses this boundary.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_environment()
+-> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV2>>,
+    StrategyInputSampleProjectionBootstrapErrorV2,
+> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            StrategyInputSampleProjectionBootstrapErrorV2 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed V2 sample-projection startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn strategy_input_sample_projection_resolver_v2_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV2>>,
+    StrategyInputSampleProjectionBootstrapErrorV2,
+> {
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            StrategyInputSampleProjectionBootstrapErrorV2 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_sample_projection_store_admission_bootstrap_v2(bootstrap).await
+}
+
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
@@ -163,6 +223,31 @@ async fn consume_replay_input_store_admission_bootstrap(
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 })?;
             let port = capability.into_pit_evaluation_snapshot_port();
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_sample_projection_store_admission_bootstrap_v2(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<
+    Option<Arc<dyn StrategyInputSampleProjectionResolverV2>>,
+    StrategyInputSampleProjectionBootstrapErrorV2,
+> {
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability
+                .into_sample_projection_snapshot_port()
+                .map_err(|_| StrategyInputSampleProjectionBootstrapErrorV2 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
             Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
         }
     }

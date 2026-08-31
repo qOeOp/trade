@@ -105,6 +105,31 @@ impl PostgresMeasurementSpec {
         }
         Ok(spec)
     }
+
+    /// Returns whether this exact admitted measurement covers every catalog surface used by the
+    /// fixed V2 sample-projection snapshot consumer.
+    pub(super) fn covers_sample_projection_floor_v2(&self) -> bool {
+        const FUNCTIONS: [&str; 3] = [
+            "market_data_private.resolve_strategy_input_sample_projection_v2(bytea)",
+            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+            "market_data_private.resolve_sample_receipt_v1(bytea)",
+        ];
+        const RELATIONS: [&str; 5] = [
+            "market_data_private.strategy_input_sample_projection_receipts_v2",
+            "market_data_private.timeframe_projection_receipts_v1",
+            "market_data_private.sample_facts_v1",
+            "market_data_private.sample_receipts_v1",
+            "market_data_private.sample_outbox_v1",
+        ];
+
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
 }
 
 /// Secret-bearing credential lease resolved from one opaque handle.
@@ -262,6 +287,129 @@ pub(crate) async fn read_market_data_source_binding_snapshot(
         .await
         .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
     Ok((lineage, clocks))
+}
+
+/// Raw fixed-function evidence for one V2 projection and all of its native V1 dependencies.
+pub(crate) struct RawStrategyInputSampleProjectionSnapshotV2 {
+    pub(crate) projection_row: Vec<u8>,
+    pub(crate) timeframe_rows: Vec<Vec<u8>>,
+    pub(crate) sample_rows: Vec<Vec<u8>>,
+}
+
+/// Reads one bounded projection dependency set inside one PostgreSQL snapshot.
+pub(crate) async fn read_strategy_input_sample_projection_snapshot_v2(
+    lease: &PostgresCredentialLease,
+    receipt_digest: &[u8; 32],
+) -> Result<RawStrategyInputSampleProjectionSnapshotV2, PostgresMeasurementError> {
+    const HEADER_LEN: usize = 41;
+    const ENTRY_LEN: usize = 612;
+    const TIMEFRAME_DIGEST_OFFSET: usize = 176;
+    const SAMPLE_RECEIPT_DIGEST_OFFSET: usize = 240;
+    const MAX_COMPONENTS: usize = 10_000;
+    const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
+    const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
+
+    let target = parse_target(lease.database_url())?;
+
+    if ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let options = connect_options(&target, "vibe-market-data-sample-projection-v2");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+
+    let row = sqlx::query(
+        "SELECT p.*,to_jsonb(p) AS evidence FROM market_data_private.resolve_strategy_input_sample_projection_v2($1) AS p",
+    )
+    .bind(receipt_digest.as_slice())
+    .fetch_optional(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+    .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let component_count: i64 = row
+        .try_get("component_count")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let component_count = usize::try_from(component_count)
+        .ok()
+        .filter(|count| (1..=MAX_COMPONENTS).contains(count))
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let receipt_bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let expected_len = ENTRY_LEN
+        .checked_mul(component_count)
+        .and_then(|entries| HEADER_LEN.checked_add(entries))
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    if receipt_bytes.len() != expected_len {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let projection_json: serde_json::Value = row
+        .try_get("evidence")
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let projection_row = serde_json::to_vec(&projection_json)
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if projection_row.len() > MAX_EVIDENCE_ROW_BYTES {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let mut evidence_bytes = projection_row.len();
+
+    let mut timeframe_rows = Vec::with_capacity(component_count);
+    let mut sample_rows = Vec::with_capacity(component_count);
+    for ordinal in 0..component_count {
+        let entry = HEADER_LEN + ENTRY_LEN * ordinal;
+        let timeframe_digest =
+            &receipt_bytes[entry + TIMEFRAME_DIGEST_OFFSET..entry + TIMEFRAME_DIGEST_OFFSET + 32];
+        let sample_receipt_digest = &receipt_bytes
+            [entry + SAMPLE_RECEIPT_DIGEST_OFFSET..entry + SAMPLE_RECEIPT_DIGEST_OFFSET + 32];
+        let timeframe: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(t) FROM market_data_private.resolve_timeframe_projection_receipt_v1($1) AS t",
+        )
+        .bind(timeframe_digest)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let sample: serde_json::Value = sqlx::query_scalar(
+            "SELECT to_jsonb(s) FROM market_data_private.resolve_sample_receipt_v1($1) AS s",
+        )
+        .bind(sample_receipt_digest)
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        let timeframe = serde_json::to_vec(&timeframe)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        let sample = serde_json::to_vec(&sample)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        if timeframe.len() > MAX_EVIDENCE_ROW_BYTES || sample.len() > MAX_EVIDENCE_ROW_BYTES {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        evidence_bytes = evidence_bytes
+            .checked_add(timeframe.len())
+            .and_then(|total| total.checked_add(sample.len()))
+            .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        timeframe_rows.push(timeframe);
+        sample_rows.push(sample);
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(RawStrategyInputSampleProjectionSnapshotV2 {
+        projection_row,
+        timeframe_rows,
+        sample_rows,
+    })
 }
 
 pub(crate) struct RawPitEvaluationSnapshot {
