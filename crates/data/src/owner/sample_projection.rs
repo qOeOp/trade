@@ -93,13 +93,23 @@ impl UntrustedStrategyInputSampleProjectionLocatorV2 {
 ///     let _ = value.canonical_bytes();
 /// }
 /// ```
-#[derive(Debug)]
 pub struct StrategyInputSampleProjectionReadbackV2 {
     receipt_digest: Identity,
     subject_identity: Identity,
     component_count: u32,
     canonical_bytes: Box<[u8]>,
     components: Box<[StrategyInputSampleProjectionComponentViewV2]>,
+}
+
+impl std::fmt::Debug for StrategyInputSampleProjectionReadbackV2 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("StrategyInputSampleProjectionReadbackV2")
+            .field("receipt_digest", &self.receipt_digest)
+            .field("subject_identity", &self.subject_identity)
+            .field("component_count", &self.component_count)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Borrowed identity-only view of one Owner-verified projection component.
@@ -1589,6 +1599,21 @@ pub(crate) mod tests {
         let receipt_digest = sha256(RECEIPT_DOMAIN, &bytes);
         assert!(decode_strategy_input_sample_projection_v2(&bytes, receipt_digest).is_ok());
         (bytes, receipt_digest)
+    }
+
+    #[rstest]
+    fn readback_debug_redacts_owner_bytes_and_components() {
+        let readback = StrategyInputSampleProjectionReadbackV2 {
+            receipt_digest: [1; 32],
+            subject_identity: [2; 32],
+            component_count: 0,
+            canonical_bytes: vec![0xaa, 0xbb].into_boxed_slice(),
+            components: Vec::new().into_boxed_slice(),
+        };
+
+        let debug = format!("{readback:?}");
+        assert!(!debug.contains("canonical_bytes"));
+        assert!(!debug.contains("components"));
     }
 
     #[rstest]
