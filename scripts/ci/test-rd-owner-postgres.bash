@@ -85,6 +85,12 @@ check_nextest_graph_contract() {
     echo "ERROR: Makefile must pass the shared nextest graph explicitly." >&2
     return 1
   fi
+  if ! rg -Uq \
+    'CREATE FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(\n[[:space:]]+requested_request_identity text\n\) RETURNS void\nLANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER\nSET search_path=pg_catalog\nAS \$function\$\nDECLARE affected_rows bigint;\nBEGIN\n[[:space:]]+UPDATE public\.rd_sealed_exploratory_replay_requests_v1\n[[:space:]]+SET lifecycle_state='"'"'REVOKED'"'"'\n[[:space:]]+WHERE request_identity=requested_request_identity\n[[:space:]]+AND request_schema_version=2\n[[:space:]]+AND lifecycle_state='"'"'FROZEN'"'"';\n[[:space:]]+GET DIAGNOSTICS affected_rows = ROW_COUNT;\n[[:space:]]+IF affected_rows <> 1 THEN.*\n[[:space:]]+RAISE EXCEPTION.*\n[[:space:]]+END IF;\nEND\n\$function\$;\nALTER FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\) OWNER TO postgres;\nREVOKE ALL ON FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\)\n[[:space:]]+FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,\n[[:space:]]+rd_owner, qualification_writer, qualification_owner;\nGRANT EXECUTE ON FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\)\n[[:space:]]+TO backtest_owner;' \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: disposable Backtest pre-persist revocation hook contract changed." >&2
+    return 1
+  fi
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/build.yml")" -ne 2 ]]; then
     echo "ERROR: workspace CI and local rust test step must use the shared feature graph." >&2
@@ -464,6 +470,31 @@ REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
 GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
 GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+CREATE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(
+  requested_request_identity text
+) RETURNS void
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+DECLARE affected_rows bigint;
+BEGIN
+  UPDATE public.rd_sealed_exploratory_replay_requests_v1
+     SET lifecycle_state='REVOKED'
+   WHERE request_identity=requested_request_identity
+     AND request_schema_version=2
+     AND lifecycle_state='FROZEN';
+  GET DIAGNOSTICS affected_rows = ROW_COUNT;
+  IF affected_rows <> 1 THEN
+    RAISE EXCEPTION 'expected exactly one frozen Replay V2 request, changed %', affected_rows;
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text)
+  FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,
+       rd_owner, qualification_writer, qualification_owner;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text)
+  TO backtest_owner;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
