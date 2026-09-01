@@ -24,11 +24,11 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
-  'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
 readonly nextest_graph_args=(
   --locked
@@ -55,9 +55,9 @@ check_nextest_graph_contract() {
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
+    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -747,8 +747,8 @@ cargo nextest archive \
   --archive-file "$nextest_archive_file"
 
 # The first two filters make the first application connection to their separate
-# fresh databases. Filters 10 and 11 deliberately poison main Owner state and
-# therefore stay after every positive consumer, with the Research mismatch last.
+# fresh databases. The final filters deliberately poison Owner state and therefore
+# stay after every positive consumer, with the malformed OA/PE schema probe last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
