@@ -1259,8 +1259,8 @@ impl ProductEdgePostgresOwnerV1 {
     /// Connects the runtime Owner to an already-migrated Product Edge store.
     ///
     /// This path performs only read-only schema and authority verification. It
-    /// never attempts migration DDL, so the runtime role does not need schema
-    /// or database `CREATE` authority.
+    /// never attempts migration DDL, so the runtime role needs neither schema/database
+    /// `CREATE` nor database `TEMPORARY` authority.
     pub async fn connect_existing(
         database_url: &str,
         deployment_identity: impl Into<String>,
@@ -1279,7 +1279,7 @@ impl ProductEdgePostgresOwnerV1 {
                AND NOT pg_catalog.has_database_privilege(
                  session_user,
                  pg_catalog.current_database(),
-                 'CREATE'
+                 'CREATE,TEMPORARY'
                )",
         )
         .fetch_one(&mut *transaction)

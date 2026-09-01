@@ -574,7 +574,6 @@ CREATE SCHEMA vibe_test_legacy_replay_fault AUTHORIZATION postgres;
 REVOKE ALL ON SCHEMA vibe_test_legacy_replay_fault FROM PUBLIC;
 GRANT USAGE ON SCHEMA vibe_test_legacy_replay_fault TO vibe_test_legacy_replay_fault_writer;
 CREATE FUNCTION vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(
-  selected_request_identity text,
   expected_marker_identity text
 )
 RETURNS void
@@ -613,7 +612,7 @@ BEGIN
   END IF;
   SELECT pg_catalog.count(*) INTO selected_row_count
     FROM public.rd_sealed_exploratory_replay_requests_v1 sealed
-   WHERE sealed.request_identity=selected_request_identity;
+   WHERE sealed.request_identity='internal-continuity-replay-v1';
   IF selected_row_count<>1 THEN
     RAISE EXCEPTION 'legacy Replay selected row mismatch' USING ERRCODE='55000';
   END IF;
@@ -622,7 +621,7 @@ BEGIN
     (LIKE public.rd_sealed_exploratory_replay_requests_v1 INCLUDING ALL);
   INSERT INTO public.rd_exploratory_replay_request_custody_v1
   SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1
-   WHERE request_identity=selected_request_identity;
+   WHERE request_identity='internal-continuity-replay-v1';
   GET DIAGNOSTICS selected_row_count=ROW_COUNT;
   IF selected_row_count<>1 THEN
     RAISE EXCEPTION 'legacy Replay duplicate copy mismatch' USING ERRCODE='55000';
@@ -631,17 +630,17 @@ BEGIN
   GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
     TO surprise_replay_grantee;
   REVOKE EXECUTE ON FUNCTION
-    vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+    vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)
     FROM vibe_test_legacy_replay_fault_writer;
 END
 $function$;
-ALTER FUNCTION vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+ALTER FUNCTION vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)
   OWNER TO postgres;
 REVOKE ALL ON FUNCTION
-  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)
   FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION
-  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)
   TO vibe_test_legacy_replay_fault_writer;
 SQL
 
@@ -650,9 +649,36 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=origin_current_database="$origin_current_database" << 'SQL'
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
-REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
+REVOKE CONNECT,TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$origin_current_database" << 'SQL'
+DO $origin_database_acl$
+DECLARE runtime_role text;
+BEGIN
+  IF pg_catalog.has_database_privilege(
+       'PUBLIC',pg_catalog.current_database(),'CONNECT,TEMPORARY'
+     ) THEN
+    RAISE EXCEPTION 'origin-current PUBLIC database privilege survived clone';
+  END IF;
+  FOREACH runtime_role IN ARRAY ARRAY[
+    'operator_authorization_writer','product_edge_owner','rd_owner','rd_fact_writer',
+    'qualification_writer','backtest_owner'
+  ] LOOP
+    IF NOT pg_catalog.has_database_privilege(
+         runtime_role,pg_catalog.current_database(),'CONNECT'
+       )
+       OR pg_catalog.has_database_privilege(
+         runtime_role,pg_catalog.current_database(),'CREATE,TEMPORARY'
+       ) THEN
+      RAISE EXCEPTION 'origin-current runtime database ACL mismatch for %',runtime_role;
+    END IF;
+  END LOOP;
+END
+$origin_database_acl$;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \

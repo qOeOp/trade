@@ -391,9 +391,8 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         fixture.database.owner_topology_admin_pool(),
     ] {
         let direct_fixture_denied = sqlx::query(
-            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
         )
-        .bind(&fixture.proposal.request_identity)
         .bind(mutation.marker_identity())
         .execute(denied_pool)
         .await
@@ -406,16 +405,37 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         );
     }
 
-    let used_fault = fixture
+    let fault = fixture
         .database
         .admit_legacy_replay_duplicate_fault()
         .await
-        .expect("exact one-shot legacy Replay fault")
-        .create_duplicate(&fixture.proposal.request_identity)
+        .expect("exact one-shot legacy Replay fault");
+    let wrong_marker_denied = fault
+        .try_wrong_marker("wrong-legacy-replay-marker")
+        .await
+        .expect_err("wrong legacy Replay marker must fail closed");
+    assert_eq!(
+        wrong_marker_denied
+            .as_database_error()
+            .and_then(|error| error.code()),
+        Some(std::borrow::Cow::Borrowed("55000"))
+    );
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT pg_catalog.to_regclass(
+               'public.rd_exploratory_replay_request_custody_v1'
+             ) IS NULL",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("wrong marker zero mutation")
+    );
+    let used_fault = fault
+        .create_duplicate()
         .await
         .expect("duplicate internal Replay candidate");
     let second_use_denied = used_fault
-        .retry(&fixture.proposal.request_identity)
+        .retry()
         .await
         .expect_err("legacy Replay fault must self-revoke");
     assert_eq!(
@@ -447,6 +467,25 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .await
     .expect("duplicate internal Replay authority");
     assert!(duplicate_authority_is_exact);
+    let duplicate_is_fixed_source: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.count(*)=1
+            AND pg_catalog.bool_and(
+              request_identity='internal-continuity-replay-v1'
+            )
+            AND (
+              SELECT pg_catalog.to_jsonb(duplicate)
+                FROM public.rd_exploratory_replay_request_custody_v1 duplicate
+            )=(
+              SELECT pg_catalog.to_jsonb(sealed)
+                FROM public.rd_sealed_exploratory_replay_requests_v1 sealed
+               WHERE request_identity='internal-continuity-replay-v1'
+            )
+           FROM public.rd_exploratory_replay_request_custody_v1",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("fixed legacy Replay duplicate source");
+    assert!(duplicate_is_fixed_source);
 
     let duplicate_before = [
         replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
@@ -1929,8 +1968,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
         .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
         .to_string();
     let product_edge_mutation = database.mutation();
-    let product_edge_pool =
-        product_edge_mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+    let product_edge_pool = product_edge_mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
     let forbidden_ddl = sqlx::query(
         "CREATE TABLE public.product_edge_runtime_ddl_must_remain_forbidden_v1
          (sentinel BOOLEAN PRIMARY KEY)",
@@ -1940,6 +1978,19 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     .expect_err("runtime Product Edge role must not create public relations");
     assert_eq!(
         forbidden_ddl
+            .as_database_error()
+            .and_then(|error| error.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
+    let forbidden_temporary = sqlx::query(
+        "CREATE TEMP TABLE product_edge_runtime_temporary_must_remain_forbidden_v1
+         (sentinel BOOLEAN PRIMARY KEY)",
+    )
+    .execute(product_edge_pool)
+    .await
+    .expect_err("runtime Product Edge role must not create temporary relations");
+    assert_eq!(
+        forbidden_temporary
             .as_database_error()
             .and_then(|error| error.code()),
         Some(std::borrow::Cow::Borrowed("42501"))

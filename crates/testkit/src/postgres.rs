@@ -127,7 +127,7 @@ struct ObservedMarker<'a> {
     role: &'a str,
     identity: &'a str,
     owner: &'a str,
-    unsafe_role_capabilities: [bool; 5],
+    unsafe_role_capabilities: [bool; 7],
 }
 
 /// Proof that an explicit URL resolves to an admin-marked disposable PostgreSQL database.
@@ -332,14 +332,10 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
 
 impl LegacyReplayDuplicateFaultV1 {
     /// Creates the exact duplicate current Replay candidate and consumes the fixture.
-    pub async fn create_duplicate(
-        self,
-        request_identity: &str,
-    ) -> Result<UsedLegacyReplayDuplicateFaultV1, sqlx::Error> {
+    pub async fn create_duplicate(self) -> Result<UsedLegacyReplayDuplicateFaultV1, sqlx::Error> {
         sqlx::query(
-            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
         )
-        .bind(request_identity)
         .bind(&self.marker_identity)
         .execute(&self.pool)
         .await?;
@@ -348,15 +344,25 @@ impl LegacyReplayDuplicateFaultV1 {
             marker_identity: self.marker_identity,
         })
     }
+
+    /// Calls the fixed-source fixture with a wrong marker to prove zero mutation.
+    pub async fn try_wrong_marker(&self, wrong_marker: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
+        )
+        .bind(wrong_marker)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+    }
 }
 
 impl UsedLegacyReplayDuplicateFaultV1 {
     /// Replays the consumed fixture call so tests can prove server-side one-shot denial.
-    pub async fn retry(&self, request_identity: &str) -> Result<(), sqlx::Error> {
+    pub async fn retry(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
-            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
         )
-        .bind(request_identity)
         .bind(&self.marker_identity)
         .execute(&self.pool)
         .await
@@ -444,19 +450,19 @@ async fn admit_legacy_replay_duplicate_fault(
                JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
                CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) acl
               WHERE procedure.oid=pg_catalog.to_regprocedure(
-                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)'
+                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)'
               )
               GROUP BY owner.rolname,procedure.prosecdef,procedure.proisstrict,
                        procedure.provolatile,procedure.proparallel,procedure.proconfig
            )
            AND pg_catalog.has_function_privilege(
              session_user,
-             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)',
              'EXECUTE'
            )
            AND NOT pg_catalog.has_function_privilege(
              'PUBLIC',
-             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)',
              'EXECUTE'
            )
            AND NOT EXISTS (
@@ -465,7 +471,7 @@ async fn admit_legacy_replay_duplicate_fault(
              ]) denied_role(role_name)
               WHERE pg_catalog.has_function_privilege(
                 denied_role.role_name,
-                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)',
                 'EXECUTE'
               )
            )
@@ -831,8 +837,23 @@ async fn verify_marker_read_only(
     if identity.0 != target.database || identity.1 != target.role {
         return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
     }
-    let rows = sqlx::query_as::<_, (String, String, String, String, bool, bool, bool, bool, bool)>(
-        "SELECT marker.marker_identity, marker.database_name, marker.test_role, pg_catalog.pg_get_userbyid(class.relowner), role.rolsuper, role.rolcreatedb, role.rolcreaterole, pg_catalog.has_schema_privilege(current_user, 'vibe_test_admin', 'CREATE'), pg_catalog.has_table_privilege(current_user, 'vibe_test_admin.dedicated_postgres_test_instance_v1', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM vibe_test_admin.dedicated_postgres_test_instance_v1 AS marker JOIN pg_catalog.pg_class AS class ON class.oid = 'vibe_test_admin.dedicated_postgres_test_instance_v1'::pg_catalog.regclass JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE marker.test_role = current_user",
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+            bool,
+        ),
+    >(
+        "SELECT marker.marker_identity, marker.database_name, marker.test_role, pg_catalog.pg_get_userbyid(class.relowner), role.rolsuper, role.rolcreatedb, role.rolcreaterole, pg_catalog.has_schema_privilege(current_user, 'vibe_test_admin', 'CREATE'), pg_catalog.has_table_privilege(current_user, 'vibe_test_admin.dedicated_postgres_test_instance_v1', 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'), pg_catalog.has_database_privilege(current_user, pg_catalog.current_database(), 'CREATE'), pg_catalog.has_database_privilege(current_user, pg_catalog.current_database(), 'TEMPORARY') FROM vibe_test_admin.dedicated_postgres_test_instance_v1 AS marker JOIN pg_catalog.pg_class AS class ON class.oid = 'vibe_test_admin.dedicated_postgres_test_instance_v1'::pg_catalog.regclass JOIN pg_catalog.pg_roles AS role ON role.rolname = current_user WHERE marker.test_role = current_user",
     )
     .fetch_all(&mut *transaction)
     .await
@@ -852,7 +873,7 @@ async fn verify_marker_read_only(
             database: &row.1,
             role: &row.2,
             owner: &row.3,
-            unsafe_role_capabilities: [row.4, row.5, row.6, row.7, row.8],
+            unsafe_role_capabilities: [row.4, row.5, row.6, row.7, row.8, row.9, row.10],
         },
     )
 }
@@ -976,7 +997,7 @@ mod tests {
             role: "vibe_test_role_7",
             identity: "marker-7",
             owner: "postgres",
-            unsafe_role_capabilities: [false; 5],
+            unsafe_role_capabilities: [false; 7],
         };
         assert_eq!(validate_observed_marker(&expected, &valid), Ok(()));
         let forged = ObservedMarker {
@@ -985,6 +1006,14 @@ mod tests {
         };
         assert_eq!(
             validate_observed_marker(&expected, &forged),
+            Err(DedicatedPostgresTestDatabaseError::MarkerNotImmutable)
+        );
+        let temporary_database_authority = ObservedMarker {
+            unsafe_role_capabilities: [false, false, false, false, false, false, true],
+            ..valid
+        };
+        assert_eq!(
+            validate_observed_marker(&expected, &temporary_database_authority),
             Err(DedicatedPostgresTestDatabaseError::MarkerNotImmutable)
         );
         let missing = ObservedMarker {
