@@ -7,20 +7,26 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use crate::{
     product_edge::ResearchRequestReceiptV1,
     trial_family::{
-        ArtifactTrialFamilyReadbackV1, TrialFamilyError, TrialFamilyReadbackV1,
-        admit_stored_artifact_binding, admit_stored_family, form_artifact_binding,
-        verify_artifact_binding, verify_family,
+        ArtifactTrialFamilyReadbackV1, TrialFamilyAttemptAppendV2, TrialFamilyAttemptFrontierV2,
+        TrialFamilyCandidateSetFrontierV2, TrialFamilyCensusFrontierV2,
+        TrialFamilyCensusReadbackV2, TrialFamilyError, TrialFamilyReadbackV1,
+        admit_stored_artifact_binding, admit_stored_census_member_v2, admit_stored_family,
+        admit_stored_legacy_family_without_frontier, append_attempt_to_census_v2,
+        form_artifact_binding, legacy_initial_member_for_census_v2, verify_artifact_binding,
+        verify_census_v2, verify_family,
     },
 };
 
 const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
+const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     for statement in [
         "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
         "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
         "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
         "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
     ] {
@@ -238,18 +244,44 @@ pub(crate) async fn load_trial_family_in_transaction(
         .await
         .map_err(storage)?;
 
-    if member_rows.len() != 1 || head_rows.len() != 1 {
+    if head_rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "family census incomplete".to_string(),
+        ));
+    }
+    let head_row = &head_rows[0];
+    let frontier_json: serde_json::Value = head_row.try_get("frontier_json").map_err(storage)?;
+    let schema_version = frontier_json
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+    match schema_version {
+        1 => {}
+        2 => {
+            return Box::pin(load_trial_family_census_v2_in_transaction(
+                transaction,
+                intent_identity,
+                research_receipt_identity,
+            ))
+            .await
+            .map(|readback| readback.legacy_family);
+        }
+        _ => {
+            return Err(TrialFamilyError::Unavailable(
+                "family head schema is unsupported".to_string(),
+            ));
+        }
+    }
+    if member_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census incomplete".to_string(),
         ));
     }
     let member_row = &member_rows[0];
-    let head_row = &head_rows[0];
     let member_json = member_row.try_get("member_json").map_err(storage)?;
     let membership_receipt_json = member_row
         .try_get("membership_receipt_json")
         .map_err(storage)?;
-    let frontier_json = head_row.try_get("frontier_json").map_err(storage)?;
     let readback = admit_stored_family(
         &root_json,
         &root_receipt_json,
@@ -263,11 +295,354 @@ pub(crate) async fn load_trial_family_in_transaction(
     Ok(readback)
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
+    )
+)]
+pub(crate) async fn append_trial_family_attempt_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+    research_receipt_identity: &str,
+    append: TrialFamilyAttemptAppendV2,
+    now_epoch_ms: u64,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let head = sqlx::query("SELECT frontier_identity, frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity = (SELECT trial_family_identity FROM rd_trial_families_v1 WHERE intent_identity = $1) FOR UPDATE")
+        .bind(intent_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if head.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "family census head missing".to_string(),
+        ));
+    }
+    let prior_frontier_identity: String = head[0].try_get("frontier_identity").map_err(storage)?;
+    let prior_frontier_json: serde_json::Value =
+        head[0].try_get("frontier_json").map_err(storage)?;
+    let schema_version = prior_frontier_json
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+    let (legacy_family, prior) = match schema_version {
+        1 => (
+            load_trial_family_in_transaction(
+                transaction,
+                intent_identity,
+                research_receipt_identity,
+            )
+            .await?,
+            None,
+        ),
+        2 => {
+            let prior = load_trial_family_census_v2_in_transaction(
+                transaction,
+                intent_identity,
+                research_receipt_identity,
+            )
+            .await?;
+            (prior.legacy_family.clone(), Some(prior))
+        }
+        _ => {
+            return Err(TrialFamilyError::Unavailable(
+                "family head schema is unsupported".to_string(),
+            ));
+        }
+    };
+    let prior_member_count = prior.as_ref().map_or(1, |readback| readback.members.len());
+    let next = append_attempt_to_census_v2(legacy_family, prior.as_ref(), append, now_epoch_ms)?;
+    let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
+    for (member, receipt) in next
+        .members
+        .iter()
+        .zip(&next.membership_receipts)
+        .skip(prior_member_count)
+    {
+        sqlx::query("INSERT INTO rd_trial_family_members_v1 (member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)")
+            .bind(member.member_identity())
+            .bind(member.trial_family_identity())
+            .bind(i32::try_from(member.ordinal()).map_err(unavailable)?)
+            .bind(member.fact_identity())
+            .bind(member.member_digest())
+            .bind(encode(member)?)
+            .bind(encode(receipt)?)
+            .bind(i64::try_from(receipt.committed_at_epoch_ms()).map_err(unavailable)?)
+            .execute(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    }
+    sqlx::query("INSERT INTO rd_trial_family_attempt_cuts_v2 (census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+        .bind(next.census_frontier.frontier_identity())
+        .bind(next.census_frontier.trial_family_identity())
+        .bind(i32::try_from(next.candidate_set_frontier.attempt_ordinal()).map_err(unavailable)?)
+        .bind(next.attempt_frontier.frontier_identity())
+        .bind(next.candidate_set_frontier.frontier_identity())
+        .bind(encode(&next.census_frontier)?)
+        .bind(encode(&next.attempt_frontier)?)
+        .bind(encode(&next.candidate_set_frontier)?)
+        .bind(committed_at)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let updated = sqlx::query("UPDATE rd_trial_family_heads_v1 SET frontier_identity = $1, frontier_digest = $2, frontier_json = $3, committed_at_epoch_ms = $4 WHERE trial_family_identity = $5 AND frontier_identity = $6")
+        .bind(next.census_frontier.frontier_identity())
+        .bind(next.census_frontier.frontier_digest())
+        .bind(encode(&next.census_frontier)?)
+        .bind(committed_at)
+        .bind(next.census_frontier.trial_family_identity())
+        .bind(&prior_frontier_identity)
+        .execute(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if updated.rows_affected() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "family census head changed concurrently".to_string(),
+        ));
+    }
+    let payload = CensusAdvancedOutboxV2 {
+        schema_version: 2,
+        research_receipt_identity: research_receipt_identity.to_string(),
+        trial_family_identity: next.census_frontier.trial_family_identity().to_string(),
+        census_frontier_identity: next.census_frontier.frontier_identity().to_string(),
+        census_frontier_digest: next.census_frontier.frontier_digest().to_string(),
+        attempt_frontier_identity: next.attempt_frontier.frontier_identity().to_string(),
+        attempt_frontier_digest: next.attempt_frontier.frontier_digest().to_string(),
+        candidate_set_frontier_identity: next
+            .candidate_set_frontier
+            .frontier_identity()
+            .to_string(),
+        candidate_set_frontier_digest: next.candidate_set_frontier.frontier_digest().to_string(),
+    };
+    persist_outbox(
+        transaction,
+        census_event_identity(&next),
+        next.census_frontier.frontier_identity(),
+        CENSUS_ADVANCED_EVENT,
+        &payload,
+        now_epoch_ms,
+    )
+    .await?;
+    load_trial_family_census_v2_in_transaction(
+        transaction,
+        intent_identity,
+        research_receipt_identity,
+    )
+    .await
+}
+
+pub(crate) async fn load_trial_family_census_v2_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    intent_identity: &str,
+    research_receipt_identity: &str,
+) -> Result<TrialFamilyCensusReadbackV2, TrialFamilyError> {
+    let roots = sqlx::query("SELECT trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, committed_at_epoch_ms FROM rd_trial_families_v1 WHERE intent_identity = $1 FOR SHARE")
+        .bind(intent_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if roots.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "family root missing".to_string(),
+        ));
+    }
+    let family_identity: String = roots[0].try_get("trial_family_identity").map_err(storage)?;
+    let member_rows = sqlx::query("SELECT member_identity, trial_family_identity, ordinal, fact_identity, member_digest, member_json, membership_receipt_json, committed_at_epoch_ms FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1 ORDER BY ordinal FOR SHARE")
+        .bind(&family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let cut_rows = sqlx::query("SELECT census_frontier_identity, trial_family_identity, attempt_ordinal, attempt_frontier_identity, candidate_set_frontier_identity, census_frontier_json, attempt_frontier_json, candidate_set_frontier_json, committed_at_epoch_ms FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1 ORDER BY attempt_ordinal FOR SHARE")
+        .bind(&family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    let head_rows = sqlx::query("SELECT frontier_identity, frontier_digest, frontier_json, committed_at_epoch_ms FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1 FOR SHARE")
+        .bind(&family_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "V2 family census incomplete".to_string(),
+        ));
+    }
+    let root_json = roots[0].try_get("root_json").map_err(storage)?;
+    let root_receipt_json = roots[0].try_get("root_receipt_json").map_err(storage)?;
+    let initial_member_json = member_rows[0].try_get("member_json").map_err(storage)?;
+    let initial_receipt_json = member_rows[0]
+        .try_get("membership_receipt_json")
+        .map_err(storage)?;
+    let legacy_family = admit_stored_legacy_family_without_frontier(
+        &root_json,
+        &root_receipt_json,
+        &initial_member_json,
+        &initial_receipt_json,
+    )?;
+    verify_legacy_root_and_initial_member_row_bindings(&legacy_family, &roots[0], &member_rows[0])?;
+    verify_family_outbox_in_transaction(transaction, &legacy_family, research_receipt_identity)
+        .await?;
+    let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
+    let mut members = vec![initial_member];
+    let mut receipts = vec![initial_receipt];
+    for row in member_rows.iter().skip(1) {
+        let member_json = row.try_get("member_json").map_err(storage)?;
+        let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
+        let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
+        if row
+            .try_get::<String, _>("member_identity")
+            .map_err(storage)?
+            != member.member_identity()
+            || row.try_get::<i32, _>("ordinal").map_err(storage)?
+                != i32::try_from(member.ordinal()).map_err(unavailable)?
+            || row.try_get::<String, _>("fact_identity").map_err(storage)? != member.fact_identity()
+            || row.try_get::<String, _>("member_digest").map_err(storage)? != member.member_digest()
+            || row
+                .try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(storage)?
+                != i64::try_from(receipt.committed_at_epoch_ms()).map_err(unavailable)?
+        {
+            return Err(TrialFamilyError::Unavailable(
+                "V2 census member row mismatch".to_string(),
+            ));
+        }
+        members.push(member);
+        receipts.push(receipt);
+    }
+    let mut latest = None;
+    for (index, row) in cut_rows.iter().enumerate() {
+        let census: TrialFamilyCensusFrontierV2 =
+            decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
+        let attempt: TrialFamilyAttemptFrontierV2 =
+            decode(&row.try_get("attempt_frontier_json").map_err(storage)?)?;
+        let candidate: TrialFamilyCandidateSetFrontierV2 = decode(
+            &row.try_get("candidate_set_frontier_json")
+                .map_err(storage)?,
+        )?;
+        let attempt_ordinal = i32::try_from(index).map_err(unavailable)?;
+        let cut_committed_at: i64 = row.try_get("committed_at_epoch_ms").map_err(storage)?;
+        if row
+            .try_get::<String, _>("census_frontier_identity")
+            .map_err(storage)?
+            != census.frontier_identity()
+            || row
+                .try_get::<String, _>("trial_family_identity")
+                .map_err(storage)?
+                != family_identity
+            || row.try_get::<i32, _>("attempt_ordinal").map_err(storage)? != attempt_ordinal
+            || row
+                .try_get::<String, _>("attempt_frontier_identity")
+                .map_err(storage)?
+                != attempt.frontier_identity()
+            || row
+                .try_get::<String, _>("candidate_set_frontier_identity")
+                .map_err(storage)?
+                != candidate.frontier_identity()
+        {
+            return Err(TrialFamilyError::Unavailable(
+                "V2 attempt cut row mismatch".to_string(),
+            ));
+        }
+        let prefix_len = (index + 1) * 3;
+        if prefix_len > members.len() {
+            return Err(TrialFamilyError::Unavailable(
+                "V2 attempt cut skips census members".to_string(),
+            ));
+        }
+        let first_new_member = if index == 0 { 1 } else { prefix_len - 3 };
+        if receipts[first_new_member..prefix_len]
+            .iter()
+            .any(|receipt| {
+                i64::try_from(receipt.committed_at_epoch_ms()).ok() != Some(cut_committed_at)
+            })
+        {
+            return Err(TrialFamilyError::Unavailable(
+                "V2 attempt cut commit mismatch".to_string(),
+            ));
+        }
+        let cut = TrialFamilyCensusReadbackV2 {
+            legacy_family: legacy_family.clone(),
+            members: members[..prefix_len].to_vec(),
+            membership_receipts: receipts[..prefix_len].to_vec(),
+            attempt_frontier: attempt,
+            candidate_set_frontier: candidate,
+            census_frontier: census,
+        };
+        verify_census_v2(&cut)?;
+        verify_census_outbox_in_transaction(
+            transaction,
+            &cut,
+            research_receipt_identity,
+            cut_committed_at,
+        )
+        .await?;
+        latest = Some(cut);
+    }
+    let latest = latest
+        .ok_or_else(|| TrialFamilyError::Unavailable("V2 family census cut missing".to_string()))?;
+    let latest_cut_committed_at: i64 = cut_rows
+        .last()
+        .ok_or_else(|| TrialFamilyError::Unavailable("V2 family census cut missing".to_string()))?
+        .try_get("committed_at_epoch_ms")
+        .map_err(storage)?;
+    let head = &head_rows[0];
+    if members.len() != latest.members.len()
+        || head
+            .try_get::<String, _>("frontier_identity")
+            .map_err(storage)?
+            != latest.census_frontier.frontier_identity()
+        || head
+            .try_get::<String, _>("frontier_digest")
+            .map_err(storage)?
+            != latest.census_frontier.frontier_digest()
+        || head
+            .try_get::<serde_json::Value, _>("frontier_json")
+            .map_err(storage)?
+            != encode(&latest.census_frontier)?
+        || head
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != latest_cut_committed_at
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "V2 census head mismatch".to_string(),
+        ));
+    }
+    Ok(latest)
+}
+
 fn verify_row_bindings(
     family: &TrialFamilyReadbackV1,
     root_row: &sqlx::postgres::PgRow,
     member_row: &sqlx::postgres::PgRow,
     head_row: &sqlx::postgres::PgRow,
+) -> Result<(), TrialFamilyError> {
+    verify_legacy_root_and_initial_member_row_bindings(family, root_row, member_row)?;
+    let head_family_identity: String =
+        head_row.try_get("trial_family_identity").map_err(storage)?;
+    let frontier_identity: String = head_row.try_get("frontier_identity").map_err(storage)?;
+    let frontier_digest: String = head_row.try_get("frontier_digest").map_err(storage)?;
+    let head_committed_at: i64 = head_row.try_get("committed_at_epoch_ms").map_err(storage)?;
+    let canonical_commit =
+        i64::try_from(family.root_receipt.committed_at_epoch_ms()).map_err(unavailable)?;
+
+    if family.census_frontier.trial_family_identity() != head_family_identity
+        || family.census_frontier.frontier_identity() != frontier_identity
+        || family.census_frontier.frontier_digest() != frontier_digest
+        || head_committed_at != canonical_commit
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "family row digest mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn verify_legacy_root_and_initial_member_row_bindings(
+    family: &TrialFamilyReadbackV1,
+    root_row: &sqlx::postgres::PgRow,
+    member_row: &sqlx::postgres::PgRow,
 ) -> Result<(), TrialFamilyError> {
     let root_family_identity: String =
         root_row.try_get("trial_family_identity").map_err(storage)?;
@@ -284,11 +659,6 @@ fn verify_row_bindings(
     let member_committed_at: i64 = member_row
         .try_get("committed_at_epoch_ms")
         .map_err(storage)?;
-    let head_family_identity: String =
-        head_row.try_get("trial_family_identity").map_err(storage)?;
-    let frontier_identity: String = head_row.try_get("frontier_identity").map_err(storage)?;
-    let frontier_digest: String = head_row.try_get("frontier_digest").map_err(storage)?;
-    let head_committed_at: i64 = head_row.try_get("committed_at_epoch_ms").map_err(storage)?;
     let canonical_commit =
         i64::try_from(family.root_receipt.committed_at_epoch_ms()).map_err(unavailable)?;
 
@@ -303,10 +673,6 @@ fn verify_row_bindings(
         || family.initial_intent_member.fact_identity() != member_fact_identity
         || family.initial_intent_member.member_digest() != member_digest
         || member_committed_at != canonical_commit
-        || family.census_frontier.trial_family_identity() != head_family_identity
-        || family.census_frontier.frontier_identity() != frontier_identity
-        || family.census_frontier.frontier_digest() != frontier_digest
-        || head_committed_at != canonical_commit
     {
         return Err(TrialFamilyError::Unavailable(
             "family row digest mismatch".to_string(),
@@ -363,6 +729,60 @@ fn verify_family_outbox_row(
     {
         return Err(TrialFamilyError::Unavailable(
             "family outbox mismatch".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+async fn verify_census_outbox_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &TrialFamilyCensusReadbackV2,
+    research_receipt_identity: &str,
+    expected_committed_at_epoch_ms: i64,
+) -> Result<(), TrialFamilyError> {
+    let rows = sqlx::query("SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_identity = $1 FOR SHARE")
+        .bind(census_event_identity(readback))
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    if rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "V2 census outbox missing".to_string(),
+        ));
+    }
+    let row = &rows[0];
+    let payload: CensusAdvancedOutboxV2 = decode(&row.try_get("payload_json").map_err(storage)?)?;
+    if payload.schema_version != 2
+        || row
+            .try_get::<String, _>("event_identity")
+            .map_err(storage)?
+            != census_event_identity(readback)
+        || row
+            .try_get::<String, _>("aggregate_identity")
+            .map_err(storage)?
+            != readback.census_frontier.frontier_identity()
+        || row.try_get::<String, _>("event_kind").map_err(storage)? != CENSUS_ADVANCED_EVENT
+        || row
+            .try_get::<String, _>("payload_digest")
+            .map_err(storage)?
+            != digest("rd.owner-outbox.payload.v1", &payload)?
+        || row
+            .try_get::<i64, _>("committed_at_epoch_ms")
+            .map_err(storage)?
+            != expected_committed_at_epoch_ms
+        || payload.research_receipt_identity != research_receipt_identity
+        || payload.trial_family_identity != readback.census_frontier.trial_family_identity()
+        || payload.census_frontier_identity != readback.census_frontier.frontier_identity()
+        || payload.census_frontier_digest != readback.census_frontier.frontier_digest()
+        || payload.attempt_frontier_identity != readback.attempt_frontier.frontier_identity()
+        || payload.attempt_frontier_digest != readback.attempt_frontier.frontier_digest()
+        || payload.candidate_set_frontier_identity
+            != readback.candidate_set_frontier.frontier_identity()
+        || payload.candidate_set_frontier_digest
+            != readback.candidate_set_frontier.frontier_digest()
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "V2 census outbox mismatch".to_string(),
         ));
     }
     Ok(())
@@ -450,6 +870,20 @@ struct FamilyFrozenOutboxV1 {
 
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct CensusAdvancedOutboxV2 {
+    schema_version: u32,
+    research_receipt_identity: String,
+    trial_family_identity: String,
+    census_frontier_identity: String,
+    census_frontier_digest: String,
+    attempt_frontier_identity: String,
+    attempt_frontier_digest: String,
+    candidate_set_frontier_identity: String,
+    candidate_set_frontier_digest: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct ArtifactBoundOutboxV1 {
     schema_version: u32,
     artifact_identity: String,
@@ -463,6 +897,16 @@ fn family_event_identity(family: &TrialFamilyReadbackV1) -> String {
     format!(
         "rd-owner-outbox-v1-{}",
         family
+            .census_frontier
+            .frontier_digest()
+            .trim_start_matches("sha256:")
+    )
+}
+
+fn census_event_identity(readback: &TrialFamilyCensusReadbackV2) -> String {
+    format!(
+        "rd-owner-outbox-v2-{}",
+        readback
             .census_frontier
             .frontier_digest()
             .trim_start_matches("sha256:")
@@ -521,7 +965,9 @@ mod postgres_binding_tests {
     use crate::{
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
         trial_family::{
-            TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, form_initial_family,
+            TrialFamilyAttemptAppendV2, TrialFamilyAttemptTerminalDispositionV2,
+            TrialFamilyCandidateSetProposalV2, TrialFamilyIndependenceDispositionV1,
+            TrialFamilyPolicyV1, form_initial_family,
         },
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -812,6 +1258,287 @@ mod postgres_binding_tests {
             &dummy_family_identity,
         )
         .await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted RD_OWNER_TEST_DATABASE_URL"]
+    async fn v2_census_append_restart_readback_and_fail_close_are_atomic() {
+        let test_database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+            .await
+            .unwrap();
+        let mutation = test_database.mutation();
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(3)
+            .connect(test_database.database_url())
+            .await
+            .unwrap();
+        migrate(&pool).await.unwrap();
+        let suffix = unique_suffix();
+        let intent_identity = format!("rd-research-intent-v2-census-{suffix}");
+        let intent_digest = format!("sha256:{}", "d".repeat(64));
+        let committed_at = u64::try_from(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let family = form_initial_family(
+            &intent_identity,
+            &intent_digest,
+            family_policy(),
+            committed_at,
+        )
+        .unwrap();
+        let family_identity = family.root.trial_family_identity().to_string();
+        let receipt = ResearchRequestReceiptV1 {
+            schema_version: 1,
+            receipt_identity: format!("rd-research-request-receipt-v2-census-{suffix}"),
+            request_identity: format!("research-request-v2-census-{suffix}"),
+            semantic_digest: intent_digest.clone(),
+            disposition: ResearchRequestDisposition::Accepted,
+            resulting_research_intent_identity: Some(intent_identity.clone()),
+            committed_at_epoch_ms: committed_at,
+            rejection_code: None,
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        persist_initial_family(&mut transaction, &family, &receipt)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+
+        let first_append = TrialFamilyAttemptAppendV2 {
+            intent_identity: intent_identity.clone(),
+            intent_digest: intent_digest.clone(),
+            request_identity: format!("rd-replay-request-v2-census-a-{suffix}"),
+            request_digest: format!("sha256:{}", "1".repeat(64)),
+            result_identity: format!("backtest-result-v2-census-a-{suffix}"),
+            result_digest: format!("sha256:{}", "2".repeat(64)),
+            terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Rejected,
+            consumed_trial_budget: 1,
+            candidate_set: TrialFamilyCandidateSetProposalV2 {
+                generation_rule_identity: format!("rd-candidate-generation-v2-a-{suffix}"),
+                generation_rule_digest: format!("sha256:{}", "3".repeat(64)),
+                expected_cardinality: 0,
+                candidates: Vec::new(),
+            },
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        let first = append_trial_family_attempt_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+            first_append,
+            committed_at + 1,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+
+        let restarted_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(2)
+            .connect(test_database.database_url())
+            .await
+            .unwrap();
+        let mut transaction = restarted_pool.begin().await.unwrap();
+        let projected_family = load_trial_family_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+        )
+        .await
+        .unwrap();
+        assert_eq!(projected_family, family);
+        assert_eq!(
+            serde_json::to_vec(&projected_family).unwrap(),
+            serde_json::to_vec(&family).unwrap()
+        );
+        assert_eq!(
+            load_trial_family_census_v2_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .unwrap(),
+            first
+        );
+        transaction.rollback().await.unwrap();
+
+        let second_append = TrialFamilyAttemptAppendV2 {
+            intent_identity: format!("rd-research-intent-v2-census-b-{suffix}"),
+            intent_digest: format!("sha256:{}", "4".repeat(64)),
+            request_identity: format!("rd-replay-request-v2-census-b-{suffix}"),
+            request_digest: format!("sha256:{}", "5".repeat(64)),
+            result_identity: format!("backtest-result-v2-census-b-{suffix}"),
+            result_digest: format!("sha256:{}", "6".repeat(64)),
+            terminal_disposition: TrialFamilyAttemptTerminalDispositionV2::Unknown,
+            consumed_trial_budget: 2,
+            candidate_set: TrialFamilyCandidateSetProposalV2 {
+                generation_rule_identity: format!("rd-candidate-generation-v2-b-{suffix}"),
+                generation_rule_digest: format!("sha256:{}", "7".repeat(64)),
+                expected_cardinality: 0,
+                candidates: Vec::new(),
+            },
+        };
+        let mut transaction = pool.begin().await.unwrap();
+        let second = append_trial_family_attempt_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+            second_append.clone(),
+            committed_at + 2,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        assert_eq!(second.members.len(), 6);
+        assert_eq!(second.consumed_trial_budget(), 2);
+
+        for statement in [
+            "UPDATE rd_trial_families_v1 SET root_digest = root_digest || '-mutated' WHERE trial_family_identity = $1",
+            "UPDATE rd_trial_families_v1 SET committed_at_epoch_ms = committed_at_epoch_ms + 1 WHERE trial_family_identity = $1",
+            "UPDATE rd_trial_family_members_v1 SET member_identity = member_identity || '-mutated' WHERE trial_family_identity = $1 AND ordinal = 0",
+            "UPDATE rd_trial_family_members_v1 SET ordinal = -1 WHERE trial_family_identity = $1 AND ordinal = 0",
+            "UPDATE rd_trial_family_members_v1 SET fact_identity = fact_identity || '-mutated' WHERE trial_family_identity = $1 AND ordinal = 0",
+            "UPDATE rd_trial_family_members_v1 SET member_digest = member_digest || '-mutated' WHERE trial_family_identity = $1 AND ordinal = 0",
+            "UPDATE rd_trial_family_members_v1 SET committed_at_epoch_ms = committed_at_epoch_ms + 1 WHERE trial_family_identity = $1 AND ordinal = 0",
+        ] {
+            let mut transaction = pool.begin().await.unwrap();
+            sqlx::query(statement)
+                .bind(&family_identity)
+                .execute(&mut *transaction)
+                .await
+                .unwrap();
+            assert!(
+                load_trial_family_census_v2_in_transaction(
+                    &mut transaction,
+                    &intent_identity,
+                    &receipt.receipt_identity,
+                )
+                .await
+                .is_err()
+            );
+            transaction.rollback().await.unwrap();
+        }
+
+        let mut transaction = pool.begin().await.unwrap();
+        let second_event_identity = census_event_identity(&second);
+        let payload_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload_json FROM rd_owner_outbox_v1 WHERE event_identity = $1 FOR UPDATE",
+        )
+        .bind(&second_event_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+        let mut payload: CensusAdvancedOutboxV2 = decode(&payload_json).unwrap();
+        payload.schema_version = 3;
+        sqlx::query(
+            "UPDATE rd_owner_outbox_v1 SET payload_json = $1, payload_digest = $2 WHERE event_identity = $3",
+        )
+        .bind(encode(&payload).unwrap())
+        .bind(digest("rd.owner-outbox.payload.v1", &payload).unwrap())
+        .bind(&second_event_identity)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        assert!(
+            load_trial_family_census_v2_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            load_trial_family_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        let counts_before: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind = 'TRIAL_FAMILY_CENSUS_ADVANCED_V2' AND payload_json->>'trial_family_identity' = $1)",
+        )
+        .bind(&family_identity)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let mut invalid = second_append;
+        invalid.consumed_trial_budget = 3;
+        invalid.candidate_set.expected_cardinality = 1;
+        let mut transaction = pool.begin().await.unwrap();
+        assert!(
+            append_trial_family_attempt_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+                invalid,
+                committed_at + 3,
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
+        let counts_after: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind = 'TRIAL_FAMILY_CENSUS_ADVANCED_V2' AND payload_json->>'trial_family_identity' = $1)",
+        )
+        .bind(&family_identity)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(counts_after, counts_before);
+
+        let mut transaction = pool.begin().await.unwrap();
+        sqlx::query("UPDATE rd_trial_family_attempt_cuts_v2 SET candidate_set_frontier_json = jsonb_set(candidate_set_frontier_json, '{expected_cardinality}', '1'::jsonb) WHERE census_frontier_identity = $1")
+            .bind(second.census_frontier.frontier_identity())
+            .execute(&mut *transaction)
+            .await
+            .unwrap();
+        assert!(
+            load_trial_family_census_v2_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        let cleanup_pool = mutation.pool();
+        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity IN ($1, $2, $3)")
+            .bind(&family_identity)
+            .bind(first.census_frontier.frontier_identity())
+            .bind(second.census_frontier.frontier_identity())
+            .execute(cleanup_pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1")
+            .bind(&family_identity)
+            .execute(cleanup_pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM rd_trial_family_heads_v1 WHERE trial_family_identity = $1")
+            .bind(&family_identity)
+            .execute(cleanup_pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1")
+            .bind(&family_identity)
+            .execute(cleanup_pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM rd_trial_families_v1 WHERE trial_family_identity = $1")
+            .bind(&family_identity)
+            .execute(cleanup_pool)
+            .await
+            .unwrap();
     }
 
     async fn assert_family_mutation_fails_closed(
