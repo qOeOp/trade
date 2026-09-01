@@ -159,7 +159,7 @@ if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
   echo "ERROR: RD_OWNER_POSTGRES_FEATURES must select the shared workspace feature union." >&2
   exit 1
 fi
-readonly rd_owner_postgres_features="$RD_OWNER_POSTGRES_FEATURES"
+readonly rd_owner_postgres_features="${RD_OWNER_POSTGRES_FEATURES//[[:space:]]/}"
 case ",${rd_owner_postgres_features}," in
   *",${nextest_archive_features},"*) ;;
   *)
