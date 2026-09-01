@@ -1165,7 +1165,7 @@ impl CanonicalSourceAdmissionPayloadV1 {
     }
 }
 
-pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
+const DERIVE_SOURCE_INTAKE_IDENTITY_SQL_V1: &str =
     "CREATE OR REPLACE FUNCTION rd_owner_api.derive_source_intake_identity_v1(domain text, parts text[])
       RETURNS text LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
       SET search_path = pg_catalog, pg_temp
@@ -1174,9 +1174,21 @@ pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
           pg_catalog.array_to_string(pg_catalog.array_prepend(domain, parts), pg_catalog.chr(31)),
           'UTF8'
         )), 'hex')
-      $function$",
-    "ALTER FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) OWNER TO rd_owner",
-    "REVOKE ALL ON FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer",
+      $function$";
+const OWN_SOURCE_INTAKE_IDENTITY_SQL_V1: &str =
+    "ALTER FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) OWNER TO rd_owner";
+const REVOKE_SOURCE_INTAKE_IDENTITY_SQL_V1: &str = "REVOKE ALL ON FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer";
+
+pub const SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1: &[&str] = &[
+    DERIVE_SOURCE_INTAKE_IDENTITY_SQL_V1,
+    OWN_SOURCE_INTAKE_IDENTITY_SQL_V1,
+    REVOKE_SOURCE_INTAKE_IDENTITY_SQL_V1,
+];
+
+pub const SOURCE_INTAKE_MIGRATION_SQL_V1: &[&str] = &[
+    DERIVE_SOURCE_INTAKE_IDENTITY_SQL_V1,
+    OWN_SOURCE_INTAKE_IDENTITY_SQL_V1,
+    REVOKE_SOURCE_INTAKE_IDENTITY_SQL_V1,
     "CREATE OR REPLACE FUNCTION rd_owner_api.canonical_source_intake_json_v1(value jsonb)
       RETURNS text LANGUAGE plpgsql STRICT IMMUTABLE PARALLEL SAFE
       SET search_path = pg_catalog

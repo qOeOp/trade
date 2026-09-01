@@ -13,7 +13,7 @@ use crate::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
-        EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2, EXPLORATORY_REPLAY_SCOPE_V1,
+        EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2,
         ExploratoryReplayAvailabilityV1, ExploratoryReplayCommitReceiptV1,
         ExploratoryReplayCommitReceiptV2, ExploratoryReplayCommitResultV1,
         ExploratoryReplayCommitResultV2, ExploratoryReplayNextLegalActionV1,
@@ -25,7 +25,9 @@ use crate::{
         SealedExploratoryReplayReadbackV2, VersionedIdentityV1,
         exploratory_replay_admission_payload_v1, exploratory_replay_admission_payload_v2,
     },
-    product_edge::{FrozenResearchGoalIntent, RESEARCH_OWNER_V1, ResearchRequestDisposition},
+    product_edge::{
+        FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
+    },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
 };
 
@@ -228,20 +230,255 @@ struct ValidatedAvailableEnvelopeV1 {
 }
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
+    let mut migration = pool.begin().await.map_err(storage)?;
+    sqlx::query(
+        "
+        DO $migration$
+        DECLARE public_oid oid;
+        DECLARE internal_oid oid;
+        DECLARE sealed_oid oid;
+        DECLARE candidate_oid oid;
+        DECLARE candidate_is_current boolean;
+        DECLARE public_is_current boolean := false;
+        DECLARE public_is_legacy boolean := false;
+        DECLARE current_candidate_count integer;
+        BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtext('public.rd_exploratory_replay_request_custody_v1')
+          );
+          PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtext('public.rd_sealed_exploratory_replay_requests_v1')
+          );
+          PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtext('public.rd_exploratory_replay_requests_v1')
+          );
+          public_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1');
+          internal_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1');
+          sealed_oid := pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1');
+
+          FOREACH candidate_oid IN ARRAY ARRAY[public_oid,internal_oid,sealed_oid] LOOP
+            CONTINUE WHEN candidate_oid IS NULL;
+            SELECT relation.relkind='r'
+               AND relation.relpersistence='p'
+               AND (
+                 SELECT pg_catalog.count(*)=19
+                    AND pg_catalog.bool_and(CASE attribute.attname
+                      WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'lifecycle_state' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      ELSE false
+                    END)
+                   FROM pg_catalog.pg_attribute attribute
+                  WHERE attribute.attrelid=candidate_oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+               )
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                  WHERE constraint_entry.conrelid=candidate_oid
+                    AND constraint_entry.contype='p'
+                    AND constraint_entry.conkey=ARRAY[(
+                      SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=candidate_oid AND attribute.attname='request_identity'
+                    )]::smallint[]
+               )
+              INTO candidate_is_current
+              FROM pg_catalog.pg_class relation WHERE relation.oid=candidate_oid;
+
+            IF candidate_oid=public_oid THEN
+              public_is_current := candidate_is_current;
+            ELSIF NOT candidate_is_current THEN
+              RAISE EXCEPTION 'unknown exploratory Replay table shape: %', candidate_oid::pg_catalog.regclass;
+            END IF;
+          END LOOP;
+
+          IF public_oid IS NOT NULL THEN
+            SELECT relation.relkind='r'
+               AND relation.relpersistence='p'
+               AND (
+                 SELECT pg_catalog.count(*)=13
+                    AND pg_catalog.bool_and(CASE attribute.attname
+                      WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'handoff_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'research_view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      ELSE false
+                    END)
+                   FROM pg_catalog.pg_attribute attribute
+                  WHERE attribute.attrelid=public_oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+               )
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                  WHERE constraint_entry.conrelid=public_oid
+                    AND constraint_entry.contype='p'
+                    AND constraint_entry.conkey=ARRAY[(
+                      SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=public_oid AND attribute.attname='replay_request_identity'
+                    )]::smallint[]
+               )
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                  WHERE constraint_entry.conrelid=public_oid
+                    AND constraint_entry.contype='u'
+                    AND constraint_entry.conkey=ARRAY[(
+                      SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=public_oid AND attribute.attname='run_attempt_identity'
+                    )]::smallint[]
+               )
+              INTO public_is_legacy
+              FROM pg_catalog.pg_class relation WHERE relation.oid=public_oid;
+
+            IF NOT public_is_current AND NOT public_is_legacy THEN
+              RAISE EXCEPTION 'unknown exploratory Replay table shape: %', public_oid::pg_catalog.regclass;
+            END IF;
+          END IF;
+
+          current_candidate_count :=
+            CASE WHEN public_is_current THEN 1 ELSE 0 END
+            + CASE WHEN internal_oid IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN sealed_oid IS NOT NULL THEN 1 ELSE 0 END;
+          IF current_candidate_count>1 THEN
+            RAISE EXCEPTION 'ambiguous duplicate current exploratory Replay tables';
+          ELSIF public_is_current THEN
+            ALTER TABLE public.rd_exploratory_replay_requests_v1
+              RENAME TO rd_sealed_exploratory_replay_requests_v1;
+          ELSIF internal_oid IS NOT NULL THEN
+            ALTER TABLE public.rd_exploratory_replay_request_custody_v1
+              RENAME TO rd_sealed_exploratory_replay_requests_v1;
+          ELSIF sealed_oid IS NULL THEN
+            CREATE TABLE public.rd_sealed_exploratory_replay_requests_v1 (
+              request_identity TEXT PRIMARY KEY,
+              request_digest TEXT NOT NULL,
+              build_request_identity TEXT NOT NULL,
+              attempt_identity TEXT NOT NULL,
+              intent_identity TEXT NOT NULL,
+              trial_family_identity TEXT NOT NULL,
+              artifact_identity TEXT NOT NULL,
+              build_receipt_identity TEXT NOT NULL,
+              artifact_family_binding_identity TEXT NOT NULL,
+              census_frontier_identity TEXT NOT NULL,
+              frozen_json JSONB NOT NULL,
+              receipt_json JSONB NOT NULL,
+              lifecycle_state TEXT NOT NULL DEFAULT 'FROZEN',
+              committed_at_epoch_ms BIGINT NOT NULL,
+              request_schema_version SMALLINT NOT NULL DEFAULT 1,
+              v2_canonical_request_bytes BYTEA,
+              v2_meaning_digest TEXT,
+              v2_seal_digest TEXT,
+              v2_receipt_json JSONB
+            );
+          END IF;
+        END
+        $migration$;
+        ",
+    )
+    .execute(&mut *migration)
+    .await
+    .map_err(storage)?;
+
     for statement in [
-        "CREATE TABLE IF NOT EXISTS public.rd_exploratory_replay_requests_v1 (request_identity TEXT PRIMARY KEY, request_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL, artifact_identity TEXT NOT NULL, build_receipt_identity TEXT NOT NULL, artifact_family_binding_identity TEXT NOT NULL, census_frontier_identity TEXT NOT NULL, frozen_json JSONB NOT NULL, receipt_json JSONB NOT NULL, lifecycle_state TEXT NOT NULL DEFAULT 'FROZEN', committed_at_epoch_ms BIGINT NOT NULL, request_schema_version SMALLINT NOT NULL DEFAULT 1)",
-        "ALTER TABLE public.rd_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS request_schema_version SMALLINT NOT NULL DEFAULT 1, ADD COLUMN IF NOT EXISTS v2_canonical_request_bytes BYTEA, ADD COLUMN IF NOT EXISTS v2_meaning_digest TEXT, ADD COLUMN IF NOT EXISTS v2_seal_digest TEXT, ADD COLUMN IF NOT EXISTS v2_receipt_json JSONB",
-        "CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_exploratory_replay_requests_v1(artifact_identity, request_identity)",
-        "ALTER TABLE public.rd_exploratory_replay_requests_v1 OWNER TO rd_owner",
-        "REVOKE ALL ON TABLE public.rd_exploratory_replay_requests_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_sealed_exploratory_replay_requests_v1(artifact_identity, request_identity)",
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 OWNER TO rd_owner",
+        "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM backtest_owner",
         "GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner",
     ] {
         sqlx::query(statement)
-            .execute(pool)
+            .execute(&mut *migration)
             .await
             .map_err(storage)?;
     }
+    sqlx::query(
+        "
+        DO $acl$
+        DECLARE grantee_name text;
+        DECLARE column_name text;
+        BEGIN
+          FOR grantee_name IN
+            SELECT role.rolname
+              FROM pg_catalog.pg_class relation
+              CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+                relation.relacl,
+                pg_catalog.acldefault('r', relation.relowner)
+              )) acl
+              JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND acl.grantee<>relation.relowner
+             GROUP BY role.rolname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+              grantee_name
+            );
+          END LOOP;
+
+          FOR column_name IN
+            SELECT attribute.attname
+              FROM pg_catalog.pg_class relation
+              JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+              CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND attribute.attnum>0
+               AND NOT attribute.attisdropped
+               AND acl.grantee=0
+             GROUP BY attribute.attname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC',
+              column_name
+            );
+          END LOOP;
+
+          FOR grantee_name,column_name IN
+            SELECT role.rolname,attribute.attname
+              FROM pg_catalog.pg_class relation
+              JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+              CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+              JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND attribute.attnum>0
+               AND NOT attribute.attisdropped
+               AND acl.grantee<>0
+               AND acl.grantee<>relation.relowner
+             GROUP BY role.rolname,attribute.attname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+              column_name,
+              grantee_name
+            );
+          END LOOP;
+        END
+        $acl$;
+        ",
+    )
+    .execute(&mut *migration)
+    .await
+    .map_err(storage)?;
+    migration.commit().await.map_err(storage)?;
 
     let mut publication = pool.begin().await.map_err(storage)?;
 
@@ -275,7 +512,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         BEGIN
           IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
           SELECT * INTO sealed
-            FROM public.rd_exploratory_replay_requests_v1
+            FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity = requested_request_identity
              AND (requested_request_digest = '' OR request_digest = requested_request_digest)
            FOR SHARE;
@@ -480,7 +717,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         BEGIN
           IF NOT EXISTS (
             SELECT 1
-              FROM public.rd_exploratory_replay_requests_v1
+              FROM public.rd_sealed_exploratory_replay_requests_v1
              WHERE request_identity=requested_request_identity
                AND request_schema_version=1
                AND coalesce(frozen_json->>'request_schema_version','1')='1'
@@ -512,7 +749,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         DECLARE locked_v2_outbox record;
         BEGIN
           SELECT * INTO STRICT sealed
-            FROM public.rd_exploratory_replay_requests_v1
+            FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
              AND frozen_json->>'request_schema_version'='2'
@@ -601,7 +838,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         BEGIN
           SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
             INTO STRICT stored_receipt_identity,stored_seal_digest
-            FROM public.rd_exploratory_replay_requests_v1
+            FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
              AND frozen_json->>'request_schema_version'='2'
@@ -965,7 +1202,7 @@ async fn commit_inner(
     let stored_v2 = prepared_v2
         .map(|prepared| seal_v2(prepared, &frozen))
         .transpose()?;
-    sqlx::query("INSERT INTO public.rd_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13,$14,$15,$16,$17,$18)")
+    sqlx::query("INSERT INTO public.rd_sealed_exploratory_replay_requests_v1 (request_identity,request_digest,build_request_identity,attempt_identity,intent_identity,trial_family_identity,artifact_identity,build_receipt_identity,artifact_family_binding_identity,census_frontier_identity,frozen_json,receipt_json,lifecycle_state,committed_at_epoch_ms,v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json,request_schema_version) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'FROZEN',$13,$14,$15,$16,$17,$18)")
         .bind(&frozen.proposal.request_identity)
         .bind(&frozen.request_digest)
         .bind(&frozen.proposal.build_request_identity)
@@ -1039,7 +1276,7 @@ async fn resolve_existing(
 
     let Some(value) = value else {
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1)",
+            "SELECT EXISTS(SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1)",
         )
         .bind(&proposal.request_identity)
         .fetch_one(&mut **transaction)
@@ -1074,7 +1311,7 @@ async fn resolve_existing(
         return Err(ExploratoryReplayOwnerError::ConflictingReplay);
     }
     let stored_v2 = if let Some(expected) = prepared_v2 {
-        let row = sqlx::query("SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
+        let row = sqlx::query("SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
             .bind(&proposal.request_identity)
             .fetch_one(&mut **transaction)
             .await
@@ -1119,7 +1356,7 @@ async fn resolve_existing(
         }
         Some((prepared, receipt))
     } else if sqlx::query_scalar(
-        "SELECT v2_canonical_request_bytes IS NOT NULL OR v2_meaning_digest IS NOT NULL OR v2_seal_digest IS NOT NULL OR v2_receipt_json IS NOT NULL FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE",
+        "SELECT v2_canonical_request_bytes IS NOT NULL OR v2_meaning_digest IS NOT NULL OR v2_seal_digest IS NOT NULL OR v2_receipt_json IS NOT NULL FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE",
     )
     .bind(&proposal.request_identity)
     .fetch_one(&mut **transaction)
@@ -1825,7 +2062,7 @@ fn verify_replay_admission(
         || !admission
             .authorized_scope()
             .iter()
-            .any(|scope| scope == EXPLORATORY_REPLAY_SCOPE_V1)
+            .any(|scope| scope == RESEARCH_SCOPE_V1)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "canonical Product Edge Replay admission mismatch".into(),
@@ -1858,7 +2095,7 @@ fn verify_replay_admission_for_commit(
         || !admission
             .authorized_scope()
             .iter()
-            .any(|scope| scope == EXPLORATORY_REPLAY_SCOPE_V1)
+            .any(|scope| scope == RESEARCH_SCOPE_V1)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "canonical Product Edge Replay V2 admission mismatch".into(),

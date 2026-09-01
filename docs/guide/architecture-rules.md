@@ -62,6 +62,19 @@ the same bytes; concurrent or changed meaning conflicts without creating another
 commits the exact predecessor `SUPERSEDED` fence and only then may commit its policy-equivalent successor
 `ACTIVE`; the zero-active interval is fail closed and no request may recreate genesis.
 
+An expired predecessor cannot use ordinary authorization or deployment successor paths. Its only forward recovery is
+one explicit `ExpiredManifestRecoveryEpochV1` binding exact authorization and deployment heads, the current revocation
+frontier, and a complete sorted `RETAINED`/`ADDED`/`REMOVED` manifest transition set. Retained capabilities only narrow;
+added capabilities stay inside unchanged principal, audience, scope, proof, scope-policy and audit-policy bounds and
+retain the live-trading, real-trading and protected-feedback prohibition floor; removal grants nothing. The Issuer may
+append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority. Product Edge commits one
+irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the same epoch, partial recovery stays
+fail closed, and no old issuance, binding, manifest, admission, receipt, outbox, or Owner fact is rewritten.
+The recovery config also content-binds the exact authority database name, PostgreSQL system identifier, and distinct
+Operator Authorization and Product Edge roles. Before either Owner write, the command read-only connects both supplied
+endpoints and requires their database, role, and system-identifier readbacks to match the config and the same database
+cluster. Ambient endpoints, cross-splices, empty identities, or equal roles fail closed; URLs and secrets are not logged.
+
 An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
 deployment binding and head, effective principal and scope, authorization identity, issuer and key version,
 validity and revocation frontier, manifest identity and digest, operation, schema, target and effects, time
@@ -77,6 +90,20 @@ blessed. Terminal legacy rows are read-only and quarantined; an identity collisi
 stops while any legacy nonterminal S2 custody remains undrained. Missing, dual, stale, expired, revoked,
 wrong-issuer, wrong-audience, cross-principal, cross-scope, proof-mismatched, manifest-mismatched, digest-mismatched,
 or mixed-cut authority creates no Product Edge admission and no downstream Owner write or provider call.
+
+`LegacyPreparedAttemptDrainV1` is the only bounded exception for an exact historical schema-v1 `PREPARED`
+APP or MCP request. The original attempt bytes remain immutable. An explicit bounded admin may append an
+Owner-only canonical receipt and its Owner outbox event in the same transaction only when they bind the exact
+attempt and column digests, build and attempt identities, canonical Product Edge admission, target database,
+and exhaustive zero canonical effect-admission, claim, state, artifact, provider-start custody, and non-drain
+attempt/build outbox facts. Startup, request handling, and `Resolve` cannot create this receipt. The exact
+all-target operation is idempotent; a partial completed set, changed or extra target, digest mismatch, effect,
+or fault writes nothing. A verified receipt projects only legacy-quarantined `OUTCOME_UNKNOWN` with
+`PROVIDER_NEVER_STARTED` and permits only same-identity read and `Resolve`; it never creates current custody,
+freshness, authorization, artifact, family, successor, provider retry, or effect authority. Startup may ignore
+that exact row only after the canonical receipt and outbox both verify; every undrained, malformed, mismatched,
+or unknown row still blocks activation. Isolated local recovery evidence is not production authority and does
+not establish default-database, Windmill, or product maturity acceptance.
 
 The request's Authorization Lineage is the indivisible tuple of stable request identity, effective principal and
 scope, admitted `ACTIVE` shell binding and exact deployment-history head, Operator Authorization, and Agent

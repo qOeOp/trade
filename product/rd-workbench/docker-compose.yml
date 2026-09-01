@@ -108,6 +108,35 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  authority-recovery:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    entrypoint: ["/usr/local/bin/product-edge-recover-expired-manifests"]
+    environment:
+      OPERATOR_AUTHORIZATION_DATABASE_URL: >-
+        ${OPERATOR_AUTHORIZATION_DATABASE_URL:?set OPERATOR_AUTHORIZATION_DATABASE_URL}
+      PRODUCT_EDGE_DATABASE_URL: ${PRODUCT_EDGE_DATABASE_URL:?set PRODUCT_EDGE_DATABASE_URL}
+      PRODUCT_EDGE_DEPLOYMENT_IDENTITY: >-
+        ${PRODUCT_EDGE_DEPLOYMENT_IDENTITY:?set PRODUCT_EDGE_DEPLOYMENT_IDENTITY}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:?set RD_OWNER_API_TOKEN}
+      PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY:?set PRODUCT_EDGE_TRUSTED_ISSUER_IDENTITY}
+      PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION: >-
+        ${PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION:?set PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION}
+      PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE: >-
+        ${PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE:?set PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE}
+      PRODUCT_EDGE_RECOVERY_CONFIG: ${PRODUCT_EDGE_RECOVERY_CONFIG:?set PRODUCT_EDGE_RECOVERY_CONFIG}
+    command: ["/run/secrets/product-edge-recovery.json"]
+    volumes:
+      - ${PRODUCT_EDGE_RECOVERY_CONFIG:?set PRODUCT_EDGE_RECOVERY_CONFIG}:/run/secrets/product-edge-recovery.json:ro
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
   rd-build-sandbox:
     platform: linux/arm64
     build:

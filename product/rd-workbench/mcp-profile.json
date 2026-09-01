@@ -1,9 +1,10 @@
 {
-  "label": "s2-rd-artifact-build-mcp-v1",
+  "label": "s3-rd-replay-request-custody-mcp-v1",
   "workspace_id": "trade-rd",
   "scopes": [
     "mcp:scripts:f/trade/product_edge/research_goal_v2",
     "mcp:scripts:f/trade/product_edge/artifact_build_v1",
+    "mcp:scripts:f/trade/product_edge/exploratory_replay_v2",
     "mcp:endpoints:getJob,getJobLogs"
   ],
   "read_only": false

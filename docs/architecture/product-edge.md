@@ -333,6 +333,39 @@ replay joins the original bytes; changed meaning and concurrent losing genesis a
 write. A successor is a separate administrative cutover: the exact predecessor's `SUPERSEDED` fence commits first,
 then and only then may a policy-equivalent successor become `ACTIVE` at generation plus one.
 
+### Expired manifest recovery epoch
+
+An ordinary authorization or deployment successor is admissible only while its exact predecessor remains current at
+the commit cut. Once the manifest interval has expired, renewal cannot use that path. The only forward path is an
+explicit `ExpiredManifestRecoveryEpochV1` bound to the exact Operator Authorization issuance head and revocation
+frontier, the exact Product Edge deployment head and generation, and the complete prior and successor manifest sets.
+It is never a rollback, a second genesis, a service-start action, or a request-path fallback.
+
+The recovery command accepts only a content-bound PostgreSQL target naming the exact authority database, PostgreSQL
+system identifier, Operator Authorization role, and distinct Product Edge role. Before either Owner write, it opens
+both supplied endpoints read-only and requires `current_database()`, `current_user`, and `pg_control_system()` system
+identifier readback to match that target and to prove both roles reach the same database cluster. Any absent, empty,
+same-role, ambient-default, or cross-spliced binding fails closed without an Owner write; URLs and secrets are never
+logged.
+
+The epoch enumerates every manifest semantic key exactly once as `RETAINED`, `ADDED`, or `REMOVED`, with the exact
+old and new content-addressed bindings applicable to that disposition. A retained manifest may only narrow allowed
+effects and must preserve every prior prohibited effect. An added manifest must remain inside the unchanged
+principal, audience, Operator Authorization scope, request proof, scope policy, and audit policy; it must preserve
+the immutable `LIVE_TRADING_V1`, `REAL_TRADING_V1`, and `PROTECTED_FEEDBACK_DETAIL_V1` prohibition floor and cannot
+name a live or trading target or allowed effect. Removal grants no successor authority. The capability-policy version
+may change only when the content-addressed epoch contains an addition or removal, and every successor manifest binds
+that exact version. Omitted, duplicated, cross-spliced, stale, or differently interpreted transitions fail closed.
+
+Recovery is intentionally two-owner and forward-only. The Operator Authorization Issuer first appends or exact-replays
+OA2 after locking the expired issuance head and current frontier; OA2 alone is not Product Edge request authority.
+Product Edge then verifies that canonical OA2 at its own cut, irreversibly appends the exact B1 `SUPERSEDED` fence,
+enters a zero-`ACTIVE` fail-closed interval, and atomically appends B2, its manifests, receipt and outbox while advancing
+the deployment head by compare-and-swap. A crash after OA2 or after the fence resumes only through the same epoch and
+same complete bytes; a changed epoch conflicts. This protocol does not claim cross-Owner transaction atomicity and
+never rewrites OA1, B1, prior manifests, admissions, receipts, outbox events, or downstream Owner facts. Requests that
+were never admitted under B1 must use a new identity after B2 becomes current; recovery cannot bless or complete them.
+
 The local API token is only opaque request proof. Bootstrap binds its digest without logging or publishing the
 secret, and request admission compares that proof against the canonical issuance and binding. Environment values,
 defaults, a same-object comparison, or a valid transport session cannot supply principal, scope, issuer, audience,

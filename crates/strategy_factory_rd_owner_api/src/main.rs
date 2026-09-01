@@ -58,6 +58,7 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
     submitted_or_unknown_response,
 };
 
+mod exploratory_replay;
 mod source_intake;
 mod source_intake_research;
 
@@ -219,6 +220,18 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/v2/research-goals/{request_identity}/resolve",
             post(resolve_v2),
+        )
+        .route(
+            "/v2/exploratory-replay-requests/identify",
+            post(exploratory_replay::identify),
+        )
+        .route(
+            "/v2/exploratory-replay-requests",
+            post(exploratory_replay::submit),
+        )
+        .route(
+            "/v2/exploratory-replay-requests/{request_identity}/resolve",
+            post(exploratory_replay::resolve),
         )
         .route(
             "/v1/trial-families/by-intent/{intent_identity}",

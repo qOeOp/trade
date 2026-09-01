@@ -10980,9 +10980,11 @@ name = "vibe-product-edge-admin"
 version = "0.62.0"
 dependencies = [
  "anyhow",
+ "rstest",
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "sqlx",
  "tokio",
  "vibe-operator-authorization",
  "vibe-product-edge",
@@ -11283,6 +11285,7 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "vibe-backtest-owner-contracts",
  "vibe-data",
  "vibe-operator-authorization",
  "vibe-product-edge",

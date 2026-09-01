@@ -25,4 +25,5 @@ POSTGRES_PASSWORD=check-only \
   PRODUCT_EDGE_TRUSTED_ISSUER_KEY_VERSION=check-only \
   PRODUCT_EDGE_TRUSTED_AUTHORIZATION_AUDIENCE=check-only \
   PRODUCT_EDGE_BOOTSTRAP_CONFIG=/tmp/check-only-product-edge-bootstrap.json \
+  PRODUCT_EDGE_RECOVERY_CONFIG=/tmp/check-only-product-edge-recovery.json \
   docker compose --project-directory "$package_dir" --file "$compose_file" config --quiet

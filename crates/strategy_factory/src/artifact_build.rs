@@ -479,6 +479,8 @@ pub struct ArtifactBuildResultV1 {
     pub(crate) build_request_identity: String,
     pub(crate) attempt_identity: String,
     pub(crate) owner_receipt: Option<ArtifactBuildReceiptV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) legacy_prepared_attempt_drain: Option<LegacyPreparedAttemptDrainReadbackV1>,
     pub(crate) research_view: Option<ResearchViewV1>,
     pub(crate) artifact_review: Option<ArtifactReviewV1>,
     pub(crate) artifact_review_actions: Option<ArtifactReviewActionProjectionV1>,
@@ -504,6 +506,10 @@ impl ArtifactBuildResultV1 {
 
     pub fn owner_receipt(&self) -> Option<&ArtifactBuildReceiptV1> {
         self.owner_receipt.as_ref()
+    }
+
+    pub fn legacy_prepared_attempt_drain(&self) -> Option<&LegacyPreparedAttemptDrainReadbackV1> {
+        self.legacy_prepared_attempt_drain.as_ref()
     }
 
     pub fn research_view(&self) -> Option<&ResearchViewV1> {
@@ -543,6 +549,7 @@ impl ArtifactBuildResultV1 {
             build_request_identity: build_request_identity.to_string(),
             attempt_identity: attempt_identity.to_string(),
             owner_receipt: None,
+            legacy_prepared_attempt_drain: None,
             research_view: None,
             artifact_review: None,
             artifact_review_actions: None,
@@ -550,6 +557,49 @@ impl ArtifactBuildResultV1 {
             artifact_trial_family: None,
             next_legal_action: ArtifactBuildNextLegalAction::ResolveSameAttemptIdentity,
         }
+    }
+}
+
+/// Serialize-only proof that an immutable legacy PREPARED attempt was drained
+/// without establishing provider, artifact, or current attempt custody.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct LegacyPreparedAttemptDrainReadbackV1 {
+    pub(crate) schema_version: u32,
+    pub(crate) receipt_identity: String,
+    pub(crate) receipt_digest: String,
+    pub(crate) attempt_json_digest: String,
+    pub(crate) admission_digest: String,
+    pub(crate) disposition: ArtifactBuildDisposition,
+    pub(crate) provider_disposition: String,
+    pub(crate) target_database_resource_fingerprint: String,
+    pub(crate) target_database_fingerprint: String,
+}
+
+impl LegacyPreparedAttemptDrainReadbackV1 {
+    pub fn receipt_identity(&self) -> &str {
+        &self.receipt_identity
+    }
+    pub fn receipt_digest(&self) -> &str {
+        &self.receipt_digest
+    }
+    pub fn attempt_json_digest(&self) -> &str {
+        &self.attempt_json_digest
+    }
+    pub fn admission_digest(&self) -> &str {
+        &self.admission_digest
+    }
+    pub fn disposition(&self) -> ArtifactBuildDisposition {
+        self.disposition
+    }
+    pub fn provider_disposition(&self) -> &str {
+        &self.provider_disposition
+    }
+    pub fn target_database_resource_fingerprint(&self) -> &str {
+        &self.target_database_resource_fingerprint
+    }
+    pub fn target_database_fingerprint(&self) -> &str {
+        &self.target_database_fingerprint
     }
 }
 

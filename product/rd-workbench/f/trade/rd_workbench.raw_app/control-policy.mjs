@@ -194,6 +194,71 @@ export function artifactAvailableAt(result, s1Context, nowEpochMs) {
     && artifactContextCurrentAt(result, s1Context, nowEpochMs)
 }
 
+export function replayProposalBoundToArtifact(proposal, artifactResult, s1Context) {
+  const request = proposal?.request
+  const receipt = artifactResult?.owner_receipt
+  const review = artifactResult?.artifact_review
+  const family = artifactResult?.artifact_trial_family?.trial_family
+  const binding = artifactResult?.artifact_trial_family?.binding
+  const policy = family?.root?.policy
+  return artifactResult?.resolution === "SUCCESS"
+    && proposal?.build_request_identity === artifactResult?.build_request_identity
+    && proposal?.attempt_identity === artifactResult?.attempt_identity
+    && proposal?.build_receipt_identity === receipt?.build_receipt_identity
+    && proposal?.artifact_family_binding_identity === binding?.binding_identity
+    && request?.schema_version === 2
+    && request?.replay_authority?.namespace === "EXPLORATORY"
+    && request?.frozen_research_intent?.identity === s1Context?.intent_identity
+    && request?.frozen_research_intent?.digest === s1Context?.intent_semantic_digest
+    && request?.trial_family?.identity === s1Context?.trial_family_identity
+    && request?.trial_family?.digest === s1Context?.trial_family_root_digest
+    && request?.trial_family_census_frontier?.identity === s1Context?.census_frontier_identity
+    && request?.trial_family_census_frontier?.digest === s1Context?.census_frontier_digest
+    && request?.artifact?.identity === receipt?.artifact_identity
+    && request?.artifact?.digest === review?.artifact_identity?.wasm_digest
+    && request?.models?.cost?.identity === policy?.cost_model_identity
+    && request?.models?.slippage?.identity === policy?.slippage_model_identity
+    && request?.models?.capacity?.identity === policy?.capacity_model_identity
+}
+
+export function replayActionControls(result, requestIdentity, meaningDigest) {
+  if (result === null) return { canRun: true, canResolve: false }
+  if (!projected(
+    result,
+    "exploratory_replay.consumer_projection.v2",
+    "exploratory_replay.submit_or_resolve.v2",
+    "rd-exploratory-replay-request-v2",
+    "request_identity",
+    requestIdentity,
+  ) || result.meaning_digest !== meaningDigest) return { canRun: false, canResolve: false }
+  return {
+    canRun: false,
+    canResolve: result.resolution === "SUBMITTED_OR_UNKNOWN"
+      && result.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY",
+  }
+}
+
+export function replayInvocationAdmission({
+  action,
+  replayResult,
+  requestIdentity,
+  meaningDigest,
+  proposal,
+  artifactResult,
+  artifactContext,
+  artifactAvailable,
+  importedSelector,
+}) {
+  const controls = replayActionControls(replayResult, requestIdentity, meaningDigest)
+  if (action === "RUN") {
+    return controls.canRun && artifactAvailable
+      && replayProposalBoundToArtifact(proposal, artifactResult, artifactContext)
+  }
+  const sameProposal = proposal?.request?.request_identity === requestIdentity
+  return sameProposal && ((replayResult !== null && controls.canResolve)
+    || (replayResult === null && importedSelector))
+}
+
 export async function resolveCurrentResearchThenRunArtifact({
   requestIdentity,
   intentIdentity,

@@ -51,3 +51,14 @@ test "$(grep -c 'SELECT operator_authorization_api.lock_current_authorization_v1
 oa_lock_line=$(grep -n 'SELECT operator_authorization_api.lock_current_authorization_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
 pe_lock_line=$(grep -n "pg_advisory_xact_lock_shared(pg_catalog.hashtextextended('deployment'" "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
 test "$oa_lock_line" -lt "$pe_lock_line"
+grep -Fq 'product-edge-recover-expired-manifests' "$package_dir/Dockerfile.owner"
+grep -Fq 'authority-recovery:' "$package_dir/docker-compose.yml"
+grep -Fq 'profiles: ["authority-admin"]' "$package_dir/docker-compose.yml"
+grep -Fq 'PRODUCT_EDGE_RECOVERY_CONFIG' "$package_dir/docker-compose.yml"
+grep -Fq ':/run/secrets/product-edge-recovery.json:ro' "$package_dir/docker-compose.yml"
+grep -Fq 'authority-custody-migrate:' "$package_dir/docker-compose.yml"
+if grep -Eq '^[[:space:]]*authority-recovery:[[:space:]]*$' "$package_dir/docker-compose.yml" &&
+  ! grep -A3 -F 'authority-recovery:' "$package_dir/docker-compose.yml" | grep -Fq 'profiles: ["authority-admin"]'; then
+  echo "authority recovery must remain opt-in" >&2
+  exit 1
+fi

@@ -59,6 +59,32 @@ The bootstrap binary is a dedicated administrative composition unit. Strategy
 Factory, the R&D API, Windmill server, and Windmill worker cannot issue
 Operator Authorization or create a deployment genesis.
 
+After an existing manifest interval has expired, an administrator may instead
+run the separate recovery composition with the private schema-v1 JSON path
+named by `PRODUCT_EDGE_RECOVERY_CONFIG`:
+
+```bash
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  --profile authority-admin run --rm authority-recovery
+```
+
+The recovery config contains one identical content-addressed recovery epoch,
+the complete Operator Authorization recovery proposal, and a Product Edge
+successor template without an authorization locator. The binary validates the
+complete config against the runtime deployment, trust, request proof, manifest,
+identity, time, and policy bindings before the first Owner call. It then
+issues or rejoins OA2 and derives Product Edge's locator only from that sealed
+canonical readback before recovering or rejoining B2. These remain separate
+Owner writes, not a cross-owner transaction: a crash after OA2 is recovered by
+rerunning the exact same immutable config. Changed meaning fails closed. The
+bounded JSON result contains only the recovery epoch, canonical OA locator, and
+Product Edge binding locator/readback; it contains no token or database secret.
+The service is opt-in under `authority-admin` and never runs during default
+startup.
+
 After those explicit administrative steps, start the default services; the
 `authority-admin` profile remains disabled:
 

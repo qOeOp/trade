@@ -292,6 +292,35 @@ manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义�
 没有部分写入。后继属于独立管理员 cutover：先提交准确前驱的 `SUPERSEDED` fence，随后且仅随后政策
 等价后继才能以 generation 加一成为 `ACTIVE`。
 
+### 到期 manifest 恢复 epoch
+
+普通 authorization 或 deployment 后继只有在提交截面的准确前驱仍 current 时才可准入。manifest 区间
+到期后不能再走该续期路径；唯一前向路径是显式 `ExpiredManifestRecoveryEpochV1`，它绑定准确 Operator
+Authorization issuance head 与 revocation frontier、准确 Product Edge deployment head 与 generation，以及
+完整前驱和后继 manifest 集。它绝不是 rollback、第二次 genesis、服务启动动作或请求路径 fallback。
+
+recovery 命令只接受一份内容绑定的 PostgreSQL target，其中声明准确 authority database、PostgreSQL system
+identifier、Operator Authorization role，以及与其不同的 Product Edge role。在任一 Owner 写入前，命令以
+只读方式连接两个给定 endpoint，并要求 `current_database()`、`current_user` 与 `pg_control_system()` system
+identifier 回读匹配该 target，同时证明两个 role 到达同一 database cluster。缺失、空值、相同 role、环境
+默认或交叉拼接 binding 一律失败关闭且不产生 Owner 写入；URL 与 secret 绝不记录。
+
+epoch 必须把每个 manifest semantic key 准确枚举一次，并标为 `RETAINED`、`ADDED` 或 `REMOVED`，同时
+绑定该处置对应的准确旧/新内容寻址 binding。保留项只能收窄 allowed effect，且必须保留前驱的全部
+prohibited effect。新增项必须处于不变的 principal、audience、Operator Authorization scope、request proof、
+scope policy 与 audit policy 内；必须保留不可变的 `LIVE_TRADING_V1`、`REAL_TRADING_V1` 和
+`PROTECTED_FEEDBACK_DETAIL_V1` 禁止下限，且不能声明 live 或 trading target/allowed effect。删除项不授予
+任何后继权威。只有内容寻址 epoch 含新增或删除项时 capability-policy 版本才可改变，且每个后继 manifest
+必须绑定该准确版本。遗漏、重复、交叉拼接、陈旧或含义不同的 transition 全部失败关闭。
+
+恢复有意保持两个 Owner 且只向前推进。Operator Authorization Issuer 先锁定到期 issuance head 与当前
+frontier，再追加或准确重放 OA2；只有 OA2 不能形成 Product Edge 请求权威。Product Edge 随后在自己的
+提交截面验证该规范 OA2，不可逆追加准确 B1 `SUPERSEDED` fence，进入零 `ACTIVE` 的失败关闭区间，并在
+同一事务追加 B2、其 manifests、receipt 与 outbox，同时以 compare-and-swap 推进 deployment head。OA2 或
+fence 之后崩溃时，只能使用同一 epoch 与完整相同字节续跑；改变 epoch 会冲突。该协议不声称跨 Owner
+事务原子性，也绝不重写 OA1、B1、旧 manifest、admission、receipt、outbox 或 downstream Owner 事实。
+从未在 B1 下准入的请求必须等 B2 current 后使用新 identity；恢复不能追认或完成它们。
+
 本地 API token 只是 opaque request proof。Bootstrap 绑定其 digest，既不记录也不发布 secret；request
 admission 将该 proof 与规范 issuance 和 binding 比较。环境值、默认值、同对象比较或有效 transport session
 都不能提供 principal、scope、issuer、audience、authorization、manifest、deployment head、capability 或

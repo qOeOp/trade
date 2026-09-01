@@ -11,21 +11,36 @@ readonly guarded_roots=(
   crates/strategy_factory_rd_owner_api
 )
 
-# Every invocation below uses the same workspace test graph. Only this ordered
-# package/binary/test filter changes, so nextest can reuse the workspace build
-# while the database-sensitive tests still run one at a time and fail fast.
+# Build the three Owner test packages into one nextest archive. The ordered
+# package/binary/test filters below then run from that immutable build while
+# the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
+  'vibe-strategy-factory|exploratory_replay_request_owner|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back'
+  'vibe-strategy-factory|exploratory_replay_request_owner|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
-readonly nextest_graph_args=(--locked --workspace --lib --tests)
+readonly nextest_graph_args=(
+  --locked
+  --package vibe-strategy-factory
+  --package vibe-strategy-factory-rd-owner-api
+  --package vibe-product-edge
+  --lib
+  --tests
+)
+# The incoming Makefile union also contains workspace-root features that none of
+# the three selected packages expose. Keep the archive projection package-scoped.
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -33,17 +48,21 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 9 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all nine ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
     return 1
   fi
-  if [[ "${rd_owner_postgres_tests[0]}" != *'|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates' ]] ||
-    [[ "${rd_owner_postgres_tests[7]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[8]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
+  if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
+    [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --workspace --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
     return 1
@@ -71,6 +90,12 @@ check_nextest_graph_contract() {
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
+    return 1
+  fi
+  if ! rg -Uq \
+    'cargo nextest archive.*\n[[:space:]]+"\$\{nextest_graph_args\[@\]\}".*\n[[:space:]]+--features "\$nextest_archive_features"' \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: nextest archive must compile the exact selected-package feature projection." >&2
     return 1
   fi
 }
@@ -144,7 +169,14 @@ if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
   echo "ERROR: RD_OWNER_POSTGRES_FEATURES must select the shared workspace feature union." >&2
   exit 1
 fi
-readonly rd_owner_postgres_features="$RD_OWNER_POSTGRES_FEATURES"
+readonly rd_owner_postgres_features="${RD_OWNER_POSTGRES_FEATURES//[[:space:]]/}"
+case ",${rd_owner_postgres_features}," in
+  *",${nextest_archive_features},"*) ;;
+  *)
+    echo "ERROR: R&D Owner PostgreSQL feature union must admit sealed Develop Composer acceptance." >&2
+    exit 1
+    ;;
+esac
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
@@ -165,6 +197,7 @@ readonly suffix
 readonly container="vibe-rd-owner-test-${suffix}"
 readonly volume="vibe-rd-owner-test-${suffix}"
 readonly test_database="vibe_test_${suffix//-/_}"
+readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -176,6 +209,8 @@ volume_created=false
 impersonator_volume_created=false
 container_created=false
 impersonator_container_created=false
+nextest_archive_dir=''
+nextest_archive_file=''
 
 remove_docker_object_for_cleanup() {
   local object_type="$1"
@@ -205,6 +240,15 @@ cleanup() {
   local cleanup_failed=false
   trap - EXIT
   set +e
+
+  if [[ -n "$nextest_archive_file" ]] &&
+    ! rm -f -- "$nextest_archive_file"; then
+    cleanup_failed=true
+  fi
+  if [[ -n "$nextest_archive_dir" ]] &&
+    ! rmdir -- "$nextest_archive_dir"; then
+    cleanup_failed=true
+  fi
 
   if [[ "$container_created" == true ]] &&
     ! remove_docker_object_for_cleanup container "$container" 3; then
@@ -424,6 +468,213 @@ ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
 SQL
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_database="$test_database" \
+  --set=origin_current_database="$origin_current_database" << 'SQL'
+CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
+REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"origin_current_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$origin_current_database" \
+  --set=origin_current_database="$origin_current_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'origin_current_database';
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE ROLE surprise_replay_grantee NOLOGIN;
+CREATE TABLE public.rd_exploratory_replay_requests_v1 (
+  replay_request_identity text PRIMARY KEY,
+  run_attempt_identity text NOT NULL UNIQUE,
+  semantic_digest text NOT NULL,
+  request_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  handoff_json jsonb,
+  committed_at_epoch_ms bigint NOT NULL,
+  research_view_json jsonb,
+  request_schema_version smallint NOT NULL,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_requests_v1 OWNER TO rd_owner;
+COMMENT ON TABLE public.rd_exploratory_replay_requests_v1 IS 'legacy Replay sentinel v1';
+INSERT INTO public.rd_exploratory_replay_requests_v1 (
+  replay_request_identity,
+  run_attempt_identity,
+  semantic_digest,
+  request_json,
+  receipt_json,
+  handoff_json,
+  committed_at_epoch_ms,
+  research_view_json,
+  request_schema_version,
+  v2_canonical_request_bytes,
+  v2_meaning_digest,
+  v2_seal_digest,
+  v2_receipt_json
+)
+SELECT
+  'legacy-replay-' || ordinal::text,
+  'legacy-attempt-' || ordinal::text,
+  'sha256:legacy-' || ordinal::text,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-request'),
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-receipt'),
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-handoff'),
+  ordinal,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-research-view'),
+  2,
+  pg_catalog.decode(pg_catalog.lpad(pg_catalog.to_hex(ordinal),2,'0'),'hex'),
+  'sha256:legacy-meaning-' || ordinal::text,
+  'sha256:legacy-seal-' || ordinal::text,
+  pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
+FROM pg_catalog.generate_series(0,25) ordinal;
+
+CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
+  request_identity text PRIMARY KEY,
+  request_digest text NOT NULL,
+  build_request_identity text NOT NULL,
+  attempt_identity text NOT NULL,
+  intent_identity text NOT NULL,
+  trial_family_identity text NOT NULL,
+  artifact_identity text NOT NULL,
+  build_receipt_identity text NOT NULL,
+  artifact_family_binding_identity text NOT NULL,
+  census_frontier_identity text NOT NULL,
+  frozen_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
+  committed_at_epoch_ms bigint NOT NULL,
+  request_schema_version smallint NOT NULL DEFAULT 1,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
+REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
+GRANT SELECT, UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
+GRANT SELECT(request_identity), UPDATE(lifecycle_state)
+  ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
+INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
+  request_identity,
+  request_digest,
+  build_request_identity,
+  attempt_identity,
+  intent_identity,
+  trial_family_identity,
+  artifact_identity,
+  build_receipt_identity,
+  artifact_family_binding_identity,
+  census_frontier_identity,
+  frozen_json,
+  receipt_json,
+  lifecycle_state,
+  committed_at_epoch_ms,
+  request_schema_version
+) VALUES (
+  'internal-continuity-replay-v1',
+  'sha256:internal-continuity-request-v1',
+  'internal-continuity-build-v1',
+  'internal-continuity-attempt-v1',
+  'internal-continuity-intent-v1',
+  'internal-continuity-family-v1',
+  'sha256:internal-continuity-artifact-v1',
+  'internal-continuity-build-receipt-v1',
+  'internal-continuity-family-binding-v1',
+  'internal-continuity-census-v1',
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity','schema_version',1),
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity-receipt','schema_version',1),
+  'FROZEN',
+  1700000000000,
+  1
+);
+SQL
+
+legacy_replay_fingerprint() {
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+SELECT 'count=' || pg_catalog.count(*)::text
+  FROM public.rd_exploratory_replay_requests_v1;
+
+SELECT 'data_bytes_md5=' || pg_catalog.md5(COALESCE(
+  pg_catalog.string_agg(
+    pg_catalog.encode(
+      pg_catalog.convert_to(pg_catalog.row_to_json(legacy)::text, 'UTF8'),
+      'hex'
+    ),
+    E'\n' ORDER BY replay_request_identity
+  ),
+  ''
+))
+  FROM public.rd_exploratory_replay_requests_v1 legacy;
+
+SELECT 'catalog_md5=' || pg_catalog.md5(
+  relation.relkind::text || ':' ||
+  relation.relpersistence::text || ':' ||
+  relation.relreplident::text || ':' ||
+  COALESCE(relation.reloptions::text, '<NULL>') || ':' ||
+  COALESCE(pg_catalog.obj_description(relation.oid, 'pg_class'), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      attribute.attnum::text || ':' ||
+      attribute.attname || ':' ||
+      pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) || ':' ||
+      attribute.attnotnull::text || ':' ||
+      attribute.attidentity::text || ':' ||
+      attribute.attgenerated::text || ':' ||
+      COALESCE(attribute.attacl::text, '<NULL>') || ':' ||
+      COALESCE(pg_catalog.pg_get_expr(default_entry.adbin, default_entry.adrelid), '<NULL>'),
+      E'\n' ORDER BY attribute.attnum
+    )
+      FROM pg_catalog.pg_attribute attribute
+      LEFT JOIN pg_catalog.pg_attrdef default_entry
+        ON default_entry.adrelid=attribute.attrelid
+       AND default_entry.adnum=attribute.attnum
+     WHERE attribute.attrelid=relation.oid
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+  ), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      constraint_entry.conname || ':' ||
+      constraint_entry.contype::text || ':' ||
+      pg_catalog.pg_get_constraintdef(constraint_entry.oid, true),
+      E'\n' ORDER BY constraint_entry.conname
+    )
+      FROM pg_catalog.pg_constraint constraint_entry
+     WHERE constraint_entry.conrelid=relation.oid
+  ), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      pg_catalog.pg_get_indexdef(index_entry.indexrelid),
+      E'\n' ORDER BY index_entry.indexrelid::pg_catalog.regclass::text
+    )
+      FROM pg_catalog.pg_index index_entry
+     WHERE index_entry.indrelid=relation.oid
+  ), '<NULL>')
+)
+  FROM pg_catalog.pg_class relation
+ WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
+
+SELECT 'owner_acl_md5=' || pg_catalog.md5(
+  owner.rolname || ':' || COALESCE(relation.relacl::text, '<NULL>')
+)
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+ WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
+SQL
+}
+
+legacy_replay_fingerprint_before="$(legacy_replay_fingerprint)"
+readonly legacy_replay_fingerprint_before
+
 port_mapping="$(docker port "$container" 5432/tcp)"
 postgres_port="${port_mapping##*:}"
 case "$postgres_port" in
@@ -432,6 +683,7 @@ case "$postgres_port" in
     exit 1
     ;;
 esac
+readonly published_postgres_port="$postgres_port"
 
 impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
 impersonator_port="${impersonator_port_mapping##*:}"
@@ -446,6 +698,22 @@ postgres_endpoint="$(
   select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
 )"
 read -r postgres_host postgres_port <<< "$postgres_endpoint"
+if [[ -f /.dockerenv ]]; then
+  postgres_alias_host="host.docker.internal"
+  postgres_alias_port="$published_postgres_port"
+else
+  postgres_alias_host="localhost"
+  postgres_alias_port="$published_postgres_port"
+fi
+readonly postgres_alias_host postgres_alias_port
+if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
+  exit 1
+fi
+if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
+  exit 1
+fi
 impersonator_endpoint="$(
   select_reachable_postgres_endpoint \
     "$impersonator_container" "$impersonator_port" "impersonating"
@@ -457,25 +725,61 @@ export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
-# The first filter makes the first application connection to the fresh
-# database. Filters 8 and 9 deliberately poison Owner state and therefore stay
-# after every positive consumer, with the Research mismatch absolute last.
+nextest_temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+if [[ ! -d "$nextest_temp_root" ]]; then
+  echo "ERROR: nextest archive parent does not exist: ${nextest_temp_root}" >&2
+  exit 1
+fi
+nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
+nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
+cargo nextest archive \
+  "${nextest_graph_args[@]}" \
+  --features "$nextest_archive_features" \
+  --profile "$nextest_profile" \
+  --cargo-profile "$cargo_ci_profile" \
+  --archive-file "$nextest_archive_file"
+
+# The first two filters make the first application connection to their separate
+# fresh databases. The final filters deliberately poison Owner state and therefore
+# stay after every positive consumer, with the malformed OA/PE schema probe last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
-  cargo nextest run \
-    "${nextest_graph_args[@]}" \
-    --features "$rd_owner_postgres_features" \
-    --profile "$nextest_profile" \
-    --cargo-profile "$cargo_ci_profile" \
-    "${nextest_execution_args[@]}" \
-    -E "package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
+  test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
+  if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  else
+    cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  fi
 done
+
+legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
+readonly legacy_replay_fingerprint_after
+if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
+  echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
+  exit 1
+fi
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
@@ -667,7 +971,7 @@ BEGIN
 
   IF pg_catalog.has_table_privilege(
        'backtest_owner',
-       'public.rd_exploratory_replay_requests_v1',
+       'public.rd_sealed_exploratory_replay_requests_v1',
        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
      )
      OR pg_catalog.has_table_privilege(
@@ -799,9 +1103,48 @@ BEGIN
 
   IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_owner'
      OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_owner'
-     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_exploratory_replay_requests_v1') <> 'rd_owner'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_sealed_exploratory_replay_requests_v1') <> 'rd_owner'
   THEN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+        relation.relacl,
+        pg_catalog.acldefault('r', relation.relowner)
+      )) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND acl.grantee<>relation.relowner
+  ) THEN
+    RAISE EXCEPTION 'sealed exploratory Replay table ACL is not Owner-private';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+       AND acl.grantee<>relation.relowner
+  ) THEN
+    RAISE EXCEPTION 'sealed exploratory Replay column ACL is not Owner-private';
+  END IF;
+
+  IF pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL
+     OR (
+       SELECT pg_catalog.count(*)
+         FROM public.rd_sealed_exploratory_replay_requests_v1
+        WHERE request_identity='internal-continuity-replay-v1'
+          AND request_digest='sha256:internal-continuity-request-v1'
+          AND committed_at_epoch_ms=1700000000000
+          AND request_schema_version=1
+     ) <> 1
+  THEN
+    RAISE EXCEPTION 'prior internal exploratory Replay custody was orphaned';
   END IF;
 
 END

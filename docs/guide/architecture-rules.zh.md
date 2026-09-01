@@ -55,6 +55,19 @@ manifest、一份不可变 receipt 及其 outbox。准确重放加入相同字�
 第二个 `ACTIVE` binding。切换必须先提交准确前驱的 `SUPERSEDED` fence，随后才可提交政策等价后继
 `ACTIVE`；零活动区间失败关闭，任何请求都不能重新创建 genesis。
 
+到期前驱不能使用普通 authorization 或 deployment successor 路径。唯一前向恢复是显式
+`ExpiredManifestRecoveryEpochV1`，它绑定准确 authorization 与 deployment head、当前 revocation frontier，
+以及完整排序的 `RETAINED`/`ADDED`/`REMOVED` manifest transition 集。保留能力只能收窄；新增能力必须处于
+不变的 principal、audience、scope、proof、scope-policy 与 audit-policy 边界内，并保留 live-trading、
+real-trading 与 protected-feedback 禁止下限；删除项不授予任何权威。Issuer 可以先追加 OA2，但只有 OA2
+不构成 Product Edge 权威。Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2；
+准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧 issuance、binding、manifest、admission、receipt、
+outbox 或 Owner 事实都不得重写。
+recovery 配置还内容绑定准确 authority database 名称、PostgreSQL system identifier，以及不同的 Operator
+Authorization 与 Product Edge role。在任一 Owner 写入前，命令只读连接两个给定 endpoint，并要求其
+database、role 和 system-identifier 回读匹配配置及同一 database cluster。环境 endpoint、交叉拼接、空
+identity 或相同 role 一律失败关闭；URL 与 secret 不得记录。
+
 不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment
 binding 与 head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation
 frontier、manifest identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof
@@ -67,6 +80,19 @@ admission cut 解析，但 recovery 若要开始新的 provider 或外部 effect
 碰撞失败关闭，任何 legacy 非终态 S2 custody 未排空时 activation 必须停止。authority 缺失、双重、过期、
 失效、被撤销、issuer 错误、audience 错误、跨 principal、跨 scope、proof 不匹配、manifest 不匹配、digest
 不匹配或混合截面时，不得创建 Product Edge admission、downstream Owner 写入或 provider 调用。
+
+`LegacyPreparedAttemptDrainV1` 是唯一的有界例外，且仅适用于准确的历史 schema-v1 `PREPARED` APP 或
+MCP 请求。原始 attempt 字节保持不可变。显式有界 admin 只有在绑定准确 attempt 与列 digest、build 与
+attempt identity、canonical Product Edge admission、目标数据库，以及 canonical effect admission、claim、
+state、artifact、provider-start custody 和非 drain attempt/build outbox 全部为零的事实后，才可在同一事务
+追加仅 Owner 可用的 canonical receipt 及其 Owner outbox event。startup、请求处理与 `Resolve` 都不能创建
+该 receipt。准确的全目标操作幂等；部分完成集合、目标变化或多出、digest 不匹配、已有 effect 或故障均
+不得写入任何内容。已验证 receipt 只投影 legacy-quarantined `OUTCOME_UNKNOWN` 与
+`PROVIDER_NEVER_STARTED`，并且只允许同 identity 读取与 `Resolve`；它绝不创建当前 custody、freshness、
+authorization、artifact、family、successor、provider retry 或 effect authority。只有 canonical receipt 与
+outbox 均验证通过后，startup 才可忽略该准确行；任何未 drain、malformed、不匹配或未知行仍阻断
+activation。隔离的本地 recovery 证据不是 production authority，也不建立默认数据库、Windmill 或产品
+成熟度 acceptance。
 
 请求 Authorization Lineage 是不可拆分元组，包含稳定 request identity 有效 principal 与 scope 已准入
 `ACTIVE` Shell binding 与准确 deployment history head Operator Authorization 和 Agent Operation

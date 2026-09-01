@@ -2369,7 +2369,7 @@
         "destinationIds": ["product-edge"],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
-        "adoptionRule": "Compose the concrete Operator Authorization Issuer and Product Edge Owner only for an explicit opt-in administrative genesis request and never from service startup or a Product Edge request path",
+        "adoptionRule": "Compose the concrete Operator Authorization Issuer and Product Edge Owner only for an explicit opt-in administrative genesis request or one exact expired-manifest recovery epoch and never from service startup or a Product Edge request path",
         "noAuthorityBasis": "The composition owns no fact and cannot transfer authorization Product Edge R&D provider effect or trading authority to Strategy Factory Windmill API transport credentials or configuration"
       },
       {
@@ -4161,7 +4161,8 @@
         "scope-policy-version",
         "approved-skill-and-mcp-capability-set-version",
         "audit-policy-version",
-        "cutover-epoch"
+        "cutover-epoch",
+        "expired-manifest-recovery-epoch-identity-and-digest-when-used"
       ],
       "states": [
         "ACTIVE",
@@ -4181,6 +4182,9 @@
         "Every mutating Agent Shell request durably and atomically serializes its request identity against the authoritative history head after verifying that exact head is the unique ACTIVE binding and before any Owner submission",
         "A history-head advance between admission read and request commit rejects the new request while a previously committed in-flight request continues to resolve by its original request binding and admission-head identities",
         "In-flight requests retain their original request and binding identities and after cutover may perform a still-unreceipted first mutation only against the immediate policy-equivalent ACTIVE successor with exact stored lineage and current original authorization at the final cut while zero ACTIVE blocks it and every new admission requires the current ACTIVE head",
+        "An expired predecessor cannot use the ordinary successor path and may recover only through one content-addressed ExpiredManifestRecoveryEpochV1 that binds the exact authorization frontier deployment head and complete retained added and removed manifest transition set",
+        "Before either expired-manifest recovery Owner write one content-bound target must match read-only database role and PostgreSQL system-identifier readback from both supplied endpoints with distinct Owner roles in the same authority database",
+        "Expired-manifest recovery appends or exact-replays OA2 before Product Edge irreversibly fences B1 and compare-and-swaps B2 while every partial state remains fail closed and no historical fact is rewritten",
         "Missing stale self-asserted or policy-mismatched binding context is rejected before any business Owner mutation"
       ]
     },
@@ -4197,7 +4201,8 @@
         "scope-and-resource-constraints",
         "issued-at-not-before-and-expires-at",
         "revocation-frontier-and-proof",
-        "agent-operation-manifest-identity-and-digest"
+        "agent-operation-manifest-identity-and-digest",
+        "expired-manifest-recovery-epoch-complete-transition-set-when-used"
       ],
       "states": [
         "EFFECTIVE",
@@ -4212,6 +4217,8 @@
         "Every mutating request binds one EFFECTIVE authorization whose issuer audience operation scope time evidence and revocation frontier are validated before Owner submission",
         "Missing stale expired revoked wrong-audience cross-principal broadened or unverifiable authorization creates no Owner request",
         "Replay binds the original authorization and manifest identities and cannot extend validity or widen scope",
+        "An expired-manifest recovery epoch preserves issuer key principal audience scope request proof scope policy and audit policy while explicitly binding every retained added and removed manifest semantic key and both complete content-addressed sets",
+        "Retained manifests only narrow added manifests retain the live-trading real-trading and protected-feedback prohibition floor removal grants nothing and OA2 alone grants no Product Edge request authority",
         "After canonical authorization binding manifest and admission locks are held Product Edge samples one final half-open cut immediately before the first write revalidates every authority there and binds that same cut into admission identity and receipt"
       ]
     },

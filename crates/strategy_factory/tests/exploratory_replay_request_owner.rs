@@ -88,6 +88,455 @@ struct ReplayFixture {
 }
 
 #[tokio::test]
+#[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
+async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
+    type LegacyReplayCatalogRow = (
+        String,
+        Option<String>,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        Vec<String>,
+        bool,
+        bool,
+    );
+
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+
+    let sealed_catalog_is_private: bool = sqlx::query_scalar(
+        "SELECT owner.rolname='rd_owner'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  relation.relacl,
+                  pg_catalog.acldefault('r', relation.relowner)
+                )) acl
+               WHERE acl.grantee<>relation.relowner
+            )
+            AND NOT pg_catalog.has_table_privilege(
+              'surprise_replay_grantee',
+              relation.oid,
+              'SELECT,UPDATE'
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND acl.grantee<>relation.relowner
+            )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("sealed Replay table catalog");
+    assert!(sealed_catalog_is_private);
+
+    let internal_custody_was_renamed_without_orphaning: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM public.rd_sealed_exploratory_replay_requests_v1
+               WHERE request_identity='internal-continuity-replay-v1'
+                 AND request_digest='sha256:internal-continuity-request-v1'
+                 AND build_request_identity='internal-continuity-build-v1'
+                 AND attempt_identity='internal-continuity-attempt-v1'
+                 AND intent_identity='internal-continuity-intent-v1'
+                 AND trial_family_identity='internal-continuity-family-v1'
+                 AND artifact_identity='sha256:internal-continuity-artifact-v1'
+                 AND build_receipt_identity='internal-continuity-build-receipt-v1'
+                 AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
+                 AND census_frontier_identity='internal-continuity-census-v1'
+                 AND frozen_json=pg_catalog.jsonb_build_object(
+                   'kind','internal-custody-continuity','schema_version',1
+                 )
+                 AND receipt_json=pg_catalog.jsonb_build_object(
+                   'kind','internal-custody-continuity-receipt','schema_version',1
+                 )
+                 AND lifecycle_state='FROZEN'
+                 AND committed_at_epoch_ms=1700000000000
+                 AND request_schema_version=1
+                 AND v2_canonical_request_bytes IS NULL
+                 AND v2_meaning_digest IS NULL
+                 AND v2_seal_digest IS NULL
+                 AND v2_receipt_json IS NULL
+            )",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("internal Replay custody continuity");
+    assert!(internal_custody_was_renamed_without_orphaning);
+
+    let legacy_catalog: LegacyReplayCatalogRow = sqlx::query_as(
+            "SELECT owner.rolname,
+                    pg_catalog.obj_description(relation.oid, 'pg_class'),
+                    pg_catalog.has_table_privilege('product_edge_owner', relation.oid, 'SELECT'),
+                    pg_catalog.has_table_privilege('backtest_owner', relation.oid, 'SELECT'),
+                    EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.aclexplode(COALESCE(
+                          relation.relacl,
+                          pg_catalog.acldefault('r', relation.relowner)
+                        )) acl
+                       WHERE acl.grantee=0
+                         AND acl.privilege_type='SELECT'
+                    ),
+                    pg_catalog.has_table_privilege('qualification_writer', relation.oid, 'SELECT'),
+                    relation.relacl IS NULL,
+                    ARRAY(
+                      SELECT attribute.attname || ':' || pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) || ':' || attribute.attnotnull::text
+                        FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=relation.oid
+                         AND attribute.attnum>0
+                         AND NOT attribute.attisdropped
+                       ORDER BY attribute.attnum
+                    ),
+                    EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                       WHERE constraint_entry.conrelid=relation.oid
+                         AND constraint_entry.contype='p'
+                         AND constraint_entry.conkey=ARRAY[(
+                           SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                            WHERE attribute.attrelid=relation.oid
+                              AND attribute.attname='replay_request_identity'
+                         )]::smallint[]
+                    ),
+                    EXISTS (
+                      SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                       WHERE constraint_entry.conrelid=relation.oid
+                         AND constraint_entry.contype='u'
+                         AND constraint_entry.conkey=ARRAY[(
+                           SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                            WHERE attribute.attrelid=relation.oid
+                              AND attribute.attname='run_attempt_identity'
+                         )]::smallint[]
+                    )
+               FROM pg_catalog.pg_class relation
+               JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+              WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("legacy Replay table catalog");
+    assert_eq!(legacy_catalog.0, "rd_owner");
+    assert_eq!(
+        legacy_catalog.1.as_deref(),
+        Some("legacy Replay sentinel v1")
+    );
+    assert!(!legacy_catalog.2);
+    assert!(!legacy_catalog.3);
+    assert!(!legacy_catalog.4);
+    assert!(!legacy_catalog.5);
+    assert!(legacy_catalog.6);
+    assert_eq!(
+        legacy_catalog.7,
+        [
+            "replay_request_identity:text:true",
+            "run_attempt_identity:text:true",
+            "semantic_digest:text:true",
+            "request_json:jsonb:true",
+            "receipt_json:jsonb:true",
+            "handoff_json:jsonb:false",
+            "committed_at_epoch_ms:bigint:true",
+            "research_view_json:jsonb:false",
+            "request_schema_version:smallint:true",
+            "v2_canonical_request_bytes:bytea:false",
+            "v2_meaning_digest:text:false",
+            "v2_seal_digest:text:false",
+            "v2_receipt_json:jsonb:false",
+        ]
+    );
+    assert!(legacy_catalog.8);
+    assert!(legacy_catalog.9);
+
+    let legacy_is_exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.count(*)=26
+             AND pg_catalog.sum(committed_at_epoch_ms)=325
+             AND pg_catalog.bool_and(
+               replay_request_identity='legacy-replay-' || ordinal::text
+               AND run_attempt_identity='legacy-attempt-' || ordinal::text
+               AND semantic_digest='sha256:legacy-' || ordinal::text
+               AND request_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-request')
+               AND receipt_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-receipt')
+               AND handoff_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-handoff')
+               AND research_view_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-research-view')
+               AND request_schema_version=2
+               AND v2_canonical_request_bytes=pg_catalog.decode(pg_catalog.lpad(pg_catalog.to_hex(ordinal),2,'0'),'hex')
+               AND v2_meaning_digest='sha256:legacy-meaning-' || ordinal::text
+               AND v2_seal_digest='sha256:legacy-seal-' || ordinal::text
+               AND v2_receipt_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
+             )
+           FROM (
+             SELECT legacy.*, pg_catalog.substring(replay_request_identity, '[0-9]+$')::bigint ordinal
+               FROM public.rd_exploratory_replay_requests_v1 legacy
+           ) checked",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("legacy Replay rows");
+    assert!(legacy_is_exact);
+
+    let sealed_v1 = fixture
+        .owner
+        .commit_exploratory_replay_request_v1(fixture.proposal.clone())
+        .await
+        .expect("current Replay V1 request committed");
+    let sealed_v2 = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("current Replay V2 request committed");
+
+    sqlx::query(
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+         RENAME TO rd_exploratory_replay_request_custody_v1",
+    )
+    .execute(rd_pool)
+    .await
+    .expect("restore pre-migration internal Replay custody name");
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect("renamed internal Replay custody migrated");
+
+    let locked_v1 = restarted
+        .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
+        .await
+        .expect("pre-migration Replay V1 request locked");
+    assert_eq!(
+        locked_v1
+            .readback()
+            .expect("sealed V1 readback")
+            .request_digest(),
+        sealed_v1.locator().request_digest
+    );
+    let committed_v1_json = serde_json::to_value(&sealed_v1).unwrap();
+    let locked_v1_json = serde_json::to_value(&locked_v1).unwrap();
+    assert_eq!(
+        locked_v1_json.pointer("/readback/frozen"),
+        committed_v1_json.pointer("/frozen")
+    );
+    assert_eq!(
+        locked_v1_json.pointer("/readback/receipt"),
+        committed_v1_json.pointer("/receipt")
+    );
+    let locked_v2 = restarted
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .expect("pre-migration Replay V2 request locked");
+    let expected = ReplayRequestV2::try_from(fixture.proposal_v2.request.clone()).unwrap();
+    let locked_v2_readback = locked_v2.readback().expect("sealed V2 readback");
+    assert_eq!(locked_v2_readback.request(), &expected,);
+    assert_eq!(locked_v2_readback.locator(), sealed_v2.locator().clone());
+    let selector = ExploratoryReplayRecoverySelectorV2 {
+        request_identity: sealed_v2.locator().request_identity.clone(),
+        meaning_digest: sealed_v2.locator().meaning_digest.clone(),
+    };
+    let resolved_v2 = restarted
+        .resolve_exploratory_replay_request_v2(&selector)
+        .await
+        .expect("pre-migration Replay V2 request resolved");
+    let resolved_v2_readback = resolved_v2.readback().expect("resolved sealed V2 readback");
+    assert_eq!(
+        resolved_v2_readback.canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes(),
+    );
+    assert_eq!(resolved_v2_readback.locator(), sealed_v2.locator().clone());
+    assert_eq!(
+        request_counts_v2(
+            rd_pool,
+            fixture.proposal_v2.request.request_identity.as_str(),
+        )
+        .await,
+        [1, 1, 1]
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .unwrap(),
+        26
+    );
+
+    sqlx::query(
+        "CREATE TABLE public.rd_exploratory_replay_request_custody_v1
+         (LIKE public.rd_sealed_exploratory_replay_requests_v1 INCLUDING ALL)",
+    )
+    .execute(rd_pool)
+    .await
+    .expect("duplicate internal Replay candidate");
+    sqlx::query(
+        "INSERT INTO public.rd_exploratory_replay_request_custody_v1
+         SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1
+          WHERE request_identity=$1",
+    )
+    .bind(&fixture.proposal.request_identity)
+    .execute(rd_pool)
+    .await
+    .expect("duplicate internal Replay row");
+    sqlx::query("ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner")
+        .execute(rd_pool)
+        .await
+        .expect("duplicate internal Replay owner");
+    sqlx::query(
+        "GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
+         TO surprise_replay_grantee",
+    )
+    .execute(rd_pool)
+    .await
+    .expect("duplicate internal Replay ACL sentinel");
+
+    let duplicate_before = [
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+    ];
+    assert!(
+        PostgresResearchGoalOwnerV1::connect_with_backtest(
+            &fixture.rd_url,
+            &fixture.qualification_url,
+            &fixture.backtest_url,
+        )
+        .await
+        .is_err(),
+        "duplicate internal and sealed Replay candidates must fail closed"
+    );
+    let duplicate_after = [
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+    ];
+    assert_eq!(duplicate_after, duplicate_before);
+
+    sqlx::query("DROP TABLE public.rd_exploratory_replay_request_custody_v1")
+        .execute(rd_pool)
+        .await
+        .expect("remove duplicate internal Replay test candidate");
+}
+
+#[tokio::test]
+#[ignore = "requires the canonical disposable Origin-current PostgreSQL route"]
+async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let sealed_v1 = fixture
+        .owner
+        .commit_exploratory_replay_request_v1(fixture.proposal.clone())
+        .await
+        .expect("Origin-current Replay V1 request committed");
+    let sealed_v2 = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("Origin-current Replay V2 request committed");
+
+    sqlx::query(
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+         RENAME TO rd_exploratory_replay_requests_v1",
+    )
+    .execute(rd_pool)
+    .await
+    .expect("restore Origin current Replay table name");
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect("Origin current Replay custody migrated");
+    let names_are_exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NULL
+            AND pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
+            AND pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("Origin current Replay relation names");
+    assert!(names_are_exact);
+    let sealed_is_owner_private: bool = sqlx::query_scalar(
+        "SELECT owner.rolname='rd_owner'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  relation.relacl,
+                  pg_catalog.acldefault('r',relation.relowner)
+                )) acl
+               WHERE acl.grantee<>relation.relowner
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND acl.grantee<>relation.relowner
+            )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("Origin current sealed Replay ACL");
+    assert!(sealed_is_owner_private);
+
+    let locked_v1 = restarted
+        .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
+        .await
+        .expect("Origin-current Replay V1 request locked");
+    let committed_v1_json = serde_json::to_value(&sealed_v1).unwrap();
+    let locked_v1_json = serde_json::to_value(&locked_v1).unwrap();
+    assert_eq!(
+        locked_v1_json.pointer("/readback/frozen"),
+        committed_v1_json.pointer("/frozen")
+    );
+    assert_eq!(
+        locked_v1_json.pointer("/readback/receipt"),
+        committed_v1_json.pointer("/receipt")
+    );
+
+    let locked_v2 = restarted
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .expect("Origin-current Replay V2 request locked");
+    let locked_v2_readback = locked_v2.readback().expect("Origin-current V2 readback");
+    assert_eq!(locked_v2_readback.locator(), sealed_v2.locator().clone());
+    assert_eq!(
+        locked_v2_readback.canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
+
+    let resolved_v2 = restarted
+        .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
+            request_identity: sealed_v2.locator().request_identity.clone(),
+            meaning_digest: sealed_v2.locator().meaning_digest.clone(),
+        })
+        .await
+        .expect("Origin-current Replay V2 request resolved");
+    let resolved_v2_readback = resolved_v2
+        .readback()
+        .expect("resolved Origin-current V2 readback");
+    assert_eq!(resolved_v2_readback.locator(), sealed_v2.locator().clone());
+    assert_eq!(
+        resolved_v2_readback.canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
+}
+
+#[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route"]
 async fn replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox() {
     let fixture = Box::pin(prepare_replay_fixture(60_000)).await;
@@ -557,7 +1006,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         sealed_v2.canonical_request_bytes()
     );
     let committed_v2_cut: i64 = sqlx::query_scalar(
-        "SELECT committed_at_epoch_ms FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+        "SELECT committed_at_epoch_ms FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
@@ -570,7 +1019,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         String,
         String,
     ) = sqlx::query_as(
-        "SELECT frozen_json->'proposal',request_digest,receipt_json->>'receipt_identity' FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+        "SELECT frozen_json->'proposal',request_digest,receipt_json->>'receipt_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
@@ -633,19 +1082,19 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         String,
         serde_json::Value,
     ) = sqlx::query_as(
-        "SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1",
+        "SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(rd_pool)
     .await
     .unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
 
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert!(matches!(
         owner
@@ -663,7 +1112,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         .await,
         [1, 1, 1]
     );
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str())
         .bind(&original_v2_bytes)
         .bind(original_v2_meaning)
@@ -681,14 +1130,14 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
 
     let mut wrong_revoked_locator = sealed_v2.locator().clone();
     wrong_revoked_locator.seal_digest = format!("sha256:{}", "0".repeat(64));
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_backtest_unavailable_v2(&owner, &wrong_revoked_locator).await;
     assert_recovery_stale_v2(&owner, &wrong_revoked_locator).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
     let stale_v2 = owner
         .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
@@ -703,7 +1152,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
     );
     assert!(stale_v2.readback().is_none());
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
 
     let first = owner
@@ -815,7 +1264,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     )
     .await;
     assert!(
-        sqlx::query("SELECT * FROM public.rd_exploratory_replay_requests_v1")
+        sqlx::query("SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1")
             .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner))
             .await
             .is_err()
@@ -921,12 +1370,12 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
 
     for (break_sql, restore_sql) in [
         (
-            "UPDATE public.rd_exploratory_replay_requests_v1 SET request_digest=request_digest||'-tampered' WHERE request_identity=$1",
-            "UPDATE public.rd_exploratory_replay_requests_v1 SET request_digest=frozen_json->>'request_digest' WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET request_digest=request_digest||'-tampered' WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET request_digest=frozen_json->>'request_digest' WHERE request_identity=$1",
         ),
         (
-            "UPDATE public.rd_exploratory_replay_requests_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE request_identity=$1",
-            "UPDATE public.rd_exploratory_replay_requests_v1 SET committed_at_epoch_ms=(receipt_json->>'committed_at_epoch_ms')::bigint WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET committed_at_epoch_ms=(receipt_json->>'committed_at_epoch_ms')::bigint WHERE request_identity=$1",
         ),
     ] {
         sqlx::query(break_sql)
@@ -942,25 +1391,25 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
             .await
             .unwrap();
     }
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
     assert_available_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.admission.admission_digest).execute(rd_pool).await.unwrap();
     let product_edge_request_semantic_digest =
         internal_envelope["frozen"]["product_edge_request_semantic_digest"]
             .as_str()
             .unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(product_edge_request_semantic_digest).execute(rd_pool).await.unwrap();
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='MISSING_FOR_TEST' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
@@ -979,32 +1428,32 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     for (break_sql, restore_sql, aggregate_identity) in [
         (
             "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'trial_family_outbox_event_identity' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'trial_family_outbox_event_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'artifact_family_outbox_event_identity' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'artifact_family_outbox_event_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'artifact_family_outbox_digest' FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'artifact_family_outbox_digest' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
     ] {
@@ -1193,7 +1642,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     .await
     .unwrap();
 
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     let stale = owner
         .lock_exploratory_replay_request_for_backtest_v1(first.locator())
@@ -1204,7 +1653,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         ExploratoryReplayAvailabilityV1::Stale
     );
     assert!(stale.readback().is_none());
-    sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
 
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
@@ -1669,9 +2118,93 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     }
 }
 
+#[derive(Clone, Copy)]
+enum ReplayCandidateTable {
+    Internal,
+    Sealed,
+}
+
+async fn replay_candidate_fingerprint(pool: &PgPool, table: ReplayCandidateTable) -> String {
+    let (relation_name, rows_sql) = match table {
+        ReplayCandidateTable::Internal => (
+            "public.rd_exploratory_replay_request_custody_v1",
+            "SELECT COALESCE(
+               pg_catalog.jsonb_agg(pg_catalog.to_jsonb(candidate) ORDER BY request_identity),
+               '[]'::pg_catalog.jsonb
+             )::text
+               FROM public.rd_exploratory_replay_request_custody_v1 candidate",
+        ),
+        ReplayCandidateTable::Sealed => (
+            "public.rd_sealed_exploratory_replay_requests_v1",
+            "SELECT COALESCE(
+               pg_catalog.jsonb_agg(pg_catalog.to_jsonb(candidate) ORDER BY request_identity),
+               '[]'::pg_catalog.jsonb
+             )::text
+               FROM public.rd_sealed_exploratory_replay_requests_v1 candidate",
+        ),
+    };
+    let rows: String = sqlx::query_scalar(rows_sql)
+        .fetch_one(pool)
+        .await
+        .expect("Replay candidate rows fingerprint");
+    let catalog: String = sqlx::query_scalar(
+        "SELECT pg_catalog.jsonb_build_object(
+           'relation_name',relation.relname,
+           'relation_kind',relation.relkind,
+           'persistence',relation.relpersistence,
+           'replica_identity',relation.relreplident,
+           'relation_options',relation.reloptions,
+           'owner',owner.rolname,
+           'acl',COALESCE(relation.relacl::text,'<NULL>'),
+           'comment',pg_catalog.obj_description(relation.oid,'pg_class'),
+           'columns',ARRAY(
+             SELECT pg_catalog.jsonb_build_object(
+               'number',attribute.attnum,
+               'name',attribute.attname,
+               'type',pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),
+               'not_null',attribute.attnotnull,
+               'identity',attribute.attidentity,
+               'generated',attribute.attgenerated,
+               'acl',COALESCE(attribute.attacl::text,'<NULL>'),
+               'default',pg_catalog.pg_get_expr(default_entry.adbin,default_entry.adrelid)
+             )
+               FROM pg_catalog.pg_attribute attribute
+               LEFT JOIN pg_catalog.pg_attrdef default_entry
+                 ON default_entry.adrelid=attribute.attrelid
+                AND default_entry.adnum=attribute.attnum
+              WHERE attribute.attrelid=relation.oid
+                AND attribute.attnum>0
+                AND NOT attribute.attisdropped
+              ORDER BY attribute.attnum
+           ),
+           'constraints',ARRAY(
+             SELECT constraint_entry.conname || ':' ||
+                    pg_catalog.pg_get_constraintdef(constraint_entry.oid,true)
+               FROM pg_catalog.pg_constraint constraint_entry
+              WHERE constraint_entry.conrelid=relation.oid
+              ORDER BY constraint_entry.conname
+           ),
+           'indexes',ARRAY(
+             SELECT pg_catalog.pg_get_indexdef(index_entry.indexrelid)
+               FROM pg_catalog.pg_index index_entry
+              WHERE index_entry.indrelid=relation.oid
+              ORDER BY index_entry.indexrelid::pg_catalog.regclass::text
+           )
+         )::text
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid=pg_catalog.to_regclass($1)",
+    )
+    .bind(relation_name)
+    .fetch_one(pool)
+    .await
+    .expect("Replay candidate catalog fingerprint");
+    format!("{catalog}\n{rows}")
+}
+
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
     [
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1")
             .bind(identity).fetch_one(pool).await.unwrap(),
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
             .bind(identity).fetch_one(pool).await.unwrap(),
@@ -1680,7 +2213,7 @@ async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
 
 async fn request_counts_v2(pool: &PgPool, identity: &str) -> [i64; 3] {
     [
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1 WHERE request_identity=$1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1")
             .bind(identity).fetch_one(pool).await.unwrap(),
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
             .bind(identity).fetch_one(pool).await.unwrap(),
@@ -1891,7 +2424,6 @@ impl TestProductEdge {
                     audience: format!("R_AND_D:{suffix}"),
                     permissions: vec![
                         "research:artifact-build".into(),
-                        "research:replay".into(),
                         "research:submit".into(),
                         "research:view".into(),
                     ],

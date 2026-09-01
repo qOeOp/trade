@@ -2,6 +2,8 @@ export const RESEARCH_CONSUMER_OPERATION_V1 = "research_goal.consumer_projection
 export const RESEARCH_OWNER_OPERATION_V2 = "research_goal.submit_or_resolve.v2"
 export const ARTIFACT_CONSUMER_OPERATION_V1 = "artifact_build.consumer_projection.v1"
 export const ARTIFACT_OWNER_OPERATION_V1 = "artifact_build.submit_or_resolve.v1"
+export const REPLAY_CONSUMER_OPERATION_V2 = "exploratory_replay.consumer_projection.v2"
+export const REPLAY_OWNER_OPERATION_V2 = "exploratory_replay.submit_or_resolve.v2"
 
 type Json = Record<string, any>
 
@@ -38,6 +40,7 @@ function stamp(operation: string, ownerOperation: string, ownerSchema: string) {
 
 const researchStamp = stamp(RESEARCH_CONSUMER_OPERATION_V1, RESEARCH_OWNER_OPERATION_V2, "sourced-research-goal-v2")
 const artifactStamp = stamp(ARTIFACT_CONSUMER_OPERATION_V1, ARTIFACT_OWNER_OPERATION_V1, "rd-artifact-build-request-v1")
+const replayStamp = stamp(REPLAY_CONSUMER_OPERATION_V2, REPLAY_OWNER_OPERATION_V2, "rd-exploratory-replay-request-v2")
 
 function exactStamp(value: unknown, expected: ReturnType<typeof stamp>): boolean {
   return object(value) && exactKeys(value, ["schema_version", "operation", "owner_operation", "owner_schema"])
@@ -951,6 +954,188 @@ export async function deriveVerifiedArtifactS1ContextV1(
     || !await canonicalArtifactFamilyV1(raw.artifact_trial_family, receipt)) return null
   const projected = await deriveArtifactConsumerProjectionV1(raw, build, attempt, candidate)
   return projected.resolution === "SUCCESS" && projected.owner_receipt !== null ? candidate : null
+}
+
+const replayRequestKeys = [
+  "schema_version", "request_identity", "frozen_research_intent", "trial_family",
+  "trial_family_census_frontier", "replay_authority", "strategy_design", "strategy_plan",
+  "artifact", "resolved_owner_inputs", "pit_scope", "pit_snapshot", "universe_selection",
+  "correction_rule", "market_semantics", "replay_configuration", "models",
+  "runner_operational_profile", "diagnostic_policy", "deterministic_seed", "window",
+  "calendar", "session", "time_zone", "corporate_action_cut", "historical_membership_cut",
+]
+
+const replayContentKeys = [
+  "frozen_research_intent", "trial_family", "trial_family_census_frontier", "strategy_design",
+  "strategy_plan", "artifact", "resolved_owner_inputs", "pit_scope", "pit_snapshot",
+  "universe_selection", "replay_configuration", "corporate_action_cut", "historical_membership_cut",
+]
+
+const replayVersionKeys = [
+  "correction_rule", "market_semantics", "runner_operational_profile", "diagnostic_policy",
+  "calendar", "session", "time_zone",
+]
+
+const replayDigest = (value: unknown): value is string => typeof value === "string"
+  && /^(sha256|blake3):[0-9a-f]{64}$/.test(value)
+const replayIdentity = (value: unknown): value is string => typeof value === "string"
+  && value.length > 0 && value.length <= 256 && value.trim() === value
+
+function replayContent(value: unknown): value is Json {
+  return object(value) && exactKeys(value, ["identity", "digest"])
+    && replayIdentity(value.identity) && replayDigest(value.digest)
+}
+
+function replayVersion(value: unknown): value is Json {
+  return object(value) && exactKeys(value, ["identity", "version"])
+    && replayIdentity(value.identity) && replayIdentity(value.version)
+}
+
+export function validExploratoryReplayRequestV2(value: unknown): value is Json {
+  if (!object(value) || !exactKeys(value, replayRequestKeys) || value.schema_version !== 2
+    || !replayIdentity(value.request_identity)
+    || !object(value.replay_authority) || !exactKeys(value.replay_authority, ["namespace"])
+    || value.replay_authority.namespace !== "EXPLORATORY"
+    || !replayContentKeys.every((key) => replayContent(value[key]))
+    || !replayVersionKeys.every((key) => replayVersion(value[key]))
+    || !object(value.models) || !exactKeys(value.models, [
+      "runtime_kernel", "simulator", "cost", "slippage", "capacity",
+    ]) || !Object.values(value.models).every(replayVersion)
+    || !integer(value.deterministic_seed)
+    || !object(value.window) || !exactKeys(value.window, ["start_event_ns", "end_event_ns_exclusive"])
+    || !integer(value.window.start_event_ns) || !integer(value.window.end_event_ns_exclusive)) return false
+  return Number(value.window.start_event_ns) < Number(value.window.end_event_ns_exclusive)
+}
+
+function equalJson(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right) && left.length === right.length
+      && left.every((item, index) => equalJson(item, right[index]))
+  }
+  if (!object(left) || !object(right)) return false
+  const leftKeys = Object.keys(left).sort()
+  const rightKeys = Object.keys(right).sort()
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && equalJson(left[key], right[key]))
+}
+
+function replayBytes(value: unknown): value is number[] {
+  return Array.isArray(value) && value.length > 0 && value.length <= 2 * 1024 * 1024
+    && value.every((byte) => Number.isInteger(byte) && byte >= 0 && byte <= 255)
+}
+
+function decodedReplayRequest(bytes: unknown, expected: Json): boolean {
+  if (!replayBytes(bytes)) return false
+  try {
+    const decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes)))
+    return validExploratoryReplayRequestV2(decoded) && equalJson(decoded, expected)
+  } catch {
+    return false
+  }
+}
+
+function validReplayProjection(value: unknown, requestIdentity: string, availability: string): value is Json {
+  if (!object(value) || !exactKeys(value, [
+    "schema_version", "request_identity", "availability", "next_legal_action",
+  ])) return false
+  const action = availability === "AVAILABLE" ? "LOCK_BY_LOCATOR" : "RESOLVE_OWNER_CUSTODY"
+  return value.schema_version === 1 && value.request_identity === requestIdentity
+    && value.availability === availability && value.next_legal_action === action
+}
+
+function validReplayReceipt(
+  value: unknown, requestIdentity: string, meaningDigest: string,
+): value is Json {
+  return object(value) && exactKeys(value, [
+    "schema_version", "receipt_identity", "request_identity", "meaning_digest",
+    "seal_digest", "committed_at_epoch_ms",
+  ]) && value.schema_version === 2
+    && /^rd-exploratory-replay-receipt-v2-[0-9a-f]{64}$/.test(String(value.receipt_identity))
+    && value.request_identity === requestIdentity && value.meaning_digest === meaningDigest
+    && replayDigest(value.seal_digest) && epoch(value.committed_at_epoch_ms)
+}
+
+export function unknownReplayProjectionV2(requestIdentity: string, meaningDigest: string | null = null) {
+  return {
+    schema_version: 1, consumer_projection: replayStamp, resolution: "SUBMITTED_OR_UNKNOWN",
+    request_identity: requestIdentity, meaning_digest: meaningDigest, locator: null,
+    owner_receipt: null, owner_readback: null,
+    next_legal_action: "RESOLVE_SAME_REQUEST_IDENTITY",
+  }
+}
+
+export function unavailableReplayOwnerReadV2(
+  value: unknown, requestIdentity: string,
+): boolean {
+  return object(value) && exactKeys(value, ["projection", "readback"])
+    && value.readback === null
+    && validReplayProjection(value.projection, requestIdentity, "UNAVAILABLE")
+}
+
+export function deriveReplayConsumerProjectionV2(
+  value: unknown, request: unknown, requestIdentity: string, meaningDigest: string,
+) {
+  const unknown = unknownReplayProjectionV2(requestIdentity, meaningDigest)
+  if (!validExploratoryReplayRequestV2(request) || request.request_identity !== requestIdentity
+    || !replayDigest(meaningDigest) || !object(value) || !exactKeys(value, ["projection", "readback"])
+    || !validReplayProjection(value.projection, requestIdentity, "AVAILABLE")) return unknown
+  const readback = value.readback
+  if (!object(readback) || !exactKeys(readback, [
+    "request", "canonical_request_bytes", "meaning_digest", "receipt", "owner_cut_epoch_ms",
+  ]) || !validExploratoryReplayRequestV2(readback.request)
+    || !equalJson(readback.request, request)
+    || readback.request.request_identity !== requestIdentity
+    || readback.meaning_digest !== meaningDigest
+    || !decodedReplayRequest(readback.canonical_request_bytes, request)
+    || !validReplayReceipt(readback.receipt, requestIdentity, meaningDigest)
+    || !epoch(readback.owner_cut_epoch_ms)
+    || Number(readback.owner_cut_epoch_ms) < Number(readback.receipt.committed_at_epoch_ms)) return unknown
+  const locator = {
+    request_identity: requestIdentity,
+    meaning_digest: meaningDigest,
+    receipt_identity: readback.receipt.receipt_identity,
+    seal_digest: readback.receipt.seal_digest,
+  }
+  return {
+    schema_version: 1, consumer_projection: replayStamp, resolution: "EXPLORATION_ACTIVE",
+    request_identity: requestIdentity, meaning_digest: meaningDigest, locator,
+    owner_receipt: readback.receipt, owner_readback: readback,
+    next_legal_action: "LOCK_BY_LOCATOR",
+  }
+}
+
+export function verifyReplayConsumerProjectionV2(
+  value: unknown, request: unknown, requestIdentity: string, meaningDigest: string,
+) {
+  if (object(value) && "consumer_projection" in value) {
+    const expectedKeys = [
+      "schema_version", "consumer_projection", "resolution", "request_identity", "meaning_digest",
+      "locator", "owner_receipt", "owner_readback", "next_legal_action",
+    ]
+    if (!exactKeys(value, expectedKeys) || value.schema_version !== 1
+      || !exactStamp(value.consumer_projection, replayStamp)
+      || value.request_identity !== requestIdentity || value.meaning_digest !== meaningDigest) {
+      return unknownReplayProjectionV2(requestIdentity, replayDigest(meaningDigest) ? meaningDigest : null)
+    }
+    if (value.resolution === "SUBMITTED_OR_UNKNOWN") {
+      return value.locator === null && value.owner_receipt === null && value.owner_readback === null
+        && value.next_legal_action === "RESOLVE_SAME_REQUEST_IDENTITY"
+        ? value : unknownReplayProjectionV2(requestIdentity, meaningDigest)
+    }
+    const derived = deriveReplayConsumerProjectionV2({
+      projection: {
+        schema_version: 1, request_identity: requestIdentity,
+        availability: "AVAILABLE", next_legal_action: "LOCK_BY_LOCATOR",
+      },
+      readback: value.owner_readback,
+    }, request, requestIdentity, meaningDigest)
+    return derived.resolution === "EXPLORATION_ACTIVE"
+      && value.resolution === derived.resolution && value.next_legal_action === derived.next_legal_action
+      && equalJson(value.locator, derived.locator) && equalJson(value.owner_receipt, derived.owner_receipt)
+      ? derived : unknownReplayProjectionV2(requestIdentity, meaningDigest)
+  }
+  return deriveReplayConsumerProjectionV2(value, request, requestIdentity, meaningDigest)
 }
 
 // Compatibility names remain narrow aliases for the canonical projector.

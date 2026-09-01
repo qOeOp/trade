@@ -15,7 +15,6 @@ pub mod postgres;
 pub const EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V1";
 pub const EXPLORATORY_REPLAY_OPERATION_V1: &str = "exploratory_replay.submit_or_resolve.v1";
 pub const EXPLORATORY_REPLAY_SCHEMA_V1: &str = "rd-exploratory-replay-request-v1";
-pub const EXPLORATORY_REPLAY_SCOPE_V1: &str = "research:replay";
 pub const EXPLORATORY_REPLAY_MUTATION_EFFECT_V1: &str =
     "R_AND_D_EXPLORATORY_REPLAY_REQUEST_MUTATION_V1";
 pub const EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V2";
