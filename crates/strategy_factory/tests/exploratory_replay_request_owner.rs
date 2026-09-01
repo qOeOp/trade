@@ -107,12 +107,86 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     let mutation = fixture.database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
+    let sealed_catalog_is_private: bool = sqlx::query_scalar(
+        "SELECT owner.rolname='rd_owner'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  relation.relacl,
+                  pg_catalog.acldefault('r', relation.relowner)
+                )) acl
+               WHERE acl.grantee=0
+                  OR acl.grantee IN (
+                    SELECT role.oid
+                      FROM pg_catalog.pg_roles role
+                     WHERE role.rolname IN (
+                       'product_edge_owner',
+                       'operator_authorization_owner',
+                       'operator_authorization_writer',
+                       'qualification_owner',
+                       'qualification_writer',
+                       'backtest_owner'
+                     )
+                  )
+            )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("sealed Replay table catalog");
+    assert!(sealed_catalog_is_private);
+
+    let internal_custody_was_renamed_without_orphaning: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
+            AND EXISTS (
+              SELECT 1
+                FROM public.rd_sealed_exploratory_replay_requests_v1
+               WHERE request_identity='internal-continuity-replay-v1'
+                 AND request_digest='sha256:internal-continuity-request-v1'
+                 AND build_request_identity='internal-continuity-build-v1'
+                 AND attempt_identity='internal-continuity-attempt-v1'
+                 AND intent_identity='internal-continuity-intent-v1'
+                 AND trial_family_identity='internal-continuity-family-v1'
+                 AND artifact_identity='sha256:internal-continuity-artifact-v1'
+                 AND build_receipt_identity='internal-continuity-build-receipt-v1'
+                 AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
+                 AND census_frontier_identity='internal-continuity-census-v1'
+                 AND frozen_json=pg_catalog.jsonb_build_object(
+                   'kind','internal-custody-continuity','schema_version',1
+                 )
+                 AND receipt_json=pg_catalog.jsonb_build_object(
+                   'kind','internal-custody-continuity-receipt','schema_version',1
+                 )
+                 AND lifecycle_state='FROZEN'
+                 AND committed_at_epoch_ms=1700000000000
+                 AND request_schema_version=1
+                 AND v2_canonical_request_bytes IS NULL
+                 AND v2_meaning_digest IS NULL
+                 AND v2_seal_digest IS NULL
+                 AND v2_receipt_json IS NULL
+            )",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("internal Replay custody continuity");
+    assert!(internal_custody_was_renamed_without_orphaning);
+
     let legacy_catalog: LegacyReplayCatalogRow = sqlx::query_as(
             "SELECT owner.rolname,
                     pg_catalog.obj_description(relation.oid, 'pg_class'),
                     pg_catalog.has_table_privilege('product_edge_owner', relation.oid, 'SELECT'),
                     pg_catalog.has_table_privilege('backtest_owner', relation.oid, 'SELECT'),
-                    pg_catalog.has_table_privilege('public', relation.oid, 'SELECT'),
+                    EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.aclexplode(COALESCE(
+                          relation.relacl,
+                          pg_catalog.acldefault('r', relation.relowner)
+                        )) acl
+                       WHERE acl.grantee=0
+                         AND acl.privilege_type='SELECT'
+                    ),
                     pg_catalog.has_table_privilege('qualification_writer', relation.oid, 'SELECT'),
                     relation.relacl IS NULL,
                     ARRAY(
@@ -712,7 +786,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         sealed_v2.canonical_request_bytes()
     );
     let committed_v2_cut: i64 = sqlx::query_scalar(
-        "SELECT committed_at_epoch_ms FROM public.rd_exploratory_replay_request_custody_v1 WHERE request_identity=$1",
+        "SELECT committed_at_epoch_ms FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
@@ -725,7 +799,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         String,
         String,
     ) = sqlx::query_as(
-        "SELECT frozen_json->'proposal',request_digest,receipt_json->>'receipt_identity' FROM public.rd_exploratory_replay_request_custody_v1 WHERE request_identity=$1",
+        "SELECT frozen_json->'proposal',request_digest,receipt_json->>'receipt_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::RdOwner))
@@ -788,19 +862,19 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         String,
         serde_json::Value,
     ) = sqlx::query_as(
-        "SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_exploratory_replay_request_custody_v1 WHERE request_identity=$1",
+        "SELECT v2_canonical_request_bytes,v2_meaning_digest,v2_seal_digest,v2_receipt_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1",
     )
     .bind(proposal_v2.request.request_identity.as_str())
     .fetch_one(rd_pool)
     .await
     .unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
 
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=NULL,v2_meaning_digest=NULL,v2_seal_digest=NULL,v2_receipt_json=NULL,request_schema_version=1 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert!(matches!(
         owner
@@ -818,7 +892,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         .await,
         [1, 1, 1]
     );
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2,v2_meaning_digest=$3,v2_seal_digest=$4,v2_receipt_json=$5,request_schema_version=2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str())
         .bind(&original_v2_bytes)
         .bind(original_v2_meaning)
@@ -836,14 +910,14 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
 
     let mut wrong_revoked_locator = sealed_v2.locator().clone();
     wrong_revoked_locator.seal_digest = format!("sha256:{}", "0".repeat(64));
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_backtest_unavailable_v2(&owner, &wrong_revoked_locator).await;
     assert_recovery_stale_v2(&owner, &wrong_revoked_locator).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=v2_canonical_request_bytes||decode('20','hex') WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
     assert_unavailable_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET v2_canonical_request_bytes=$2 WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).bind(&original_v2_bytes).execute(rd_pool).await.unwrap();
     let stale_v2 = owner
         .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
@@ -858,7 +932,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         ExploratoryReplayNextLegalActionV1::ResolveOwnerCustody
     );
     assert!(stale_v2.readback().is_none());
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(proposal_v2.request.request_identity.as_str()).execute(rd_pool).await.unwrap();
 
     let first = owner
@@ -970,7 +1044,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     )
     .await;
     assert!(
-        sqlx::query("SELECT * FROM public.rd_exploratory_replay_request_custody_v1")
+        sqlx::query("SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1")
             .fetch_one(mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner))
             .await
             .is_err()
@@ -1076,12 +1150,12 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
 
     for (break_sql, restore_sql) in [
         (
-            "UPDATE public.rd_exploratory_replay_request_custody_v1 SET request_digest=request_digest||'-tampered' WHERE request_identity=$1",
-            "UPDATE public.rd_exploratory_replay_request_custody_v1 SET request_digest=frozen_json->>'request_digest' WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET request_digest=request_digest||'-tampered' WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET request_digest=frozen_json->>'request_digest' WHERE request_identity=$1",
         ),
         (
-            "UPDATE public.rd_exploratory_replay_request_custody_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE request_identity=$1",
-            "UPDATE public.rd_exploratory_replay_request_custody_v1 SET committed_at_epoch_ms=(receipt_json->>'committed_at_epoch_ms')::bigint WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE request_identity=$1",
+            "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET committed_at_epoch_ms=(receipt_json->>'committed_at_epoch_ms')::bigint WHERE request_identity=$1",
         ),
     ] {
         sqlx::query(break_sql)
@@ -1097,25 +1171,25 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
             .await
             .unwrap();
     }
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
     assert_available_v2(&owner, sealed_v2.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,dataset,digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.dataset.digest).execute(rd_pool).await.unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{proposal,admission,admission_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(&proposal.admission.admission_digest).execute(rd_pool).await.unwrap();
     let product_edge_request_semantic_digest =
         internal_envelope["frozen"]["product_edge_request_semantic_digest"]
             .as_str()
             .unwrap();
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb('sha256:tampered'::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     assert_unavailable(&owner, first.locator()).await;
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET frozen_json=jsonb_set(frozen_json,'{product_edge_request_semantic_digest}',to_jsonb($2::text)) WHERE request_identity=$1")
         .bind(&proposal.request_identity).bind(product_edge_request_semantic_digest).execute(rd_pool).await.unwrap();
     sqlx::query("UPDATE public.rd_owner_outbox_v1 SET event_kind='MISSING_FOR_TEST' WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
@@ -1134,32 +1208,32 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     for (break_sql, restore_sql, aggregate_identity) in [
         (
             "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'trial_family_outbox_event_identity' FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'trial_family_outbox_event_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'trial_family_outbox_digest' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='TRIAL_FAMILY_FROZEN_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='TRIAL_FAMILY_FROZEN_V1' AND request.request_identity=$2",
             proposal.trial_family_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET event_identity=event_identity||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'artifact_family_outbox_event_identity' FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET event_identity=request.frozen_json->>'artifact_family_outbox_event_identity' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET payload_digest=payload_digest||'-tampered' WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'artifact_family_outbox_digest' FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET payload_digest=request.frozen_json->>'artifact_family_outbox_digest' FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
         (
             "UPDATE public.rd_owner_outbox_v1 SET committed_at_epoch_ms=committed_at_epoch_ms+1 WHERE aggregate_identity=$1 AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'",
-            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_exploratory_replay_request_custody_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
+            "UPDATE public.rd_owner_outbox_v1 outbox SET committed_at_epoch_ms=(request.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint FROM public.rd_sealed_exploratory_replay_requests_v1 request WHERE outbox.aggregate_identity=$1 AND outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1' AND request.request_identity=$2",
             proposal.artifact_identity.as_str(),
         ),
     ] {
@@ -1348,7 +1422,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     .await
     .unwrap();
 
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
     let stale = owner
         .lock_exploratory_replay_request_for_backtest_v1(first.locator())
@@ -1359,7 +1433,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         ExploratoryReplayAvailabilityV1::Stale
     );
     assert!(stale.readback().is_none());
-    sqlx::query("UPDATE public.rd_exploratory_replay_request_custody_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
+    sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
 
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
@@ -1826,7 +1900,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
 
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
     [
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_request_custody_v1 WHERE request_identity=$1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1")
             .bind(identity).fetch_one(pool).await.unwrap(),
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
             .bind(identity).fetch_one(pool).await.unwrap(),
@@ -1835,7 +1909,7 @@ async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
 
 async fn request_counts_v2(pool: &PgPool, identity: &str) -> [i64; 3] {
     [
-        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_exploratory_replay_request_custody_v1 WHERE request_identity=$1")
+        sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1")
             .bind(identity).fetch_one(pool).await.unwrap(),
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'")
             .bind(identity).fetch_one(pool).await.unwrap(),

@@ -504,7 +504,141 @@ SELECT
   'sha256:legacy-seal-' || ordinal::text,
   pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
 FROM pg_catalog.generate_series(0,25) ordinal;
+
+CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
+  request_identity text PRIMARY KEY,
+  request_digest text NOT NULL,
+  build_request_identity text NOT NULL,
+  attempt_identity text NOT NULL,
+  intent_identity text NOT NULL,
+  trial_family_identity text NOT NULL,
+  artifact_identity text NOT NULL,
+  build_receipt_identity text NOT NULL,
+  artifact_family_binding_identity text NOT NULL,
+  census_frontier_identity text NOT NULL,
+  frozen_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
+  committed_at_epoch_ms bigint NOT NULL,
+  request_schema_version smallint NOT NULL DEFAULT 1,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
+REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
+INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
+  request_identity,
+  request_digest,
+  build_request_identity,
+  attempt_identity,
+  intent_identity,
+  trial_family_identity,
+  artifact_identity,
+  build_receipt_identity,
+  artifact_family_binding_identity,
+  census_frontier_identity,
+  frozen_json,
+  receipt_json,
+  lifecycle_state,
+  committed_at_epoch_ms,
+  request_schema_version
+) VALUES (
+  'internal-continuity-replay-v1',
+  'sha256:internal-continuity-request-v1',
+  'internal-continuity-build-v1',
+  'internal-continuity-attempt-v1',
+  'internal-continuity-intent-v1',
+  'internal-continuity-family-v1',
+  'sha256:internal-continuity-artifact-v1',
+  'internal-continuity-build-receipt-v1',
+  'internal-continuity-family-binding-v1',
+  'internal-continuity-census-v1',
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity','schema_version',1),
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity-receipt','schema_version',1),
+  'FROZEN',
+  1700000000000,
+  1
+);
 SQL
+
+legacy_replay_fingerprint() {
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+SELECT 'count=' || pg_catalog.count(*)::text
+  FROM public.rd_exploratory_replay_requests_v1;
+
+SELECT 'data_bytes_md5=' || pg_catalog.md5(COALESCE(
+  pg_catalog.string_agg(
+    pg_catalog.encode(
+      pg_catalog.convert_to(pg_catalog.row_to_json(legacy)::text, 'UTF8'),
+      'hex'
+    ),
+    E'\n' ORDER BY replay_request_identity
+  ),
+  ''
+))
+  FROM public.rd_exploratory_replay_requests_v1 legacy;
+
+SELECT 'catalog_md5=' || pg_catalog.md5(
+  relation.relkind::text || ':' ||
+  relation.relpersistence::text || ':' ||
+  relation.relreplident::text || ':' ||
+  COALESCE(relation.reloptions::text, '<NULL>') || ':' ||
+  COALESCE(pg_catalog.obj_description(relation.oid, 'pg_class'), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      attribute.attnum::text || ':' ||
+      attribute.attname || ':' ||
+      pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) || ':' ||
+      attribute.attnotnull::text || ':' ||
+      attribute.attidentity::text || ':' ||
+      attribute.attgenerated::text || ':' ||
+      COALESCE(pg_catalog.pg_get_expr(default_entry.adbin, default_entry.adrelid), '<NULL>'),
+      E'\n' ORDER BY attribute.attnum
+    )
+      FROM pg_catalog.pg_attribute attribute
+      LEFT JOIN pg_catalog.pg_attrdef default_entry
+        ON default_entry.adrelid=attribute.attrelid
+       AND default_entry.adnum=attribute.attnum
+     WHERE attribute.attrelid=relation.oid
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+  ), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      constraint_entry.conname || ':' ||
+      constraint_entry.contype::text || ':' ||
+      pg_catalog.pg_get_constraintdef(constraint_entry.oid, true),
+      E'\n' ORDER BY constraint_entry.conname
+    )
+      FROM pg_catalog.pg_constraint constraint_entry
+     WHERE constraint_entry.conrelid=relation.oid
+  ), '<NULL>') || ':' ||
+  COALESCE((
+    SELECT pg_catalog.string_agg(
+      pg_catalog.pg_get_indexdef(index_entry.indexrelid),
+      E'\n' ORDER BY index_entry.indexrelid::pg_catalog.regclass::text
+    )
+      FROM pg_catalog.pg_index index_entry
+     WHERE index_entry.indrelid=relation.oid
+  ), '<NULL>')
+)
+  FROM pg_catalog.pg_class relation
+ WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
+
+SELECT 'owner_acl_md5=' || pg_catalog.md5(
+  owner.rolname || ':' || COALESCE(relation.relacl::text, '<NULL>')
+)
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+ WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
+SQL
+}
+
+legacy_replay_fingerprint_before="$(legacy_replay_fingerprint)"
+readonly legacy_replay_fingerprint_before
 
 port_mapping="$(docker port "$container" 5432/tcp)"
 postgres_port="${port_mapping##*:}"
@@ -588,6 +722,13 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     "${nextest_execution_args[@]}" \
     -E "package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
 done
+
+legacy_replay_fingerprint_after="$(legacy_replay_fingerprint)"
+readonly legacy_replay_fingerprint_after
+if [[ "$legacy_replay_fingerprint_after" != "$legacy_replay_fingerprint_before" ]]; then
+  echo "ERROR: legacy exploratory Replay table data or catalog changed." >&2
+  exit 1
+fi
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
@@ -779,7 +920,7 @@ BEGIN
 
   IF pg_catalog.has_table_privilege(
        'backtest_owner',
-       'public.rd_exploratory_replay_request_custody_v1',
+       'public.rd_sealed_exploratory_replay_requests_v1',
        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
      )
      OR pg_catalog.has_table_privilege(
@@ -911,9 +1052,49 @@ BEGIN
 
   IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_owner'
      OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_owner'
-     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_exploratory_replay_request_custody_v1') <> 'rd_owner'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_sealed_exploratory_replay_requests_v1') <> 'rd_owner'
   THEN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+        relation.relacl,
+        pg_catalog.acldefault('r', relation.relowner)
+      )) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND (
+         acl.grantee=0
+         OR acl.grantee IN (
+           SELECT role.oid
+             FROM pg_catalog.pg_roles role
+            WHERE role.rolname IN (
+              'product_edge_owner',
+              'operator_authorization_owner',
+              'operator_authorization_writer',
+              'qualification_owner',
+              'qualification_writer',
+              'backtest_owner'
+            )
+         )
+       )
+  ) THEN
+    RAISE EXCEPTION 'sealed exploratory Replay table ACL is not Owner-private';
+  END IF;
+
+  IF pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL
+     OR (
+       SELECT pg_catalog.count(*)
+         FROM public.rd_sealed_exploratory_replay_requests_v1
+        WHERE request_identity='internal-continuity-replay-v1'
+          AND request_digest='sha256:internal-continuity-request-v1'
+          AND committed_at_epoch_ms=1700000000000
+          AND request_schema_version=1
+     ) <> 1
+  THEN
+    RAISE EXCEPTION 'prior internal exploratory Replay custody was orphaned';
   END IF;
 
 END
