@@ -65,6 +65,12 @@ const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
 const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
 const MAX_ADMISSION_EVENT_PAGE_V1: u32 = 100;
+const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 3] = [
+    "CREATE TABLE IF NOT EXISTS public.product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity) CHECK (predecessor_binding_identity <> ''), successor_binding_identity TEXT NOT NULL UNIQUE REFERENCES public.product_edge_deployment_bindings_v1(binding_identity) CHECK (successor_binding_identity <> '' AND successor_binding_identity <> predecessor_binding_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
+    "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner",
+    "REVOKE ALL ON TABLE public.product_edge_expired_manifest_recoveries_v1 FROM PUBLIC, rd_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
+];
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid AND (SELECT pg_catalog.count(*) = 7 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) = 7 FROM pg_catalog.aclexplode(pg_catalog.coalesce(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace WHERE namespace.nspname = 'public' AND relation.relname = 'product_edge_expired_manifest_recoveries_v1' AND relation.relkind = 'r'";
 const ADDED_MANIFEST_PROHIBITED_FLOOR_V1: [&str; 3] = [
     "LIVE_TRADING_V1",
     "PROTECTED_FEEDBACK_DETAIL_V1",
@@ -1155,6 +1161,32 @@ impl ProductEdgePostgresAdmissionReadPortV1 {
     }
 }
 
+async fn verify_expired_manifest_recovery_schema(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ProductEdgeError> {
+    let verified = sqlx::query_scalar::<_, bool>(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage)?
+        .unwrap_or(false);
+    if !verified {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    Ok(())
+}
+
+async fn prepare_expired_manifest_recovery_schema_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ProductEdgeError> {
+    for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
+        sqlx::query(statement)
+            .execute(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    }
+    verify_expired_manifest_recovery_schema(transaction).await
+}
+
 impl ProductEdgePostgresOwnerV1 {
     pub async fn connect(
         database_url: &str,
@@ -1173,6 +1205,28 @@ impl ProductEdgePostgresOwnerV1 {
             authorization_trust,
         };
         owner.migrate().await?;
+        Ok(owner)
+    }
+
+    /// Connects the Owner for expired-manifest recovery and prepares only the
+    /// recovery sidecar schema. Existing Owner tables must already exist.
+    pub async fn connect_for_expired_manifest_recovery(
+        database_url: &str,
+        deployment_identity: impl Into<String>,
+        authorization_trust: ProductEdgeAuthorizationTrustV1,
+    ) -> Result<Self, ProductEdgeError> {
+        let deployment_identity = deployment_identity.into();
+        if deployment_identity.trim().is_empty() {
+            return Err(ProductEdgeError::InvalidProposal("deployment locator"));
+        }
+        authorization_trust.validate()?;
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let owner = Self {
+            pool,
+            deployment_identity,
+            authorization_trust,
+        };
+        owner.prepare_expired_manifest_recovery_schema().await?;
         Ok(owner)
     }
 
@@ -1198,7 +1252,6 @@ impl ProductEdgePostgresOwnerV1 {
             "ALTER TABLE product_edge_deployment_bindings_v1 ADD COLUMN IF NOT EXISTS authorization_frontier_identity TEXT",
             "UPDATE product_edge_deployment_bindings_v1 SET authorization_identity=binding_json#>>'{authorization,authorization_identity}', issuance_receipt_identity=binding_json#>>'{authorization,issuance_receipt_identity}', authorization_frontier_identity=binding_json->>'authorization_frontier_identity' WHERE binding_json ? 'authorization_frontier_identity' AND (authorization_identity IS NULL OR issuance_receipt_identity IS NULL OR authorization_frontier_identity IS NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity) CHECK (predecessor_binding_identity <> ''), successor_binding_identity TEXT NOT NULL UNIQUE REFERENCES product_edge_deployment_bindings_v1(binding_identity) CHECK (successor_binding_identity <> '' AND successor_binding_identity <> predecessor_binding_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
             "CREATE TABLE IF NOT EXISTS product_edge_binding_manifests_v1 (binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), manifest_identity TEXT NOT NULL REFERENCES product_edge_operation_manifests_v1(manifest_identity), manifest_digest TEXT NOT NULL, PRIMARY KEY(binding_identity, manifest_identity))",
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_heads_v1 (deployment_identity TEXT PRIMARY KEY, binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), generation BIGINT NOT NULL, binding_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
@@ -1245,6 +1298,17 @@ impl ProductEdgePostgresOwnerV1 {
                 .map_err(storage)?;
             observe(statement).await;
         }
+        prepare_expired_manifest_recovery_schema_in_transaction(&mut transaction).await?;
+        for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
+            observe(statement).await;
+        }
+        transaction.commit().await.map_err(storage)?;
+        Ok(())
+    }
+
+    async fn prepare_expired_manifest_recovery_schema(&self) -> Result<(), ProductEdgeError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        prepare_expired_manifest_recovery_schema_in_transaction(&mut transaction).await?;
         transaction.commit().await.map_err(storage)?;
         Ok(())
     }
@@ -5391,6 +5455,38 @@ mod tests {
         ProductEdgeManifestBindingV1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    #[rstest]
+    fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
+        assert_eq!(EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS.len(), 3);
+        assert!(
+            EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
+                .iter()
+                .all(|statement| {
+                    statement.contains("public.product_edge_expired_manifest_recoveries_v1")
+                })
+        );
+        assert_eq!(
+            EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
+                .map(|statement| { statement.split_ascii_whitespace().next().unwrap() }),
+            ["CREATE", "ALTER", "REVOKE"]
+        );
+        assert_eq!(
+            EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS[1],
+            "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner"
+        );
+        assert!(
+            !EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
+                .iter()
+                .any(|statement| statement.starts_with("UPDATE "))
+        );
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.starts_with("SELECT "));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
+            "namespace.nspname = 'public' AND relation.relname = 'product_edge_expired_manifest_recoveries_v1'"
+        ));
+        assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" UPDATE "));
+        assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" ALTER "));
+    }
 
     #[rstest]
     fn artifact_build_effects_are_exact_and_ordered() {

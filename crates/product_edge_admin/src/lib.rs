@@ -206,8 +206,10 @@ pub async fn recover_expired_manifests(
     )
     .await?;
 
-    let issuer =
-        OperatorAuthorizationIssuerPostgresV1::connect(operator_authorization_database_url).await?;
+    let issuer = OperatorAuthorizationIssuerPostgresV1::connect_for_expired_manifest_recovery(
+        operator_authorization_database_url,
+    )
+    .await?;
     let authorization = issuer
         .recover_expired_manifests(config.operator_authorization.clone())
         .await?;
@@ -215,7 +217,7 @@ pub async fn recover_expired_manifests(
 
     let authorization_locator = authorization.locator();
     let proposal = config.product_edge.proposal(authorization_locator.clone());
-    let product_edge = ProductEdgePostgresOwnerV1::connect(
+    let product_edge = ProductEdgePostgresOwnerV1::connect_for_expired_manifest_recovery(
         product_edge_database_url,
         &runtime.deployment_identity,
         runtime.trust,

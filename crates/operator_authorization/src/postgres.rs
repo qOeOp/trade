@@ -24,6 +24,13 @@ pub use portfolio_resource_grant::{
 
 const ISSUED_EVENT: &str = "OPERATOR_AUTHORIZATION_ISSUED_V1";
 const FRONTIER_EVENT: &str = "OPERATOR_AUTHORIZATION_REVOCATION_FRONTIER_V1";
+const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 4] = [
+    "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_authorization_identity TEXT NOT NULL CHECK (predecessor_authorization_identity <> ''), successor_authorization_identity TEXT NOT NULL UNIQUE REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity) CHECK (successor_authorization_identity <> '' AND successor_authorization_identity <> predecessor_authorization_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
+    "ALTER TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 OWNER TO operator_authorization_owner",
+    "REVOKE ALL ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 FROM PUBLIC, operator_authorization_writer, rd_owner, product_edge_owner, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 TO operator_authorization_writer",
+];
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid AND (SELECT pg_catalog.count(*) = 11 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_owner')::oid) = 7 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_writer')::oid AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE') AND NOT acl.is_grantable) = 4 FROM pg_catalog.aclexplode(pg_catalog.coalesce(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace WHERE namespace.nspname = 'operator_authorization_private' AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1' AND relation.relkind = 'r'";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -231,6 +238,17 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         Ok(owner)
     }
 
+    /// Connects the issuer for expired-manifest recovery and prepares only the
+    /// recovery sidecar schema. Existing Owner tables must already exist.
+    pub async fn connect_for_expired_manifest_recovery(
+        database_url: &str,
+    ) -> Result<Self, OperatorAuthorizationError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let owner = Self { pool };
+        owner.prepare_expired_manifest_recovery_schema().await?;
+        Ok(owner)
+    }
+
     #[cfg(test)]
     pub(crate) fn pool(&self) -> &PgPool {
         &self.pool
@@ -242,7 +260,6 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_revocation_frontiers_v1 (frontier_identity TEXT PRIMARY KEY, issuer_identity TEXT NOT NULL, principal TEXT NOT NULL, audience TEXT NOT NULL, scope_digest TEXT NOT NULL, sequence BIGINT NOT NULL, predecessor_frontier_identity TEXT, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(scope_digest, sequence))",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_revocation_heads_v1 (scope_digest TEXT PRIMARY KEY, frontier_identity TEXT NOT NULL REFERENCES operator_authorization_private.operator_authorization_revocation_frontiers_v1(frontier_identity), sequence BIGINT NOT NULL, frontier_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_authorization_identity TEXT NOT NULL CHECK (predecessor_authorization_identity <> ''), successor_authorization_identity TEXT NOT NULL UNIQUE REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity) CHECK (successor_authorization_identity <> '' AND successor_authorization_identity <> predecessor_authorization_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
             "CREATE INDEX IF NOT EXISTS operator_authorization_issuance_scope_v1 ON operator_authorization_private.operator_authorization_issuances_v1(scope_digest, authorization_identity)",
             "CREATE INDEX IF NOT EXISTS operator_authorization_outbox_aggregate_v1 ON operator_authorization_private.operator_authorization_owner_outbox_v1(aggregate_identity, event_kind)",
         ] {
@@ -251,7 +268,30 @@ impl OperatorAuthorizationIssuerPostgresV1 {
                 .await
                 .map_err(storage)?;
         }
+        self.prepare_expired_manifest_recovery_schema().await?;
         portfolio_resource_grant::migrate(&self.pool).await?;
+        Ok(())
+    }
+
+    async fn prepare_expired_manifest_recovery_schema(
+        &self,
+    ) -> Result<(), OperatorAuthorizationError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
+            sqlx::query(statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
+        }
+        let verified = sqlx::query_scalar::<_, bool>(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA)
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(storage)?
+            .unwrap_or(false);
+        if !verified {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
+        transaction.commit().await.map_err(storage)?;
         Ok(())
     }
 
@@ -2038,7 +2078,6 @@ mod portfolio_resource_grant {
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceGrantUnavailableReasonV1,
         PortfolioResourceV1, ProductEdgeManifestBindingV1,
     };
-
     const GRANT_ISSUED_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_ISSUED_V1";
     const GRANT_FRONTIER_EVENT: &str = "PORTFOLIO_RESOURCE_GRANT_REVOCATION_FRONTIER_V1";
     const GRANT_ADVISORY_LOCK_NAMESPACE: &str =
@@ -3743,10 +3782,41 @@ mod tests {
         PortfolioResourceModeV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
         UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
     };
+    use rstest::rstest;
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
         DedicatedPostgresTestDatabase,
     };
+
+    #[rstest]
+    fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
+        assert_eq!(EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS.len(), 4);
+        assert!(EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS.iter().all(|statement| {
+            statement.contains(
+                "operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1",
+            )
+        }));
+        assert_eq!(
+            EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
+                .map(|statement| { statement.split_ascii_whitespace().next().unwrap() }),
+            ["CREATE", "ALTER", "REVOKE", "GRANT"]
+        );
+        assert_eq!(
+            EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS[1],
+            "ALTER TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 OWNER TO operator_authorization_owner"
+        );
+        assert!(
+            !EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
+                .iter()
+                .any(|statement| statement.starts_with("UPDATE "))
+        );
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.starts_with("SELECT "));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
+            "operator_authorization_private' AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'"
+        ));
+        assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" UPDATE "));
+        assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" ALTER "));
+    }
 
     async fn resolve_current(
         owner: &OperatorAuthorizationIssuerPostgresV1,
