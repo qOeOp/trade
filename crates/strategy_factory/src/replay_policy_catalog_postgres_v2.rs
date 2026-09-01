@@ -516,7 +516,7 @@ async fn verify_catalog_storage_authority(pool: &PgPool) -> Result<(), ReplayPol
             "Catalog column shape readback mismatch".to_owned(),
         ));
     }
-    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=10 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','p','1'),('rd_replay_policy_catalog_records_v2','u','2'),('rd_replay_policy_catalog_records_v2','u','4'),('rd_replay_policy_catalog_records_v2','u','9'),('rd_replay_policy_catalog_head_v2','p','1'),('rd_replay_policy_catalog_head_v2','u','2'),('rd_replay_policy_catalog_head_v2','u','3'),('rd_replay_policy_catalog_revocations_v2','p','1'),('rd_replay_policy_catalog_revocations_v2','u','2'),('rd_replay_policy_catalog_audit_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=3 AND NOT bool_or((source.relname,constraint_fact.conkey::text,target.relname,constraint_fact.confkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','4','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_head_v2','2','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_revocations_v2','1','rd_replay_policy_catalog_records_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND (SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))')) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype='c') AND (SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=10 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','p','1'),('rd_replay_policy_catalog_records_v2','u','2'),('rd_replay_policy_catalog_records_v2','u','4'),('rd_replay_policy_catalog_records_v2','u','9'),('rd_replay_policy_catalog_head_v2','p','1'),('rd_replay_policy_catalog_head_v2','u','2'),('rd_replay_policy_catalog_head_v2','u','3'),('rd_replay_policy_catalog_revocations_v2','p','1'),('rd_replay_policy_catalog_revocations_v2','u','2'),('rd_replay_policy_catalog_audit_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=3 AND NOT bool_or((source.relname,constraint_fact.conkey::text,target.relname,constraint_fact.confkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','4','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_head_v2','2','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_revocations_v2','1','rd_replay_policy_catalog_records_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND (SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))')) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype='c') AND (SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))")
         .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(pool).await.map_err(unavailable)?;
 
     if !dependency_shape_is_exact {
@@ -615,7 +615,7 @@ async fn lock_catalog(
             "Catalog runtime ACL drift".to_owned(),
         ));
     }
-    let table_shape: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relowner,relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r') SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relowner)='replay_policy_catalog_owner' AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=family.oid AND NOT trigger_fact.tgisinternal)) FROM family")
+    let table_shape: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relowner,relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r') SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relowner)='replay_policy_catalog_owner' AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=family.oid AND NOT trigger_fact.tgisinternal) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=family.oid)) FROM family")
         .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(unavailable)?;
 
     if !table_shape {
@@ -742,6 +742,105 @@ mod postgres_tests {
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    #[test]
+    fn catalog_rule_manifest_is_closed_across_migration_connect_and_runtime() {
+        let source = include_str!("replay_policy_catalog_postgres_v2.rs");
+        assert!(AUTHORITY_MIGRATION_SQL.contains(
+            "pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class"
+        ));
+        let connect_check = source
+            .split("let dependency_shape_is_exact")
+            .nth(1)
+            .expect("Catalog connect dependency check")
+            .split("let constraint_options_are_exact")
+            .next()
+            .expect("bounded Catalog connect dependency check");
+        assert!(connect_check.contains(
+            "pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))"
+        ));
+        let runtime_check = source
+            .split("let table_shape")
+            .nth(1)
+            .expect("Catalog runtime table check")
+            .split("if !table_shape")
+            .next()
+            .expect("bounded Catalog runtime table check");
+        assert!(
+            runtime_check
+                .contains("pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=family.oid")
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+    async fn catalog_rule_injection_is_unavailable_and_writes_nothing() {
+        const WRITE_COUNTS_SQL: &str = "SELECT
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2),
+          (SELECT count(*) FROM public.rd_owner_outbox_v1
+            WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2')";
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = database.mutation();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        verify_catalog_storage_authority(pool).await.unwrap();
+        let before: (i64, i64, i64, i64, i64) = sqlx::query_as(WRITE_COUNTS_SQL)
+            .fetch_one(topology_admin_pool)
+            .await
+            .unwrap();
+
+        sqlx::query(
+            "CREATE RULE suppress_catalog_audit_v2 AS
+             ON INSERT TO replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2
+             DO INSTEAD NOTHING",
+        )
+        .execute(topology_admin_pool)
+        .await
+        .unwrap();
+        assert!(matches!(
+            migrate(pool).await,
+            Err(ReplayPolicyCatalogErrorV2::Unavailable(_))
+        ));
+
+        let administrator = AuthenticatedCatalogAdministratorV2::admit(
+            "rd-catalog-rule-test-administrator-v2",
+            &format!("sha256:{}", "a".repeat(64)),
+        )
+        .unwrap();
+        let mut transaction = pool.begin().await.unwrap();
+        let result = ReplayPolicyCatalogAdministrationPortV2::create_policy(
+            &mut transaction,
+            &administrator,
+            "catalog-rule-injection-command-v2",
+            "catalog-rule-injection-record-v2",
+            &replay_policy(9_001),
+            9_001,
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(ReplayPolicyCatalogErrorV2::Unavailable(_))
+        ));
+        let observed: (i64, i64, i64, i64, i64) = sqlx::query_as(WRITE_COUNTS_SQL)
+            .fetch_one(&mut *transaction)
+            .await
+            .unwrap();
+        assert_eq!(observed, before);
+        transaction.rollback().await.unwrap();
+
+        sqlx::query(
+            "DROP RULE suppress_catalog_audit_v2
+             ON replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
+        )
+        .execute(topology_admin_pool)
+        .await
+        .unwrap();
+        verify_catalog_storage_authority(pool).await.unwrap();
+    }
 
     #[tokio::test]
     #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
