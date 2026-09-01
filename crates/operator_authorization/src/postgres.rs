@@ -30,7 +30,54 @@ const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 4] = [
     "REVOKE ALL ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 FROM PUBLIC, operator_authorization_writer, rd_owner, product_edge_owner, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
     "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 TO operator_authorization_writer",
 ];
-const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid AND (SELECT pg_catalog.count(*) = 11 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_owner')::oid) = 7 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_writer')::oid AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE') AND NOT acl.is_grantable) = 4 FROM pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace WHERE namespace.nspname = 'operator_authorization_private' AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1' AND relation.relkind = 'r'";
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
+   AND relation.relpersistence = 'p'
+   AND (
+     SELECT pg_catalog.count(*) = 6
+        AND pg_catalog.bool_and(CASE attribute.attname
+          WHEN 'recovery_epoch_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'recovery_epoch_digest' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'predecessor_authorization_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'successor_authorization_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'recovery_json' THEN attribute.atttypid = 'pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'committed_at_epoch_ms' THEN attribute.atttypid = 'pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+          ELSE false
+        END AND NOT attribute.atthasdef AND attribute.attidentity = '' AND attribute.attgenerated = '')
+       FROM pg_catalog.pg_attribute attribute
+      WHERE attribute.attrelid = relation.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped
+   )
+   AND (
+     SELECT pg_catalog.count(*) = 9
+        AND pg_catalog.bool_and(constraint_entry.convalidated)
+        AND pg_catalog.array_agg(
+              constraint_entry.contype::pg_catalog.text || ':' || pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
+              ORDER BY constraint_entry.contype, pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
+            ) = ARRAY[
+              'c:CHECK (committed_at_epoch_ms >= 0)',
+              'c:CHECK (predecessor_authorization_identity <> ''::text)',
+              'c:CHECK (recovery_epoch_digest <> ''::text)',
+              'c:CHECK (recovery_epoch_identity <> ''::text)',
+              'c:CHECK (successor_authorization_identity <> ''::text AND successor_authorization_identity <> predecessor_authorization_identity)',
+              'f:FOREIGN KEY (successor_authorization_identity) REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity)',
+              'p:PRIMARY KEY (recovery_epoch_identity)',
+              'u:UNIQUE (recovery_epoch_digest)',
+              'u:UNIQUE (successor_authorization_identity)'
+            ]::pg_catalog.text[]
+       FROM pg_catalog.pg_constraint constraint_entry
+      WHERE constraint_entry.conrelid = relation.oid
+   )
+   AND (
+     SELECT pg_catalog.count(*) = 11
+        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_owner')::oid) = 7
+        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('operator_authorization_writer')::oid AND acl.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE') AND NOT acl.is_grantable) = 4
+       FROM pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl
+   )
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+ WHERE namespace.nspname = 'operator_authorization_private'
+   AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'
+   AND relation.relkind = 'r'
+"#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -3813,8 +3860,18 @@ mod tests {
                 .any(|statement| statement.starts_with("UPDATE "))
         );
         assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.starts_with("SELECT "));
+        assert!(
+            VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA
+                .contains("namespace.nspname = 'operator_authorization_private'")
+        );
         assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
-            "operator_authorization_private' AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'"
+            "relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'"
+        ));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.pg_attribute"));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.count(*) = 6"));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.pg_constraint"));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
+            "FOREIGN KEY (successor_authorization_identity) REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity)"
         ));
         assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" UPDATE "));
         assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" ALTER "));

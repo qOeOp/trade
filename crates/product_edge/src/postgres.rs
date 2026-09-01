@@ -70,7 +70,54 @@ const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 3] = [
     "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner",
     "REVOKE ALL ON TABLE public.product_edge_expired_manifest_recoveries_v1 FROM PUBLIC, rd_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
 ];
-const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid AND (SELECT pg_catalog.count(*) = 7 AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) = 7 FROM pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace WHERE namespace.nspname = 'public' AND relation.relname = 'product_edge_expired_manifest_recoveries_v1' AND relation.relkind = 'r'";
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid
+   AND relation.relpersistence = 'p'
+   AND (
+     SELECT pg_catalog.count(*) = 6
+        AND pg_catalog.bool_and(CASE attribute.attname
+          WHEN 'recovery_epoch_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'recovery_epoch_digest' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'predecessor_binding_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'successor_binding_identity' THEN attribute.atttypid = 'pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'recovery_json' THEN attribute.atttypid = 'pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+          WHEN 'committed_at_epoch_ms' THEN attribute.atttypid = 'pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+          ELSE false
+        END AND NOT attribute.atthasdef AND attribute.attidentity = '' AND attribute.attgenerated = '')
+       FROM pg_catalog.pg_attribute attribute
+      WHERE attribute.attrelid = relation.oid AND attribute.attnum > 0 AND NOT attribute.attisdropped
+   )
+   AND (
+     SELECT pg_catalog.count(*) = 10
+        AND pg_catalog.bool_and(constraint_entry.convalidated)
+        AND pg_catalog.array_agg(
+              constraint_entry.contype::pg_catalog.text || ':' || pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
+              ORDER BY constraint_entry.contype, pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
+            ) = ARRAY[
+              'c:CHECK (committed_at_epoch_ms >= 0)',
+              'c:CHECK (predecessor_binding_identity <> ''::text)',
+              'c:CHECK (recovery_epoch_digest <> ''::text)',
+              'c:CHECK (recovery_epoch_identity <> ''::text)',
+              'c:CHECK (successor_binding_identity <> ''::text AND successor_binding_identity <> predecessor_binding_identity)',
+              'f:FOREIGN KEY (predecessor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)',
+              'f:FOREIGN KEY (successor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)',
+              'p:PRIMARY KEY (recovery_epoch_identity)',
+              'u:UNIQUE (recovery_epoch_digest)',
+              'u:UNIQUE (successor_binding_identity)'
+            ]::pg_catalog.text[]
+       FROM pg_catalog.pg_constraint constraint_entry
+      WHERE constraint_entry.conrelid = relation.oid
+   )
+   AND (
+     SELECT pg_catalog.count(*) = 7
+        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) = 7
+       FROM pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl
+   )
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace
+ WHERE namespace.nspname = 'public'
+   AND relation.relname = 'product_edge_expired_manifest_recoveries_v1'
+   AND relation.relkind = 'r'
+"#;
 const ADDED_MANIFEST_PROHIBITED_FLOOR_V1: [&str; 3] = [
     "LIVE_TRADING_V1",
     "PROTECTED_FEEDBACK_DETAIL_V1",
@@ -5491,11 +5538,126 @@ mod tests {
                 .any(|statement| statement.starts_with("UPDATE "))
         );
         assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.starts_with("SELECT "));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("namespace.nspname = 'public'"));
+        assert!(
+            VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA
+                .contains("relation.relname = 'product_edge_expired_manifest_recoveries_v1'")
+        );
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.pg_attribute"));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.count(*) = 6"));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains("pg_catalog.pg_constraint"));
         assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
-            "namespace.nspname = 'public' AND relation.relname = 'product_edge_expired_manifest_recoveries_v1'"
+            "FOREIGN KEY (predecessor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)"
+        ));
+        assert!(VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(
+            "FOREIGN KEY (successor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)"
         ));
         assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" UPDATE "));
         assert!(!VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA.contains(" ALTER "));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
+    async fn expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation()
+     {
+        async fn catalog_fingerprint(pool: &PgPool, relation_name: &str) -> serde_json::Value {
+            sqlx::query_scalar(
+                "SELECT pg_catalog.jsonb_build_object(\
+                   'owner', relation.relowner,\
+                   'acl', COALESCE(relation.relacl::pg_catalog.text, ''),\
+                   'columns', (SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attname, attribute.atttypid::pg_catalog.text, attribute.attnotnull, attribute.atthasdef, attribute.attidentity, attribute.attgenerated) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),\
+                   'constraints', (SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_entry.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_entry.oid,true)), '[]'::pg_catalog.jsonb) FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=relation.oid)\
+                 ) FROM pg_catalog.pg_class relation WHERE relation.oid=pg_catalog.to_regclass($1)",
+            )
+            .bind(relation_name)
+            .fetch_one(pool)
+            .await
+            .unwrap()
+        }
+
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let trust = ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            audience: "R_AND_D".into(),
+        };
+        let _issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let _owner = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            "schema-verification-probe-v1",
+            trust.clone(),
+        )
+        .await
+        .unwrap();
+        let oa_pool = mutation.pool(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter);
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+
+        sqlx::query("DROP TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1")
+            .execute(oa_pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT NOT NULL, recovery_epoch_digest TEXT NOT NULL, predecessor_authorization_identity TEXT NOT NULL, successor_authorization_identity TEXT NOT NULL, recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
+            .execute(oa_pool)
+            .await
+            .unwrap();
+        sqlx::query("DROP TABLE public.product_edge_expired_manifest_recoveries_v1")
+            .execute(pe_pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE public.product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT NOT NULL, recovery_epoch_digest TEXT NOT NULL, predecessor_binding_identity TEXT NOT NULL, successor_binding_identity TEXT NOT NULL, recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
+            .execute(pe_pool)
+            .await
+            .unwrap();
+
+        let before_oa = catalog_fingerprint(
+            oa_pool,
+            "operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1",
+        )
+        .await;
+        let before_pe = catalog_fingerprint(
+            pe_pool,
+            "public.product_edge_expired_manifest_recoveries_v1",
+        )
+        .await;
+        assert!(matches!(
+            OperatorAuthorizationIssuerPostgresV1::connect_for_expired_manifest_recovery(
+                test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            )
+            .await,
+            Err(OperatorAuthorizationError::Unavailable)
+        ));
+        assert!(matches!(
+            ProductEdgePostgresOwnerV1::connect_for_expired_manifest_recovery(
+                test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+                "schema-verification-probe-v1",
+                trust,
+            )
+            .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        assert_eq!(
+            catalog_fingerprint(
+                oa_pool,
+                "operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1",
+            )
+            .await,
+            before_oa,
+            "failed OA sidecar verification must roll back owner and ACL changes"
+        );
+        assert_eq!(
+            catalog_fingerprint(
+                pe_pool,
+                "public.product_edge_expired_manifest_recoveries_v1",
+            )
+            .await,
+            before_pe,
+            "failed Product Edge sidecar verification must roll back owner and ACL changes"
+        );
     }
 
     #[rstest]

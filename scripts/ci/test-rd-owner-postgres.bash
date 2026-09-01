@@ -24,6 +24,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
@@ -45,15 +46,16 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 13 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all thirteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
+    [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -86,6 +88,12 @@ check_nextest_graph_contract() {
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
+    return 1
+  fi
+  if ! rg -Uq \
+    'cargo nextest archive.*\n[[:space:]]+"\$\{nextest_graph_args\[@\]\}".*\n[[:space:]]+--features "\$rd_owner_postgres_features"' \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: nextest archive must compile the admitted R&D Owner feature union." >&2
     return 1
   fi
 }
@@ -731,13 +739,13 @@ nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.X
 nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
 cargo nextest archive \
   "${nextest_graph_args[@]}" \
-  --features "$nextest_archive_features" \
+  --features "$rd_owner_postgres_features" \
   --profile "$nextest_profile" \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
 # The first two filters make the first application connection to their separate
-# fresh databases. Filters 9 and 10 deliberately poison main Owner state and
+# fresh databases. Filters 10 and 11 deliberately poison main Owner state and
 # therefore stay after every positive consumer, with the Research mismatch last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
