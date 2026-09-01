@@ -1256,6 +1256,48 @@ impl ProductEdgePostgresOwnerV1 {
         Ok(owner)
     }
 
+    /// Connects the runtime Owner to an already-migrated Product Edge store.
+    ///
+    /// This path performs only read-only schema and authority verification. It
+    /// never attempts migration DDL, so the runtime role does not need schema
+    /// or database `CREATE` authority.
+    pub async fn connect_existing(
+        database_url: &str,
+        deployment_identity: impl Into<String>,
+        authorization_trust: ProductEdgeAuthorizationTrustV1,
+    ) -> Result<Self, ProductEdgeError> {
+        let deployment_identity = deployment_identity.into();
+        if deployment_identity.trim().is_empty() {
+            return Err(ProductEdgeError::InvalidProposal("deployment locator"));
+        }
+        authorization_trust.validate()?;
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        let mut transaction = begin_repeatable_read(&pool).await?;
+        let runtime_authority_is_exact: bool = sqlx::query_scalar(
+            "SELECT session_user='product_edge_owner'
+               AND NOT pg_catalog.has_schema_privilege(session_user, 'public', 'CREATE')
+               AND NOT pg_catalog.has_database_privilege(
+                 session_user,
+                 pg_catalog.current_database(),
+                 'CREATE'
+               )",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        if !runtime_authority_is_exact {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        verify_admission_event_stream(&mut transaction).await?;
+        verify_expired_manifest_recovery_schema(&mut transaction).await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(Self {
+            pool,
+            deployment_identity,
+            authorization_trust,
+        })
+    }
+
     /// Connects the Owner for expired-manifest recovery and prepares only the
     /// recovery sidecar schema. Existing Owner tables must already exist.
     pub async fn connect_for_expired_manifest_recovery(

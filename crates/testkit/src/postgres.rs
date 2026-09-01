@@ -10,6 +10,7 @@ use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
+const LEGACY_REPLAY_FAULT_URL_ENV: &str = "VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL";
 const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
@@ -172,6 +173,36 @@ pub struct CanonicalOwnerPostgresTestDatabaseV1 {
     owner_topology_admin_pool: PgPool,
 }
 
+/// One-shot capability for the disposable legacy Replay duplicate fault.
+pub struct LegacyReplayDuplicateFaultV1 {
+    pool: PgPool,
+    marker_identity: String,
+}
+
+/// Proof that the one-shot legacy Replay duplicate fault was consumed.
+pub struct UsedLegacyReplayDuplicateFaultV1 {
+    pool: PgPool,
+    marker_identity: String,
+}
+
+impl Debug for LegacyReplayDuplicateFaultV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LegacyReplayDuplicateFaultV1))
+            .field("marker_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for UsedLegacyReplayDuplicateFaultV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(UsedLegacyReplayDuplicateFaultV1))
+            .field("marker_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
 impl Debug for CanonicalOwnerPostgresTestDatabaseV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -288,6 +319,175 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     pub fn owner_topology_admin_pool(&self) -> &PgPool {
         &self.owner_topology_admin_pool
     }
+
+    /// Admits the exact one-shot legacy Replay duplicate fixture.
+    pub async fn admit_legacy_replay_duplicate_fault(
+        &self,
+    ) -> Result<LegacyReplayDuplicateFaultV1, DedicatedPostgresTestDatabaseError> {
+        let canonical_target =
+            normalize_url(CANONICAL_OWNER_TEST_URLS[0].0, &self.database_urls[0])?;
+        admit_legacy_replay_duplicate_fault(&canonical_target, &self.marker_identity).await
+    }
+}
+
+impl LegacyReplayDuplicateFaultV1 {
+    /// Creates the exact duplicate current Replay candidate and consumes the fixture.
+    pub async fn create_duplicate(
+        self,
+        request_identity: &str,
+    ) -> Result<UsedLegacyReplayDuplicateFaultV1, sqlx::Error> {
+        sqlx::query(
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+        )
+        .bind(request_identity)
+        .bind(&self.marker_identity)
+        .execute(&self.pool)
+        .await?;
+        Ok(UsedLegacyReplayDuplicateFaultV1 {
+            pool: self.pool,
+            marker_identity: self.marker_identity,
+        })
+    }
+}
+
+impl UsedLegacyReplayDuplicateFaultV1 {
+    /// Replays the consumed fixture call so tests can prove server-side one-shot denial.
+    pub async fn retry(&self, request_identity: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+        )
+        .bind(request_identity)
+        .bind(&self.marker_identity)
+        .execute(&self.pool)
+        .await
+        .map(|_| ())
+    }
+}
+
+async fn admit_legacy_replay_duplicate_fault(
+    canonical_target: &NormalizedDatabaseTarget,
+    expected_marker: &str,
+) -> Result<LegacyReplayDuplicateFaultV1, DedicatedPostgresTestDatabaseError> {
+    let url = env::var(LEGACY_REPLAY_FAULT_URL_ENV).map_err(|_| {
+        DedicatedPostgresTestDatabaseError::MissingEnvironment(LEGACY_REPLAY_FAULT_URL_ENV)
+    })?;
+    let target = normalize_url(LEGACY_REPLAY_FAULT_URL_ENV, &url)?;
+    if target.role != "vibe_test_legacy_replay_fault_writer"
+        || !target.same_database(canonical_target)
+    {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    let fixture_is_exact: bool = sqlx::query_scalar(
+        "SELECT session_user='vibe_test_legacy_replay_fault_writer'
+           AND pg_catalog.current_database()=$1
+           AND EXISTS (
+             SELECT 1
+               FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+              WHERE marker.marker_identity=$2
+                AND marker.database_name=$1
+                AND marker.test_role='vibe_test_legacy_replay_fault_writer'
+           )
+           AND EXISTS (
+             SELECT 1 FROM pg_catalog.pg_roles role
+              WHERE role.rolname='vibe_test_legacy_replay_fault_writer'
+                AND role.rolcanlogin
+                AND NOT role.rolsuper AND NOT role.rolcreatedb
+                AND NOT role.rolcreaterole AND NOT role.rolreplication
+                AND NOT role.rolbypassrls
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_auth_members membership
+                   WHERE membership.member=role.oid
+                )
+           )
+           AND NOT pg_catalog.has_database_privilege(
+             session_user, pg_catalog.current_database(), 'CREATE,TEMPORARY'
+           )
+           AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+           AND pg_catalog.has_schema_privilege(
+             session_user,'vibe_test_legacy_replay_fault','USAGE'
+           )
+           AND (
+             SELECT owner.rolname='postgres'
+                AND pg_catalog.count(*)=3
+                AND pg_catalog.count(*) FILTER (
+                  WHERE acl.grantee=pg_catalog.to_regrole(
+                    'vibe_test_legacy_replay_fault_writer'
+                  )::oid
+                    AND acl.privilege_type='USAGE'
+                    AND NOT acl.is_grantable
+                )=1
+               FROM pg_catalog.pg_namespace namespace
+               JOIN pg_catalog.pg_roles owner ON owner.oid=namespace.nspowner
+               CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
+              WHERE namespace.nspname='vibe_test_legacy_replay_fault'
+              GROUP BY owner.rolname
+           )
+           AND (
+             SELECT owner.rolname='postgres'
+                AND procedure.prosecdef AND procedure.proisstrict
+                AND procedure.provolatile='v' AND procedure.proparallel='u'
+                AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+                AND pg_catalog.count(*)=2
+                AND pg_catalog.count(*) FILTER (
+                  WHERE acl.grantee=pg_catalog.to_regrole(
+                    'vibe_test_legacy_replay_fault_writer'
+                  )::oid
+                    AND acl.privilege_type='EXECUTE'
+                    AND NOT acl.is_grantable
+                )=1
+               FROM pg_catalog.pg_proc procedure
+               JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+               CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) acl
+              WHERE procedure.oid=pg_catalog.to_regprocedure(
+                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)'
+              )
+              GROUP BY owner.rolname,procedure.prosecdef,procedure.proisstrict,
+                       procedure.provolatile,procedure.proparallel,procedure.proconfig
+           )
+           AND pg_catalog.has_function_privilege(
+             session_user,
+             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+             'EXECUTE'
+           )
+           AND NOT pg_catalog.has_function_privilege(
+             'PUBLIC',
+             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+             'EXECUTE'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM pg_catalog.unnest(ARRAY[
+               'rd_owner','product_edge_owner','vibe_test_owner_topology_admin'
+             ]) denied_role(role_name)
+              WHERE pg_catalog.has_function_privilege(
+                denied_role.role_name,
+                'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)',
+                'EXECUTE'
+              )
+           )
+           AND pg_catalog.to_regclass(
+             'public.rd_exploratory_replay_request_custody_v1'
+           ) IS NULL
+           AND pg_catalog.to_regclass(
+             'public.rd_sealed_exploratory_replay_requests_v1'
+           ) IS NOT NULL",
+    )
+    .bind(&target.database)
+    .bind(expected_marker)
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    if !fixture_is_exact {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    Ok(LegacyReplayDuplicateFaultV1 {
+        pool,
+        marker_identity: expected_marker.to_string(),
+    })
 }
 
 async fn admit_owner_topology_admin(

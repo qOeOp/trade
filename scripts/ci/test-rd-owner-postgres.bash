@@ -540,9 +540,11 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_password="$test_password" \
   --set=test_marker="$test_marker" << 'SQL'
 CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
   marker_identity text NOT NULL,
@@ -552,8 +554,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_legacy_replay_fault_writer;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_legacy_replay_fault_writer;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -562,10 +564,85 @@ FROM unnest(ARRAY[
   'rd_owner',
   'rd_fact_writer',
   'qualification_writer',
-  'backtest_owner'
+  'backtest_owner',
+  'vibe_test_legacy_replay_fault_writer'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+
+CREATE SCHEMA vibe_test_legacy_replay_fault AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_legacy_replay_fault FROM PUBLIC;
+GRANT USAGE ON SCHEMA vibe_test_legacy_replay_fault TO vibe_test_legacy_replay_fault_writer;
+CREATE FUNCTION vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(
+  selected_request_identity text,
+  expected_marker_identity text
+)
+RETURNS void
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  selected_row_count bigint;
+BEGIN
+  IF session_user<>'vibe_test_legacy_replay_fault_writer' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'legacy Replay fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_legacy_replay_fault_writer';
+  IF exact_marker_count<>1 THEN
+    RAISE EXCEPTION 'legacy Replay fault database marker mismatch' USING ERRCODE='55000';
+  END IF;
+  IF pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL THEN
+    RAISE EXCEPTION 'legacy Replay duplicate already exists' USING ERRCODE='55000';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+     WHERE namespace.nspname='public'
+       AND relation.relname='rd_sealed_exploratory_replay_requests_v1'
+       AND relation.relkind='r' AND relation.relpersistence='p'
+       AND owner.rolname='rd_owner'
+  ) THEN
+    RAISE EXCEPTION 'sealed Replay source unavailable' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO selected_row_count
+    FROM public.rd_sealed_exploratory_replay_requests_v1 sealed
+   WHERE sealed.request_identity=selected_request_identity;
+  IF selected_row_count<>1 THEN
+    RAISE EXCEPTION 'legacy Replay selected row mismatch' USING ERRCODE='55000';
+  END IF;
+
+  CREATE TABLE public.rd_exploratory_replay_request_custody_v1
+    (LIKE public.rd_sealed_exploratory_replay_requests_v1 INCLUDING ALL);
+  INSERT INTO public.rd_exploratory_replay_request_custody_v1
+  SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1
+   WHERE request_identity=selected_request_identity;
+  GET DIAGNOSTICS selected_row_count=ROW_COUNT;
+  IF selected_row_count<>1 THEN
+    RAISE EXCEPTION 'legacy Replay duplicate copy mismatch' USING ERRCODE='55000';
+  END IF;
+  ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
+  GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
+    TO surprise_replay_grantee;
+  REVOKE EXECUTE ON FUNCTION
+    vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+    FROM vibe_test_legacy_replay_fault_writer;
+END
+$function$;
+ALTER FUNCTION vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION
+  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION
+  vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text,text)
+  TO vibe_test_legacy_replay_fault_writer;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -830,6 +907,7 @@ export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_pass
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL="postgresql://vibe_test_legacy_replay_fault_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
@@ -875,6 +953,39 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
+  fi
+  if [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
+    for fixture_database in "$test_database" "$origin_current_database"; do
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$fixture_database" << 'SQL'
+DO $fixture_cleanup$
+BEGIN
+  IF pg_catalog.to_regclass(
+    'public.rd_exploratory_replay_request_custody_v1'
+  ) IS NOT NULL THEN
+    RAISE EXCEPTION 'legacy Replay duplicate fixture was not removed';
+  END IF;
+END
+$fixture_cleanup$;
+REVOKE USAGE ON SCHEMA vibe_test_admin
+  FROM vibe_test_legacy_replay_fault_writer;
+REVOKE SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1
+  FROM vibe_test_legacy_replay_fault_writer;
+DELETE FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+ WHERE test_role='vibe_test_legacy_replay_fault_writer';
+DROP SCHEMA vibe_test_legacy_replay_fault CASCADE;
+SQL
+    done
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname postgres \
+      --set=test_database="$test_database" \
+      --set=origin_current_database="$origin_current_database" << 'SQL'
+REVOKE CONNECT ON DATABASE :"test_database"
+  FROM vibe_test_legacy_replay_fault_writer;
+REVOKE CONNECT ON DATABASE :"origin_current_database"
+  FROM vibe_test_legacy_replay_fault_writer;
+DROP ROLE vibe_test_legacy_replay_fault_writer;
+SQL
   fi
 done
 

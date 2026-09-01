@@ -371,33 +371,82 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         26
     );
 
-    sqlx::query(
-        "CREATE TABLE public.rd_exploratory_replay_request_custody_v1
-         (LIKE public.rd_sealed_exploratory_replay_requests_v1 INCLUDING ALL)",
+    let legacy_before = legacy_replay_fingerprint(rd_pool).await;
+    let direct_ddl_denied = sqlx::query(
+        "CREATE TABLE public.rd_runtime_legacy_replay_fault_must_be_denied_v1
+         (sentinel BOOLEAN PRIMARY KEY)",
     )
     .execute(rd_pool)
     .await
-    .expect("duplicate internal Replay candidate");
-    sqlx::query(
-        "INSERT INTO public.rd_exploratory_replay_request_custody_v1
-         SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1
-          WHERE request_identity=$1",
-    )
-    .bind(&fixture.proposal.request_identity)
-    .execute(rd_pool)
-    .await
-    .expect("duplicate internal Replay row");
-    sqlx::query("ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner")
-        .execute(rd_pool)
+    .expect_err("runtime R&D Owner must not create public relations");
+    assert_eq!(
+        direct_ddl_denied
+            .as_database_error()
+            .and_then(|error| error.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
+    for denied_pool in [
+        rd_pool,
+        mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+        fixture.database.owner_topology_admin_pool(),
+    ] {
+        let direct_fixture_denied = sqlx::query(
+            "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1,$2)",
+        )
+        .bind(&fixture.proposal.request_identity)
+        .bind(mutation.marker_identity())
+        .execute(denied_pool)
         .await
-        .expect("duplicate internal Replay owner");
-    sqlx::query(
-        "GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
-         TO surprise_replay_grantee",
+        .expect_err("non-fixture role must not execute legacy Replay fault");
+        assert_eq!(
+            direct_fixture_denied
+                .as_database_error()
+                .and_then(|error| error.code()),
+            Some(std::borrow::Cow::Borrowed("42501"))
+        );
+    }
+
+    let used_fault = fixture
+        .database
+        .admit_legacy_replay_duplicate_fault()
+        .await
+        .expect("exact one-shot legacy Replay fault")
+        .create_duplicate(&fixture.proposal.request_identity)
+        .await
+        .expect("duplicate internal Replay candidate");
+    let second_use_denied = used_fault
+        .retry(&fixture.proposal.request_identity)
+        .await
+        .expect_err("legacy Replay fault must self-revoke");
+    assert_eq!(
+        second_use_denied
+            .as_database_error()
+            .and_then(|error| error.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
+    let duplicate_authority_is_exact: bool = sqlx::query_scalar(
+        "SELECT owner.rolname='rd_owner'
+            AND pg_catalog.has_table_privilege(
+              'surprise_replay_grantee',relation.oid,'SELECT,UPDATE'
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  relation.relacl,
+                  pg_catalog.acldefault('r',relation.relowner)
+                )) acl
+               WHERE acl.grantee<>relation.relowner
+                 AND acl.grantee<>pg_catalog.to_regrole('surprise_replay_grantee')::oid
+            )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid=
+            'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass",
     )
-    .execute(rd_pool)
+    .fetch_one(rd_pool)
     .await
-    .expect("duplicate internal Replay ACL sentinel");
+    .expect("duplicate internal Replay authority");
+    assert!(duplicate_authority_is_exact);
 
     let duplicate_before = [
         replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
@@ -423,6 +472,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .execute(rd_pool)
         .await
         .expect("remove duplicate internal Replay test candidate");
+    assert_eq!(legacy_replay_fingerprint(rd_pool).await, legacy_before);
 }
 
 #[tokio::test]
@@ -1878,6 +1928,22 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let issuer_url = database
         .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
         .to_string();
+    let product_edge_mutation = database.mutation();
+    let product_edge_pool =
+        product_edge_mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+    let forbidden_ddl = sqlx::query(
+        "CREATE TABLE public.product_edge_runtime_ddl_must_remain_forbidden_v1
+         (sentinel BOOLEAN PRIMARY KEY)",
+    )
+    .execute(product_edge_pool)
+    .await
+    .expect_err("runtime Product Edge role must not create public relations");
+    assert_eq!(
+        forbidden_ddl
+            .as_database_error()
+            .and_then(|error| error.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
     let suffix = format!("expiry-{}", unique_suffix());
     let edge =
         TestProductEdge::bootstrap_with_validity(&issuer_url, &edge_url, &suffix, validity_ms)
@@ -2202,6 +2268,32 @@ async fn replay_candidate_fingerprint(pool: &PgPool, table: ReplayCandidateTable
     format!("{catalog}\n{rows}")
 }
 
+async fn legacy_replay_fingerprint(pool: &PgPool) -> String {
+    sqlx::query_scalar(
+        "SELECT pg_catalog.jsonb_build_object(
+           'relation_oid',relation.oid,
+           'owner',owner.rolname,
+           'acl',COALESCE(relation.relacl::text,'<NULL>'),
+           'comment',pg_catalog.obj_description(relation.oid,'pg_class'),
+           'rows',(
+             SELECT COALESCE(
+               pg_catalog.jsonb_agg(pg_catalog.to_jsonb(legacy)
+                 ORDER BY replay_request_identity),
+               '[]'::pg_catalog.jsonb
+             )
+               FROM public.rd_exploratory_replay_requests_v1 legacy
+           )
+         )::text
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid=
+            'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("legacy Replay fingerprint")
+}
+
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {
     [
         sqlx::query_scalar("SELECT COUNT(*) FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1")
@@ -2443,7 +2535,7 @@ impl TestProductEdge {
             .await
             .unwrap();
         let deployment = format!("pe-exploratory-{suffix}");
-        let owner = ProductEdgePostgresOwnerV1::connect(
+        let owner = ProductEdgePostgresOwnerV1::connect_existing(
             edge_url,
             &deployment,
             ProductEdgeAuthorizationTrustV1 {
