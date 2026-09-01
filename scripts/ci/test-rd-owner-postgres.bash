@@ -38,6 +38,8 @@ readonly nextest_graph_args=(
   --lib
   --tests
 )
+# The incoming Makefile union also contains workspace-root features that none of
+# the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
@@ -91,9 +93,9 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -Uq \
-    'cargo nextest archive.*\n[[:space:]]+"\$\{nextest_graph_args\[@\]\}".*\n[[:space:]]+--features "\$rd_owner_postgres_features"' \
+    'cargo nextest archive.*\n[[:space:]]+"\$\{nextest_graph_args\[@\]\}".*\n[[:space:]]+--features "\$nextest_archive_features"' \
     "${BASH_SOURCE[0]}"; then
-    echo "ERROR: nextest archive must compile the admitted R&D Owner feature union." >&2
+    echo "ERROR: nextest archive must compile the exact selected-package feature projection." >&2
     return 1
   fi
 }
@@ -739,7 +741,7 @@ nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.X
 nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
 cargo nextest archive \
   "${nextest_graph_args[@]}" \
-  --features "$rd_owner_postgres_features" \
+  --features "$nextest_archive_features" \
   --profile "$nextest_profile" \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
