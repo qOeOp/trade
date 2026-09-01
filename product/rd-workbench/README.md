@@ -1,6 +1,6 @@
-# R&D Workbench S1 V2 + S2 candidate
+# R&D Workbench S1 V2 + S2 + Exploratory Replay V2 candidate
 
-This package is the non-live Product Edge candidate through Strategy Artifact Formation. The default Web path uses S1 V2: Windmill submits policy but no family identity, while R&D atomically derives and persists the frozen Intent, TrialFamily root, initial INTENT Census member/head, receipts, and outbox. S2 atomically binds its immutable Artifact and Build Receipt to that Owner family. Windmill submits, resolves, and renders; only the Owner commits or directly resolves those facts.
+This package is the non-live Product Edge candidate through Strategy Artifact Formation. The default Web path uses S1 V2: Windmill submits policy but no family identity, while R&D atomically derives and persists the frozen Intent, TrialFamily root, initial INTENT Census member/head, receipts, and outbox. S2 atomically binds its immutable Artifact and Build Receipt to that Owner family. Exploratory Replay V2 then identifies, submits once, resolves, and renders the Owner-sealed replay request and readback; it does not execute Backtest. Windmill submits, resolves, and renders; only the Owner commits or directly resolves those facts.
 
 ## Deployment Store Admission boundary
 
@@ -144,4 +144,4 @@ identity.
 
 The `artifact_build.submit_or_resolve.v1` script is the one App/MCP operation. `RUN` reads canonical frozen Intent bytes from the Owner, invokes a bounded server-side provider, and submits only a typed untrusted candidate. Missing provider configuration and provider/parse failures fail closed through the Owner without a template fallback. The sandbox has no network, secret, Docker socket, host effect port, or ambient input mount; its schema-v2 receipt binds the pinned image, Dockerfile, toolchain, target, offline policy, and byte-identical double build before runtime admission.
 
-Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice does not create an Exploratory Replay Request and does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.
+Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.
