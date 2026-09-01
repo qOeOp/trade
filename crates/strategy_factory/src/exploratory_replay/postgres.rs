@@ -335,7 +335,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     for statement in [
         "CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_sealed_exploratory_replay_requests_v1(artifact_identity, request_identity)",
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 OWNER TO rd_owner",
-        "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM backtest_owner",
         "GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner",
     ] {
@@ -344,6 +344,35 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
             .await
             .map_err(storage)?;
     }
+    sqlx::query(
+        "
+        DO $acl$
+        DECLARE grantee_name text;
+        BEGIN
+          FOR grantee_name IN
+            SELECT role.rolname
+              FROM pg_catalog.pg_class relation
+              CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+                relation.relacl,
+                pg_catalog.acldefault('r', relation.relowner)
+              )) acl
+              JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND acl.grantee<>relation.relowner
+             GROUP BY role.rolname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+              grantee_name
+            );
+          END LOOP;
+        END
+        $acl$;
+        ",
+    )
+    .execute(&mut *migration)
+    .await
+    .map_err(storage)?;
     migration.commit().await.map_err(storage)?;
 
     let mut publication = pool.begin().await.map_err(storage)?;

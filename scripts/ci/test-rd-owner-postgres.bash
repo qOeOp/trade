@@ -457,6 +457,7 @@ SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
+CREATE ROLE surprise_replay_grantee NOLOGIN;
 CREATE TABLE public.rd_exploratory_replay_requests_v1 (
   replay_request_identity text PRIMARY KEY,
   run_attempt_identity text NOT NULL UNIQUE,
@@ -528,6 +529,7 @@ CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
 );
 ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
 REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
+GRANT SELECT, UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
 INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
   request_identity,
   request_digest,
@@ -1065,21 +1067,7 @@ BEGIN
         pg_catalog.acldefault('r', relation.relowner)
       )) acl
      WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
-       AND (
-         acl.grantee=0
-         OR acl.grantee IN (
-           SELECT role.oid
-             FROM pg_catalog.pg_roles role
-            WHERE role.rolname IN (
-              'product_edge_owner',
-              'operator_authorization_owner',
-              'operator_authorization_writer',
-              'qualification_owner',
-              'qualification_writer',
-              'backtest_owner'
-            )
-         )
-       )
+       AND acl.grantee<>relation.relowner
   ) THEN
     RAISE EXCEPTION 'sealed exploratory Replay table ACL is not Owner-private';
   END IF;
