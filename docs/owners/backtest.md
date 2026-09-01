@@ -101,6 +101,34 @@ PostgreSQL topology. It never establishes production readiness, default-product 
 protected replay acceptance, Paper, Live, real trading, or another production write; all distinct production adapters
 remain `UNAVAILABLE`.
 
+### TARGET / NOT_ADMITTED - durable Result custody and R&D locked read
+
+This target promotes the formal exploratory Result handoff beyond the isolated acceptance route without promoting
+any runtime or PostgreSQL implementation to CURRENT. Backtest remains the sole authority for the result fact. It
+owns the private canonical Result table and its append-only outbox, and only the Backtest writer may perform DML.
+Protected Result custody remains isolated and is not readable through this R&D seam.
+
+The Backtest Owner exposes one fixed, safe-`search_path`, `SECURITY DEFINER` `owner_api` lock/read function. Its fully
+qualified reads lock the exact Result, receipt, and outbox rows and return an untrusted envelope inside the
+caller's already-open PostgreSQL transaction. A locator or dependency-neutral contract is only a query and carries
+no Result authority. The target dependency-neutral `vibe-backtest-result-custody` adapter validates the schema,
+function, and table owners, installed function source, `SECURITY DEFINER` setting, table and function ACLs,
+canonical Result bytes and digest, request correlation, Backtest receipt, and outbox binding before constructing a
+non-forgeable positive
+readback. It accepts a caller-supplied transaction only; opening a separate pool or transaction cannot produce a
+readback usable for an R&D decision.
+
+This preserves the acyclic crate direction
+`vibe-strategy-factory -> vibe-backtest-result-custody -> vibe-backtest-owner-contracts`: the custody adapter does
+not depend on `vibe-backtest-owner`, while `vibe-backtest-owner` retains Result construction and write authority.
+Missing, stale, cross-spliced, wrong-owner, wrong-function, ACL-mismatched, noncanonical, digest-mismatched,
+receipt-or-outbox-incomplete, or separately read custody is `UNAVAILABLE`. After response loss, exact `RESOLVE` may
+return only the same pre-existing byte-identical Backtest Result and receipt; it cannot create first custody,
+recompose a result, or append a second Result, receipt, or outbox event. Admission requires implementation and real
+disposable PostgreSQL proof of positive readback, every zero-readback rejection, same-transaction locking, restart,
+and response-loss recovery. It grants no Dashboard implementation, deployment, production write, provider effect,
+Paper, Live, or trading authority.
+
 ## Input handoffs
 
 - [R&D](./rd/) submits one frozen Exploratory Replay Request bound to the exact immutable artifact,
