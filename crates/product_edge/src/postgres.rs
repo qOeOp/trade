@@ -70,7 +70,7 @@ const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 3] = [
     "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner",
     "REVOKE ALL ON TABLE public.product_edge_expired_manifest_recoveries_v1 FROM PUBLIC, rd_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
 ];
-const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid
    AND relation.relpersistence = 'p'
    AND (
      SELECT pg_catalog.count(*) = 6
@@ -117,7 +117,7 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowne
  WHERE namespace.nspname = 'public'
    AND relation.relname = 'product_edge_expired_manifest_recoveries_v1'
    AND relation.relkind = 'r'
-"#;
+";
 const ADDED_MANIFEST_PROHIBITED_FLOOR_V1: [&str; 3] = [
     "LIVE_TRADING_V1",
     "PROTECTED_FEEDBACK_DETAIL_V1",

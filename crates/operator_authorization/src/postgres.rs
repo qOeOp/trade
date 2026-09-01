@@ -30,7 +30,7 @@ const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 4] = [
     "REVOKE ALL ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 FROM PUBLIC, operator_authorization_writer, rd_owner, product_edge_owner, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
     "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 TO operator_authorization_writer",
 ];
-const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
    AND relation.relpersistence = 'p'
    AND (
      SELECT pg_catalog.count(*) = 6
@@ -77,7 +77,7 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = r#"SELECT relation.relowne
  WHERE namespace.nspname = 'operator_authorization_private'
    AND relation.relname = 'operator_authorization_expired_manifest_recoveries_v1'
    AND relation.relkind = 'r'
-"#;
+";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
