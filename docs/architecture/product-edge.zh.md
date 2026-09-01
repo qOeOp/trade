@@ -122,10 +122,14 @@ acquisition binding、终态 receipt 和 readback。runner 必须：
   验收，不能建立 `PRODUCT_CURRENT` 或生产 readiness。
 
 Replay Policy V2 只能来自 [R&D Owner 合同](../owners/rd)定义的密封 版本化且内容寻址的 R&D Catalog。
-formation 前，R&D 解析并绑定显式 current head 与其 revocation cut。公开 Composer 或 Research request 不携带
-policy selector。Product Edge、Windmill、caller、provider、environment value、default、migration 与
-deployment configuration 都不能创建或选择 version、推进 head、撤销 version、seed Catalog 或合成
-fallback。只有私有且受审计的 R&D Catalog Administration Port 拥有这些写入。
+紧接第一笔 TrialFamily-formation write 前，私有 R&D formation resolver 在其既有 transaction 上锁定并重读
+显式 current 且未撤销的 head，再把 policy 与 Catalog cross-binding 永久密封进 family。后续 Composer 与
+Replay composition 只使用该 family-sealed policy 与 cross-binding，绝不把 Catalog 重读为 authority。可选
+Catalog reread 仅用于 audit，不能影响 admissibility，因此后续 Catalog revocation、deletion、unavailability
+或 tamper 不能使已形成 family 失效。公开 Composer 或 Research request 不携带 policy selector。Product
+Edge、Windmill、caller、provider、environment value、default、migration 与 deployment configuration 都不能
+创建或选择 version、推进 head、撤销 version、seed Catalog 或合成 fallback。只有私有且受审计的 R&D
+Catalog Administration Port 拥有这些写入。
 
 公开 Composer `RUN` 只接收不受信的 request identity、Research custody reference、Design proposal、
 binding request 和有界 plugin-source capsule。这些值只能是 proposal 与 locator，绝不是 verified fact。
@@ -137,11 +141,12 @@ receipt 或 label 重建 verified token。
 
 A0 完成后且正向提交前，A1 锁定并重读最终已接纳 Research custody 与每份准确 fact-Owner binding。R&D、
 Composer 与 Market Data 路径使用一个已准入 R&D PostgreSQL transaction domain：A1 把其既有 transaction
-capability 传给每个适用且由 Owner 拥有的密封 Catalog、Composer 或 Market Data read method。每个 Owner
-都在该准确 transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
+capability 传给每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确
+transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
 connection 或 transaction；caller 与 Windmill 都不能读取 raw Owner table、重建 sealed evidence 或取得
-Owner 的 fact authority。evidence 缺失、不可用、过期、不匹配、跨 cut 或 wrong-owner 时，都必须在第一笔
-正向写入前失败。该同一个 R&D transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
+Owner 的 fact authority。Composer 或 Market Data evidence 缺失、不可用、过期、不匹配、跨 cut 或
+wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入前失败。该同一个 R&D
+transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
 `StrategyArtifactV2` package 与私有
 module bytes、私有规范 A0 Build Receipt bytes，以及 Composer receipt、host-admission receipt、operation
 receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
@@ -185,9 +190,9 @@ corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider selec
 fixture path、DSN、header 或 environment switch。每次 run 都获得唯一内部 PostgreSQL instance/schema、
 Windmill project/workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
 mutable state。固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有
-administration port 创建它并显式推进其 head。fixture、administration hook 与 policy bytes 只存在于编译期
-`SEALED_ACCEPTANCE` composition；它们不是 runtime default、migration seed、production artifact 或
-deployment selector。
+administration port 创建它并显式推进其 head，再形成 disposable TrialFamily；后续验收步骤只消费
+family-sealed policy。fixture、administration hook 与 policy bytes 只存在于编译期 `SEALED_ACCEPTANCE`
+composition；它们不是 runtime default、migration seed、production artifact 或 deployment selector。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
 

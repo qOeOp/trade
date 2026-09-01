@@ -140,11 +140,15 @@ capability current. The maturity split is exact:
   topology. It remains acceptance-only and cannot establish `PRODUCT_CURRENT` or production readiness.
 
 Replay Policy V2 comes only from the sealed, versioned, content-addressed R&D Catalog defined by the
-[R&D Owner contract](../owners/rd). Before formation, R&D resolves and binds the explicit current head and its
-revocation cut. Public Composer or Research requests carry no policy selector. Product Edge, Windmill, callers,
-providers, environment values, defaults, migrations, and deployment configuration cannot create or select a
-version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private audited
-R&D Catalog Administration Port owns those writes.
+[R&D Owner contract](../owners/rd). Immediately before the first TrialFamily-formation write, the private R&D
+formation resolver locks and rereads the explicit current unrevoked head on its existing transaction and seals the
+policy and Catalog cross-binding permanently into the family. Later Composer and Replay compositions use only that
+family-sealed policy and cross-binding; it never rereads the Catalog as authority. An optional Catalog reread is
+audit-only and cannot affect admissibility, so later Catalog revocation, deletion, unavailability, or tamper cannot
+invalidate a formed family. Public Composer or Research requests carry no policy selector. Product Edge, Windmill,
+callers, providers, environment values, defaults, migrations, and deployment configuration cannot create or
+select a version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private
+audited R&D Catalog Administration Port owns those writes.
 
 The public Composer `RUN` accepts only an untrusted request identity, Research custody reference, Design proposal,
 binding requests, and bounded plugin-source capsule. These values are proposals and locators, never verified facts.
@@ -157,12 +161,13 @@ bytes, digests, receipts, or labels.
 
 After A0 and immediately before its positive commit, A1 locks and rereads the final accepted Research custody and
 every exact fact-Owner binding. The R&D, Composer, and Market Data path uses one admitted R&D PostgreSQL
-transaction domain: A1 passes its existing transaction capability to each applicable Owner-owned sealed Catalog,
-Composer, or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
+transaction domain: A1 passes its existing transaction capability to each applicable Owner-owned sealed Composer
+or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
 that exact transaction. No method may open another pool, connection, or transaction; neither caller nor Windmill
 may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority. Missing,
-unavailable, stale, mismatched, cross-cut, or wrong-owner evidence fails before the first positive write. That same
-R&D transaction atomically stores the canonical `StrategyDesignV2`,
+unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or an invalid
+family-sealed policy cross-binding, fails before the first positive write. That same R&D transaction atomically
+stores the canonical `StrategyDesignV2`,
 `StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, private canonical A0 Build Receipt bytes,
 the Composer receipt, host-admission receipt, operation receipt, and R&D outbox. JSON is a projection only and
 cannot be the canonical readback or hash source. Restart and `RESOLVE` reread and parse the canonical Build Receipt,
@@ -209,8 +214,9 @@ provider URL, credential, fixture path, DSN, header, or environment switch. Ever
 PostgreSQL instance/schema, Windmill project/workspace, network, ingress allocation, and volumes, with no route or
 mutable state shared with production or another run. A fixed content-addressed Replay Policy Catalog fixture is
 test-only: the isolated harness creates it and explicitly advances its head through the private administration
-port. The fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE`
-composition; they are not a runtime default, migration seed, production artifact, or deployment selector.
+port before forming the disposable TrialFamily; later acceptance steps consume only the family-sealed policy. The
+fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE` composition;
+they are not a runtime default, migration seed, production artifact, or deployment selector.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
 
