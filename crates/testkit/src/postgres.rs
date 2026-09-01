@@ -11,6 +11,8 @@ use url::Url;
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
 const LEGACY_REPLAY_FAULT_URL_ENV: &str = "VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL";
+const LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "1bde8b290883c0397bddae413e8f60f3b52121f6ca7f25cae35ede583395723d";
 const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
@@ -435,6 +437,20 @@ async fn admit_legacy_replay_duplicate_fault(
            )
            AND (
              SELECT owner.rolname='postgres'
+                AND namespace.nspname='vibe_test_legacy_replay_fault'
+                AND procedure.proname='create_duplicate_current_candidate_v1'
+                AND language.lanname='plpgsql'
+                AND procedure.prokind='f'
+                AND procedure.prorettype='void'::pg_catalog.regtype
+                AND procedure.pronargs=1
+                AND pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+                    ='expected_marker_identity text'
+                AND pg_catalog.encode(
+                      pg_catalog.sha256(
+                        pg_catalog.convert_to(procedure.prosrc,'UTF8')
+                      ),
+                      'hex'
+                    )=$3
                 AND procedure.prosecdef AND procedure.proisstrict
                 AND procedure.provolatile='v' AND procedure.proparallel='u'
                 AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
@@ -456,12 +472,18 @@ async fn admit_legacy_replay_duplicate_fault(
                   WHERE acl.privilege_type<>'EXECUTE' OR acl.is_grantable
                 )=0
                FROM pg_catalog.pg_proc procedure
+               JOIN pg_catalog.pg_namespace namespace
+                 ON namespace.oid=procedure.pronamespace
                JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+               JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
                CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) acl
               WHERE procedure.oid=pg_catalog.to_regprocedure(
                 'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)'
               )
-              GROUP BY owner.rolname,procedure.prosecdef,procedure.proisstrict,
+              GROUP BY owner.rolname,namespace.nspname,procedure.proname,
+                       language.lanname,procedure.prokind,procedure.prorettype,
+                       procedure.pronargs,procedure.oid,procedure.prosrc,
+                       procedure.prosecdef,procedure.proisstrict,
                        procedure.provolatile,procedure.proparallel,procedure.proconfig
            )
            AND pg_catalog.has_function_privilege(
@@ -488,6 +510,7 @@ async fn admit_legacy_replay_duplicate_fault(
     )
     .bind(&target.database)
     .bind(expected_marker)
+    .bind(LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1)
     .fetch_one(&pool)
     .await
     .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
@@ -1039,5 +1062,31 @@ mod tests {
         let rendered = format!("{error:?} {error}");
         assert!(!rendered.contains("secret"));
         assert!(!rendered.contains("postgres://"));
+    }
+
+    #[test]
+    fn legacy_replay_duplicate_admission_binds_the_executable_definition() {
+        let source = include_str!("postgres.rs");
+        for required in [
+            "procedure.prosrc",
+            "language.lanname='plpgsql'",
+            "procedure.prokind='f'",
+            "procedure.prorettype='void'::pg_catalog.regtype",
+            "pg_catalog.pg_get_function_identity_arguments(procedure.oid)",
+            "='expected_marker_identity text'",
+            "procedure.proname='create_duplicate_current_candidate_v1'",
+            "namespace.nspname='vibe_test_legacy_replay_fault'",
+        ] {
+            assert!(
+                source.contains(required),
+                "missing definition check: {required}"
+            );
+        }
+        assert_eq!(LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1.len(), 64);
+        assert!(
+            LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+        );
     }
 }

@@ -151,8 +151,38 @@ if failures:
 PY
 }
 
+check_legacy_replay_fault_function_body() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - "${BASH_SOURCE[0]}" "$repository_root/crates/testkit/src/postgres.rs" << 'PY'
+from hashlib import sha256
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+body_match = re.search(
+    r"CREATE FUNCTION vibe_test_legacy_replay_fault\.create_duplicate_current_candidate_v1\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    script,
+    re.DOTALL,
+)
+digest_match = re.search(
+    r'LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1: &str =\s*"([0-9a-f]{64})";',
+    rust,
+)
+if body_match is None or digest_match is None:
+    raise SystemExit("ERROR: legacy Replay duplicate function source identity is unavailable")
+actual = sha256(body_match.group(1).encode("utf-8")).hexdigest()
+if actual != digest_match.group(1):
+    raise SystemExit("ERROR: legacy Replay duplicate function body changed without admission identity")
+PY
+}
+
 check_static_isolation
 check_nextest_graph_contract
+check_legacy_replay_fault_function_body
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
