@@ -35,6 +35,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             .await
             .map_err(storage)?;
     }
+    crate::replay_policy_catalog_postgres_v2::migrate(pool)
+        .await
+        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
     Ok(())
 }
 
@@ -86,6 +89,7 @@ pub(crate) async fn persist_initial_family(
         membership_receipt_identity: family.membership_receipt.receipt_identity().to_string(),
         census_frontier_identity: family.census_frontier.frontier_identity().to_string(),
         census_frontier_digest: family.census_frontier.frontier_digest().to_string(),
+        replay_execution_policy_v2: family.root.policy().replay_execution_policy_v2().cloned(),
     };
     persist_outbox(
         transaction,
@@ -726,6 +730,8 @@ fn verify_family_outbox_row(
         || payload.membership_receipt_identity != family.membership_receipt.receipt_identity()
         || payload.census_frontier_identity != family.census_frontier.frontier_identity()
         || payload.census_frontier_digest != family.census_frontier.frontier_digest()
+        || payload.replay_execution_policy_v2
+            != family.root.policy().replay_execution_policy_v2().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "family outbox mismatch".to_string(),
@@ -866,6 +872,8 @@ struct FamilyFrozenOutboxV1 {
     membership_receipt_identity: String,
     census_frontier_identity: String,
     census_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1627,6 +1635,7 @@ mod postgres_binding_tests {
             independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
             independence_basis_identity: "independence-basis-v1".to_string(),
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
+            replay_execution_policy_v2: None,
         }
     }
 

@@ -27,6 +27,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
@@ -48,16 +49,17 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 15 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[12]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi

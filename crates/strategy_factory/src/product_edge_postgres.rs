@@ -42,6 +42,7 @@ use crate::rd_owner_postgres_custody::{
     require_rd_owner_api_schema, resolve_verified_artifact_family,
 };
 use crate::{
+    replay_policy_catalog_postgres_v2::resolve_current_for_trial_family_formation,
     trial_family::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
@@ -1977,14 +1978,14 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             }
             self.verify_admission_v2(&product_edge_admission, validated.request())?;
 
-            match load_or_create_basis_in_transaction(
+            match Box::pin(load_or_create_basis_in_transaction(
                 &mut transaction,
                 validated.request(),
                 &digest,
                 &product_edge_admission,
                 self.source_submission.as_deref(),
                 basis_cut,
-            )
+            ))
             .await
             {
                 Ok(basis) => basis,
@@ -2215,7 +2216,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         self.verify_admission_v2(&final_admission, validated.request())?;
         let request = validated.request();
         let proposal = &request.trial_family_proposal;
-        let canonical_policy = TrialFamilyPolicyV1 {
+        let mut canonical_policy = TrialFamilyPolicyV1 {
             trial_budget: proposal.trial_budget,
             stop_rule: proposal.stop_rule.clone(),
             pit_rule_identity: proposal.pit_rule_identity.clone(),
@@ -2230,7 +2231,19 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 &request.goal.falsification_question,
             )
             .map_err(|e| trial_family_storage(&e))?,
+            replay_execution_policy_v2: None,
         };
+        let replay_policy =
+            match resolve_current_for_trial_family_formation(&mut transaction, &canonical_policy)
+                .await
+            {
+                Ok(policy) => policy,
+                Err(_) => {
+                    transaction.rollback().await.map_err(|e| storage(&e))?;
+                    return Ok(unresolved_result_v2(&request_identity));
+                }
+            };
+        canonical_policy.replay_execution_policy_v2 = Some(replay_policy);
         let stored_request = StoredAdmittedResearchRequestV2 {
             schema_version: 1,
             request: request.clone(),
@@ -2356,9 +2369,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         admission: &ProductEdgeAdmissionLocatorV1,
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
         let read_cut = current_epoch_ms()?;
-        let terminal = self
-            .resolve_v2_at(request_identity, admission, read_cut)
-            .await?;
+        let terminal = Box::pin(self.resolve_v2_at(request_identity, admission, read_cut)).await?;
 
         if terminal.resolution() != ProductEdgeResolution::SubmittedOrUnknown {
             return Ok(terminal);
@@ -2396,8 +2407,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         let completed = self.submit_v2(request).await?;
 
         if completed.resolution() == ProductEdgeResolution::Accepted {
-            return self
-                .resolve_v2_at(request_identity, admission, current_epoch_ms()?)
+            return Box::pin(self.resolve_v2_at(request_identity, admission, current_epoch_ms()?))
                 .await;
         }
         Ok(completed)
@@ -2967,10 +2977,10 @@ mod tests {
             .projection_identity()
             .to_string();
 
-        let current = owner
-            .resolve_v2_at(&request_identity, &admission, cut.saturating_sub(1))
-            .await
-            .unwrap();
+        let current =
+            Box::pin(owner.resolve_v2_at(&request_identity, &admission, cut.saturating_sub(1)))
+                .await
+                .unwrap();
         assert_eq!(
             current.research_view().unwrap().availability,
             ResearchViewAvailability::Available
@@ -2980,8 +2990,7 @@ mod tests {
             ResearchNextLegalAction::WaitForRAndDExecution
         );
 
-        let stale = owner
-            .resolve_v2_at(&request_identity, &admission, cut)
+        let stale = Box::pin(owner.resolve_v2_at(&request_identity, &admission, cut))
             .await
             .unwrap();
         assert_eq!(
