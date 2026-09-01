@@ -16,10 +16,13 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayRequestV2;
 use vibe_data::owner::{
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
-    sample_projection::StrategyInputSampleProjectionReadbackV2,
+    sample_projection::{
+        StrategyInputSampleProjectionKindV2, StrategyInputSampleProjectionReadbackV2,
+    },
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
-    strategy_input_binding::StrategyInputBindingReceipt,
+    strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
+    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
 const OWNER_SEMANTICS_VERSION_V2: &str = "v2";
@@ -86,6 +89,7 @@ pub struct PreparedProgramHostCapabilityV2 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV2,
     binding: PreparedProgramBindingV2,
 }
@@ -110,11 +114,13 @@ impl PreparedProgramHostCapabilityV2 {
             replay_input,
             instrument_master,
             input_bindings,
+            joined_cut,
             sample_projection,
             binding,
         } = self;
         if !prepared_projection_binding_matches_v2(
             &binding,
+            &joined_cut,
             sample_projection.receipt_digest(),
             sample_projection.subject_identity(),
             sample_projection.component_count(),
@@ -128,6 +134,7 @@ impl PreparedProgramHostCapabilityV2 {
             replay_input,
             instrument_master,
             input_bindings,
+            joined_cut,
             sample_projection,
             binding,
         })
@@ -198,6 +205,7 @@ pub struct PreparedProgramHostHandoffV2 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV2,
     binding: PreparedProgramBindingV2,
 }
@@ -265,6 +273,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV2,
 ) -> Result<PreparedProgramHostCapabilityV2, ProgramPreparationFaultV2> {
     if !verify_instrument_master_readback(&instrument_master) {
@@ -278,7 +287,11 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
     let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
-    validate_sample_projection_admission_v2(&sample_projection, plan.input_bindings())?;
+    validate_sample_projection_admission_v2(
+        &sample_projection,
+        &joined_cut,
+        plan.input_bindings(),
+    )?;
     binding.sample_projection_digest = sample_projection.receipt_digest();
     binding.sample_projection_subject = sample_projection.subject_identity();
     binding.sample_projection_component_count = sample_projection.component_count();
@@ -289,6 +302,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         replay_input,
         instrument_master,
         input_bindings,
+        joined_cut,
         sample_projection,
         binding,
     })
@@ -517,6 +531,7 @@ fn prepare_program_package_v2(
 
 fn validate_sample_projection_admission_v2(
     projection: &StrategyInputSampleProjectionReadbackV2,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
     plan_bindings: &[BindingProjectionV2],
 ) -> Result<(), ProgramPreparationFaultV2> {
     let components = projection
@@ -538,6 +553,31 @@ fn validate_sample_projection_admission_v2(
             )
         })
         .collect::<Vec<_>>();
+    let mut joined_components = joined_cut
+        .components()
+        .iter()
+        .map(|component| {
+            let [value] = component.frame().values() else {
+                return Err(ProgramPreparationFaultV2::OwnerMismatch);
+            };
+            if component.frame().trigger().lifecycle().kind() != StrategyInputEventKind::Event {
+                return Err(ProgramPreparationFaultV2::OwnerMismatch);
+            }
+            Ok((
+                *value.input_role_identity().as_bytes(),
+                *value.binding_receipt_digest().as_bytes(),
+            ))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    joined_components.sort_unstable();
+    if projection.kind() != StrategyInputSampleProjectionKindV2::JoinedCut
+        || projection.lifecycle() != StrategyInputEventKind::Event
+        || !joined_cut.has_valid_digest()
+        || projection.subject_identity() != *joined_cut.digest().as_bytes()
+        || components != joined_components
+    {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
     validate_sample_projection_binding_set_v2(
         projection.receipt_digest(),
         projection.subject_identity(),
@@ -572,6 +612,23 @@ fn validate_sample_projection_binding_set_v2(
 }
 
 fn prepared_projection_binding_matches_v2(
+    binding: &PreparedProgramBindingV2,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+    receipt_digest: [u8; 32],
+    subject_identity: [u8; 32],
+    component_count: u32,
+) -> bool {
+    joined_cut.has_valid_digest()
+        && subject_identity == *joined_cut.digest().as_bytes()
+        && prepared_projection_identity_matches_v2(
+            binding,
+            receipt_digest,
+            subject_identity,
+            component_count,
+        )
+}
+
+fn prepared_projection_identity_matches_v2(
     binding: &PreparedProgramBindingV2,
     receipt_digest: [u8; 32],
     subject_identity: [u8; 32],
@@ -978,16 +1035,16 @@ mod preparation_tests {
         prepared.sample_projection_subject = [41; 32];
         prepared.sample_projection_component_count = 1;
 
-        assert!(prepared_projection_binding_matches_v2(
+        assert!(prepared_projection_identity_matches_v2(
             &prepared, [31; 32], [41; 32], 1
         ));
-        assert!(!prepared_projection_binding_matches_v2(
+        assert!(!prepared_projection_identity_matches_v2(
             &prepared, [32; 32], [41; 32], 1
         ));
-        assert!(!prepared_projection_binding_matches_v2(
+        assert!(!prepared_projection_identity_matches_v2(
             &prepared, [31; 32], [42; 32], 1
         ));
-        assert!(!prepared_projection_binding_matches_v2(
+        assert!(!prepared_projection_identity_matches_v2(
             &prepared, [31; 32], [41; 32], 2
         ));
     }

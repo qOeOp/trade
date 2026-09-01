@@ -56,6 +56,14 @@ const MARKER: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
 const OWNER_ROLE: &str = "vibe_test_role_market_data_owner";
 const READER_ROLE: &str = "vibe_test_role_market_data_reader";
 
+#[rstest]
+fn sample_projection_v2_migration_closes_kind_registry_to_frame_and_joined_cut() {
+    assert!(MIGRATION_STATEMENTS.iter().any(|statement| {
+        statement.contains("strategy_input_sample_projection_receipts_v2")
+            && statement.contains("CHECK (kind IN (1,2))")
+    }));
+}
+
 fn d(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
 }

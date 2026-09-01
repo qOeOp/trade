@@ -3,6 +3,7 @@ use vibe_data::owner::{
     instrument_master::InstrumentMasterReadbackV1,
     sample_projection::StrategyInputSampleProjectionReadbackV2,
     sealed_replay_input::SealedReplayInput, strategy_input_binding::StrategyInputBindingReceipt,
+    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 use vibe_strategy_factory::{
     PreparedProgramHostCapabilityV2, PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
@@ -17,6 +18,7 @@ type OwnerSealedIssuerV2 = fn(
     SealedReplayInput,
     InstrumentMasterReadbackV1,
     Vec<StrategyInputBindingReceipt>,
+    StrategyInputJoinedCutReceiptV1,
     StrategyInputSampleProjectionReadbackV2,
 )
     -> Result<PreparedProgramHostCapabilityV2, ProgramPreparationFaultV2>;
@@ -43,6 +45,7 @@ fn public_owner_projection_consumer(
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    joined_cut: StrategyInputJoinedCutReceiptV1,
     sample_projection: StrategyInputSampleProjectionReadbackV2,
 ) -> PublicConsumerResultV2 {
     let handoff = prepare_program_host_from_owner_readbacks_v2(
@@ -51,6 +54,7 @@ fn public_owner_projection_consumer(
         replay_input,
         instrument_master,
         input_bindings,
+        joined_cut,
         sample_projection,
     )?
     .into_program_host_handoff_v2()?;

@@ -1,11 +1,11 @@
-//! Canonical Market Data FRAME sample-projection contracts.
+//! Canonical Market Data FRAME and JOINED_CUT sample-projection contracts.
 //!
-//! Issuance consumes only unchanged V1 frame/binding evidence and already verified native
+//! Issuance consumes only unchanged V1 frame/join/binding evidence and already verified native
 //! sample/timeframe readbacks. Public authority artifacts have no public constructor and
 //! deliberately implement neither `Clone` nor `Deserialize`.
 #![allow(
     dead_code,
-    reason = "crate-private FRAME projection custody is consumed by the separately integrated PostgreSQL owner"
+    reason = "crate-private projection custody is consumed by the separately integrated PostgreSQL owner"
 )]
 
 use std::fmt::Display;
@@ -23,6 +23,7 @@ use super::{
         StrategyInputBindingReceipt, StrategyInputEventFrameReceipt, StrategyInputEventKind,
         StrategyInputEventValueReceipt,
     },
+    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
 const FRAME_EVIDENCE_HEADER_LEN: usize = 40;
@@ -95,6 +96,7 @@ impl UntrustedStrategyInputSampleProjectionLocatorV2 {
 /// ```
 pub struct StrategyInputSampleProjectionReadbackV2 {
     receipt_digest: Identity,
+    kind: StrategyInputSampleProjectionKindV2,
     subject_identity: Identity,
     component_count: u32,
     canonical_bytes: Box<[u8]>,
@@ -106,6 +108,7 @@ impl std::fmt::Debug for StrategyInputSampleProjectionReadbackV2 {
         formatter
             .debug_struct("StrategyInputSampleProjectionReadbackV2")
             .field("receipt_digest", &self.receipt_digest)
+            .field("kind", &self.kind)
             .field("subject_identity", &self.subject_identity)
             .field("component_count", &self.component_count)
             .finish_non_exhaustive()
@@ -147,6 +150,18 @@ impl StrategyInputSampleProjectionReadbackV2 {
         self.receipt_digest
     }
 
+    /// Returns the exact projection kind decoded and promoted by Market Data.
+    #[must_use]
+    pub const fn kind(&self) -> StrategyInputSampleProjectionKindV2 {
+        self.kind
+    }
+
+    /// V2 projections are closed to the unchanged EVENT lifecycle.
+    #[must_use]
+    pub const fn lifecycle(&self) -> StrategyInputEventKind {
+        StrategyInputEventKind::Event
+    }
+
     #[must_use]
     pub const fn subject_identity(&self) -> Identity {
         self.subject_identity
@@ -181,10 +196,35 @@ impl StrategyInputSampleProjectionReadbackV2 {
             .into_boxed_slice();
         Self {
             receipt_digest: decoded.digest,
+            kind: decoded.kind,
             subject_identity: decoded.subject_identity,
             component_count: decoded.component_count,
             canonical_bytes: decoded.bytes,
             components,
+        }
+    }
+}
+
+/// Closed V2 projection-kind registry.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StrategyInputSampleProjectionKindV2 {
+    Frame,
+    JoinedCut,
+}
+
+impl StrategyInputSampleProjectionKindV2 {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Frame => FRAME_KIND,
+            Self::JoinedCut => JOINED_CUT_KIND,
+        }
+    }
+
+    const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            FRAME_KIND => Some(Self::Frame),
+            JOINED_CUT_KIND => Some(Self::JoinedCut),
+            _ => None,
         }
     }
 }
@@ -338,12 +378,13 @@ impl StrategyInputFrameEvidenceIdentityV2 {
     }
 }
 
-/// Exact opaque FRAME projection receipt.
+/// Exact opaque FRAME or JOINED_CUT projection receipt.
 #[derive(Debug)]
 pub struct StrategyInputSampleProjectionReceiptV2 {
     bytes: Box<[u8]>,
     digest: Identity,
-    frame_evidence: StrategyInputFrameEvidenceIdentityV2,
+    kind: StrategyInputSampleProjectionKindV2,
+    subject_identity: Identity,
     component_count: u32,
 }
 
@@ -359,8 +400,13 @@ impl StrategyInputSampleProjectionReceiptV2 {
     }
 
     #[must_use]
-    pub const fn frame_evidence(&self) -> &StrategyInputFrameEvidenceIdentityV2 {
-        &self.frame_evidence
+    pub const fn kind(&self) -> StrategyInputSampleProjectionKindV2 {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn subject_identity(&self) -> Identity {
+        self.subject_identity
     }
 
     #[must_use]
@@ -396,11 +442,19 @@ impl PreparedStrategyInputSampleProjectionV2 {
     }
 
     pub(crate) const fn kind_tag(&self) -> u8 {
-        FRAME_KIND
+        self.receipt.kind.tag()
+    }
+
+    pub(crate) const fn kind(&self) -> StrategyInputSampleProjectionKindV2 {
+        self.receipt.kind
+    }
+
+    pub(crate) const fn lifecycle_kind(&self) -> StrategyInputEventKind {
+        StrategyInputEventKind::Event
     }
 
     pub(crate) const fn subject_identity(&self) -> Identity {
-        self.receipt.frame_evidence.identity
+        self.receipt.subject_identity
     }
 
     pub(crate) const fn component_count(&self) -> u32 {
@@ -421,6 +475,7 @@ impl PreparedStrategyInputSampleProjectionV2 {
 pub(super) struct DecodedStrategyInputSampleProjectionV2 {
     bytes: Box<[u8]>,
     digest: Identity,
+    kind: StrategyInputSampleProjectionKindV2,
     subject_identity: Identity,
     component_count: u32,
     components: Box<[DecodedStrategyInputSampleProjectionComponentV2]>,
@@ -442,7 +497,15 @@ impl DecodedStrategyInputSampleProjectionV2 {
     }
 
     pub(super) const fn kind_tag(&self) -> u8 {
-        FRAME_KIND
+        self.kind.tag()
+    }
+
+    pub(super) const fn kind(&self) -> StrategyInputSampleProjectionKindV2 {
+        self.kind
+    }
+
+    pub(super) const fn lifecycle_kind(&self) -> StrategyInputEventKind {
+        StrategyInputEventKind::Event
     }
 
     pub(super) const fn subject_identity(&self) -> Identity {
@@ -761,7 +824,107 @@ pub(crate) fn prepare_strategy_input_sample_projection_frame_v2(
         receipt: StrategyInputSampleProjectionReceiptV2 {
             bytes: bytes.into_boxed_slice(),
             digest,
-            frame_evidence,
+            kind: StrategyInputSampleProjectionKindV2::Frame,
+            subject_identity: frame_evidence.identity,
+            component_count,
+        },
+    })
+}
+
+/// Prepares one complete EVENT JOINED_CUT projection from the exact Owner-sealed V1 receipt.
+pub(crate) fn prepare_strategy_input_sample_projection_joined_cut_v2(
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+    sources: &[StrategyInputSampleProjectionSourceV2<'_>],
+) -> Result<PreparedStrategyInputSampleProjectionV2, StrategyInputSampleProjectionUnavailable> {
+    if !joined_cut.has_valid_digest()
+        || joined_cut.components().len() < 2
+        || joined_cut.components().len() != sources.len()
+    {
+        return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+    }
+
+    let mut components = joined_cut.components().iter().collect::<Vec<_>>();
+    components.sort_by_key(|component| {
+        component
+            .frame()
+            .values()
+            .first()
+            .map(|value| *value.input_role_identity().as_bytes())
+            .unwrap_or([0; 32])
+    });
+    let component_count = u32::try_from(components.len())
+        .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let capacity = RECEIPT_HEADER_LEN
+        .checked_add(
+            RECEIPT_ENTRY_LEN
+                .checked_mul(components.len())
+                .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?,
+        )
+        .ok_or(StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let subject_identity = *joined_cut.digest().as_bytes();
+    let mut bytes = Vec::with_capacity(capacity);
+    put_u16(&mut bytes, 2);
+    put_u16(&mut bytes, 0);
+    bytes.push(JOINED_CUT_KIND);
+    bytes.extend_from_slice(&subject_identity);
+    put_u32(&mut bytes, component_count);
+
+    let mut previous_role = None;
+    for component in components {
+        let frame = component.frame();
+        let [value] = frame.values() else {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        };
+        if frame.trigger().lifecycle().kind() != StrategyInputEventKind::Event {
+            return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
+        }
+        let role = *value.input_role_identity().as_bytes();
+        if previous_role.is_some_and(|previous| previous >= role) {
+            return Err(StrategyInputSampleProjectionUnavailable::NonCanonicalOrder);
+        }
+        previous_role = Some(role);
+        let source = sources
+            .iter()
+            .filter(|source| *source.binding.locator().input_role_identity().as_bytes() == role)
+            .collect::<Vec<_>>();
+        let [source] = source.as_slice() else {
+            return Err(StrategyInputSampleProjectionUnavailable::BindingMismatch);
+        };
+        let mut component_bytes = Vec::with_capacity(64);
+        component_bytes.extend_from_slice(frame.trigger().digest().as_bytes());
+        component_bytes.extend_from_slice(value.digest().as_bytes());
+        if component.frame_digest().as_bytes()
+            != &sha256(
+                b"vibe.market-data.strategy-input-join.component.v1\0",
+                &component_bytes,
+            )
+        {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
+        let frame_evidence = prepare_frame_evidence(frame)?;
+        let coordinate = project_component(frame, value, source)?;
+        let coordinate_digest = sha256(COORDINATE_DOMAIN, &coordinate);
+
+        bytes.extend_from_slice(&role);
+        bytes.extend_from_slice(value.binding_receipt_digest().as_bytes());
+        bytes.extend_from_slice(&frame_evidence.identity);
+        bytes.extend_from_slice(frame.trigger().digest().as_bytes());
+        bytes.extend_from_slice(&frame.trigger().lifecycle().event_identity());
+        bytes.extend_from_slice(value.digest().as_bytes());
+        bytes.extend_from_slice(&source.timeframe.digest());
+        bytes.extend_from_slice(&source.sample.receipt().sample_identity());
+        bytes.extend_from_slice(&source.sample.receipt().digest());
+        bytes.extend_from_slice(&coordinate_digest);
+        bytes.extend_from_slice(&coordinate);
+    }
+    debug_assert_eq!(bytes.len(), capacity);
+    let digest = sha256(RECEIPT_DOMAIN, &bytes);
+    Ok(PreparedStrategyInputSampleProjectionV2 {
+        receipt: StrategyInputSampleProjectionReceiptV2 {
+            bytes: bytes.into_boxed_slice(),
+            digest,
+            kind: StrategyInputSampleProjectionKindV2::JoinedCut,
+            subject_identity,
             component_count,
         },
     })
@@ -922,7 +1085,7 @@ fn schedule_timeframe_spec_bytes_v3(
     Ok(bytes)
 }
 
-/// Decodes exact FRAME bytes without conferring durable Owner-custody authority.
+/// Decodes exact FRAME or JOINED_CUT bytes without conferring durable Owner-custody authority.
 pub(super) fn decode_strategy_input_sample_projection_v2(
     bytes: &[u8],
     expected_digest: Identity,
@@ -938,13 +1101,15 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
     }
     let mut decoder = Decoder::new(bytes);
     decoder.schema(2)?;
-    if decoder.u8()? != FRAME_KIND {
-        return Err(StrategyInputSampleProjectionUnavailable::UnsupportedKind);
-    }
+    let kind = StrategyInputSampleProjectionKindV2::from_tag(decoder.u8()?)
+        .ok_or(StrategyInputSampleProjectionUnavailable::UnsupportedKind)?;
     let subject_identity = decoder.identity_nonzero()?;
     let component_count = decoder.u32()?;
     if component_count == 0 {
         return Err(StrategyInputSampleProjectionUnavailable::EmptyFrame);
+    }
+    if kind == StrategyInputSampleProjectionKindV2::JoinedCut && component_count < 2 {
+        return Err(StrategyInputSampleProjectionUnavailable::CountMismatch);
     }
     let count = usize::try_from(component_count)
         .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
@@ -972,13 +1137,16 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         previous_role = Some(role);
         let binding_digest = decoder.identity_nonzero()?;
         let entry_frame_evidence = decoder.identity_nonzero()?;
-        if entry_frame_evidence != subject_identity {
+        if kind == StrategyInputSampleProjectionKindV2::Frame
+            && entry_frame_evidence != subject_identity
+        {
             return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
         }
         let entry_trigger = decoder.identity_nonzero()?;
-        if trigger_digest
-            .replace(entry_trigger)
-            .is_some_and(|prior| prior != entry_trigger)
+        if kind == StrategyInputSampleProjectionKindV2::Frame
+            && trigger_digest
+                .replace(entry_trigger)
+                .is_some_and(|prior| prior != entry_trigger)
         {
             return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
         }
@@ -1006,6 +1174,16 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         evidence_entries.extend_from_slice(&role);
         evidence_entries.extend_from_slice(&binding_digest);
         evidence_entries.extend_from_slice(&value_digest);
+        if kind == StrategyInputSampleProjectionKindV2::JoinedCut {
+            let entry_evidence = frame_evidence_bytes(
+                entry_trigger,
+                1,
+                &evidence_entries[evidence_entries.len() - FRAME_EVIDENCE_ENTRY_LEN..],
+            );
+            if sha256(FRAME_EVIDENCE_DOMAIN, &entry_evidence) != entry_frame_evidence {
+                return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+            }
+        }
         components.push(DecodedStrategyInputSampleProjectionComponentV2 {
             role_identity: role,
             binding_receipt_digest: binding_digest,
@@ -1016,16 +1194,20 @@ pub(super) fn decode_strategy_input_sample_projection_v2(
         });
     }
     decoder.end()?;
-    let trigger_digest =
-        trigger_digest.ok_or(StrategyInputSampleProjectionUnavailable::EmptyFrame)?;
-    let evidence_bytes = frame_evidence_bytes(trigger_digest, component_count, &evidence_entries);
-    if sha256(FRAME_EVIDENCE_DOMAIN, &evidence_bytes) != subject_identity {
-        return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+    if kind == StrategyInputSampleProjectionKindV2::Frame {
+        let trigger_digest =
+            trigger_digest.ok_or(StrategyInputSampleProjectionUnavailable::EmptyFrame)?;
+        let evidence_bytes =
+            frame_evidence_bytes(trigger_digest, component_count, &evidence_entries);
+        if sha256(FRAME_EVIDENCE_DOMAIN, &evidence_bytes) != subject_identity {
+            return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+        }
     }
 
     Ok(DecodedStrategyInputSampleProjectionV2 {
         bytes: bytes.to_vec().into_boxed_slice(),
         digest: expected_digest,
+        kind,
         subject_identity,
         component_count,
         components: components.into_boxed_slice(),
@@ -1525,6 +1707,12 @@ impl<'a> Decoder<'a> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    use crate::owner::strategy_input_joined_cut::{
+        StrategyInputJoinRoleClaimV1, UntrustedStrategyInputJoinClaimV1,
+        derive_strategy_input_join_identity_v2, issue_strategy_input_joined_cut_v1,
+        seal_strategy_input_join_census_v1,
+    };
     use crate::owner::{
         bar_schedule::{
             BarScheduleReadbackV1, authority as bar_schedule_authority,
@@ -1549,6 +1737,79 @@ pub(crate) mod tests {
             }],
         )
         .expect("complete point-event FRAME projection")
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    fn joined_cut_fixture() -> PreparedStrategyInputSampleProjectionV2 {
+        let (first_binding, first_frame, first_timeframe, first_sample) =
+            point_event_projection_fixture_variant_v2(
+                10,
+                1,
+                30,
+                BindingDigest::from_untrusted_bytes([22; 32]),
+            );
+        let (second_binding, second_frame, second_timeframe, second_sample) =
+            point_event_projection_fixture_variant_v2(
+                9,
+                1,
+                31,
+                BindingDigest::from_untrusted_bytes([23; 32]),
+            );
+        let roles = vec![
+            StrategyInputJoinRoleClaimV1 {
+                semantic_id: "close".into(),
+                input_role_identity: first_binding.locator().input_role_identity(),
+            },
+            StrategyInputJoinRoleClaimV1 {
+                semantic_id: "open".into(),
+                input_role_identity: second_binding.locator().input_role_identity(),
+            },
+        ];
+        let inputs = roles
+            .iter()
+            .map(|role| role.semantic_id.clone())
+            .collect::<Vec<_>>();
+        let claim = UntrustedStrategyInputJoinClaimV1 {
+            strategy_design_identity: first_binding.locator().strategy_design_identity(),
+            join_semantic_id: "bar_pair".into(),
+            join_identity: derive_strategy_input_join_identity_v2(
+                "bar_pair",
+                &inputs,
+                "LATEST_NOT_AFTER",
+                "close",
+                100,
+            ),
+            alignment_semantic_id: "LATEST_NOT_AFTER".into(),
+            trigger_input_id: "close".into(),
+            max_staleness_ns: 100,
+            roles,
+        };
+        let trigger_logical_time = first_frame.trigger().lifecycle().logical_time();
+        let census = seal_strategy_input_join_census_v1(vec![first_frame, second_frame])
+            .expect("complete Owner census");
+        let joined_cut = issue_strategy_input_joined_cut_v1(
+            &claim,
+            &[first_binding.clone(), second_binding.clone()],
+            &census,
+            trigger_logical_time,
+        )
+        .expect("exact Owner joined cut");
+        prepare_strategy_input_sample_projection_joined_cut_v2(
+            &joined_cut,
+            &[
+                StrategyInputSampleProjectionSourceV2 {
+                    binding: &first_binding,
+                    timeframe: &first_timeframe,
+                    sample: &first_sample,
+                },
+                StrategyInputSampleProjectionSourceV2 {
+                    binding: &second_binding,
+                    timeframe: &second_timeframe,
+                    sample: &second_sample,
+                },
+            ],
+        )
+        .expect("complete joined-cut projection")
     }
 
     fn bar_fixture_v3() -> PreparedStrategyInputSampleProjectionV3 {
@@ -1605,6 +1866,7 @@ pub(crate) mod tests {
     fn readback_debug_redacts_owner_bytes_and_components() {
         let readback = StrategyInputSampleProjectionReadbackV2 {
             receipt_digest: [1; 32],
+            kind: StrategyInputSampleProjectionKindV2::Frame,
             subject_identity: [2; 32],
             component_count: 0,
             canonical_bytes: vec![0xaa, 0xbb].into_boxed_slice(),
@@ -1632,6 +1894,49 @@ pub(crate) mod tests {
         assert_eq!(stored.component_count(), prepared.component_count());
         assert_eq!(stored.canonical_bytes(), prepared.canonical_bytes());
         assert_eq!(stored.receipt_digest(), prepared.receipt_digest());
+    }
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn joined_cut_projection_binds_exact_kind_subject_and_each_frame_evidence() {
+        let prepared = joined_cut_fixture();
+        assert_eq!(
+            prepared.kind(),
+            StrategyInputSampleProjectionKindV2::JoinedCut
+        );
+        assert_eq!(prepared.lifecycle_kind(), StrategyInputEventKind::Event);
+        assert_eq!(prepared.component_count(), 2);
+        let decoded = decode_strategy_input_sample_projection_v2(
+            prepared.canonical_bytes(),
+            prepared.receipt_digest(),
+        )
+        .expect("exact joined-cut projection");
+        assert_eq!(
+            decoded.kind(),
+            StrategyInputSampleProjectionKindV2::JoinedCut
+        );
+        assert_eq!(decoded.lifecycle_kind(), StrategyInputEventKind::Event);
+        assert_eq!(decoded.subject_identity(), prepared.subject_identity());
+        assert_eq!(decoded.components().len(), 2);
+
+        let mut wrong_kind = prepared.canonical_bytes().to_vec();
+        wrong_kind[4] = FRAME_KIND;
+        let wrong_kind_digest = sha256(RECEIPT_DOMAIN, &wrong_kind);
+        assert_eq!(
+            decode_strategy_input_sample_projection_v2(&wrong_kind, wrong_kind_digest).unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::EvidenceMismatch
+        );
+
+        let mut cross_spliced = prepared.canonical_bytes().to_vec();
+        let first_evidence =
+            cross_spliced[RECEIPT_HEADER_LEN + 64..RECEIPT_HEADER_LEN + 96].to_vec();
+        let second_evidence = RECEIPT_HEADER_LEN + RECEIPT_ENTRY_LEN + 64;
+        cross_spliced[second_evidence..second_evidence + 32].copy_from_slice(&first_evidence);
+        let digest = sha256(RECEIPT_DOMAIN, &cross_spliced);
+        assert_eq!(
+            decode_strategy_input_sample_projection_v2(&cross_spliced, digest).unwrap_err(),
+            StrategyInputSampleProjectionUnavailable::EvidenceMismatch
+        );
     }
 
     #[rstest]
@@ -1999,7 +2304,7 @@ pub(crate) mod tests {
                 sha256(RECEIPT_DOMAIN, &joined_cut),
             )
             .unwrap_err(),
-            StrategyInputSampleProjectionUnavailable::UnsupportedKind
+            StrategyInputSampleProjectionUnavailable::CountMismatch
         );
 
         let mut zero_count = valid.to_vec();
