@@ -970,6 +970,26 @@ impl PostgresResearchGoalOwnerV1 {
             .await
     }
 
+    /// Locks the V2 sealed handoff on a caller-held canonical Backtest login transaction.
+    ///
+    /// Both the session and current role must be the canonical `backtest_owner`, with no
+    /// non-superuser role able to assume that role. The R&D row lock remains held until the caller
+    /// commits or rolls back that transaction, so Backtest can retain the request with its own
+    /// writes and revalidate before commit. This path invokes only the existing R&D Owner read API
+    /// and never writes Backtest-owned storage.
+    pub async fn lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+        &self,
+        transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        locator: &ExploratoryReplayRequestLocatorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        crate::exploratory_replay::postgres::lock_for_backtest_v2_in_transaction(
+            &self.pool,
+            transaction,
+            locator,
+        )
+        .await
+    }
+
     pub async fn preflight_request_identity(
         &self,
         request_identity: &str,

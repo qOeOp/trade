@@ -1,0 +1,5 @@
+error: cannot construct `SealedExploratoryResultReadbackV1` with struct literal syntax due to private fields
+ --> tests/ui/caller_constructs_readback.rs:4:13
+  |
+4 |     let _ = SealedExploratoryResultReadbackV1 {};
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

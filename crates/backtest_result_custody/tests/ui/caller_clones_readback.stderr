@@ -1,0 +1,5 @@
+error[E0599]: no method named `clone` found for struct `SealedExploratoryResultReadbackV1` in the current scope
+ --> tests/ui/caller_clones_readback.rs:4:54
+  |
+4 |     let _: SealedExploratoryResultReadbackV1 = value.clone();
+  |                                                      ^^^^^ method not found in `SealedExploratoryResultReadbackV1`

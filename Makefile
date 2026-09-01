@@ -220,7 +220,7 @@ $(NEXTEST_ENV_TARGETS): export NEXTEST_TEST_THREADS=$(NEXTEST_TEST_THREADS_FOR_R
 endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
-CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-common vibe-core \
+CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
@@ -775,7 +775,7 @@ cargo-test-postgres-ci:  #-- Run focused PostgreSQL tests with the CI bootstrap 
 cargo-test-rd-owner-postgres-isolated: check-nextest-installed  #-- Run destructive R&D Owner tests in a disposable marked PostgreSQL instance
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
-	RD_OWNER_POSTGRES_FEATURES="$(CARGO_FEATURES)" \
+	RD_OWNER_POSTGRES_FEATURES="$(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance" \
 	bash scripts/ci/test-rd-owner-postgres.bash
 
 .PHONY: check-rd-owner-postgres-isolation
@@ -785,6 +785,14 @@ check-rd-owner-postgres-isolation:  #-- Statically verify destructive PostgreSQL
 .PHONY: cargo-test-market-data-owner-postgres-isolated
 cargo-test-market-data-owner-postgres-isolated:  #-- Run isolated Market Data PostgreSQL owner tests
 	bash crates/data/tests/run_market_data_owner_postgres.bash
+
+.PHONY: cargo-test-backtest-owner-postgres-isolated
+cargo-test-backtest-owner-postgres-isolated:  #-- Run Backtest Owner Replay V2 tests in a disposable PostgreSQL instance
+	bash scripts/ci/test-backtest-owner-postgres.bash
+
+.PHONY: check-backtest-owner-postgres-isolation
+check-backtest-owner-postgres-isolation:  #-- Statically verify Backtest Owner PostgreSQL test isolation
+	bash scripts/ci/test-backtest-owner-postgres.bash --check
 
 # Doctests need their own target because `cargo nextest` cannot run them.
 # Sharing --features and --profile with the nextest targets lets both reuse the

@@ -9664,10 +9664,14 @@ dependencies = [
  "rstest",
  "serde",
  "serde_json",
+ "sqlx",
  "thiserror 2.0.19",
+ "tokio",
  "trybuild",
  "vibe-backtest-owner-contracts",
+ "vibe-backtest-result-custody",
  "vibe-strategy-factory",
+ "vibe-testkit",
 ]
 
 [[package]]
@@ -9679,6 +9683,19 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.19",
+]
+
+[[package]]
+name = "vibe-backtest-result-custody"
+version = "0.62.0"
+dependencies = [
+ "blake3",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "thiserror 2.0.19",
+ "trybuild",
+ "vibe-backtest-owner-contracts",
 ]
 
 [[package]]
@@ -11248,6 +11265,7 @@ dependencies = [
  "vibe-analysis",
  "vibe-backtest",
  "vibe-backtest-owner-contracts",
+ "vibe-backtest-result-custody",
  "vibe-binance",
  "vibe-common",
  "vibe-core",

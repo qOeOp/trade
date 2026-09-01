@@ -50,6 +50,9 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+const LOCK_SOURCE_V1_MD5: &str = "47881280b8c38484f91e0117666e73fb";
+const LOCK_SOURCE_V2_MD5: &str = "298960419b17ff770dbd13ac2765f93a";
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TestFamilyFrozenOutboxV1 {
@@ -604,9 +607,21 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND facade.proparallel='u'
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.md5(facade.prosrc)=$1
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=facade_owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND (acl.grantee NOT IN (facade_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>facade_owner.oid OR acl.is_grantable)
+             )
              AND helper_owner.rolname='rd_owner'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
@@ -650,6 +665,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
            'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
          )",
     )
+    .bind(LOCK_SOURCE_V2_MD5)
     .fetch_one(rd_pool)
     .await
     .expect("Replay V2 resolve and Backtest facade catalog");
@@ -1297,12 +1313,20 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND facade.proparallel='u'
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.md5(facade.prosrc)=$1
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=facade_owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND (acl.grantee NOT IN (facade_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>facade_owner.oid OR acl.is_grantable)
              )
              AND helper_owner.rolname='rd_owner'
              AND NOT helper.prosecdef
@@ -1328,6 +1352,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
            'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)'
          )",
     )
+    .bind(LOCK_SOURCE_V1_MD5)
     .fetch_one(rd_pool)
     .await
     .expect("published replay verifier catalog");
@@ -1679,6 +1704,55 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
         recovered_v2.readback().unwrap().canonical_request_bytes(),
         sealed_v2.canonical_request_bytes()
     );
+}
+
+#[tokio::test]
+#[ignore = "requires a disposable topology with a SET-only Backtest role member"]
+async fn caller_transaction_rejects_set_only_backtest_role_impersonation() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let sealed = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("frozen Replay V2 request");
+    let impersonator_url = format!("{}?options=-c%20role%3Dbacktest_owner", fixture.edge_url);
+    let impersonator_pool = PgPool::connect(&impersonator_url)
+        .await
+        .expect("product_edge_owner SET-only impersonator pool");
+    let mut impersonator_transaction = impersonator_pool
+        .begin()
+        .await
+        .expect("product_edge_owner impersonator transaction");
+    let (session_identity, current_identity, has_usage, has_set): (String, String, bool, bool) =
+        sqlx::query_as(
+            "SELECT session_user,current_user,
+                pg_catalog.pg_has_role(session_user,'backtest_owner','USAGE'),
+                pg_catalog.pg_has_role(session_user,'backtest_owner','SET')",
+        )
+        .fetch_one(&mut *impersonator_transaction)
+        .await
+        .expect("SET-only impersonator identity");
+    assert_eq!(session_identity, "product_edge_owner");
+    assert_eq!(current_identity, "backtest_owner");
+    assert!(!has_usage);
+    assert!(has_set);
+
+    let rejection = fixture
+        .owner
+        .lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+            &mut impersonator_transaction,
+            sealed.locator(),
+        )
+        .await
+        .expect_err("SET-only transaction must receive no sealed Replay V2 readback");
+    assert!(matches!(
+        rejection,
+        ExploratoryReplayOwnerError::Unavailable(_)
+    ));
+    impersonator_transaction
+        .rollback()
+        .await
+        .expect("rollback impersonator transaction");
 }
 
 async fn assert_unavailable(

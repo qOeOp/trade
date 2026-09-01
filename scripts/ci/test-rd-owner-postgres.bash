@@ -11,7 +11,7 @@ readonly guarded_roots=(
   crates/strategy_factory_rd_owner_api
 )
 
-# Build the three Owner test packages into one nextest archive. The ordered
+# Build the four Owner test packages into one nextest archive. The ordered
 # package/binary/test filters below then run from that immutable build while
 # the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
@@ -25,6 +25,12 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::all_public_seams_reject_capability_free_inbound_backtest_owner_membership'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
@@ -35,11 +41,12 @@ readonly nextest_graph_args=(
   --package vibe-strategy-factory
   --package vibe-strategy-factory-rd-owner-api
   --package vibe-product-edge
+  --package vibe-backtest-owner
   --lib
   --tests
 )
 # The incoming Makefile union also contains workspace-root features that none of
-# the three selected packages expose. Keep the archive projection package-scoped.
+# the four selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
@@ -48,20 +55,35 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 20 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[9]}" != *'|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once' ]] ||
+    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres::durable_postgres_replay_v2::all_public_seams_reject_capability_free_inbound_backtest_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
+  local test_selection test_package
+  for test_selection in "${rd_owner_postgres_tests[@]}"; do
+    IFS='|' read -r test_package _ _ <<< "$test_selection"
+    if [[ " ${nextest_graph_args[*]} " != *" --package ${test_package} "* ]]; then
+      echo "ERROR: selected test package ${test_package} is unreachable from the nextest archive graph." >&2
+      return 1
+    fi
+  done
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
@@ -71,9 +93,15 @@ check_nextest_graph_contract() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if ! rg -Uq \
-    'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(CARGO_FEATURES\)"' \
+    'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(CARGO_FEATURES\),vibe-strategy-factory/sealed-develop-composer-acceptance"' \
     "$repository_root/Makefile"; then
     echo "ERROR: Makefile must pass the shared nextest graph explicitly." >&2
+    return 1
+  fi
+  if ! rg -Uq \
+    'CREATE FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(\n[[:space:]]+requested_request_identity text\n\) RETURNS void\nLANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER\nSET search_path=pg_catalog\nAS \$function\$\nDECLARE affected_rows bigint;\nBEGIN\n[[:space:]]+UPDATE public\.rd_sealed_exploratory_replay_requests_v1\n[[:space:]]+SET lifecycle_state='"'"'REVOKED'"'"'\n[[:space:]]+WHERE request_identity=requested_request_identity\n[[:space:]]+AND request_schema_version=2\n[[:space:]]+AND lifecycle_state='"'"'FROZEN'"'"';\n[[:space:]]+GET DIAGNOSTICS affected_rows = ROW_COUNT;\n[[:space:]]+IF affected_rows <> 1 THEN.*\n[[:space:]]+RAISE EXCEPTION.*\n[[:space:]]+END IF;\nEND\n\$function\$;\nALTER FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\) OWNER TO postgres;\nREVOKE ALL ON FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\)\n[[:space:]]+FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,\n[[:space:]]+rd_owner, qualification_writer, qualification_owner;\nGRANT EXECUTE ON FUNCTION vibe_test_admin\.revoke_replay_request_before_backtest_persist_v2\(text\)\n[[:space:]]+TO backtest_owner;' \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: disposable Backtest pre-persist revocation hook contract changed." >&2
     return 1
   fi
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
@@ -445,6 +473,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=test_marker="$test_marker" << 'SQL'
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
+CREATE ROLE replay_rogue_backtest_inbound_v1 NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
   marker_identity text NOT NULL,
   database_name text NOT NULL,
@@ -455,6 +484,47 @@ REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
 GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
 GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+CREATE FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(
+  requested_request_identity text
+) RETURNS void
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+DECLARE affected_rows bigint;
+BEGIN
+  UPDATE public.rd_sealed_exploratory_replay_requests_v1
+     SET lifecycle_state='REVOKED'
+   WHERE request_identity=requested_request_identity
+     AND request_schema_version=2
+     AND lifecycle_state='FROZEN';
+  GET DIAGNOSTICS affected_rows = ROW_COUNT;
+  IF affected_rows <> 1 THEN
+    RAISE EXCEPTION 'expected exactly one frozen Replay V2 request, changed %', affected_rows;
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text)
+  FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,
+       rd_owner, qualification_writer, qualification_owner;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text)
+  TO backtest_owner;
+CREATE FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(enabled boolean)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $function$
+BEGIN
+  IF enabled THEN
+    GRANT backtest_owner TO replay_rogue_backtest_inbound_v1 WITH INHERIT FALSE, SET TRUE;
+  ELSE
+    REVOKE backtest_owner FROM replay_rogue_backtest_inbound_v1;
+  END IF;
+END
+$function$;
+REVOKE ALL ON FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(boolean)
+  FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,
+       rd_owner, qualification_writer, qualification_owner;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(boolean)
+  TO backtest_owner;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -910,6 +980,7 @@ BEGIN
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND pg_catalog.md5(procedure.prosrc) = '47881280b8c38484f91e0117666e73fb'
   )
      OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'rd_owner_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
@@ -934,6 +1005,7 @@ BEGIN
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND pg_catalog.md5(procedure.prosrc) = '298960419b17ff770dbd13ac2765f93a'
   )
      OR NOT pg_catalog.has_function_privilege(
        'backtest_owner',
@@ -946,7 +1018,6 @@ BEGIN
 
   FOREACH role_name IN ARRAY ARRAY[
     'public',
-    'rd_owner',
     'qualification_owner',
     'qualification_writer',
     'product_edge_owner',
