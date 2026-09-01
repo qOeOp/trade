@@ -1477,6 +1477,8 @@ pub(crate) fn verify_census_v2(
         .skip(1)
     {
         let ordinal = u32::try_from(index).map_err(unavailable)?;
+        require_identity(&member.fact_identity, "CENSUS_FACT_IDENTITY_INVALID")?;
+        require_sha256(&member.fact_digest, "CENSUS_FACT_DIGEST_INVALID")?;
         let attempt_ordinal = if ordinal <= 2 {
             0
         } else {
@@ -2110,6 +2112,103 @@ mod tests {
         .unwrap();
         census.members[2].fact_digest = format!("sha256:{}", "f".repeat(64));
         assert!(verify_census_v2(&census).is_err());
+
+        let mut malformed_member = append_attempt_to_census_v2(
+            family.clone(),
+            None,
+            append(
+                &family,
+                0,
+                TrialFamilyAttemptTerminalDispositionV2::TerminalResult,
+                Vec::new(),
+            ),
+            100,
+        )
+        .unwrap();
+
+        // mutate a non-initial request fact locator and digest, then recompute dependent
+        // member identity/receipt fields to keep all other digests aligned.
+        let malformed_index = 1;
+        let malformed_epoch_ms =
+            malformed_member.membership_receipts[malformed_index].committed_at_epoch_ms;
+        malformed_member.members[malformed_index].fact_identity = "bad locator!!!".to_string();
+        malformed_member.members[malformed_index].fact_digest =
+            format!("sha256:{}", "f".repeat(63));
+        let rebuilt_member_digest = canonical_digest(
+            "rd.trial-family.census-member.v2",
+            &MemberMeaningV2 {
+                schema_version: 2,
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                attempt_ordinal: malformed_member.members[malformed_index].attempt_ordinal,
+                ordinal: malformed_member.members[malformed_index].ordinal,
+                member_kind: malformed_member.members[malformed_index].member_kind,
+                fact_identity: &malformed_member.members[malformed_index].fact_identity,
+                fact_digest: &malformed_member.members[malformed_index].fact_digest,
+                terminal_disposition: malformed_member.members[malformed_index]
+                    .terminal_disposition,
+            },
+        )
+        .unwrap();
+        malformed_member.members[malformed_index].member_digest = rebuilt_member_digest.clone();
+        malformed_member.members[malformed_index].member_identity =
+            identity("rd-trial-family-member-v2", &rebuilt_member_digest);
+        let rebuilt_receipt_digest = canonical_digest(
+            "rd.trial-family.membership-receipt.v2",
+            &MembershipReceiptMeaningV2 {
+                schema_version: 2,
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                member_identity: &malformed_member.members[malformed_index].member_identity,
+                member_digest: &malformed_member.members[malformed_index].member_digest,
+                committed_at_epoch_ms: malformed_epoch_ms,
+            },
+        )
+        .unwrap();
+        malformed_member.membership_receipts[malformed_index].receipt_identity = identity(
+            "rd-trial-family-membership-receipt-v2",
+            &rebuilt_receipt_digest,
+        );
+        malformed_member.membership_receipts[malformed_index].member_identity = malformed_member
+            .members[malformed_index]
+            .member_identity
+            .clone();
+        malformed_member.membership_receipts[malformed_index].member_digest = malformed_member
+            .members[malformed_index]
+            .member_digest
+            .clone();
+        let rebuilt_member_digests = malformed_member
+            .members
+            .iter()
+            .map(|member| member.member_digest.clone())
+            .collect::<Vec<_>>();
+        let rebuilt_census_digest = canonical_digest(
+            "rd.trial-family.census-frontier.v2",
+            &CensusFrontierMeaningV2 {
+                schema_version: 2,
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                root_digest: &malformed_member.legacy_family.root.root_digest,
+                member_digests: &rebuilt_member_digests,
+                consumed_trial_budget: malformed_member.census_frontier.consumed_trial_budget,
+                attempt_frontier_identity: &malformed_member.attempt_frontier.frontier_identity,
+                attempt_frontier_digest: &malformed_member.attempt_frontier.frontier_digest,
+                candidate_set_frontier_identity: &malformed_member
+                    .candidate_set_frontier
+                    .frontier_identity,
+                candidate_set_frontier_digest: &malformed_member
+                    .candidate_set_frontier
+                    .frontier_digest,
+            },
+        )
+        .unwrap();
+        malformed_member.census_frontier.member_digests = rebuilt_member_digests;
+        malformed_member.census_frontier.frontier_identity =
+            identity("rd-trial-family-frontier-v2", &rebuilt_census_digest);
+        malformed_member.census_frontier.frontier_digest = rebuilt_census_digest;
+        assert_eq!(
+            verify_census_v2(&malformed_member),
+            Err(TrialFamilyError::InvalidPolicy(
+                "CENSUS_FACT_IDENTITY_INVALID"
+            ))
+        );
     }
 
     #[rstest]
