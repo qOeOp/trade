@@ -2046,7 +2046,6 @@ impl TestProductEdge {
                     audience: format!("R_AND_D:{suffix}"),
                     permissions: vec![
                         "research:artifact-build".into(),
-                        "research:replay".into(),
                         "research:submit".into(),
                         "research:view".into(),
                     ],

@@ -13,7 +13,7 @@ use crate::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V1, EXPLORATORY_REPLAY_REQUEST_FROZEN_EVENT_V2,
-        EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2, EXPLORATORY_REPLAY_SCOPE_V1,
+        EXPLORATORY_REPLAY_SCHEMA_V1, EXPLORATORY_REPLAY_SCHEMA_V2,
         ExploratoryReplayAvailabilityV1, ExploratoryReplayCommitReceiptV1,
         ExploratoryReplayCommitReceiptV2, ExploratoryReplayCommitResultV1,
         ExploratoryReplayCommitResultV2, ExploratoryReplayNextLegalActionV1,
@@ -25,7 +25,9 @@ use crate::{
         SealedExploratoryReplayReadbackV2, VersionedIdentityV1,
         exploratory_replay_admission_payload_v1, exploratory_replay_admission_payload_v2,
     },
-    product_edge::{FrozenResearchGoalIntent, RESEARCH_OWNER_V1, ResearchRequestDisposition},
+    product_edge::{
+        FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
+    },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
 };
 
@@ -2001,7 +2003,7 @@ fn verify_replay_admission(
         || !admission
             .authorized_scope()
             .iter()
-            .any(|scope| scope == EXPLORATORY_REPLAY_SCOPE_V1)
+            .any(|scope| scope == RESEARCH_SCOPE_V1)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "canonical Product Edge Replay admission mismatch".into(),
@@ -2034,7 +2036,7 @@ fn verify_replay_admission_for_commit(
         || !admission
             .authorized_scope()
             .iter()
-            .any(|scope| scope == EXPLORATORY_REPLAY_SCOPE_V1)
+            .any(|scope| scope == RESEARCH_SCOPE_V1)
     {
         return Err(ExploratoryReplayOwnerError::Unavailable(
             "canonical Product Edge Replay V2 admission mismatch".into(),
