@@ -440,12 +440,21 @@ async fn admit_legacy_replay_duplicate_fault(
                 AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
                 AND pg_catalog.count(*)=2
                 AND pg_catalog.count(*) FILTER (
+                  WHERE acl.grantee=procedure.proowner
+                    AND acl.privilege_type='EXECUTE'
+                    AND NOT acl.is_grantable
+                )=1
+                AND pg_catalog.count(*) FILTER (
                   WHERE acl.grantee=pg_catalog.to_regrole(
                     'vibe_test_legacy_replay_fault_writer'
                   )::oid
                     AND acl.privilege_type='EXECUTE'
                     AND NOT acl.is_grantable
                 )=1
+                AND pg_catalog.count(*) FILTER (WHERE acl.grantee=0)=0
+                AND pg_catalog.count(*) FILTER (
+                  WHERE acl.privilege_type<>'EXECUTE' OR acl.is_grantable
+                )=0
                FROM pg_catalog.pg_proc procedure
                JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
                CROSS JOIN LATERAL pg_catalog.aclexplode(procedure.proacl) acl
@@ -457,11 +466,6 @@ async fn admit_legacy_replay_duplicate_fault(
            )
            AND pg_catalog.has_function_privilege(
              session_user,
-             'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)',
-             'EXECUTE'
-           )
-           AND NOT pg_catalog.has_function_privilege(
-             'PUBLIC',
              'vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1(text)',
              'EXECUTE'
            )
