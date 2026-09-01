@@ -1169,6 +1169,7 @@ async fn verify_expired_manifest_recovery_schema(
         .await
         .map_err(storage)?
         .unwrap_or(false);
+
     if !verified {
         return Err(ProductEdgeError::Unavailable);
     }
@@ -1178,6 +1179,7 @@ async fn verify_expired_manifest_recovery_schema(
 async fn prepare_expired_manifest_recovery_schema_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ProductEdgeError> {
+
     for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
         sqlx::query(statement)
             .execute(&mut **transaction)
@@ -1299,6 +1301,7 @@ impl ProductEdgePostgresOwnerV1 {
             observe(statement).await;
         }
         prepare_expired_manifest_recovery_schema_in_transaction(&mut transaction).await?;
+
         for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
             observe(statement).await;
         }

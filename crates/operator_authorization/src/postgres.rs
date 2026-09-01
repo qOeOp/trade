@@ -277,6 +277,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         &self,
     ) -> Result<(), OperatorAuthorizationError> {
         let mut transaction = self.pool.begin().await.map_err(storage)?;
+
         for statement in EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS {
             sqlx::query(statement)
                 .execute(&mut *transaction)
@@ -288,6 +289,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .await
             .map_err(storage)?
             .unwrap_or(false);
+
         if !verified {
             return Err(OperatorAuthorizationError::Unavailable);
         }
