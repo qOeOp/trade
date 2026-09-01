@@ -90,11 +90,7 @@ struct ReplayFixture {
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
 async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
-    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
-    let mutation = fixture.database.mutation();
-    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-
-    let legacy_catalog: (
+    type LegacyReplayCatalogRow = (
         String,
         Option<String>,
         bool,
@@ -105,7 +101,13 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         Vec<String>,
         bool,
         bool,
-    ) = sqlx::query_as(
+    );
+
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+
+    let legacy_catalog: LegacyReplayCatalogRow = sqlx::query_as(
             "SELECT owner.rolname,
                     pg_catalog.obj_description(relation.oid, 'pg_class'),
                     pg_catalog.has_table_privilege('product_edge_owner', relation.oid, 'SELECT'),

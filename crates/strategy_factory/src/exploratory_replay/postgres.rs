@@ -230,7 +230,7 @@ struct ValidatedAvailableEnvelopeV1 {
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
     let mut migration = pool.begin().await.map_err(storage)?;
     sqlx::query(
-        r#"
+        "
         DO $migration$
         DECLARE old_oid oid;
         DECLARE current_oid oid;
@@ -399,7 +399,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           END IF;
         END
         $migration$;
-        "#,
+        ",
     )
     .execute(&mut *migration)
     .await

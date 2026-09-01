@@ -1,4 +1,4 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 use vibe_strategy_factory::artifact_build_postgres::drain_legacy_prepared_attempts_v1;
 
 const DATABASE_URL_ENV: &str = "LEGACY_PREPARED_ATTEMPT_DRAIN_DATABASE_URL";
@@ -16,16 +16,19 @@ async fn main() -> anyhow::Result<()> {
         .context("invalid --expected-target-count")?;
     let expected_target_set_digest = require_option(&mut args, "--expected-target-set-sha256")?;
     if args.next().is_some() {
-        bail!("unexpected legacy drain argument");
+        anyhow::bail!("unexpected legacy drain argument");
     }
+
     if !is_sha256(&expected_target_database_resource_fingerprint) {
-        bail!("invalid --expected-target-database-resource-sha256");
+        anyhow::bail!("invalid --expected-target-database-resource-sha256");
     }
+
     if !is_sha256(&expected_target_database_fingerprint) {
-        bail!("invalid --expected-target-database-sha256");
+        anyhow::bail!("invalid --expected-target-database-sha256");
     }
+
     if !is_sha256(&expected_target_set_digest) {
-        bail!("invalid --expected-target-set-sha256");
+        anyhow::bail!("invalid --expected-target-set-sha256");
     }
     let database_url = std::env::var(DATABASE_URL_ENV)
         .with_context(|| format!("{DATABASE_URL_ENV} must be explicitly set"))?;
@@ -58,7 +61,7 @@ fn require_option(
 ) -> anyhow::Result<String> {
     let option = args.next().context("missing legacy drain option")?;
     if option != expected {
-        bail!("expected {expected}");
+        anyhow::bail!("expected {expected}");
     }
     args.next()
         .with_context(|| format!("missing value for {expected}"))

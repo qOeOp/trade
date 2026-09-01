@@ -304,6 +304,7 @@ impl PostgresArtifactBuildOwnerV1 {
             {
                 continue;
             }
+
             if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
                 let binding = verify_admitted_legacy_prepared_binding(&row, &value, &prepared)?;
                 verify_drain_in_transaction(
@@ -374,6 +375,7 @@ impl PostgresArtifactBuildOwnerV1 {
             transaction.commit().await.map_err(storage)?;
             return Ok(ArtifactRequestIdentityPreflightV1::Current);
         }
+
         if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
             let binding = verify_admitted_legacy_prepared_binding(row, &value, &prepared)?;
             if binding.build_request_identity != build_request_identity
@@ -460,6 +462,7 @@ impl PostgresArtifactBuildOwnerV1 {
         {
             return Err(ArtifactBuildError::ConflictingReplay);
         }
+
         if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
             let binding = verify_admitted_legacy_prepared_binding(row, &value, &prepared)?;
             if binding.build_request_identity != build_request_identity
@@ -1352,6 +1355,7 @@ fn verify_admitted_legacy_prepared_binding(
             "noncanonical legacy PREPARED attempt custody".into(),
         ));
     }
+
     if legacy.request_semantic_digest.trim().is_empty() {
         return Err(ArtifactBuildError::Storage(
             "legacy PREPARED attempt semantic digest unavailable".into(),
@@ -2020,6 +2024,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
     }
     let target_database_resource_fingerprint =
         crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(database_url)?;
+
     if target_database_resource_fingerprint != expected_target_database_resource_fingerprint {
         return Err(ArtifactBuildError::Storage(
             "legacy PREPARED drain target database resource mismatch".into(),
@@ -2039,12 +2044,14 @@ pub async fn drain_legacy_prepared_attempts_v1(
         crate::legacy_prepared_attempt_drain::current_database_identity(&mut transaction).await?;
     let target_database_fingerprint =
         crate::legacy_prepared_attempt_drain::database_fingerprint(&target_database_identity)?;
+
     if target_database_fingerprint != expected_target_database_fingerprint {
         return Err(ArtifactBuildError::Storage(
             "legacy PREPARED drain target database mismatch".into(),
         ));
     }
     migrate_legacy_drain(&mut transaction).await?;
+
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_strategy_artifacts_v1 IN SHARE ROW EXCLUSIVE MODE",
@@ -2059,6 +2066,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
     let rows = sqlx::query("SELECT build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity,attempt_identity FOR SHARE")
         .fetch_all(&mut *transaction).await.map_err(storage)?;
     let mut targets = Vec::new();
+
     for row in rows {
         let value: serde_json::Value = row.try_get("attempt_json").map_err(storage)?;
         if let Ok(candidate) = decode_admitted_legacy_prepared(&value) {
@@ -2067,6 +2075,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
             )?);
             continue;
         }
+
         if serde_json::from_value::<StoredAttemptV1>(value.clone())
             .ok()
             .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value))
@@ -2099,6 +2108,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
     .fetch_one(&mut *transaction)
     .await
     .map_err(storage)?;
+
     if existing_count != 0 && existing_count != i64::from(expected_target_count) {
         return Err(ArtifactBuildError::Storage(
             "partial legacy PREPARED drain set is forbidden".into(),
@@ -2110,6 +2120,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
         for (index, target) in targets.iter().enumerate() {
             let (database, absence) =
                 verify_live_predicates_in_transaction(&mut transaction, target).await?;
+
             if database != target_database_identity {
                 return Err(ArtifactBuildError::Storage(
                     "legacy PREPARED drain target database changed".into(),
@@ -2125,6 +2136,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
             )?;
             append_receipt_and_outbox_in_transaction(&mut transaction, &receipt).await?;
             receipts.push(receipt);
+
             if fail_after_receipt_count == Some(u32::try_from(index + 1).map_err(json_storage)?) {
                 return Err(ArtifactBuildError::Storage(
                     "injected legacy PREPARED drain rollback".into(),
@@ -2180,6 +2192,7 @@ fn trial_family_storage(error: &TrialFamilyError) -> ArtifactBuildError {
 #[cfg(test)]
 mod admitted_legacy_prepared_tests {
     use super::*;
+    use rstest::rstest;
 
     fn fixture(channel: &str) -> serde_json::Value {
         serde_json::json!({
@@ -2204,7 +2217,7 @@ mod admitted_legacy_prepared_tests {
         })
     }
 
-    #[test]
+    #[rstest]
     fn exact_real_app_and_mcp_prepared_shapes_are_uniquely_admitted() {
         for channel in ["APP", "MCP"] {
             let value = fixture(channel);
@@ -2214,7 +2227,7 @@ mod admitted_legacy_prepared_tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn unknown_admitted_prepared_request_key_or_channel_fails_closed() {
         let mut unknown_key = fixture("APP");
         unknown_key["request"]["context"] = serde_json::json!({});
@@ -2223,7 +2236,7 @@ mod admitted_legacy_prepared_tests {
         assert!(decode_admitted_legacy_prepared(&unknown_channel).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn drained_wire_is_quarantined_and_normal_wire_omits_drain_readback() {
         let prepared = decode_admitted_legacy_prepared(&fixture("APP")).unwrap();
         let receipt = crate::legacy_prepared_attempt_drain::tests::fixture_receipt();
@@ -2324,37 +2337,34 @@ mod postgres_freshness_tests {
             !rows.is_empty(),
             "attempt custody catalog must not be empty"
         );
+
         for value in rows {
             let current = serde_json::from_value::<StoredAttemptV1>(value.clone())
                 .ok()
                 .is_some_and(|decoded| serde_json::to_value(decoded).ok().as_ref() == Some(&value));
-            if !current {
-                if let Err(error) = decode_legacy_attempt(&value) {
-                    let keys = value
-                        .as_object()
-                        .unwrap()
-                        .keys()
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    let digest = format!(
-                        "sha256:{:x}",
-                        Sha256::digest(serde_json::to_vec(&value).unwrap())
-                    );
-                    let complete = serde_json::from_value::<LegacyStoredAttemptV1>(value.clone())
-                        .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
-                        .map_err(|failure| failure.to_string());
-                    let sparse =
-                        serde_json::from_value::<SparseLegacyStoredAttemptV1>(value.clone())
-                            .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
-                            .map_err(|failure| failure.to_string());
-                    let family =
-                        serde_json::from_value::<FamilyLegacyStoredAttemptV1>(value.clone())
-                            .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
-                            .map_err(|failure| failure.to_string());
-                    panic!(
-                        "{error}; digest={digest}; keys={keys:?}; complete={complete:?}; sparse={sparse:?}; family={family:?}"
-                    );
-                }
+            if !current && let Err(e) = decode_legacy_attempt(&value) {
+                let keys = value
+                    .as_object()
+                    .unwrap()
+                    .keys()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                let digest = format!(
+                    "sha256:{:x}",
+                    Sha256::digest(serde_json::to_vec(&value).unwrap())
+                );
+                let complete = serde_json::from_value::<LegacyStoredAttemptV1>(value.clone())
+                    .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                    .map_err(|failure| failure.to_string());
+                let sparse = serde_json::from_value::<SparseLegacyStoredAttemptV1>(value.clone())
+                    .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                    .map_err(|failure| failure.to_string());
+                let family = serde_json::from_value::<FamilyLegacyStoredAttemptV1>(value.clone())
+                    .map(|decoded| serde_json::to_value(decoded).unwrap() == value)
+                    .map_err(|failure| failure.to_string());
+                panic!(
+                    "{e}; digest={digest}; keys={keys:?}; complete={complete:?}; sparse={sparse:?}; family={family:?}"
+                );
             }
         }
     }
@@ -2532,6 +2542,7 @@ mod postgres_freshness_tests {
             .to_string();
         let mut target_bindings = Vec::new();
         let mut identities = Vec::new();
+
         for (ordinal, channel) in [(1, "APP"), (2, "MCP")] {
             let build = format!("legacy-drain-build-{ordinal}-{suffix}");
             let attempt = format!("legacy-drain-attempt-{ordinal}-{suffix}");
@@ -2751,6 +2762,7 @@ mod postgres_freshness_tests {
         )
         .await
         .unwrap();
+
         for (build, attempt) in identities {
             let result = restarted
                 .resolve_legacy_terminal_quarantined(&build, &attempt)

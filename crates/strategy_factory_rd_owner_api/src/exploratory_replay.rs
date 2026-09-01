@@ -69,6 +69,7 @@ pub(super) async fn identify(
             );
         }
     };
+
     match identify_request(request) {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(request_identity) => rejection(
@@ -136,7 +137,7 @@ pub(super) async fn submit(
         .await
     {
         Ok(admission) => admission,
-        Err(error) => return product_edge_error(&error, &request_identity),
+        Err(e) => return product_edge_error(&e, &request_identity),
     };
 
     let proposal = ExploratoryReplayRequestProposalV2 {
@@ -147,13 +148,14 @@ pub(super) async fn submit(
         artifact_family_binding_identity: operation.artifact_family_binding_identity,
         request: operation.request,
     };
+
     match state
         .owner
         .commit_exploratory_replay_request_v2(proposal)
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &request_identity),
+        Err(e) => owner_error(&e, &request_identity),
     }
 }
 
@@ -181,6 +183,7 @@ pub(super) async fn resolve(
             );
         }
     };
+
     if OpaqueIdentityV2::try_from(request_identity.clone()).is_err()
         || CanonicalDigestV2::try_from(request.meaning_digest.clone()).is_err()
     {
@@ -195,13 +198,14 @@ pub(super) async fn resolve(
         request_identity: request_identity.clone(),
         meaning_digest: request.meaning_digest,
     };
+
     match state
         .owner
         .resolve_exploratory_replay_request_v2(&selector)
         .await
     {
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
-        Err(error) => owner_error(&error, &request_identity),
+        Err(e) => owner_error(&e, &request_identity),
     }
 }
 
@@ -301,6 +305,7 @@ fn rejection(status: StatusCode, code: &str, request_identity: &str) -> Response
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn request() -> ReplayRequestDtoV2 {
         serde_json::from_value(json!({
@@ -351,7 +356,7 @@ mod tests {
         json!({ "identity": identity, "version": "v1" })
     }
 
-    #[test]
+    #[rstest]
     fn identify_returns_pre_send_selector_and_exact_canonical_bytes() {
         let expected = request();
         let result = identify_request(expected.clone()).expect("valid exploratory request");
@@ -364,7 +369,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn identify_and_submit_validation_reject_non_exploratory_or_invalid_requests() {
         let mut invalid_window = request();
         invalid_window.window.end_event_ns_exclusive = invalid_window.window.start_event_ns;
@@ -382,7 +387,7 @@ mod tests {
         assert!(identify_request(protected).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn resolve_body_is_exact_and_owner_errors_map_to_required_statuses() {
         assert!(
             serde_json::from_value::<ExploratoryReplayResolveRequestV2>(

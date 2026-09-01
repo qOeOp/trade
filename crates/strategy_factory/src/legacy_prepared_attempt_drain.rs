@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction, postgres::PgConnectOptions};
+use std::fmt::Display;
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
     resolve_admission_for_downstream_in_transaction,
@@ -119,7 +120,8 @@ pub(crate) async fn migrate(
     sqlx::query("CREATE TABLE IF NOT EXISTS rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
         .execute(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(|e| storage(&e))?;
+
     for statement in [
         "ALTER TABLE rd_legacy_prepared_attempt_drain_receipts_v1 OWNER TO rd_owner",
         "REVOKE ALL ON TABLE rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
@@ -132,12 +134,13 @@ pub(crate) async fn migrate(
         sqlx::query(statement)
             .execute(&mut **transaction)
             .await
-            .map_err(storage)?;
+            .map_err(|e| storage(&e))?;
     }
     let owner: String = sqlx::query_scalar("SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class WHERE oid='rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass")
-        .fetch_one(&mut **transaction).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
     let leaked: bool = sqlx::query_scalar("SELECT pg_catalog.has_table_privilege('public','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('product_edge_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('backtest_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")
-        .fetch_one(&mut **transaction).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
+
     if owner != "rd_owner" || leaked {
         return Err(unavailable("legacy PREPARED drain receipt ACL mismatch"));
     }
@@ -214,11 +217,11 @@ pub(crate) async fn append_receipt_and_outbox_in_transaction(
         .bind(&receipt.receipt_identity).bind(&receipt.receipt_digest)
         .bind(&receipt.attempt.build_request_identity).bind(&receipt.attempt.attempt_identity)
         .bind(serde_json::to_value(receipt).map_err(json_storage)?).bind(committed_at)
-        .execute(&mut **transaction).await.map_err(storage)?;
+        .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
     sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(event_identity).bind(&receipt.attempt.attempt_identity).bind(DRAIN_EVENT_KIND)
         .bind(payload_digest).bind(serde_json::to_value(payload).map_err(json_storage)?)
-        .bind(committed_at).execute(&mut **transaction).await.map_err(storage)?;
+        .bind(committed_at).execute(&mut **transaction).await.map_err(|e| storage(&e))?;
     Ok(())
 }
 
@@ -231,14 +234,16 @@ pub(crate) async fn verify_drain_in_transaction(
         verify_live_predicates_in_transaction(transaction, expected).await?;
     let rows = sqlx::query("SELECT receipt_identity,receipt_digest,build_request_identity,attempt_identity,receipt_json,committed_at_epoch_ms FROM rd_legacy_prepared_attempt_drain_receipts_v1 WHERE build_request_identity=$1 OR attempt_identity=$2 FOR SHARE")
         .bind(&expected.build_request_identity).bind(&expected.attempt_identity)
-        .fetch_all(&mut **transaction).await.map_err(storage)?;
+        .fetch_all(&mut **transaction).await.map_err(|e| storage(&e))?;
+
     if rows.len() != 1 {
         return Err(unavailable("legacy PREPARED drain receipt unavailable"));
     }
     let row = &rows[0];
-    let value: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
+    let value: serde_json::Value = row.try_get("receipt_json").map_err(|e| storage(&e))?;
     let receipt: LegacyPreparedAttemptDrainReceiptV1 = decode_exact(&value)?;
     verify_receipt(&receipt, expected, &target_database_identity)?;
+
     if receipt.database_endpoint_resource_fingerprint
         != expected_database_endpoint_resource_fingerprint
     {
@@ -246,37 +251,40 @@ pub(crate) async fn verify_drain_in_transaction(
             "legacy PREPARED drain database endpoint mismatch",
         ));
     }
+
     if receipt.absence_proof != live_absence {
         return Err(unavailable(
             "legacy PREPARED drain live absence proof changed",
         ));
     }
+
     if row
         .try_get::<String, _>("receipt_identity")
-        .map_err(storage)?
+        .map_err(|e| storage(&e))?
         != receipt.receipt_identity
         || row
             .try_get::<String, _>("receipt_digest")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != receipt.receipt_digest
         || row
             .try_get::<String, _>("build_request_identity")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != expected.build_request_identity
         || row
             .try_get::<String, _>("attempt_identity")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != expected.attempt_identity
         || row
             .try_get::<i64, _>("committed_at_epoch_ms")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
     {
         return Err(unavailable("legacy PREPARED drain receipt row mismatch"));
     }
     let outbox = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2 FOR SHARE")
         .bind(&expected.attempt_identity).bind(DRAIN_EVENT_KIND)
-        .fetch_all(&mut **transaction).await.map_err(storage)?;
+        .fetch_all(&mut **transaction).await.map_err(|e| storage(&e))?;
+
     if outbox.len() != 1 {
         return Err(unavailable("legacy PREPARED drain outbox unavailable"));
     }
@@ -319,7 +327,7 @@ pub(crate) async fn lock_product_edge_effects_for_drain_in_transaction(
     )
     .fetch_one(&mut **transaction)
     .await
-    .map_err(storage)?;
+    .map_err(|e| storage(&e))?;
     let lock: ProductEdgeDrainLockV1 =
         decode_exact(&value.ok_or_else(|| unavailable("Product Edge drain lock unavailable"))?)?;
     if lock.schema_version != 1 {
@@ -371,27 +379,30 @@ fn verify_outbox(
     row: &sqlx::postgres::PgRow,
     receipt: &LegacyPreparedAttemptDrainReceiptV1,
 ) -> Result<(), ArtifactBuildError> {
-    let payload_value: serde_json::Value = row.try_get("payload_json").map_err(storage)?;
+    let payload_value: serde_json::Value = row.try_get("payload_json").map_err(|e| storage(&e))?;
     let payload: DrainOutboxPayloadV1 = decode_exact(&payload_value)?;
     let expected = outbox_payload(receipt);
     let digest = canonical_digest("rd.owner-outbox.payload.v1", &expected)?;
     if payload != expected
         || row
             .try_get::<String, _>("aggregate_identity")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != receipt.attempt.attempt_identity
-        || row.try_get::<String, _>("event_kind").map_err(storage)? != DRAIN_EVENT_KIND
+        || row
+            .try_get::<String, _>("event_kind")
+            .map_err(|e| storage(&e))?
+            != DRAIN_EVENT_KIND
         || row
             .try_get::<String, _>("payload_digest")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != digest
         || row
             .try_get::<String, _>("event_identity")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != format!("rd-owner-event-v1-{}", digest.trim_start_matches("sha256:"))
         || row
             .try_get::<i64, _>("committed_at_epoch_ms")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != i64::try_from(receipt.committed_at_epoch_ms).map_err(json_storage)?
     {
         return Err(unavailable("legacy PREPARED drain outbox mismatch"));
@@ -437,14 +448,17 @@ pub(crate) async fn current_database_identity(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<LegacyDrainTargetDatabaseIdentityV1, ArtifactBuildError> {
     let row = sqlx::query("SELECT pg_catalog.current_database() AS database_name, (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid, current_user::text AS role_name, (SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user) AS role_oid")
-        .fetch_one(&mut **transaction).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
     Ok(LegacyDrainTargetDatabaseIdentityV1 {
         schema_version: 1,
-        database_name: row.try_get("database_name").map_err(storage)?,
-        database_oid: u32::try_from(row.try_get::<i64, _>("database_oid").map_err(storage)?)
-            .map_err(json_storage)?,
-        role_name: row.try_get("role_name").map_err(storage)?,
-        role_oid: u32::try_from(row.try_get::<i64, _>("role_oid").map_err(storage)?)
+        database_name: row.try_get("database_name").map_err(|e| storage(&e))?,
+        database_oid: u32::try_from(
+            row.try_get::<i64, _>("database_oid")
+                .map_err(|e| storage(&e))?,
+        )
+        .map_err(json_storage)?,
+        role_name: row.try_get("role_name").map_err(|e| storage(&e))?,
+        role_oid: u32::try_from(row.try_get::<i64, _>("role_oid").map_err(|e| storage(&e))?)
             .map_err(json_storage)?,
     })
 }
@@ -458,29 +472,32 @@ async fn live_absence_proof(
         .bind(&expected.attempt_identity)
         .fetch_all(&mut **transaction)
         .await
-        .map_err(storage)?;
+        .map_err(|e| storage(&e))?;
+
     if attempts.len() != 1 {
         return Err(unavailable("legacy PREPARED attempt row unavailable"));
     }
     let attempt = &attempts[0];
-    let attempt_json: serde_json::Value = attempt.try_get("attempt_json").map_err(storage)?;
+    let attempt_json: serde_json::Value =
+        attempt.try_get("attempt_json").map_err(|e| storage(&e))?;
     let prepared_at_epoch_ms = u64::try_from(
         attempt
             .try_get::<i64, _>("prepared_at_epoch_ms")
-            .map_err(storage)?,
+            .map_err(|e| storage(&e))?,
     )
     .map_err(json_storage)?;
+
     if attempt
         .try_get::<String, _>("build_request_identity")
-        .map_err(storage)?
+        .map_err(|e| storage(&e))?
         != expected.build_request_identity
         || attempt
             .try_get::<String, _>("attempt_identity")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != expected.attempt_identity
         || attempt
             .try_get::<String, _>("semantic_digest")
-            .map_err(storage)?
+            .map_err(|e| storage(&e))?
             != expected.request_semantic_digest
         || prepared_at_epoch_ms != expected.prepared_at_epoch_ms
         || attempt_json_digest(&attempt_json)? != expected.attempt_json_digest
@@ -500,11 +517,12 @@ async fn live_absence_proof(
     .bind(&expected.attempt_identity)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(storage)?;
+    .map_err(|e| storage(&e))?;
     let product_edge_absence: ProductEdgeAttemptAbsenceV1 = decode_exact(
         &product_edge_absence_value
             .ok_or_else(|| unavailable("Product Edge attempt absence unavailable"))?,
     )?;
+
     if product_edge_absence.schema_version != 1
         || product_edge_absence.effect_invocation_admission_count > 2
         || product_edge_absence.effect_invocation_claim_count > 2
@@ -520,10 +538,10 @@ async fn live_absence_proof(
     .bind(&expected.attempt_identity)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(storage)?;
+    .map_err(|e| storage(&e))?;
     let attempt_outbox_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE (aggregate_identity=$1 OR aggregate_identity=$2) AND event_kind<>$3")
         .bind(&expected.build_request_identity).bind(&expected.attempt_identity).bind(DRAIN_EVENT_KIND)
-        .fetch_one(&mut **transaction).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
     Ok(LegacyPreparedAttemptAbsenceProofV1 {
         attempt_invocation_claim_count,
         attempt_invocation_custody_count,
@@ -565,6 +583,7 @@ pub(crate) fn database_endpoint_resource_fingerprint(
     let database = options
         .get_database()
         .ok_or_else(|| unavailable("legacy PREPARED drain database endpoint unavailable"))?;
+
     if options.get_socket().is_some()
         || host.starts_with('/')
         || username.trim().is_empty()
@@ -642,16 +661,17 @@ fn is_sha256(value: &str) -> bool {
 fn unavailable(message: &str) -> ArtifactBuildError {
     ArtifactBuildError::Storage(message.into())
 }
-fn storage(error: sqlx::Error) -> ArtifactBuildError {
+fn storage(error: &sqlx::Error) -> ArtifactBuildError {
     ArtifactBuildError::Storage(error.to_string())
 }
-fn json_storage(error: impl std::fmt::Display) -> ArtifactBuildError {
+fn json_storage(error: impl Display) -> ArtifactBuildError {
     ArtifactBuildError::Storage(error.to_string())
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use rstest::rstest;
 
     pub(crate) fn fixture_receipt() -> LegacyPreparedAttemptDrainReceiptV1 {
         let database = LegacyDrainTargetDatabaseIdentityV1 {
@@ -695,7 +715,7 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[rstest]
     fn database_endpoint_fingerprint_is_secret_free_and_route_exact() {
         let base = database_endpoint_resource_fingerprint(
             "postgresql://rd_owner:first@Db.Example:5432/research?application_name=first",
@@ -708,6 +728,7 @@ pub(crate) mod tests {
             )
             .unwrap()
         );
+
         for changed in [
             "postgresql://other:first@db.example:5432/research",
             "postgresql://rd_owner:first@other.example:5432/research",
@@ -721,7 +742,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn database_endpoint_fingerprint_rejects_implicit_invalid_or_socket_routes() {
         for invalid in [
             "not-a-postgres-url",
@@ -734,7 +755,7 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn canonical_receipt_seals_unknown_never_started_without_positive_custody() {
         let receipt = fixture_receipt();
         verify_receipt(
@@ -747,7 +768,7 @@ pub(crate) mod tests {
         assert_eq!(receipt.provider_disposition, "PROVIDER_NEVER_STARTED");
     }
 
-    #[test]
+    #[rstest]
     fn malformed_or_nonzero_absence_proof_fails_closed() {
         let mut malformed = fixture_receipt();
         malformed.absence_proof.artifact_count = 1;

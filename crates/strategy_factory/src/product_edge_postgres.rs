@@ -528,6 +528,7 @@ impl PostgresResearchGoalOwnerV1 {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
+
         for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1 {
             sqlx::query(*statement)
                 .execute(pool)
@@ -2457,7 +2458,7 @@ mod tests {
         outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,
     }
 
-    #[test]
+    #[rstest]
     fn research_bootstrap_uses_only_the_canonical_source_identity_prerequisite() {
         assert_eq!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1.len(), 3);
         assert_eq!(
