@@ -92,6 +92,31 @@ Backtest mutation 前失败，且不产生正向 receipt/result。隔离证明�
 acceptance、Paper、Live、real trading 或另一项 production write，所有独立 production adapter 均保持
 `UNAVAILABLE`。
 
+### TARGET / NOT_ADMITTED - 持久 Result custody 与 R&D 锁定读取
+
+该 TARGET 把正式探索 Result 交接推进到隔离验收路径之外，但不把任何 runtime 或 PostgreSQL 实现提升为
+CURRENT。Backtest 仍是 Result fact 的唯一权威，拥有私有规范 Result 表及其只追加 outbox，且只有 Backtest
+writer 可以执行 DML。Protected Result custody 继续隔离，不能通过该 R&D seam 读取。
+
+Backtest Owner 暴露一个固定、使用安全 `search_path` 的 `SECURITY DEFINER` `owner_api` 锁定读取函数。
+其全限定读取在 caller 已开启的 PostgreSQL transaction 内锁定准确 Result、receipt 与 outbox row，并返回
+不受信任 envelope。locator 或 dependency-neutral contract 只是查询，不携带任何 Result 权威。目标
+dependency-neutral `vibe-backtest-result-custody` adapter 只有在校验 schema、function 与 table owner、已安装
+function source、`SECURITY DEFINER` 设置、table 与 function ACL、规范 Result bytes 与 digest、request
+correlation、Backtest receipt 及 outbox binding 后，才能构造不可伪造的正向 readback。它只接受 caller
+提供的 transaction；另开
+pool 或 transaction 所得 readback 不能用于 R&D decision。
+
+该设计保留无环 crate 方向
+`vibe-strategy-factory -> vibe-backtest-result-custody -> vibe-backtest-owner-contracts`：custody adapter 不依赖
+`vibe-backtest-owner`，而 `vibe-backtest-owner` 保留 Result 构造与写权威。custody 缺失、过期、跨来源拼接、
+owner 错误、function 错误、ACL 不匹配、非规范、digest 不匹配、receipt/outbox 不完整或由独立 transaction
+读取时都为 `UNAVAILABLE`。response loss 后，准确 `RESOLVE` 只能返回同一份既存且逐字节相同的 Backtest
+Result 与 receipt；不能创建首次 custody、重新组合 result，或追加第二份 Result、receipt 或 outbox event。
+只有实现完成，并由真实 disposable PostgreSQL 证明正向 readback、全部零 readback 拒绝、同事务锁定、
+restart 与 response-loss recovery 后才能准入。它不授予 Dashboard 实现、deployment、production write、
+provider effect、Paper、Live 或交易权威。
+
 ## 输入交接
 
 - [R&D](./rd/) 提交一个冻结 Exploratory Replay Request，绑定准确不可变工件 请求 PIT 数据

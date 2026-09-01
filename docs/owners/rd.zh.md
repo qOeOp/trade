@@ -238,6 +238,31 @@ Backtest 为每个终态探索结果提供完整有限 `diagnosticCategorySet`�
 | 不含缺陷，且含 `NO_EXECUTION_DEFECT` 或 `VALID_ECONOMIC_FAILURE`                                           | 允许经济与机制解释，但都不强制迭代或选择。                                                                                                                                         |
 | `UNRESOLVED_FAILURE`                                                                                       | 不产生 Iteration Decision；保留在 census，直到取得可隔离证据。                                                                                                                     |
 
+### TARGET / NOT_ADMITTED - 同一截面的 Decision 与 Selection composition
+
+`DecisionCompositionRequest` 只含 locator：它标识 R&D-owned TrialFamily 和一个 Backtest-owned 探索
+Result，但不提供 Result bytes、diagnosis、readiness judgment、policy outcome、next action 或 Selection。
+neutral locator 或 `vibe-backtest-owner-contracts` representation 不携带权威。R&D 只从规范 Owner fact
+内部派生全部六个 diagnosis dimension、result readiness、total-precedence branch、policy outcome 与 selected
+identity。
+
+R&D 在一个由 R&D Owner 持有的 PostgreSQL transaction 内锁定其规范 TrialFamily Census、已消费 budget、
+candidate-set 与 attempt frontier、decision-policy version，以及 composition 使用的全部其他 predecessor；
+并在同一 transaction 上使用 dependency-neutral 但绑定 Backtest Owner 的
+`vibe-backtest-result-custody` adapter，锁定并校验规范 Backtest Result、receipt 与 outbox。第一笔写入前，
+R&D 立即采样唯一 final cut，派生 Diagnosis 与 readiness，并同事务提交准确一个 Iteration Decision；只有
+该决定为 `READY_FOR_SELECTION` 时才同时提交 selected-only Research Selection，并为它们写入 R&D outbox。
+Backtest 仍只拥有 result 权威；R&D 仍是 diagnosis、Decision 与 Selection 的唯一 Owner。
+
+Result 缺失、过期、跨来源拼接、owner 错误、function 错误、ACL 不匹配、非规范、digest 不匹配、
+receipt/outbox 不完整，Census/budget/frontier/policy 不完整，存在 caller-authored 派生字段，或通过独立 pool
+或 transaction 读取时，都必须在第一笔写入前失败，且 Iteration Decision、Selection 与 outbox 全部零变化。
+含义相同的 retry 加入同一份已提交 composition 并返回逐字节相同的 receipt；response loss 后，准确
+`RESOLVE` 只能恢复该既存结果，不能创建首次 custody、在新截面重新执行 policy，或创建替代 Decision 或
+Selection。该契约在真实 disposable PostgreSQL 证据证明同截面正向路径、全部零变化拒绝、restart 与
+response-loss recovery 前保持 TARGET。它不增加 dependency cycle，也不授予 Dashboard 实现、deployment、
+production write、provider effect、Paper、Live 或交易权威。
+
 每个后继只声明一种 experiment mode。一次迭代在 `SINGLE_DIMENSION` 模式下只改变一个与决定相关的假设
 dimension，并从以下九个 typed dimension 中选择：
 `RETURN_MECHANISM` `MARKET_REGIME` `INSTRUMENT_SCOPE` `FEATURE_SIGNAL` `ENTRY_RULE`

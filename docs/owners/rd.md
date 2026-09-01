@@ -255,6 +255,32 @@ preserves every supported member and applies this exact mapping before interpret
 | No defect, with `NO_EXECUTION_DEFECT` or `VALID_ECONOMIC_FAILURE`                                               | Economic and mechanism interpretation is allowed; neither category forces iteration or selection.                                                                                                                                |
 | `UNRESOLVED_FAILURE`                                                                                            | No Iteration Decision; retain the attempt in the census until isolating evidence exists.                                                                                                                                         |
 
+### TARGET / NOT_ADMITTED - same-cut Decision and Selection composition
+
+`DecisionCompositionRequest` is locator-only: it identifies the R&D-owned TrialFamily and one Backtest-owned
+exploratory Result but supplies no Result bytes, diagnosis, readiness judgment, policy outcome, next action, or
+Selection. A neutral locator or `vibe-backtest-owner-contracts` representation carries no authority. R&D derives
+all six diagnosis dimensions, result readiness, total-precedence branch, policy outcome, and selected identity
+internally from canonical Owner facts.
+
+In one R&D-owned PostgreSQL transaction, R&D locks its canonical TrialFamily Census, consumed budget,
+candidate-set and attempt frontiers, decision-policy version, and every other predecessor used by composition. On
+that same transaction it uses the dependency-neutral but Backtest-Owner-bound `vibe-backtest-result-custody`
+adapter to lock and verify the canonical Backtest Result, receipt, and outbox. Immediately before the first
+write, R&D samples one final cut, derives Diagnosis and readiness, and co-commits exactly one Iteration Decision,
+the selected-only Research Selection only when that decision is `READY_FOR_SELECTION`, and their R&D outbox
+entries. Backtest remains results-only authority; R&D remains the sole diagnosis, Decision, and Selection Owner.
+
+Any missing, stale, cross-spliced, wrong-owner, wrong-function, ACL-mismatched, noncanonical, digest-mismatched,
+receipt-or-outbox-incomplete Result, incomplete Census/budget/frontier/policy, caller-authored derived field, or
+read through a separate pool or transaction fails before the first write with zero Iteration Decision, Selection,
+or outbox change. Same-meaning retry joins the same committed composition and returns byte-identical receipts;
+after response loss, exact `RESOLVE` can recover only that pre-existing outcome and cannot create first custody,
+rerun policy over a new cut, or create a replacement Decision or Selection. This remains a TARGET contract until
+real disposable PostgreSQL evidence proves the same-cut positive path, every zero-change rejection, restart, and
+response-loss recovery. It adds no dependency cycle, Dashboard implementation, deployment, production write,
+provider effect, Paper, Live, or trading authority.
+
 Every successor declares exactly one experiment mode. One iteration changes exactly one decision-relevant hypothesis dimension
 in `SINGLE_DIMENSION` mode, chosen from these nine typed
 dimensions: `RETURN_MECHANISM`, `MARKET_REGIME`, `INSTRUMENT_SCOPE`, `FEATURE_SIGNAL`, `ENTRY_RULE`,
