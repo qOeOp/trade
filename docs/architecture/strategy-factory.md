@@ -10,6 +10,14 @@ A sourced hypothesis is only a proposal. Before protected feedback, R&D atomical
 
 Qualification's PostgreSQL custody is physically distinct: `qualification_owner` owns its tables and locked admission function, while a separate Qualification writer performs projection writes. The R&D role has no ownership, raw `SELECT`, or DML on Qualification tables. In the caller's R&D transaction it may execute only the fixed safe `search_path` `SECURITY DEFINER` admission function, whose fully qualified reads preserve lock order and return an untrusted raw envelope. Qualification-owned Rust verifies that envelope against the canonical R&D basis and Qualification history before constructing the sealed, non-deserializable positive readback; no public raw-envelope constructor exists.
 
+Replay Policy Catalog and durable Composer custody use the same physical separation. `rd_database_owner`
+is the NOLOGIN database/public-schema custodian; `replay_policy_catalog_owner` and `composer_owner` are
+distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner` has neither membership,
+ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
+The separately supplied `rd_fact_writer` LOGIN alone receives non-grantable `EXECUTE` on the Catalog
+administration and Composer commit routines. All routines use `search_path=pg_catalog,pg_temp` inside the
+caller's existing transaction. Reads never create custody; migration preserves existing OIDs, rows and bytes.
+
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
 
 R&D's Develop capability returns one content-addressed Strategy Artifact and Build Receipt, then its Research capability freezes one Exploratory Replay Request binding that exact artifact, data scope, replay configuration, and model identities before the separate Backtest service accepts it. Exploratory facts return only to R&D and can create a successor Intent. R&D maintains the append-only TrialFamily Census Frontier and alone commits Iteration Decision. A terminal stop ends there with no Selection. Only a `READY_FOR_SELECTION` decision may produce the selected-only `SELECTED_FOR_QUALIFICATION` disposition and submit the Qualification Candidate.

@@ -5,7 +5,7 @@ use std::fmt::Display;
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use crate::{
     replay_execution_policy_v2::ReplayExecutionPolicyV2,
@@ -19,34 +19,8 @@ const CREATE_EVENT_V2: &str = "REPLAY_POLICY_CATALOG_CREATED_V2";
 const APPEND_EVENT_V2: &str = "REPLAY_POLICY_CATALOG_VERSION_APPENDED_V2";
 const ADVANCE_EVENT_V2: &str = "REPLAY_POLICY_CATALOG_HEAD_ADVANCED_V2";
 const REVOKE_EVENT_V2: &str = "REPLAY_POLICY_CATALOG_VERSION_REVOKED_V2";
-const CATALOG_ADMIN_GUARD_SETTING_V2: &str = "vibe.replay_policy_catalog_admin_v2";
-const CATALOG_MUTATION_GUARD_SOURCE_V2: &str = "
-DECLARE
-  guard_token text;
-  guarded_event_kind text;
-BEGIN
-  IF TG_TABLE_NAME = 'rd_owner_outbox_v1' THEN
-    guarded_event_kind := CASE
-      WHEN TG_OP = 'DELETE' THEN OLD.event_kind
-      WHEN TG_OP = 'UPDATE' AND OLD.event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2' THEN OLD.event_kind
-      ELSE NEW.event_kind
-    END;
-    IF guarded_event_kind NOT LIKE 'REPLAY_POLICY_CATALOG_%_V2' THEN
-      IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
-    END IF;
-  END IF;
-  guard_token := pg_catalog.current_setting('vibe.replay_policy_catalog_admin_v2', true);
-  IF SESSION_USER <> 'rd_owner'
-     OR guard_token IS NULL
-     OR guard_token !~ '^sha256:[0-9a-f]{64}$'
-  THEN
-    RAISE EXCEPTION USING
-      ERRCODE = '42501',
-      MESSAGE = 'Replay Policy Catalog mutation requires the private audited administration port';
-  END IF;
-  IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
-END
-";
+const AUTHORITY_MIGRATION_SQL: &str =
+    include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
 
 const CATALOG_TABLES_V2: [&str; 4] = [
     "rd_replay_policy_catalog_records_v2",
@@ -56,70 +30,6 @@ const CATALOG_TABLES_V2: [&str; 4] = [
 ];
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    let role: String = sqlx::query_scalar("SELECT SESSION_USER")
-        .fetch_one(pool)
-        .await
-        .map_err(unavailable)?;
-    if role != "rd_owner" {
-        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
-            "Catalog migration requires the canonical rd_owner role".to_owned(),
-        ));
-    }
-    for statement in [
-        "CREATE TABLE IF NOT EXISTS rd_replay_policy_catalog_records_v2 (catalog_record_id TEXT PRIMARY KEY, catalog_version NUMERIC(20,0) NOT NULL UNIQUE CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615), owner_identity TEXT NOT NULL, predecessor_record_id TEXT UNIQUE REFERENCES rd_replay_policy_catalog_records_v2(catalog_record_id), policy_grammar_parser_id TEXT NOT NULL, policy_grammar_parser_digest BYTEA NOT NULL CHECK (octet_length(policy_grammar_parser_digest) = 32), policy_canonical_bytes BYTEA NOT NULL, policy_digest BYTEA NOT NULL CHECK (octet_length(policy_digest) = 32), catalog_record_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(catalog_record_digest) = 32), created_by TEXT NOT NULL, created_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_replay_policy_catalog_head_v2 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_record_id TEXT NOT NULL UNIQUE REFERENCES rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, advanced_by TEXT NOT NULL, advanced_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_replay_policy_catalog_revocations_v2 (catalog_record_id TEXT PRIMARY KEY REFERENCES rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, revoked_by TEXT NOT NULL, revoked_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_replay_policy_catalog_audit_v2 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, predecessor_record_id TEXT, predecessor_head_record_id TEXT, result_record_id TEXT, content_identity TEXT NOT NULL, audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-    ] {
-        sqlx::query(statement)
-            .execute(pool)
-            .await
-            .map_err(unavailable)?;
-    }
-    for table in CATALOG_TABLES_V2 {
-        // `table` comes only from the fixed private Catalog table allowlist above.
-        sqlx::query(AssertSqlSafe(format!(
-            "ALTER TABLE public.{table} OWNER TO rd_owner"
-        )))
-        .execute(pool)
-        .await
-        .map_err(unavailable)?;
-        sqlx::query(AssertSqlSafe(format!(
-            "REVOKE ALL ON TABLE public.{table} FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer, backtest_owner"
-        )))
-        .execute(pool)
-        .await
-        .map_err(unavailable)?;
-    }
-    sqlx::query(
-        "DO $catalog_acl$ DECLARE catalog_table text; grantee_name text; BEGIN FOREACH catalog_table IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'] LOOP FOR grantee_name IN SELECT DISTINCT role.rolname FROM pg_catalog.pg_class relation CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl JOIN pg_catalog.pg_roles role ON role.oid = acl.grantee WHERE relation.oid = pg_catalog.to_regclass('public.' || catalog_table) AND role.rolname <> 'rd_owner' LOOP EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM %I', catalog_table, grantee_name); END LOOP; END LOOP; END $catalog_acl$",
-    )
-    .execute(pool)
-    .await
-    .map_err(unavailable)?;
-    let create_guard = format!(
-        "CREATE OR REPLACE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2() RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SET search_path = pg_catalog AS $catalog_guard${CATALOG_MUTATION_GUARD_SOURCE_V2}$catalog_guard$"
-    );
-    // The generated statement interpolates only the compile-time guard body above.
-    sqlx::query(AssertSqlSafe(create_guard))
-        .execute(pool)
-        .await
-        .map_err(unavailable)?;
-    for statement in [
-        "ALTER FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2() OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2() FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer, backtest_owner",
-        "DO $catalog_function_acl$ DECLARE grantee_name text; BEGIN FOR grantee_name IN SELECT DISTINCT role.rolname FROM pg_catalog.pg_proc procedure CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(procedure.proacl, pg_catalog.acldefault('f', procedure.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid = acl.grantee JOIN pg_catalog.pg_namespace namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = 'rd_owner_api' AND procedure.proname = 'guard_replay_policy_catalog_mutation_v2' AND role.rolname <> 'rd_owner' LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2() FROM %I', grantee_name); END LOOP; END $catalog_function_acl$",
-        "CREATE OR REPLACE TRIGGER rd_replay_policy_catalog_records_guard_v2 BEFORE INSERT OR UPDATE OR DELETE ON rd_replay_policy_catalog_records_v2 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2()",
-        "CREATE OR REPLACE TRIGGER rd_replay_policy_catalog_head_guard_v2 BEFORE INSERT OR UPDATE OR DELETE ON rd_replay_policy_catalog_head_v2 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2()",
-        "CREATE OR REPLACE TRIGGER rd_replay_policy_catalog_revocations_guard_v2 BEFORE INSERT OR UPDATE OR DELETE ON rd_replay_policy_catalog_revocations_v2 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2()",
-        "CREATE OR REPLACE TRIGGER rd_replay_policy_catalog_audit_guard_v2 BEFORE INSERT OR UPDATE OR DELETE ON rd_replay_policy_catalog_audit_v2 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2()",
-        "CREATE OR REPLACE TRIGGER rd_replay_policy_catalog_outbox_guard_v2 BEFORE INSERT OR UPDATE OR DELETE ON rd_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_replay_policy_catalog_mutation_v2()",
-    ] {
-        sqlx::query(statement)
-            .execute(pool)
-            .await
-            .map_err(unavailable)?;
-    }
     verify_catalog_storage_authority(pool).await
 }
 
@@ -161,30 +71,29 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
     ) -> Result<ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogErrorV2> {
         lock_catalog(transaction).await?;
         require_command(command_identity, now_epoch_ms)?;
-        let existing: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM rd_replay_policy_catalog_records_v2")
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(unavailable)?;
-        if existing != 0 {
+
+        if load_record_by_id(transaction, "").await.is_ok() {
             return Err(ReplayPolicyCatalogErrorV2::Conflict);
         }
         let record = ReplayPolicyCatalogBindingV2::from_policy(catalog_record_id, 1, policy)?;
-        open_catalog_admin_guard(transaction, administrator, command_identity).await?;
-        insert_record(transaction, administrator, &record, None, now_epoch_ms).await?;
-        persist_admin_fact(
+        apply_admin_fact(
             transaction,
             administrator,
+            "create",
             command_identity,
             CREATE_EVENT_V2,
+            &record,
             None,
             None,
-            Some(record.catalog_record_id()),
-            content_identity(&record),
             now_epoch_ms,
         )
         .await?;
-        close_catalog_admin_guard(transaction).await?;
+
+        if load_record_by_id(transaction, record.catalog_record_id()).await? != record {
+            return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                "Catalog create readback mismatch".to_owned(),
+            ));
+        }
         Ok(record)
     }
 
@@ -199,14 +108,10 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
     ) -> Result<ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogErrorV2> {
         lock_catalog(transaction).await?;
         require_command(command_identity, now_epoch_ms)?;
-        let row = sqlx::query("SELECT catalog_record_id, catalog_version FROM rd_replay_policy_catalog_records_v2 ORDER BY catalog_version DESC LIMIT 1")
-            .fetch_optional(&mut **transaction)
-            .await
-            .map_err(unavailable)?
-            .ok_or(ReplayPolicyCatalogErrorV2::Conflict)?;
-        let predecessor: String = row.try_get("catalog_record_id").map_err(unavailable)?;
-        let predecessor_version =
-            decimal_version(row.try_get("catalog_version").map_err(unavailable)?)?;
+        let latest = load_record_by_id(transaction, "").await?;
+        let predecessor = latest.catalog_record_id().to_owned();
+        let predecessor_version = latest.catalog_version();
+
         if predecessor != expected_predecessor_record_id {
             return Err(ReplayPolicyCatalogErrorV2::Conflict);
         }
@@ -217,29 +122,25 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
                     "catalog version overflow",
                 ))?;
         let record = ReplayPolicyCatalogBindingV2::from_policy(catalog_record_id, version, policy)?;
-        open_catalog_admin_guard(transaction, administrator, command_identity).await?;
-        insert_record(
-            transaction,
-            administrator,
-            &record,
-            Some(&predecessor),
-            now_epoch_ms,
-        )
-        .await?;
         let predecessor_head = current_head_id(transaction).await?;
-        persist_admin_fact(
+        apply_admin_fact(
             transaction,
             administrator,
+            "append",
             command_identity,
             APPEND_EVENT_V2,
+            &record,
             Some(&predecessor),
             predecessor_head.as_deref(),
-            Some(record.catalog_record_id()),
-            content_identity(&record),
             now_epoch_ms,
         )
         .await?;
-        close_catalog_admin_guard(transaction).await?;
+
+        if load_record_by_id(transaction, record.catalog_record_id()).await? != record {
+            return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                "Catalog append readback mismatch".to_owned(),
+            ));
+        }
         Ok(record)
     }
 
@@ -265,28 +166,30 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
         {
             return Err(ReplayPolicyCatalogErrorV2::Conflict);
         }
-        open_catalog_admin_guard(transaction, administrator, command_identity).await?;
-        sqlx::query("INSERT INTO rd_replay_policy_catalog_head_v2 (singleton, catalog_record_id, catalog_version, advanced_by, advanced_at_epoch_ms) VALUES (TRUE,$1,$2,$3,$4) ON CONFLICT (singleton) DO UPDATE SET catalog_record_id=EXCLUDED.catalog_record_id, catalog_version=EXCLUDED.catalog_version, advanced_by=EXCLUDED.advanced_by, advanced_at_epoch_ms=EXCLUDED.advanced_at_epoch_ms")
-            .bind(target.catalog_record_id())
-            .bind(Decimal::from(target.catalog_version()))
-            .bind(&administrator.identity)
-            .bind(epoch_i64(now_epoch_ms)?)
-            .execute(&mut **transaction)
-            .await
-            .map_err(unavailable)?;
-        persist_admin_fact(
+        apply_admin_fact(
             transaction,
             administrator,
+            "advance",
             command_identity,
             ADVANCE_EVENT_V2,
+            &target,
             None,
             current.as_ref().map(|head| head.0.as_str()),
-            Some(target.catalog_record_id()),
-            content_identity(&target),
             now_epoch_ms,
         )
         .await?;
-        close_catalog_admin_guard(transaction).await
+
+        if current_head(transaction).await?.as_ref()
+            != Some(&(
+                target.catalog_record_id().to_owned(),
+                target.catalog_version(),
+            ))
+        {
+            return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                "Catalog head readback mismatch".to_owned(),
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) async fn revoke_version(
@@ -302,29 +205,26 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
         if is_revoked(transaction, catalog_record_id).await? {
             return Err(ReplayPolicyCatalogErrorV2::Conflict);
         }
-        open_catalog_admin_guard(transaction, administrator, command_identity).await?;
-        sqlx::query("INSERT INTO rd_replay_policy_catalog_revocations_v2 (catalog_record_id, catalog_version, revoked_by, revoked_at_epoch_ms) VALUES ($1,$2,$3,$4)")
-            .bind(record.catalog_record_id())
-            .bind(Decimal::from(record.catalog_version()))
-            .bind(&administrator.identity)
-            .bind(epoch_i64(now_epoch_ms)?)
-            .execute(&mut **transaction)
-            .await
-            .map_err(unavailable)?;
         let head = current_head_id(transaction).await?;
-        persist_admin_fact(
+        apply_admin_fact(
             transaction,
             administrator,
+            "revoke",
             command_identity,
             REVOKE_EVENT_V2,
+            &record,
             None,
             head.as_deref(),
-            Some(record.catalog_record_id()),
-            content_identity(&record),
             now_epoch_ms,
         )
         .await?;
-        close_catalog_admin_guard(transaction).await
+
+        if !is_revoked(transaction, record.catalog_record_id()).await? {
+            return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                "Catalog revocation readback mismatch".to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -334,21 +234,20 @@ pub(crate) async fn resolve_current_for_trial_family_formation(
     family_policy: &TrialFamilyPolicyV1,
 ) -> Result<ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogErrorV2> {
     lock_catalog(transaction).await?;
-    let rows = sqlx::query("SELECT r.catalog_record_id, r.catalog_version, r.owner_identity, r.policy_grammar_parser_id, r.policy_grammar_parser_digest, r.policy_canonical_bytes, r.policy_digest, r.catalog_record_digest, h.catalog_record_id AS head_record_id, h.catalog_version AS head_version, v.catalog_record_id AS revoked_record_id FROM rd_replay_policy_catalog_head_v2 h JOIN rd_replay_policy_catalog_records_v2 r ON r.catalog_record_id = h.catalog_record_id AND r.catalog_version = h.catalog_version LEFT JOIN rd_replay_policy_catalog_revocations_v2 v ON v.catalog_record_id = r.catalog_record_id FOR UPDATE OF h, r")
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
+    let rows = sqlx::query(
+        "SELECT * FROM replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+
     if rows.len() != 1 {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "current Catalog head is missing".to_owned(),
         ));
     }
     let row = &rows[0];
-    if row
-        .try_get::<Option<String>, _>("revoked_record_id")
-        .map_err(unavailable)?
-        .is_some()
-    {
+    if row.try_get::<bool, _>("revoked").map_err(unavailable)? {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "current Catalog head is revoked".to_owned(),
         ));
@@ -373,41 +272,18 @@ pub(crate) async fn resolve_current_for_trial_family_formation(
     Ok(record)
 }
 
-async fn insert_record(
-    transaction: &mut Transaction<'_, Postgres>,
-    administrator: &AuthenticatedCatalogAdministratorV2,
-    record: &ReplayPolicyCatalogBindingV2,
-    predecessor_record_id: Option<&str>,
-    now_epoch_ms: u64,
-) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    record.verify()?;
-    sqlx::query("INSERT INTO rd_replay_policy_catalog_records_v2 (catalog_record_id, catalog_version, owner_identity, predecessor_record_id, policy_grammar_parser_id, policy_grammar_parser_digest, policy_canonical_bytes, policy_digest, catalog_record_digest, created_by, created_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
-        .bind(record.catalog_record_id())
-        .bind(Decimal::from(record.catalog_version()))
-        .bind(RD_OWNER_IDENTITY_V2)
-        .bind(predecessor_record_id)
-        .bind(record.policy_grammar_parser_id())
-        .bind(record.policy_grammar_parser_digest().as_slice())
-        .bind(record.policy_canonical_bytes())
-        .bind(record.policy_digest().as_slice())
-        .bind(record.catalog_record_digest().as_slice())
-        .bind(&administrator.identity)
-        .bind(epoch_i64(now_epoch_ms)?)
-        .execute(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
-    Ok(())
-}
-
 async fn load_record_by_id(
     transaction: &mut Transaction<'_, Postgres>,
     catalog_record_id: &str,
 ) -> Result<ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogErrorV2> {
-    let rows = sqlx::query("SELECT catalog_record_id, catalog_version, owner_identity, policy_grammar_parser_id, policy_grammar_parser_digest, policy_canonical_bytes, policy_digest, catalog_record_digest FROM rd_replay_policy_catalog_records_v2 WHERE catalog_record_id = $1 FOR UPDATE")
-        .bind(catalog_record_id)
-        .fetch_all(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
+    let rows = sqlx::query(
+        "SELECT * FROM replay_policy_catalog_api.lock_replay_policy_catalog_record_v2($1)",
+    )
+    .bind(catalog_record_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+
     if rows.len() != 1 {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog record is missing".to_owned(),
@@ -443,6 +319,7 @@ fn decode_record(
         digest_array(grammar_digest, "grammar/parser digest")?,
         policy_bytes,
     )?;
+
     if binding.policy_digest().as_slice() != policy_digest
         || binding.catalog_record_digest().as_slice() != record_digest
     {
@@ -456,10 +333,11 @@ fn decode_record(
 async fn current_head(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<(String, u64)>, ReplayPolicyCatalogErrorV2> {
-    let rows = sqlx::query("SELECT catalog_record_id, catalog_version FROM rd_replay_policy_catalog_head_v2 WHERE singleton = TRUE FOR UPDATE")
+    let rows = sqlx::query("SELECT catalog_record_id, catalog_version FROM replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()")
         .fetch_all(&mut **transaction)
         .await
         .map_err(unavailable)?;
+
     match rows.as_slice() {
         [] => Ok(None),
         [row] => Ok(Some((
@@ -482,25 +360,45 @@ async fn is_revoked(
     transaction: &mut Transaction<'_, Postgres>,
     catalog_record_id: &str,
 ) -> Result<bool, ReplayPolicyCatalogErrorV2> {
-    sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM rd_replay_policy_catalog_revocations_v2 WHERE catalog_record_id = $1)")
-        .bind(catalog_record_id)
-        .fetch_one(&mut **transaction)
-        .await
+    let rows = sqlx::query(
+        "SELECT revoked FROM replay_policy_catalog_api.lock_replay_policy_catalog_record_v2($1)",
+    )
+    .bind(catalog_record_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    rows.as_slice()
+        .first()
+        .ok_or_else(|| {
+            ReplayPolicyCatalogErrorV2::Unavailable("Catalog record is missing".to_owned())
+        })?
+        .try_get("revoked")
         .map_err(unavailable)
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn persist_admin_fact(
+async fn apply_admin_fact(
     transaction: &mut Transaction<'_, Postgres>,
     administrator: &AuthenticatedCatalogAdministratorV2,
+    action: &str,
     command_identity: &str,
     command_kind: &str,
+    record: &ReplayPolicyCatalogBindingV2,
     predecessor_record_id: Option<&str>,
     predecessor_head_record_id: Option<&str>,
-    result_record_id: Option<&str>,
-    content_identity: String,
     now_epoch_ms: u64,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
+    let writer_session: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_fact_writer'")
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(unavailable)?;
+
+    if !writer_session {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog mutation requires the R&D fact writer".to_owned(),
+        ));
+    }
+    let content_identity = content_identity(record);
     let audit = CatalogAdminAuditV2 {
         schema_version: 2,
         command_identity: command_identity.to_owned(),
@@ -509,37 +407,40 @@ async fn persist_admin_fact(
         command_kind: command_kind.to_owned(),
         predecessor_record_id: predecessor_record_id.map(str::to_owned),
         predecessor_head_record_id: predecessor_head_record_id.map(str::to_owned),
-        result_record_id: result_record_id.map(str::to_owned),
+        result_record_id: Some(record.catalog_record_id().to_owned()),
         content_identity: content_identity.clone(),
         committed_at_epoch_ms: now_epoch_ms,
     };
     let audit_json = serde_json::to_value(&audit).map_err(unavailable)?;
-    sqlx::query("INSERT INTO rd_replay_policy_catalog_audit_v2 (command_identity, administrator_identity, authentication_fact_digest, command_kind, predecessor_record_id, predecessor_head_record_id, result_record_id, content_identity, audit_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+    let payload_digest = canonical_json_digest("rd.replay-policy-catalog.audit.v2", &audit)?;
+    let accepted: bool = sqlx::query_scalar("SELECT replay_policy_catalog_api.apply_replay_policy_catalog_command_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)")
+        .bind(action)
         .bind(command_identity)
         .bind(&administrator.identity)
         .bind(&administrator.authentication_fact_digest)
-        .bind(command_kind)
+        .bind(record.catalog_record_id())
+        .bind(Decimal::from(record.catalog_version()))
         .bind(predecessor_record_id)
-        .bind(predecessor_head_record_id)
-        .bind(result_record_id)
+        .bind(record.policy_grammar_parser_id())
+        .bind(record.policy_grammar_parser_digest().as_slice())
+        .bind(record.policy_canonical_bytes())
+        .bind(record.policy_digest().as_slice())
+        .bind(record.catalog_record_digest().as_slice())
+        .bind(predecessor_head_record_id.unwrap_or(""))
         .bind(&content_identity)
         .bind(&audit_json)
-        .bind(epoch_i64(now_epoch_ms)?)
-        .execute(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
-    let payload_digest = canonical_json_digest("rd.replay-policy-catalog.audit.v2", &audit)?;
-    sqlx::query("INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
         .bind(format!("rd-replay-policy-catalog-outbox-v2-{}", &payload_digest[7..]))
-        .bind(command_identity)
-        .bind(command_kind)
         .bind(payload_digest)
-        .bind(audit_json)
         .bind(epoch_i64(now_epoch_ms)?)
-        .execute(&mut **transaction)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(unavailable)?;
-    Ok(())
+
+    if accepted {
+        Ok(())
+    } else {
+        Err(ReplayPolicyCatalogErrorV2::Conflict)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
@@ -559,101 +460,189 @@ struct CatalogAdminAuditV2 {
 
 async fn verify_catalog_storage_authority(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErrorV2> {
     let authority_is_exact: bool = sqlx::query_scalar(
-        "SELECT SESSION_USER = 'rd_owner' AND (SELECT count(*) = 4 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace WHERE namespace.nspname = 'public' AND relation.relname = ANY($1) AND pg_catalog.pg_get_userbyid(relation.relowner) = 'rd_owner') AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid = relation.relnamespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl WHERE namespace.nspname = 'public' AND relation.relname = ANY($1) AND acl.grantee <> (SELECT oid FROM pg_catalog.pg_roles WHERE rolname = 'rd_owner'))",
+        "WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')), relations AS (SELECT relation.oid, relation.relowner, relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r'), routines AS (SELECT procedure.proname,procedure.proowner,procedure.prosecdef,procedure.provolatile,procedure.proparallel,procedure.proconfig,procedure.proacl FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname IN ('lock_replay_policy_catalog_record_v2','lock_current_replay_policy_catalog_v2','apply_replay_policy_catalog_command_v2')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND (SELECT count(*)=4 AND bool_and(relowner=(SELECT oid FROM owner)) AND NOT bool_or(EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner)) FROM relations) AND (SELECT count(*)=3 AND bool_and(proowner=(SELECT oid FROM owner) AND prosecdef AND provolatile='v' AND proparallel='u' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(proacl,pg_catalog.acldefault('f',proowner))) acl WHERE acl.privilege_type<>'EXECUTE' OR (acl.grantee<>proowner AND (acl.is_grantable OR acl.grantee NOT IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname=CASE WHEN proname='apply_replay_policy_catalog_command_v2' THEN 'rd_fact_writer' ELSE CASE WHEN acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner') THEN 'rd_owner' ELSE 'rd_fact_writer' END END))))) FROM routines) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')",
     )
     .bind(CATALOG_TABLES_V2.as_slice())
     .fetch_one(pool)
     .await
     .map_err(unavailable)?;
+
     if !authority_is_exact {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog PostgreSQL owner or ACL readback mismatch".to_owned(),
         ));
     }
-    let guard = sqlx::query(
-        "SELECT pg_catalog.pg_get_userbyid(procedure.proowner) AS owner, procedure.prosecdef, procedure.prosrc, procedure.proconfig, NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(procedure.proacl, pg_catalog.acldefault('f', procedure.proowner))) acl WHERE acl.grantee <> procedure.proowner) AS acl_exact FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid = procedure.pronamespace WHERE namespace.nspname = 'rd_owner_api' AND procedure.proname = 'guard_replay_policy_catalog_mutation_v2' AND procedure.pronargs = 0",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(unavailable)?
-    .ok_or_else(|| {
-        ReplayPolicyCatalogErrorV2::Unavailable(
-            "Catalog mutation guard function is missing".to_owned(),
-        )
-    })?;
-    let guard_owner: String = guard.try_get("owner").map_err(unavailable)?;
-    let guard_is_security_definer: bool = guard.try_get("prosecdef").map_err(unavailable)?;
-    let guard_acl_is_exact: bool = guard.try_get("acl_exact").map_err(unavailable)?;
-    let guard_source: String = guard.try_get("prosrc").map_err(unavailable)?;
-    let guard_configuration: Option<Vec<String>> =
-        guard.try_get("proconfig").map_err(unavailable)?;
-    if guard_owner != "rd_owner"
-        || guard_is_security_definer
-        || !guard_acl_is_exact
-        || guard_source != CATALOG_MUTATION_GUARD_SOURCE_V2
-        || guard_configuration.as_deref() != Some(&["search_path=pg_catalog".to_owned()])
+    let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
+        .bind(CATALOG_TABLES_V2.as_slice()).fetch_all(pool).await.map_err(unavailable)?;
+    let expected_column_shape = [
+        "rd_replay_policy_catalog_audit_v2:1:command_identity:text:true:",
+        "rd_replay_policy_catalog_audit_v2:2:administrator_identity:text:true:",
+        "rd_replay_policy_catalog_audit_v2:3:authentication_fact_digest:text:true:",
+        "rd_replay_policy_catalog_audit_v2:4:command_kind:text:true:",
+        "rd_replay_policy_catalog_audit_v2:5:predecessor_record_id:text:false:",
+        "rd_replay_policy_catalog_audit_v2:6:predecessor_head_record_id:text:false:",
+        "rd_replay_policy_catalog_audit_v2:7:result_record_id:text:false:",
+        "rd_replay_policy_catalog_audit_v2:8:content_identity:text:true:",
+        "rd_replay_policy_catalog_audit_v2:9:audit_json:jsonb:true:",
+        "rd_replay_policy_catalog_audit_v2:10:committed_at_epoch_ms:bigint:true:",
+        "rd_replay_policy_catalog_head_v2:1:singleton:boolean:true:true",
+        "rd_replay_policy_catalog_head_v2:2:catalog_record_id:text:true:",
+        "rd_replay_policy_catalog_head_v2:3:catalog_version:numeric(20,0):true:",
+        "rd_replay_policy_catalog_head_v2:4:advanced_by:text:true:",
+        "rd_replay_policy_catalog_head_v2:5:advanced_at_epoch_ms:bigint:true:",
+        "rd_replay_policy_catalog_records_v2:1:catalog_record_id:text:true:",
+        "rd_replay_policy_catalog_records_v2:2:catalog_version:numeric(20,0):true:",
+        "rd_replay_policy_catalog_records_v2:3:owner_identity:text:true:",
+        "rd_replay_policy_catalog_records_v2:4:predecessor_record_id:text:false:",
+        "rd_replay_policy_catalog_records_v2:5:policy_grammar_parser_id:text:true:",
+        "rd_replay_policy_catalog_records_v2:6:policy_grammar_parser_digest:bytea:true:",
+        "rd_replay_policy_catalog_records_v2:7:policy_canonical_bytes:bytea:true:",
+        "rd_replay_policy_catalog_records_v2:8:policy_digest:bytea:true:",
+        "rd_replay_policy_catalog_records_v2:9:catalog_record_digest:bytea:true:",
+        "rd_replay_policy_catalog_records_v2:10:created_by:text:true:",
+        "rd_replay_policy_catalog_records_v2:11:created_at_epoch_ms:bigint:true:",
+        "rd_replay_policy_catalog_revocations_v2:1:catalog_record_id:text:true:",
+        "rd_replay_policy_catalog_revocations_v2:2:catalog_version:numeric(20,0):true:",
+        "rd_replay_policy_catalog_revocations_v2:3:revoked_by:text:true:",
+        "rd_replay_policy_catalog_revocations_v2:4:revoked_at_epoch_ms:bigint:true:",
+    ];
+
+    if column_shape
+        .iter()
+        .map(String::as_str)
+        .ne(expected_column_shape)
     {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
-            "Catalog mutation guard source readback mismatch".to_owned(),
+            "Catalog column shape readback mismatch".to_owned(),
         ));
     }
-    let trigger_count: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid = trigger_fact.tgrelid JOIN pg_catalog.pg_proc procedure ON procedure.oid = trigger_fact.tgfoid JOIN pg_catalog.pg_namespace namespace ON namespace.oid = procedure.pronamespace WHERE NOT trigger_fact.tgisinternal AND trigger_fact.tgenabled = 'O' AND trigger_fact.tgtype = 31 AND namespace.nspname = 'rd_owner_api' AND procedure.proname = 'guard_replay_policy_catalog_mutation_v2' AND relation.relname || ':' || trigger_fact.tgname = ANY($1)",
-    )
-    .bind([
-        "rd_replay_policy_catalog_records_v2:rd_replay_policy_catalog_records_guard_v2",
-        "rd_replay_policy_catalog_head_v2:rd_replay_policy_catalog_head_guard_v2",
-        "rd_replay_policy_catalog_revocations_v2:rd_replay_policy_catalog_revocations_guard_v2",
-        "rd_replay_policy_catalog_audit_v2:rd_replay_policy_catalog_audit_guard_v2",
-        "rd_owner_outbox_v1:rd_replay_policy_catalog_outbox_guard_v2",
-    ])
-    .fetch_one(pool)
-    .await
-    .map_err(unavailable)?;
-    if trigger_count != 5 {
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=10 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','p','1'),('rd_replay_policy_catalog_records_v2','u','2'),('rd_replay_policy_catalog_records_v2','u','4'),('rd_replay_policy_catalog_records_v2','u','9'),('rd_replay_policy_catalog_head_v2','p','1'),('rd_replay_policy_catalog_head_v2','u','2'),('rd_replay_policy_catalog_head_v2','u','3'),('rd_replay_policy_catalog_revocations_v2','p','1'),('rd_replay_policy_catalog_revocations_v2','u','2'),('rd_replay_policy_catalog_audit_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=3 AND NOT bool_or((source.relname,constraint_fact.conkey::text,target.relname,constraint_fact.confkey::text) NOT IN (VALUES ('rd_replay_policy_catalog_records_v2','4','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_head_v2','2','rd_replay_policy_catalog_records_v2','1'),('rd_replay_policy_catalog_revocations_v2','1','rd_replay_policy_catalog_records_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND (SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))')) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype='c') AND (SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+        .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(pool).await.map_err(unavailable)?;
+
+    if !dependency_shape_is_exact {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
-            "Catalog mutation guard trigger readback mismatch".to_owned(),
+            "Catalog constraint or dependency readback mismatch".to_owned(),
+        ));
+    }
+    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR constraint_fact.connoinherit OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
+        .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(pool).await.map_err(unavailable)?;
+
+    if !constraint_options_are_exact {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog constraint option manifest mismatch".to_owned(),
+        ));
+    }
+    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=10 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='replay_policy_catalog_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1)")
+        .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(pool).await.map_err(unavailable)?;
+
+    if !index_options_are_exact {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog index option manifest mismatch".to_owned(),
+        ));
+    }
+    let routines = sqlx::query("SELECT procedure.proname, procedure.prosrc, language.lanname, procedure.prokind='f' AS kind_exact, procedure.proretset, procedure.prosecdef, procedure.provolatile='v' AS volatile_exact, procedure.proparallel='u' AS parallel_exact, procedure.proisstrict, procedure.proconfig FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1) ORDER BY procedure.proname")
+        .bind(["apply_replay_policy_catalog_command_v2", "lock_current_replay_policy_catalog_v2", "lock_replay_policy_catalog_record_v2"])
+        .fetch_all(pool).await.map_err(unavailable)?;
+    let expected = [
+        (
+            "apply_replay_policy_catalog_command_v2",
+            "catalog_apply",
+            "plpgsql",
+            false,
+            false,
+        ),
+        (
+            "lock_current_replay_policy_catalog_v2",
+            "catalog_current",
+            "sql",
+            true,
+            false,
+        ),
+        (
+            "lock_replay_policy_catalog_record_v2",
+            "catalog_read",
+            "sql",
+            true,
+            true,
+        ),
+    ];
+
+    if routines.len() != expected.len()
+        || routines
+            .iter()
+            .zip(expected)
+            .any(|(row, (name, tag, language, returns_set, strict))| {
+                row.try_get::<String, _>("proname").ok().as_deref() != Some(name)
+                    || row.try_get::<String, _>("prosrc").ok().as_deref()
+                        != migration_function_source(tag)
+                    || row.try_get::<String, _>("lanname").ok().as_deref() != Some(language)
+                    || row.try_get::<bool, _>("kind_exact").ok() != Some(true)
+                    || row.try_get::<bool, _>("proretset").ok() != Some(returns_set)
+                    || row.try_get::<bool, _>("prosecdef").ok() != Some(true)
+                    || row.try_get::<bool, _>("volatile_exact").ok() != Some(true)
+                    || row.try_get::<bool, _>("parallel_exact").ok() != Some(true)
+                    || row.try_get::<bool, _>("proisstrict").ok() != Some(strict)
+                    || row
+                        .try_get::<Option<Vec<String>>, _>("proconfig")
+                        .ok()
+                        .flatten()
+                        .as_deref()
+                        != Some(&["search_path=pg_catalog, pg_temp".to_owned()])
+            })
+    {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog function source or metadata readback mismatch".to_owned(),
         ));
     }
     Ok(())
 }
 
-async fn open_catalog_admin_guard(
-    transaction: &mut Transaction<'_, Postgres>,
-    administrator: &AuthenticatedCatalogAdministratorV2,
-    command_identity: &str,
-) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    let token = canonical_json_digest(
-        "rd.replay-policy-catalog.mutation-guard.v2",
-        &(
-            &administrator.identity,
-            &administrator.authentication_fact_digest,
-            command_identity,
-        ),
-    )?;
-    sqlx::query("SELECT pg_catalog.set_config($1, $2, true)")
-        .bind(CATALOG_ADMIN_GUARD_SETTING_V2)
-        .bind(token)
-        .execute(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
-    Ok(())
-}
-
-async fn close_catalog_admin_guard(
-    transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    sqlx::query("SELECT pg_catalog.set_config($1, '', true)")
-        .bind(CATALOG_ADMIN_GUARD_SETTING_V2)
-        .execute(&mut **transaction)
-        .await
-        .map_err(unavailable)?;
-    Ok(())
+fn migration_function_source(tag: &str) -> Option<&'static str> {
+    let delimiter = format!("${tag}$");
+    let (_, suffix) = AUTHORITY_MIGRATION_SQL.split_once(&delimiter)?;
+    let (source, _) = suffix.split_once(&delimiter)?;
+    Some(source)
 }
 
 async fn lock_catalog(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
+    let exact: bool = sqlx::query_scalar("SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND count(*)=3 AND bool_and(pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl WHERE acl.privilege_type<>'EXECUTE' OR (acl.grantee<>procedure.proowner AND (acl.is_grantable OR (procedure.proname='apply_replay_policy_catalog_command_v2' AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_fact_writer')) OR (procedure.proname<>'apply_replay_policy_catalog_command_v2' AND acl.grantee NOT IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')))))) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1)")
+        .bind(["apply_replay_policy_catalog_command_v2", "lock_current_replay_policy_catalog_v2", "lock_replay_policy_catalog_record_v2"]).fetch_one(&mut **transaction).await.map_err(unavailable)?;
+
+    if !exact {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog runtime ACL drift".to_owned(),
+        ));
+    }
+    let table_shape: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relowner,relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r') SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relowner)='replay_policy_catalog_owner' AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=family.oid AND NOT trigger_fact.tgisinternal)) FROM family")
+        .bind(CATALOG_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(unavailable)?;
+
+    if !table_shape {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog runtime table drift".to_owned(),
+        ));
+    }
+    let sources = sqlx::query("SELECT procedure.proname, procedure.prosrc FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1) ORDER BY procedure.proname")
+        .bind(["apply_replay_policy_catalog_command_v2", "lock_current_replay_policy_catalog_v2", "lock_replay_policy_catalog_record_v2"])
+        .fetch_all(&mut **transaction).await.map_err(unavailable)?;
+    let expected = [
+        ("apply_replay_policy_catalog_command_v2", "catalog_apply"),
+        ("lock_current_replay_policy_catalog_v2", "catalog_current"),
+        ("lock_replay_policy_catalog_record_v2", "catalog_read"),
+    ];
+
+    if sources.len() != expected.len()
+        || sources.iter().zip(expected).any(|(row, (name, tag))| {
+            row.try_get::<String, _>("proname").ok().as_deref() != Some(name)
+                || row.try_get::<String, _>("prosrc").ok().as_deref()
+                    != migration_function_source(tag)
+        })
+    {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog runtime authority drift".to_owned(),
+        ));
+    }
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(CATALOG_ADMIN_LOCK_V2)
         .execute(&mut **transaction)
@@ -667,6 +656,7 @@ fn require_command(
     now_epoch_ms: u64,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
     require_identity(command_identity, "command identity")?;
+
     if now_epoch_ms == 0 {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "command time must be nonzero",
@@ -751,28 +741,23 @@ mod postgres_tests {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
-    use vibe_testkit::postgres::{DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation};
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     #[tokio::test]
     #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
     async fn catalog_admin_and_family_formation_are_atomic_and_fail_closed() {
-        let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
-            .await
-            .unwrap();
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = database.mutation();
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(3)
-            .connect(database.database_url())
-            .await
-            .unwrap();
-        crate::trial_family_postgres::migrate(&pool).await.unwrap();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        crate::trial_family_postgres::migrate(pool).await.unwrap();
 
-        verify_catalog_storage_authority(&pool).await.unwrap();
+        verify_catalog_storage_authority(pool).await.unwrap();
         let external_write_grants: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = ANY($1) AND grantee <> 'rd_owner'",
         )
         .bind(CATALOG_TABLES_V2.as_slice())
-        .fetch_one(&pool)
+        .fetch_one(pool)
         .await
         .unwrap();
         assert_eq!(external_write_grants, 0);
@@ -780,22 +765,25 @@ mod postgres_tests {
         for (table, query) in [
             (
                 "rd_replay_policy_catalog_records_v2",
-                "SELECT count(*) FROM rd_replay_policy_catalog_records_v2",
+                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
             ),
             (
                 "rd_replay_policy_catalog_head_v2",
-                "SELECT count(*) FROM rd_replay_policy_catalog_head_v2",
+                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2",
             ),
             (
                 "rd_replay_policy_catalog_revocations_v2",
-                "SELECT count(*) FROM rd_replay_policy_catalog_revocations_v2",
+                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2",
             ),
             (
                 "rd_replay_policy_catalog_audit_v2",
-                "SELECT count(*) FROM rd_replay_policy_catalog_audit_v2",
+                "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
             ),
         ] {
-            let count: i64 = sqlx::query_scalar(query).fetch_one(&pool).await.unwrap();
+            let count: i64 = sqlx::query_scalar(query)
+                .fetch_one(topology_admin_pool)
+                .await
+                .unwrap();
             assert_eq!(count, 0, "migration must not seed {table}");
         }
 
@@ -826,7 +814,7 @@ mod postgres_tests {
         .await
         .unwrap();
         transaction.commit().await.unwrap();
-        assert_direct_catalog_mutations_are_rejected(&pool).await;
+        assert_direct_catalog_mutations_are_rejected(pool).await;
 
         let mut policy = family_policy();
         let mut transaction = pool.begin().await.unwrap();
@@ -905,10 +893,16 @@ mod postgres_tests {
         );
         transaction.rollback().await.unwrap();
 
-        assert_zero_family_write_on_cross_splice(&pool).await;
-        assert_zero_family_write_on_tamper(&mutation, &pool, second.catalog_record_id()).await;
-        assert_zero_family_write_on_wrong_owner(&mutation, &pool, second.catalog_record_id()).await;
-        assert_zero_family_write_on_wrong_head(&mutation, &pool).await;
+        assert_zero_family_write_on_cross_splice(pool).await;
+        assert_zero_family_write_on_tamper(topology_admin_pool, pool, second.catalog_record_id())
+            .await;
+        assert_zero_family_write_on_wrong_owner(
+            topology_admin_pool,
+            pool,
+            second.catalog_record_id(),
+        )
+        .await;
+        assert_zero_family_write_on_wrong_head(topology_admin_pool, pool).await;
 
         let mut transaction = pool.begin().await.unwrap();
         ReplayPolicyCatalogAdministrationPortV2::revoke_version(
@@ -921,7 +915,7 @@ mod postgres_tests {
         .await
         .unwrap();
         transaction.commit().await.unwrap();
-        let before = family_row_counts(&pool).await;
+        let before = family_row_counts(pool).await;
         let mut transaction = pool.begin().await.unwrap();
         assert!(
             resolve_current_for_trial_family_formation(&mut transaction, &family_policy())
@@ -929,20 +923,21 @@ mod postgres_tests {
                 .is_err()
         );
         transaction.rollback().await.unwrap();
-        assert_eq!(family_row_counts(&pool).await, before);
+        assert_eq!(family_row_counts(pool).await, before);
 
-        let audit_count: i64 =
-            sqlx::query_scalar("SELECT count(*) FROM rd_replay_policy_catalog_audit_v2")
-                .fetch_one(&pool)
-                .await
-                .unwrap();
+        let audit_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
+        )
+        .fetch_one(topology_admin_pool)
+        .await
+        .unwrap();
         let outbox_count: i64 = sqlx::query_scalar("SELECT count(*) FROM rd_owner_outbox_v1 WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2'")
-            .fetch_one(&pool)
+            .fetch_one(pool)
             .await
             .unwrap();
         assert_eq!(audit_count, 6);
         assert_eq!(outbox_count, 6);
-        cleanup_catalog_for_disposable_test_only(&mutation, &pool).await;
+        cleanup_catalog_for_disposable_test_only(topology_admin_pool, pool).await;
     }
 
     async fn assert_zero_family_write_on_cross_splice(pool: &PgPool) {
@@ -960,14 +955,13 @@ mod postgres_tests {
     }
 
     async fn assert_zero_family_write_on_tamper(
-        mutation: &DedicatedPostgresTestMutation<'_>,
+        topology_admin_pool: &PgPool,
         pool: &PgPool,
         record_id: &str,
     ) {
         let before = family_row_counts(pool).await;
-        let mut transaction = pool.begin().await.unwrap();
-        open_disposable_poison_guard_for_test_only(mutation, &mut transaction).await;
-        sqlx::query("UPDATE rd_replay_policy_catalog_records_v2 SET policy_digest = decode(repeat('00',32),'hex') WHERE catalog_record_id = $1")
+        let mut transaction = topology_admin_pool.begin().await.unwrap();
+        sqlx::query("UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET policy_digest = decode(repeat('00',32),'hex') WHERE catalog_record_id = $1")
             .bind(record_id)
             .execute(&mut *transaction)
             .await
@@ -982,14 +976,13 @@ mod postgres_tests {
     }
 
     async fn assert_zero_family_write_on_wrong_owner(
-        mutation: &DedicatedPostgresTestMutation<'_>,
+        topology_admin_pool: &PgPool,
         pool: &PgPool,
         record_id: &str,
     ) {
         let before = family_row_counts(pool).await;
-        let mut transaction = pool.begin().await.unwrap();
-        open_disposable_poison_guard_for_test_only(mutation, &mut transaction).await;
-        sqlx::query("UPDATE rd_replay_policy_catalog_records_v2 SET owner_identity = 'wrong-owner' WHERE catalog_record_id = $1")
+        let mut transaction = topology_admin_pool.begin().await.unwrap();
+        sqlx::query("UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET owner_identity = 'wrong-owner' WHERE catalog_record_id = $1")
             .bind(record_id)
             .execute(&mut *transaction)
             .await
@@ -1003,14 +996,10 @@ mod postgres_tests {
         assert_eq!(family_row_counts(pool).await, before);
     }
 
-    async fn assert_zero_family_write_on_wrong_head(
-        mutation: &DedicatedPostgresTestMutation<'_>,
-        pool: &PgPool,
-    ) {
+    async fn assert_zero_family_write_on_wrong_head(topology_admin_pool: &PgPool, pool: &PgPool) {
         let before = family_row_counts(pool).await;
-        let mut transaction = pool.begin().await.unwrap();
-        open_disposable_poison_guard_for_test_only(mutation, &mut transaction).await;
-        sqlx::query("UPDATE rd_replay_policy_catalog_head_v2 SET catalog_version = 1 WHERE singleton = TRUE")
+        let mut transaction = topology_admin_pool.begin().await.unwrap();
+        sqlx::query("UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET catalog_version = 1 WHERE singleton = TRUE")
             .execute(&mut *transaction)
             .await
             .unwrap();
@@ -1025,14 +1014,11 @@ mod postgres_tests {
 
     async fn assert_direct_catalog_mutations_are_rejected(pool: &PgPool) {
         for statement in [
-            "UPDATE rd_replay_policy_catalog_records_v2 SET owner_identity = 'raw-writer' WHERE catalog_record_id = 'catalog-policy-record-v2-1'",
-            "DELETE FROM rd_replay_policy_catalog_records_v2 WHERE catalog_record_id = 'catalog-policy-record-v2-1'",
-            "UPDATE rd_replay_policy_catalog_head_v2 SET advanced_by = 'raw-writer' WHERE singleton = TRUE",
-            "INSERT INTO rd_replay_policy_catalog_revocations_v2 (catalog_record_id, catalog_version, revoked_by, revoked_at_epoch_ms) VALUES ('catalog-policy-record-v2-1',1,'raw-writer',1)",
-            "INSERT INTO rd_replay_policy_catalog_audit_v2 (command_identity, administrator_identity, authentication_fact_digest, command_kind, content_identity, audit_json, committed_at_epoch_ms) VALUES ('raw-command','raw-writer','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','RAW_WRITE','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','{}',1)",
-            "INSERT INTO rd_owner_outbox_v1 (event_identity, aggregate_identity, event_kind, payload_digest, payload_json, committed_at_epoch_ms) VALUES ('raw-catalog-event','raw-command','REPLAY_POLICY_CATALOG_RAW_WRITE_V2','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','{}',1)",
-            "UPDATE rd_owner_outbox_v1 SET event_kind = 'RAW_WRITE' WHERE aggregate_identity = 'catalog-command-create-v2'",
-            "DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity = 'catalog-command-create-v2'",
+            "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET owner_identity = 'raw-writer' WHERE catalog_record_id = 'catalog-policy-record-v2-1'",
+            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 WHERE catalog_record_id = 'catalog-policy-record-v2-1'",
+            "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET advanced_by = 'raw-writer' WHERE singleton = TRUE",
+            "INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 (catalog_record_id, catalog_version, revoked_by, revoked_at_epoch_ms) VALUES ('catalog-policy-record-v2-1',1,'raw-writer',1)",
+            "INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 (command_identity, administrator_identity, authentication_fact_digest, command_kind, content_identity, audit_json, committed_at_epoch_ms) VALUES ('raw-command','raw-writer','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','RAW_WRITE','sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','{}',1)",
         ] {
             let mut transaction = pool.begin().await.unwrap();
             let error = sqlx::query(statement)
@@ -1040,7 +1026,7 @@ mod postgres_tests {
                 .await
                 .expect_err("raw Catalog mutation must be rejected");
             assert_eq!(
-                error.as_database_error().and_then(|error| error.code()),
+                error.as_database_error().and_then(|e| e.code()),
                 Some(std::borrow::Cow::Borrowed("42501"))
             );
             transaction.rollback().await.unwrap();
@@ -1049,30 +1035,17 @@ mod postgres_tests {
 
     /// Opens the poison capability only inside this disposable PostgreSQL test module. This is not
     /// an administration port and is absent from non-test builds.
-    async fn open_disposable_poison_guard_for_test_only(
-        _mutation: &DedicatedPostgresTestMutation<'_>,
-        transaction: &mut Transaction<'_, Postgres>,
-    ) {
-        sqlx::query("SELECT pg_catalog.set_config($1, $2, true)")
-            .bind(CATALOG_ADMIN_GUARD_SETTING_V2)
-            .bind(format!("sha256:{}", "f".repeat(64)))
-            .execute(&mut **transaction)
-            .await
-            .unwrap();
-    }
-
     async fn cleanup_catalog_for_disposable_test_only(
-        mutation: &DedicatedPostgresTestMutation<'_>,
-        pool: &PgPool,
+        topology_admin_pool: &PgPool,
+        rd_pool: &PgPool,
     ) {
-        let mut transaction = pool.begin().await.unwrap();
-        open_disposable_poison_guard_for_test_only(mutation, &mut transaction).await;
+        let mut transaction = topology_admin_pool.begin().await.unwrap();
+
         for statement in [
-            "DELETE FROM rd_replay_policy_catalog_revocations_v2",
-            "DELETE FROM rd_replay_policy_catalog_head_v2",
-            "DELETE FROM rd_replay_policy_catalog_audit_v2",
-            "DELETE FROM rd_owner_outbox_v1 WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2'",
-            "DELETE FROM rd_replay_policy_catalog_records_v2",
+            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2",
+            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2",
+            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
+            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
         ] {
             sqlx::query(statement)
                 .execute(&mut *transaction)
@@ -1080,6 +1053,12 @@ mod postgres_tests {
                 .unwrap();
         }
         transaction.commit().await.unwrap();
+        sqlx::query(
+            "DELETE FROM rd_owner_outbox_v1 WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2'",
+        )
+        .execute(rd_pool)
+        .await
+        .unwrap();
     }
 
     async fn family_row_counts(pool: &PgPool) -> (i64, i64, i64, i64) {

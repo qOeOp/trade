@@ -11,40 +11,40 @@ use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwne
 
 const OWNER_ROW_COUNTS: &[(&str, &str)] = &[
     (
-        "rd_develop_designs_v2",
-        "SELECT count(*) FROM rd_develop_designs_v2",
+        "composer_private.rd_develop_designs_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_designs_v2",
     ),
     (
-        "rd_develop_plans_v2",
-        "SELECT count(*) FROM rd_develop_plans_v2",
+        "composer_private.rd_develop_plans_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_plans_v2",
     ),
     (
-        "rd_develop_artifacts_v2",
-        "SELECT count(*) FROM rd_develop_artifacts_v2",
+        "composer_private.rd_develop_artifacts_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_artifacts_v2",
     ),
     (
-        "rd_develop_artifact_modules_v2",
-        "SELECT count(*) FROM rd_develop_artifact_modules_v2",
+        "composer_private.rd_develop_artifact_modules_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2",
     ),
     (
-        "rd_develop_build_receipts_v2",
-        "SELECT count(*) FROM rd_develop_build_receipts_v2",
+        "composer_private.rd_develop_build_receipts_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2",
     ),
     (
-        "rd_develop_composer_receipts_v2",
-        "SELECT count(*) FROM rd_develop_composer_receipts_v2",
+        "composer_private.rd_develop_composer_receipts_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2",
     ),
     (
-        "rd_develop_host_receipts_v2",
-        "SELECT count(*) FROM rd_develop_host_receipts_v2",
+        "composer_private.rd_develop_host_receipts_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2",
     ),
     (
-        "rd_develop_operations_v2",
-        "SELECT count(*) FROM rd_develop_operations_v2",
+        "composer_private.rd_develop_operations_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_operations_v2",
     ),
     (
-        "rd_develop_outbox_v2",
-        "SELECT count(*) FROM rd_develop_outbox_v2",
+        "composer_private.rd_develop_outbox_v2",
+        "SELECT count(*) FROM composer_private.rd_develop_outbox_v2",
     ),
 ];
 
@@ -54,31 +54,40 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable Owner topology");
-    let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+    let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter);
     let mutation = database.mutation();
-    let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let pool = database.owner_topology_admin_pool();
 
     let owner = SealedDevelopComposerAcceptanceV2::connect(database_url)
         .await
         .expect("sealed Composer owner");
+    let raw_error = sqlx::query("SELECT 1 FROM composer_private.rd_develop_operations_v2")
+        .execute(rd_pool)
+        .await
+        .expect_err("rd_owner must not read private Composer tables");
+    assert_eq!(
+        raw_error.as_database_error().and_then(|e| e.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
     sqlx::query(
         "TRUNCATE TABLE
-           rd_develop_outbox_v2,
-           rd_develop_operations_v2,
-           rd_develop_host_receipts_v2,
-           rd_develop_composer_receipts_v2,
-           rd_develop_build_receipts_v2,
-           rd_develop_artifact_modules_v2,
-           rd_develop_artifacts_v2,
-           rd_develop_plans_v2,
-           rd_develop_designs_v2",
+           composer_private.rd_develop_outbox_v2,
+           composer_private.rd_develop_operations_v2,
+           composer_private.rd_develop_host_receipts_v2,
+           composer_private.rd_develop_composer_receipts_v2,
+           composer_private.rd_develop_build_receipts_v2,
+           composer_private.rd_develop_artifact_modules_v2,
+           composer_private.rd_develop_artifacts_v2,
+           composer_private.rd_develop_plans_v2,
+           composer_private.rd_develop_designs_v2",
     )
     .execute(pool)
     .await
     .expect("clear only disposable Composer custody");
 
     sqlx::query(
-        "CREATE OR REPLACE FUNCTION rd_develop_reject_commit_v2()
+        "CREATE OR REPLACE FUNCTION composer_private.rd_develop_reject_commit_v2()
          RETURNS trigger
          LANGUAGE plpgsql
          AS $function$
@@ -92,28 +101,30 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .expect("install disposable deferred failure");
     sqlx::query(
         "CREATE CONSTRAINT TRIGGER rd_develop_reject_commit_v2
-         AFTER INSERT ON rd_develop_outbox_v2
+         AFTER INSERT ON composer_private.rd_develop_outbox_v2
          DEFERRABLE INITIALLY DEFERRED
-         FOR EACH ROW EXECUTE FUNCTION rd_develop_reject_commit_v2()",
+         FOR EACH ROW EXECUTE FUNCTION composer_private.rd_develop_reject_commit_v2()",
     )
     .execute(pool)
     .await
     .expect("arm deferred commit failure");
 
-    let failed_commit = owner.run().await.expect("commit ambiguity is typed");
+    let failed_commit = owner.run().await.expect("topology drift is typed");
     assert_eq!(
         failed_commit.disposition,
-        DevelopComposerOperationDispositionV2::SubmittedOrUnknown
+        DevelopComposerOperationDispositionV2::Unavailable
     );
     assert!(failed_commit.receipt_identity.is_none());
     assert!(failed_commit.artifact.is_none());
     assert_owner_row_counts(pool, 0).await;
 
-    sqlx::query("DROP TRIGGER rd_develop_reject_commit_v2 ON rd_develop_outbox_v2")
-        .execute(pool)
-        .await
-        .expect("disarm deferred commit failure");
-    sqlx::query("DROP FUNCTION rd_develop_reject_commit_v2()")
+    sqlx::query(
+        "DROP TRIGGER rd_develop_reject_commit_v2 ON composer_private.rd_develop_outbox_v2",
+    )
+    .execute(pool)
+    .await
+    .expect("disarm deferred commit failure");
+    sqlx::query("DROP FUNCTION composer_private.rd_develop_reject_commit_v2()")
         .execute(pool)
         .await
         .expect("remove deferred failure function");
@@ -133,7 +144,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
 
     let stored_response = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT response_bytes
-           FROM rd_develop_operations_v2
+           FROM composer_private.rd_develop_operations_v2
           WHERE request_identity=$1",
     )
     .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
@@ -171,14 +182,14 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
 
     let outbox_bytes = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT canonical_bytes
-           FROM rd_develop_outbox_v2
+           FROM composer_private.rd_develop_outbox_v2
           WHERE request_identity=$1",
     )
     .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
     .fetch_one(pool)
     .await
     .expect("stored outbox bytes");
-    sqlx::query("DELETE FROM rd_develop_outbox_v2 WHERE request_identity=$1")
+    sqlx::query("DELETE FROM composer_private.rd_develop_outbox_v2 WHERE request_identity=$1")
         .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
         .execute(pool)
         .await
@@ -198,7 +209,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     assert!(incomplete.receipt_identity.is_none());
     assert!(incomplete.artifact.is_none());
     sqlx::query(
-        "INSERT INTO rd_develop_outbox_v2 (request_identity, canonical_bytes)
+        "INSERT INTO composer_private.rd_develop_outbox_v2 (request_identity, canonical_bytes)
          VALUES ($1,$2)",
     )
     .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
@@ -215,7 +226,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
 
     let design = sqlx::query(
         "SELECT design_identity, canonical_bytes
-           FROM rd_develop_designs_v2",
+           FROM composer_private.rd_develop_designs_v2",
     )
     .fetch_one(pool)
     .await
@@ -225,7 +236,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     let mut corrupt_design_bytes = original_design_bytes.clone();
     corrupt_design_bytes[0] ^= 1;
     sqlx::query(
-        "UPDATE rd_develop_designs_v2
+        "UPDATE composer_private.rd_develop_designs_v2
             SET canonical_bytes=$1
           WHERE design_identity=$2",
     )
@@ -245,7 +256,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     assert!(corrupt.receipt_identity.is_none());
     assert!(corrupt.artifact.is_none());
     sqlx::query(
-        "UPDATE rd_develop_designs_v2
+        "UPDATE composer_private.rd_develop_designs_v2
             SET canonical_bytes=$1
           WHERE design_identity=$2",
     )
@@ -256,7 +267,7 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     .expect("restore disposable Design bytes");
 
     sqlx::query(
-        "UPDATE rd_develop_operations_v2
+        "UPDATE composer_private.rd_develop_operations_v2
             SET request_digest=decode(repeat('ff', 32), 'hex')
           WHERE request_identity=$1",
     )

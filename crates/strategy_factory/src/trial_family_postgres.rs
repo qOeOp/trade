@@ -22,22 +22,18 @@ const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
-    for statement in [
-        "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
-        "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
-    ] {
-        sqlx::query(statement)
-            .execute(pool)
-            .await
-            .map_err(storage)?;
+    let exact: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner' AND count(*)=6 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname=ANY($1) AND relation.relkind='r'")
+        .bind(["rd_trial_families_v1","rd_trial_family_members_v1","rd_trial_family_heads_v1","rd_trial_family_attempt_cuts_v2","rd_artifact_trial_family_bindings_v1","rd_owner_outbox_v1"])
+        .fetch_one(pool).await.map_err(storage)?;
+
+    if !exact {
+        return Err(TrialFamilyError::Unavailable(
+            "TrialFamily authority topology is unavailable".to_owned(),
+        ));
     }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
         .await
-        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
 }
 
@@ -259,6 +255,7 @@ pub(crate) async fn load_trial_family_in_transaction(
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+
     match schema_version {
         1 => {}
         2 => {
@@ -276,6 +273,7 @@ pub(crate) async fn load_trial_family_in_transaction(
             ));
         }
     }
+
     if member_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census incomplete".to_string(),
@@ -318,6 +316,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if head.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head missing".to_string(),
@@ -358,6 +357,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     let prior_member_count = prior.as_ref().map_or(1, |readback| readback.members.len());
     let next = append_attempt_to_census_v2(legacy_family, prior.as_ref(), append, now_epoch_ms)?;
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
+
     for (member, receipt) in next
         .members
         .iter()
@@ -400,6 +400,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if updated.rows_affected() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head changed concurrently".to_string(),
@@ -446,6 +447,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if roots.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family root missing".to_string(),
@@ -467,6 +469,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 family census incomplete".to_string(),
@@ -490,10 +493,12 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
     let mut members = vec![initial_member];
     let mut receipts = vec![initial_receipt];
+
     for row in member_rows.iter().skip(1) {
         let member_json = row.try_get("member_json").map_err(storage)?;
         let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
         let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
+
         if row
             .try_get::<String, _>("member_identity")
             .map_err(storage)?
@@ -515,6 +520,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         receipts.push(receipt);
     }
     let mut latest = None;
+
     for (index, row) in cut_rows.iter().enumerate() {
         let census: TrialFamilyCensusFrontierV2 =
             decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
@@ -751,6 +757,7 @@ async fn verify_census_outbox_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 census outbox missing".to_string(),

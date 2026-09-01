@@ -26,13 +26,14 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 5] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 6] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
     ),
     ("PRODUCT_EDGE_TEST_DATABASE_URL", "product_edge_owner"),
     ("RD_OWNER_TEST_DATABASE_URL", "rd_owner"),
+    ("RD_FACT_WRITER_TEST_DATABASE_URL", "rd_fact_writer"),
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
 ];
@@ -145,6 +146,7 @@ pub enum CanonicalOwnerTestRoleV1 {
     OperatorAuthorizationWriter,
     ProductEdgeOwner,
     RdOwner,
+    RdFactWriter,
     QualificationWriter,
     BacktestOwner,
 }
@@ -155,17 +157,19 @@ impl CanonicalOwnerTestRoleV1 {
             Self::OperatorAuthorizationWriter => 0,
             Self::ProductEdgeOwner => 1,
             Self::RdOwner => 2,
-            Self::QualificationWriter => 3,
-            Self::BacktestOwner => 4,
+            Self::RdFactWriter => 3,
+            Self::QualificationWriter => 4,
+            Self::BacktestOwner => 5,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 5],
-    pools: [PgPool; 5],
+    database_urls: [String; 6],
+    pools: [PgPool; 6],
     marker_identity: String,
+    owner_topology_admin_pool: PgPool,
 }
 
 impl Debug for CanonicalOwnerPostgresTestDatabaseV1 {
@@ -252,6 +256,8 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             .await?;
             pools.push(pool);
         }
+        let owner_topology_admin_pool =
+            admit_owner_topology_admin(&expected_database, first).await?;
 
         Ok(Self {
             database_urls: urls
@@ -261,6 +267,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 .try_into()
                 .map_err(|_| DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch)?,
             marker_identity: expected_marker,
+            owner_topology_admin_pool,
         })
     }
 
@@ -275,6 +282,54 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     pub fn mutation(&self) -> CanonicalOwnerPostgresTestMutationV1<'_> {
         CanonicalOwnerPostgresTestMutationV1 { database: self }
     }
+
+    /// Returns the CI-only topology administrator used to inject private-owner faults.
+    #[must_use]
+    pub fn owner_topology_admin_pool(&self) -> &PgPool {
+        &self.owner_topology_admin_pool
+    }
+}
+
+async fn admit_owner_topology_admin(
+    expected_database: &str,
+    canonical_target: &NormalizedDatabaseTarget,
+) -> Result<PgPool, DedicatedPostgresTestDatabaseError> {
+    const URL_ENV: &str = "VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL";
+    let url = env::var(URL_ENV)
+        .map_err(|_| DedicatedPostgresTestDatabaseError::MissingEnvironment(URL_ENV))?;
+    let target = normalize_url(URL_ENV, &url)?;
+    if target.database != expected_database
+        || target.role != "vibe_test_owner_topology_admin"
+        || !target.same_database(canonical_target)
+    {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(8)
+        .connect(&url)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    let role_is_exact: bool = sqlx::query_scalar(
+        "SELECT session_user='vibe_test_owner_topology_admin'
+           AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+           AND NOT rolreplication AND NOT rolbypassrls
+           AND (SELECT count(*)=2 FROM pg_catalog.pg_auth_members membership
+                JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+                WHERE membership.member=administrator.oid
+                  AND granted.rolname IN ('replay_policy_catalog_owner','composer_owner')
+                  AND membership.set_option)
+           AND (SELECT count(*)=2 FROM pg_catalog.pg_auth_members membership
+                WHERE membership.member=administrator.oid)
+          FROM pg_catalog.pg_roles administrator
+         WHERE administrator.rolname='vibe_test_owner_topology_admin' AND administrator.rolcanlogin",
+    )
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    if !role_is_exact {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    Ok(pool)
 }
 
 /// Capability for role-specific mutation in an admitted canonical Owner test topology.

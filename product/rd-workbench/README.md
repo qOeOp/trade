@@ -33,7 +33,12 @@ Operator Authorization and Product Edge genesis are explicit administrative
 operations and never run as part of service startup. Before the first Owner
 start on either a fresh or existing named volume, run the idempotent custody
 migration. It creates/updates only PostgreSQL roles, ownership, and grants; it
-does not insert, update, delete, backfill, or reinterpret an Owner fact:
+also performs the single-transaction Catalog/Composer private-owner cutover.
+The database/public schema custodian and both object owners are NOLOGIN roles.
+`rd_owner` uses only fixed lock/read APIs; mutation requires an explicitly supplied
+`rd_fact_writer` credential which this repository does not seed or compose for deployment.
+Existing relations are moved with `SET SCHEMA` without row rewrites. The
+migration does not insert, update, delete, backfill, or reinterpret an Owner fact:
 
 ```bash
 docker compose \

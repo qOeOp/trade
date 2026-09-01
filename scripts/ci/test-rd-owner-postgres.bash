@@ -430,22 +430,119 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"test_database" OWNER postgres;
 SQL
 
-docker exec --interactive \
-  --env POSTGRES_HOST=127.0.0.1 \
-  --env "POSTGRES_DATABASE=${test_database}" \
-  --env "POSTGRES_PASSWORD=${test_password}" \
-  --env "RD_OWNER_DB_PASSWORD=${test_password}" \
-  --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
-  --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
-  --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
-  --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
-  "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+run_authority_migration() {
+  docker exec --interactive \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env "POSTGRES_DATABASE=${test_database}" \
+    --env "POSTGRES_PASSWORD=${test_password}" \
+    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+}
+run_authority_migration
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" --set=test_database="$test_database" << 'SQL'
+CREATE ROLE legacy_catalog_actor NOLOGIN;
+GRANT rd_owner TO legacy_catalog_actor;
+GRANT CONNECT ON DATABASE :"test_database" TO legacy_catalog_actor;
+GRANT CREATE ON DATABASE :"test_database" TO rd_owner;
+GRANT SELECT ON TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 TO legacy_catalog_actor;
+GRANT SELECT(catalog_record_id) ON TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 TO legacy_catalog_actor;
+CREATE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(integer) RETURNS integer LANGUAGE sql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS 'SELECT $1';
+ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(integer) OWNER TO composer_owner;
+GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(integer) TO legacy_catalog_actor;
+SQL
+if run_authority_migration; then
+  echo "ERROR: authority migration accepted an unknown Composer overload" >&2
+  exit 1
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DROP FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(integer);
+SQL
+run_authority_migration
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" --set=test_database="$test_database" << 'SQL'
+DO $legacy_cutover_readback$
+BEGIN
+  IF pg_catalog.pg_has_role('legacy_catalog_actor','rd_owner','MEMBER')
+     OR pg_catalog.has_database_privilege('legacy_catalog_actor',pg_catalog.current_database(),'CONNECT')
+     OR pg_catalog.has_database_privilege('rd_owner',pg_catalog.current_database(),'CREATE')
+     OR pg_catalog.has_database_privilege('rd_owner',pg_catalog.current_database(),'TEMPORARY')
+     OR pg_catalog.has_table_privilege('legacy_catalog_actor','replay_policy_catalog_private.rd_replay_policy_catalog_records_v2','SELECT')
+     OR pg_catalog.has_column_privilege('legacy_catalog_actor','replay_policy_catalog_private.rd_replay_policy_catalog_records_v2','catalog_record_id','SELECT') THEN
+    RAISE EXCEPTION 'legacy R&D authority survived cutover';
+  END IF;
+END
+$legacy_cutover_readback$;
+SQL
+fixed_catalog_rows="$(docker exec \
+  --env "PGPASSWORD=${test_password}" \
+  "$container" psql --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+  --host 127.0.0.1 --username rd_owner --dbname "$test_database" \
+  --command 'SELECT count(*) FROM replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()')"
+readonly fixed_catalog_rows
+if [[ "$fixed_catalog_rows" != "0" ]]; then
+  echo "ERROR: fixed Catalog read API failed after ACL cutover" >&2
+  exit 1
+fi
+for runtime_role in rd_owner rd_fact_writer operator_authorization_writer qualification_writer product_edge_owner backtest_owner; do
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << SQL; then
+SET SESSION AUTHORIZATION "$runtime_role";
+CREATE SCHEMA forbidden_${runtime_role}_schema;
+SQL
+    echo "ERROR: ${runtime_role} retained database CREATE" >&2
+    exit 1
+  fi
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << SQL; then
+SET SESSION AUTHORIZATION "$runtime_role";
+CREATE TEMP TABLE forbidden_${runtime_role}_temporary(value integer);
+SQL
+    echo "ERROR: ${runtime_role} retained database TEMPORARY" >&2
+    exit 1
+  fi
+done
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DO $replace_catalog_check$
+DECLARE constraint_name text;
+BEGIN
+  SELECT constraint_fact.conname INTO STRICT constraint_name
+  FROM pg_catalog.pg_constraint constraint_fact
+  WHERE constraint_fact.conrelid='replay_policy_catalog_private.rd_replay_policy_catalog_records_v2'::pg_catalog.regclass
+    AND constraint_fact.contype='c' AND pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) LIKE '%catalog_version%';
+  EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 DROP CONSTRAINT %I',constraint_name);
+END
+$replace_catalog_check$;
+ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 ADD CONSTRAINT catalog_version_manifest_test CHECK (catalog_version > 0);
+SQL
+if run_authority_migration; then
+  echo "ERROR: authority migration accepted same-count CHECK drift" >&2
+  exit 1
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 DROP CONSTRAINT catalog_version_manifest_test;
+ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 ADD CONSTRAINT catalog_version_manifest_restored CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615);
+SQL
+run_authority_migration
 
 readonly test_marker="rd-owner-isolated-${suffix}"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --set=test_database="$test_database" \
+  --set=test_password="$test_password" \
   --set=test_marker="$test_marker" << 'SQL'
+CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE rd_fact_writer PASSWORD :'test_password';
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
   marker_identity text NOT NULL,
@@ -455,14 +552,15 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
   'operator_authorization_writer',
   'product_edge_owner',
   'rd_owner',
+  'rd_fact_writer',
   'qualification_writer',
   'backtest_owner'
 ]) AS role_name
@@ -474,10 +572,10 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres \
   --set=test_database="$test_database" \
   --set=origin_current_database="$origin_current_database" << 'SQL'
-CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
+CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -727,9 +825,11 @@ export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
@@ -760,8 +860,10 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -795,23 +897,40 @@ DECLARE
   qualification_table text;
 BEGIN
   IF EXISTS (
-       SELECT 1
-       FROM pg_catalog.pg_database database_entry
-       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
-         database_entry.datacl,
-         pg_catalog.acldefault('d', database_entry.datdba)
-       )) database_acl
-       WHERE database_entry.datname = pg_catalog.current_database()
-         AND database_acl.grantee = 0
-         AND database_acl.privilege_type = 'CONNECT'
+       WITH expected(role_name,privilege_type,is_grantable,grantor_name) AS (VALUES
+         ('rd_owner','CONNECT',false,'rd_database_owner'),('rd_fact_writer','CONNECT',false,'rd_database_owner'),
+         ('operator_authorization_writer','CONNECT',false,'rd_database_owner'),('qualification_writer','CONNECT',false,'rd_database_owner'),
+         ('product_edge_owner','CONNECT',false,'rd_database_owner'),('backtest_owner','CONNECT',false,'rd_database_owner'),
+         ('vibe_test_owner_topology_admin','CONNECT',false,'rd_database_owner')
+       ), actual AS (
+         SELECT COALESCE(role.rolname,'PUBLIC'),database_acl.privilege_type,database_acl.is_grantable,
+                pg_catalog.pg_get_userbyid(database_acl.grantor)
+         FROM pg_catalog.pg_database database_entry
+         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+           database_entry.datacl,
+           pg_catalog.acldefault('d', database_entry.datdba)
+         )) database_acl
+         LEFT JOIN pg_catalog.pg_roles role ON role.oid=database_acl.grantee
+         WHERE database_entry.datname=pg_catalog.current_database()
+           AND database_acl.grantee<>database_entry.datdba
+       )
+       SELECT * FROM expected EXCEPT SELECT * FROM actual
+       UNION ALL
+       SELECT * FROM actual EXCEPT SELECT * FROM expected
      )
      OR NOT pg_catalog.has_database_privilege('rd_owner', pg_catalog.current_database(), 'CONNECT')
+     OR NOT pg_catalog.has_database_privilege('rd_fact_writer', pg_catalog.current_database(), 'CONNECT')
      OR NOT pg_catalog.has_database_privilege('operator_authorization_writer', pg_catalog.current_database(), 'CONNECT')
      OR NOT pg_catalog.has_database_privilege('qualification_writer', pg_catalog.current_database(), 'CONNECT')
      OR NOT pg_catalog.has_database_privilege('product_edge_owner', pg_catalog.current_database(), 'CONNECT')
      OR NOT pg_catalog.has_database_privilege('backtest_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('qualification_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('operator_authorization_owner', pg_catalog.current_database(), 'CONNECT')
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.unnest(ARRAY['rd_owner','rd_fact_writer','operator_authorization_writer','qualification_writer','product_edge_owner','backtest_owner']) runtime_role(role_name)
+       WHERE pg_catalog.has_database_privilege(runtime_role.role_name,pg_catalog.current_database(),'CREATE')
+          OR pg_catalog.has_database_privilege(runtime_role.role_name,pg_catalog.current_database(),'TEMPORARY')
+     )
      OR (SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname = 'qualification_owner')
      OR pg_catalog.pg_has_role('qualification_writer', 'qualification_owner', 'MEMBER')
      OR pg_catalog.pg_has_role('rd_owner', 'qualification_owner', 'MEMBER')

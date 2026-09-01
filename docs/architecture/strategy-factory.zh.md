@@ -10,6 +10,13 @@ Strategy Factory 是包围 R&D、探索性 Backtest 和独立 Qualification 的�
 
 Qualification 的 PostgreSQL custody 在物理上独立：`qualification_owner` 拥有其表与锁定准入函数，另一个 Qualification writer 执行投影写入。R&D role 对 Qualification 表没有 ownership、raw `SELECT` 或 DML。它只能在调用方 R&D 事务中执行固定安全 `search_path` 的 `SECURITY DEFINER` 准入函数；该函数使用全限定读取并保持锁顺序，只返回不可信 raw envelope。Qualification-owned Rust 必须把 envelope 与规范 R&D basis 和完整 Qualification 历史交叉验证后，才能构造密封且不可反序列化的正向 readback；不得公开 raw-envelope 正向构造器。
 
+Replay Policy Catalog 与 durable Composer custody 采用相同的物理隔离。`rd_database_owner` 是仅负责
+database/public schema 的 NOLOGIN custodian；`replay_policy_catalog_owner` 与 `composer_owner` 是分别拥有
+private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE`、
+raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的 `rd_fact_writer` LOGIN
+获得 Catalog 管理与 Composer commit routine 的不可转授 `EXECUTE`。所有 routine 都使用全限定关系、
+`search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中；read 不创建 custody，迁移保留既有 OID、row 与 bytes。
+
 Qualification 投影构成一条按 principal/scope 绑定、只追加且无环的单链。某个准确且已验证的 Independence Basis 的最新投影若在 Qualification 提交或响应丢失后过期，只有 Qualification Owner 能在同一 principal/scope 锁下追加后继；该后继绑定准确 basis ref/digest、前驱投影 ref/digest、不变的规范 source sequence/cut/frontier、Owner clock epoch、新半开有效期、回执与 outbox，并原子推进 head。仍为 current 的投影必须按字节等价 join；调用方与 R&D 均不得自行续期。历史 R&D 终态 custody 继续绑定并暴露其实际消费的准确历史投影，而新的 S1 写入必须在最终锁定 cut 使用规范最新且仍 current 的投影。
 
 R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt，Research 能力再冻结一个 Exploratory Replay Request，绑定准确工件 数据范围 重放配置和模型身份后，独立 Backtest 服务才接收。探索事实只返回 R&D 并可形成后继 Intent。R&D 维护只追加 TrialFamily Census Frontier，且只有 R&D 能提交 Iteration Decision；终态停止不创建 Selection。只有 `READY_FOR_SELECTION` 决定才能产生仅选择 `SELECTED_FOR_QUALIFICATION` disposition 并提交 Qualification Candidate。

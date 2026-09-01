@@ -6,6 +6,46 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$check_dir/common.bash"
 
 grep -Fq 'ALTER TABLE operator_authorization_private.operator_authorization_issuances_v1 OWNER TO operator_authorization_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE public.%I SET SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc "IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+grep -Fq "DO \$database_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'REVOKE ALL PRIVILEGES ON DATABASE %I FROM PUBLIC' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$database_acl_readback\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "'rd_fact_writer','CONNECT',false,'rd_database_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "R&D database ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT CREATE ON DATABASE :"test_database" TO rd_owner' "$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+grep -Fq "pg_catalog.current_database(),'TEMPORARY'" "$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+grep -Fq 'for runtime_role in rd_owner rd_fact_writer operator_authorization_writer qualification_writer product_edge_owner backtest_owner' "$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+grep -Fq "DO \$catalog_composer_function_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_relation_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT SELECT(catalog_record_id) ON TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 TO legacy_catalog_actor' "$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+grep -Fq -- "--command 'SELECT count(*) FROM replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'" "$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_constraint_manifest\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "foreign-key dependency manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE ROLE rd_fact_writer LOGIN' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq ') TO rd_fact_writer;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Eq 'GRANT EXECUTE ON FUNCTION (replay_policy_catalog_api\.apply_replay_policy_catalog_command_v2|composer_owner_api\.commit_develop_composer_v2).* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "rd_owner must not execute Catalog/Composer mutation routines" >&2
+  exit 1
+fi
+if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "rd_owner must use fixed Catalog/Composer APIs, not raw table grants" >&2
+  exit 1
+fi
 grep -Fq "tablename LIKE 'rd_%'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 if grep -Fq "tablename LIKE 'rd_%' OR tablename LIKE 'qualification_%'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
   echo "rd_owner must not own Qualification tables" >&2
