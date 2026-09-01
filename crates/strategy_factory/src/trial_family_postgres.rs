@@ -747,10 +747,11 @@ async fn verify_census_outbox_in_transaction(
     }
     let row = &rows[0];
     let payload: CensusAdvancedOutboxV2 = decode(&row.try_get("payload_json").map_err(storage)?)?;
-    if row
-        .try_get::<String, _>("event_identity")
-        .map_err(storage)?
-        != census_event_identity(readback)
+    if payload.schema_version != 2
+        || row
+            .try_get::<String, _>("event_identity")
+            .map_err(storage)?
+            != census_event_identity(readback)
         || row
             .try_get::<String, _>("aggregate_identity")
             .map_err(storage)?
@@ -1417,6 +1418,37 @@ mod postgres_binding_tests {
             );
             transaction.rollback().await.unwrap();
         }
+
+        let mut transaction = pool.begin().await.unwrap();
+        let second_event_identity = census_event_identity(&second);
+        let payload_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT payload_json FROM rd_owner_outbox_v1 WHERE event_identity = $1 FOR UPDATE",
+        )
+        .bind(&second_event_identity)
+        .fetch_one(&mut *transaction)
+        .await
+        .unwrap();
+        let mut payload: CensusAdvancedOutboxV2 = decode(&payload_json).unwrap();
+        payload.schema_version = 3;
+        sqlx::query(
+            "UPDATE rd_owner_outbox_v1 SET payload_json = $1, payload_digest = $2 WHERE event_identity = $3",
+        )
+        .bind(encode(&payload).unwrap())
+        .bind(digest("rd.owner-outbox.payload.v1", &payload).unwrap())
+        .bind(&second_event_identity)
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+        assert!(
+            load_trial_family_census_v2_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
 
         let counts_before: (i64, i64, i64) = sqlx::query_as(
             "SELECT (SELECT COUNT(*) FROM rd_trial_family_members_v1 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_trial_family_attempt_cuts_v2 WHERE trial_family_identity = $1), (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind = 'TRIAL_FAMILY_CENSUS_ADVANCED_V2' AND payload_json->>'trial_family_identity' = $1)",
