@@ -25,6 +25,10 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
@@ -48,16 +52,21 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 18 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighteen ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[9]}" != *'|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once' ]] ||
+    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
