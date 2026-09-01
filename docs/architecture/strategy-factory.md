@@ -748,6 +748,48 @@ prefix must produce the same semantic trace in a later admitted Paper or Live Ru
 adapter boundary. Any divergence, heuristic binding, unsupported feature promoted to an opcode, plugin raw-order
 attempt, or retained duplicate interpreter fails acceptance.
 
+## TARGET / NOT_ADMITTED - TrialFamily-owned Replay execution policy V2
+
+At TrialFamily formation, R&D must freeze exactly one canonical nested `replay_execution_policy_v2`. The permanent
+family root, the policy, and the initial Census Frontier must cross-bind their identities and canonical digests so
+that no later family member, Composer, Windmill flow, Backtest adapter, or other caller can replace or reinterpret
+the policy. This remains a target architecture contract; the current caller-authored `ReplayRequestDtoV2` path does
+not satisfy it, and no current PostgreSQL or Windmill acceptance is claimed.
+
+The nested policy owns every execution choice needed to compose the complete `ReplayRequestDtoV2` meaning:
+
+- the runtime-kernel, simulator, cost, slippage, and capacity profile identities and versions;
+- the runner operational profile, diagnostic policy, and deterministic seed;
+- the half-open replay window, calendar, session, and time-zone identities and versions; and
+- the correction-rule and market-semantics identities and versions, corporate-action cut, historical-membership
+  cut, and any other selection in the request that family policy, rather than an input Owner, owns.
+
+The TrialFamily's existing top-level cost-model, slippage-model, and capacity-model identities must equal the
+corresponding nested model profiles exactly. A mismatch is unavailable, not an alternate representation. A legacy
+TrialFamily without the sealed policy remains historically readable, but is ineligible and unavailable for Replay
+V2 composition: there is no default, backfill, caller substitution, or inference from a newer family.
+
+Windmill and every other Exploratory Replay caller may submit only the Artifact and TrialFamily identities plus
+Owner-sealed Composer, Market Data, and replay-policy locators and digests. Those values are evidence locators, not
+selection authority. The R&D Owner alone resolves them and composes the complete canonical Replay request; callers
+cannot supply or override runtime/model profiles, replay window, calendar/session/time zone, deterministic seed,
+diagnostic policy, correction rule, market semantics, or either historical cut.
+
+Within the same `commit_v2` transaction, immediately before the first `INSERT`, R&D must lock and reread every
+canonical Owner fact used by composition, including the Artifact-family binding, family root and current Census
+Frontier, sealed replay policy, Composer facts, and Market Data cuts. Missing, stale, digest-mismatched,
+cross-spliced, or caller-overridden input rejects the operation with zero Replay request, receipt, outbox, or head
+change. Backtest accepts only the resulting R&D-owned sealed request and owns only its result; it never creates a
+request or selects execution policy.
+
+This adds neither a second request aggregate nor a new Owner. It preserves
+`StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`, the existing R&D request identity and
+custody, and response-loss recovery: exact `RESOLVE` may recover only the same pre-existing sealed request meaning
+and may not compose a replacement, alter policy, or create a second request, receipt, outbox, or head. This target
+is not admitted until implementation plus real disposable PostgreSQL Owner readback and end-to-end Windmill
+acceptance prove the complete composition and every zero-change rejection; it grants no production or trading
+authority.
+
 ## Protected path
 
 Research freezes TrialFamily, its exhaustive Census Frontier, cross-family predecessor frontier, precommitted independence basis, PIT rule, costs, capacity assumptions, budget, falsifier, and stop before submission. Qualification verifies those frontiers, preregistration, exact `READY_FOR_SELECTION` decision and selected-only disposition, owns cumulative holdout reservation and disposition across related TrialFamilies, and requests protected replay. A missing selected-only disposition, falsifier mismatch, missing sibling, renamed trial, budget mismatch, mutable frontier, unresolved ancestry, late independence basis, stale feedback frontier, or post-cut family member closes as `NOT_ADMITTED` before protected replay with no holdout consumption; a terminal Research stop never reaches intake, and a later trial requires a successor Candidate. Protected results may update Eligibility State but must never feed the same research loop.

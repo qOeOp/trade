@@ -709,6 +709,45 @@ normalized event prefix 必须在 Risk/Execution adapter boundary 之前产生�
 heuristic binding、把 unsupported feature 提升为 opcode、plugin raw-order attempt 或保留重复 interpreter
 都导致验收失败。
 
+## TARGET / NOT_ADMITTED - TrialFamily 拥有的 Replay execution policy V2
+
+R&D 必须在 TrialFamily formation 时冻结准确一份规范嵌套 `replay_execution_policy_v2`。永久 family root、
+policy 与初始 Census Frontier 必须交叉绑定各自身份和规范摘要，使后续 family member、Composer、Windmill
+flow、Backtest adapter 或其他 caller 都不能替换或重新解释该 policy。该内容仍是目标架构契约；当前
+caller-authored `ReplayRequestDtoV2` 路径不满足此契约，本文不声称已有 PostgreSQL 或 Windmill acceptance。
+
+该嵌套 policy 拥有组合完整 `ReplayRequestDtoV2` 含义所需的每项执行选择：
+
+- runtime-kernel、simulator、cost、slippage 与 capacity profile 的身份和版本；
+- runner operational profile、diagnostic policy 与 deterministic seed；
+- 半开 replay window，以及 calendar、session 与 time-zone 的身份和版本；以及
+- correction-rule 与 market-semantics 的身份和版本、corporate-action cut、historical-membership cut，及请求中
+  其他应由 family policy 而非 input Owner 选择的内容。
+
+TrialFamily 既有顶层 cost-model、slippage-model 与 capacity-model 身份必须与对应嵌套 model profile 准确
+相等；不匹配即 unavailable，而不是另一种兼容表示。缺少密封 policy 的 legacy TrialFamily 仍可按历史事实
+读取，但对 Replay V2 composition 不合格且不可用：不得提供 default、backfill、caller substitution，也不得从
+更新的 family 推断。
+
+Windmill 与其他任何 Exploratory Replay caller 只能提交 Artifact 与 TrialFamily 身份，以及 Owner-sealed
+Composer、Market Data 和 replay-policy locator/digest。这些值只是证据定位器，不是选择权威。只有 R&D Owner
+能够解析它们并组合完整规范 Replay request；caller 不能提供或覆盖 runtime/model profile、replay window、
+calendar/session/time zone、deterministic seed、diagnostic policy、correction rule、market semantics 或任一
+historical cut。
+
+在同一个 `commit_v2` 事务内、第一笔 `INSERT` 之前，R&D 必须锁定并重新读取 composition 使用的每一项规范
+Owner fact，包括 Artifact-family binding、family root 与当前 Census Frontier、密封 replay policy、Composer
+fact 和 Market Data cut。任何 input 缺失、过期、摘要不匹配、跨来源拼接或被 caller 覆盖，都必须拒绝操作，
+并保证 Replay request、receipt、outbox 与 head 全部零变化。Backtest 只接收由 R&D Owner 生成的密封 request，
+且只拥有其 result；它绝不创建 request 或选择 execution policy。
+
+该设计既不增加第二个 request aggregate，也不增加新 Owner。它保留
+`StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`、既有 R&D request identity 与
+custody，以及 response-loss recovery：准确 `RESOLVE` 只能恢复同一份既存密封 request meaning，不能组合
+replacement、改变 policy，或创建第二份 request、receipt、outbox 或 head。只有实现完成，并由真实 disposable
+PostgreSQL Owner readback 与 end-to-end Windmill acceptance 证明完整 composition 和每种零变化拒绝后，该
+TARGET 才能获准；它不授予 production 或 trading authority。
+
 ## 保护路径
 
 Research 在提交前冻结 TrialFamily 穷尽 Census Frontier 跨 TrialFamily 前驱前沿 预提交独立性依据 PIT 规则 成本 容量假设 预算 证伪条件和停止规则。Qualification 校验这些 frontier 预注册内容 准确 `READY_FOR_SELECTION` 决定和仅选择 disposition，并拥有相关 TrialFamily 的累计 holdout 预留与处理，再请求保护重放。仅选择 disposition 缺失 证伪条件不匹配 遗漏同族试验 试验改名 预算不符 frontier 可变 祖先未解析 独立性依据过晚 反馈前沿过期或截面后新增族成员时都在保护回放前闭合为 `NOT_ADMITTED` 且不消耗 holdout；Research 终态停止永不进入 intake，后续试验需要后继 Candidate。保护结果可以更新 Eligibility State，但绝不能反馈同一研发循环。
