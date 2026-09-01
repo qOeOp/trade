@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row, Transaction, postgres::PgConnectOptions};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
     resolve_admission_for_downstream_in_transaction,
@@ -46,6 +46,22 @@ pub(crate) struct LegacyPreparedAttemptAbsenceProofV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct ProductEdgeDrainLockV1 {
+    pub schema_version: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProductEdgeAttemptAbsenceV1 {
+    schema_version: u32,
+    effect_invocation_admission_count: u32,
+    effect_invocation_claim_count: u32,
+    effect_invocation_state_count: u32,
+    provider_start_custody_count: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct LegacyPreparedAttemptDrainReceiptV1 {
     pub schema_version: u32,
     pub receipt_identity: String,
@@ -55,6 +71,7 @@ pub(crate) struct LegacyPreparedAttemptDrainReceiptV1 {
     pub provider_disposition: String,
     pub absence_proof: LegacyPreparedAttemptAbsenceProofV1,
     pub target_database_identity: LegacyDrainTargetDatabaseIdentityV1,
+    pub database_endpoint_resource_fingerprint: String,
     pub database_resource_fingerprint: String,
     pub committed_at_epoch_ms: u64,
 }
@@ -67,8 +84,18 @@ struct ReceiptMeaningV1<'a> {
     provider_disposition: &'a str,
     absence_proof: &'a LegacyPreparedAttemptAbsenceProofV1,
     target_database_identity: &'a LegacyDrainTargetDatabaseIdentityV1,
+    database_endpoint_resource_fingerprint: &'a str,
     database_resource_fingerprint: &'a str,
     committed_at_epoch_ms: u64,
+}
+
+#[derive(Serialize)]
+struct LegacyDrainTargetDatabaseEndpointV1<'a> {
+    schema_version: u32,
+    username: &'a str,
+    host: String,
+    port: u16,
+    database: &'a str,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -86,9 +113,11 @@ struct DrainOutboxPayloadV1 {
     provider_disposition: String,
 }
 
-pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ArtifactBuildError> {
+pub(crate) async fn migrate(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ArtifactBuildError> {
     sqlx::query("CREATE TABLE IF NOT EXISTS rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
-        .execute(pool)
+        .execute(&mut **transaction)
         .await
         .map_err(storage)?;
     for statement in [
@@ -101,14 +130,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ArtifactBuildError> {
         "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 BEFORE UPDATE OR DELETE ON rd_legacy_prepared_attempt_drain_receipts_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
     ] {
         sqlx::query(statement)
-            .execute(pool)
+            .execute(&mut **transaction)
             .await
             .map_err(storage)?;
     }
     let owner: String = sqlx::query_scalar("SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class WHERE oid='rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass")
-        .fetch_one(pool).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(storage)?;
     let leaked: bool = sqlx::query_scalar("SELECT pg_catalog.has_table_privilege('public','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('product_edge_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('backtest_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")
-        .fetch_one(pool).await.map_err(storage)?;
+        .fetch_one(&mut **transaction).await.map_err(storage)?;
     if owner != "rd_owner" || leaked {
         return Err(unavailable("legacy PREPARED drain receipt ACL mismatch"));
     }
@@ -128,6 +157,7 @@ pub(crate) fn form_receipt(
     attempt: LegacyPreparedAttemptBindingV1,
     absence_proof: LegacyPreparedAttemptAbsenceProofV1,
     target_database_identity: LegacyDrainTargetDatabaseIdentityV1,
+    database_endpoint_resource_fingerprint: String,
     database_resource_fingerprint: String,
     committed_at_epoch_ms: u64,
 ) -> Result<LegacyPreparedAttemptDrainReceiptV1, ArtifactBuildError> {
@@ -140,6 +170,7 @@ pub(crate) fn form_receipt(
         provider_disposition: "PROVIDER_NEVER_STARTED".into(),
         absence_proof,
         target_database_identity,
+        database_endpoint_resource_fingerprint,
         database_resource_fingerprint,
         committed_at_epoch_ms,
     };
@@ -194,6 +225,7 @@ pub(crate) async fn append_receipt_and_outbox_in_transaction(
 pub(crate) async fn verify_drain_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     expected: &LegacyPreparedAttemptBindingV1,
+    expected_database_endpoint_resource_fingerprint: &str,
 ) -> Result<LegacyPreparedAttemptDrainReceiptV1, ArtifactBuildError> {
     let (target_database_identity, live_absence) =
         verify_live_predicates_in_transaction(transaction, expected).await?;
@@ -207,6 +239,13 @@ pub(crate) async fn verify_drain_in_transaction(
     let value: serde_json::Value = row.try_get("receipt_json").map_err(storage)?;
     let receipt: LegacyPreparedAttemptDrainReceiptV1 = decode_exact(&value)?;
     verify_receipt(&receipt, expected, &target_database_identity)?;
+    if receipt.database_endpoint_resource_fingerprint
+        != expected_database_endpoint_resource_fingerprint
+    {
+        return Err(unavailable(
+            "legacy PREPARED drain database endpoint mismatch",
+        ));
+    }
     if receipt.absence_proof != live_absence {
         return Err(unavailable(
             "legacy PREPARED drain live absence proof changed",
@@ -272,6 +311,23 @@ pub(crate) async fn verify_live_predicates_in_transaction(
     Ok((target_database_identity, live_absence))
 }
 
+pub(crate) async fn lock_product_edge_effects_for_drain_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ArtifactBuildError> {
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let lock: ProductEdgeDrainLockV1 =
+        decode_exact(&value.ok_or_else(|| unavailable("Product Edge drain lock unavailable"))?)?;
+    if lock.schema_version != 1 {
+        return Err(unavailable("Product Edge drain lock mismatch"));
+    }
+    Ok(())
+}
+
 fn verify_receipt(
     receipt: &LegacyPreparedAttemptDrainReceiptV1,
     expected: &LegacyPreparedAttemptBindingV1,
@@ -296,6 +352,7 @@ fn verify_receipt(
         || zero.attempt_outbox_count != 0
         || zero.provider_start_custody_count != 0
         || &receipt.target_database_identity != target_database_identity
+        || !is_sha256(&receipt.database_endpoint_resource_fingerprint)
         || receipt.database_resource_fingerprint != database_fingerprint(target_database_identity)?
         || receipt.committed_at_epoch_ms < expected.prepared_at_epoch_ms
         || receipt.receipt_digest != receipt_digest(receipt)?
@@ -369,13 +426,14 @@ fn receipt_digest(
             provider_disposition: &receipt.provider_disposition,
             absence_proof: &receipt.absence_proof,
             target_database_identity: &receipt.target_database_identity,
+            database_endpoint_resource_fingerprint: &receipt.database_endpoint_resource_fingerprint,
             database_resource_fingerprint: &receipt.database_resource_fingerprint,
             committed_at_epoch_ms: receipt.committed_at_epoch_ms,
         },
     )
 }
 
-async fn current_database_identity(
+pub(crate) async fn current_database_identity(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<LegacyDrainTargetDatabaseIdentityV1, ArtifactBuildError> {
     let row = sqlx::query("SELECT pg_catalog.current_database() AS database_name, (SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AS database_oid, current_user::text AS role_name, (SELECT oid::bigint FROM pg_catalog.pg_roles WHERE rolname=current_user) AS role_oid")
@@ -435,21 +493,27 @@ async fn live_absence_proof(
     let attempt_invocation_claim_count = u32::from(attempt_object.contains_key("invocation_claim"));
     let attempt_invocation_custody_count =
         u32::from(attempt_object.contains_key("invocation_custody"));
-    let effect_invocation_admission_count = count(
-        transaction,
-        "SELECT COUNT(*) FROM product_edge_effect_invocation_admissions_v1 WHERE admission_identity=$1 OR attempt_identity=$2",
-        expected,
-    ).await?;
-    let effect_invocation_claim_count = count(
-        transaction,
-        "SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1 WHERE admission_identity=$1 OR attempt_identity=$2",
-        expected,
-    ).await?;
-    let effect_invocation_state_count = count(
-        transaction,
-        "SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1 WHERE admission_identity=$1 OR attempt_identity=$2",
-        expected,
-    ).await?;
+    let product_edge_absence_value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT product_edge_api.read_legacy_prepared_attempt_absence_v1($1,$2)",
+    )
+    .bind(&expected.admission.admission_identity)
+    .bind(&expected.attempt_identity)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    let product_edge_absence: ProductEdgeAttemptAbsenceV1 = decode_exact(
+        &product_edge_absence_value
+            .ok_or_else(|| unavailable("Product Edge attempt absence unavailable"))?,
+    )?;
+    if product_edge_absence.schema_version != 1
+        || product_edge_absence.effect_invocation_admission_count > 2
+        || product_edge_absence.effect_invocation_claim_count > 2
+        || product_edge_absence.effect_invocation_state_count > 2
+        || product_edge_absence.provider_start_custody_count
+            > product_edge_absence.effect_invocation_state_count
+    {
+        return Err(unavailable("Product Edge attempt absence mismatch"));
+    }
     let artifact_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM rd_strategy_artifacts_v1 WHERE attempt_identity=$1",
     )
@@ -460,33 +524,16 @@ async fn live_absence_proof(
     let attempt_outbox_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE (aggregate_identity=$1 OR aggregate_identity=$2) AND event_kind<>$3")
         .bind(&expected.build_request_identity).bind(&expected.attempt_identity).bind(DRAIN_EVENT_KIND)
         .fetch_one(&mut **transaction).await.map_err(storage)?;
-    let provider_start_custody_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_effect_invocation_states_v1 WHERE (admission_identity=$1 OR attempt_identity=$2) AND state_json->>'state'='INVOCATION_STARTED'")
-        .bind(&expected.admission.admission_identity).bind(&expected.attempt_identity)
-        .fetch_one(&mut **transaction).await.map_err(storage)?;
     Ok(LegacyPreparedAttemptAbsenceProofV1 {
         attempt_invocation_claim_count,
         attempt_invocation_custody_count,
-        effect_invocation_admission_count,
-        effect_invocation_claim_count,
-        effect_invocation_state_count,
+        effect_invocation_admission_count: product_edge_absence.effect_invocation_admission_count,
+        effect_invocation_claim_count: product_edge_absence.effect_invocation_claim_count,
+        effect_invocation_state_count: product_edge_absence.effect_invocation_state_count,
         artifact_count: to_u32(artifact_count)?,
         attempt_outbox_count: to_u32(attempt_outbox_count)?,
-        provider_start_custody_count: to_u32(provider_start_custody_count)?,
+        provider_start_custody_count: product_edge_absence.provider_start_custody_count,
     })
-}
-
-async fn count(
-    transaction: &mut Transaction<'_, Postgres>,
-    statement: &'static str,
-    expected: &LegacyPreparedAttemptBindingV1,
-) -> Result<u32, ArtifactBuildError> {
-    let value: i64 = sqlx::query_scalar(statement)
-        .bind(&expected.admission.admission_identity)
-        .bind(&expected.attempt_identity)
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(storage)?;
-    to_u32(value)
 }
 
 fn to_u32(value: i64) -> Result<u32, ArtifactBuildError> {
@@ -500,6 +547,69 @@ pub(crate) fn database_fingerprint(
         "rd.legacy-prepared-attempt-drain-target-database.v1",
         identity,
     )
+}
+
+pub(crate) fn database_endpoint_resource_fingerprint(
+    database_url: &str,
+) -> Result<String, ArtifactBuildError> {
+    if !has_explicit_network_database_route(database_url) {
+        return Err(unavailable(
+            "legacy PREPARED drain database endpoint unavailable",
+        ));
+    }
+    let options = database_url
+        .parse::<PgConnectOptions>()
+        .map_err(|_| unavailable("legacy PREPARED drain database endpoint unavailable"))?;
+    let username = options.get_username();
+    let host = options.get_host();
+    let database = options
+        .get_database()
+        .ok_or_else(|| unavailable("legacy PREPARED drain database endpoint unavailable"))?;
+    if options.get_socket().is_some()
+        || host.starts_with('/')
+        || username.trim().is_empty()
+        || host.trim().is_empty()
+        || database.trim().is_empty()
+    {
+        return Err(unavailable(
+            "legacy PREPARED drain database endpoint unavailable",
+        ));
+    }
+    canonical_digest(
+        "rd.legacy-prepared-attempt-drain-target-database-endpoint.v1",
+        &LegacyDrainTargetDatabaseEndpointV1 {
+            schema_version: 1,
+            username,
+            host: host.to_ascii_lowercase(),
+            port: options.get_port(),
+            database,
+        },
+    )
+}
+
+fn has_explicit_network_database_route(database_url: &str) -> bool {
+    let Some(remainder) = database_url
+        .strip_prefix("postgres://")
+        .or_else(|| database_url.strip_prefix("postgresql://"))
+    else {
+        return false;
+    };
+    let location = remainder.split_once('?').map_or(remainder, |value| value.0);
+    let Some((authority, database)) = location.split_once('/') else {
+        return false;
+    };
+    let Some((user_info, host_port)) = authority.rsplit_once('@') else {
+        return false;
+    };
+    let username = user_info.split_once(':').map_or(user_info, |value| value.0);
+    let host = if let Some(bracketed) = host_port.strip_prefix('[') {
+        bracketed.split_once(']').map_or("", |value| value.0)
+    } else {
+        host_port
+            .rsplit_once(':')
+            .map_or(host_port, |value| value.0)
+    };
+    !username.is_empty() && !host.is_empty() && !database.is_empty()
 }
 
 fn canonical_digest(domain: &str, value: &impl Serialize) -> Result<String, ArtifactBuildError> {
@@ -575,10 +685,53 @@ pub(crate) mod tests {
                 provider_start_custody_count: 0,
             },
             database.clone(),
+            database_endpoint_resource_fingerprint(
+                "postgresql://rd_owner:secret@localhost:5432/rd-owner-test",
+            )
+            .unwrap(),
             database_fingerprint(&database).unwrap(),
             11,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn database_endpoint_fingerprint_is_secret_free_and_route_exact() {
+        let base = database_endpoint_resource_fingerprint(
+            "postgresql://rd_owner:first@Db.Example:5432/research?application_name=first",
+        )
+        .unwrap();
+        assert_eq!(
+            base,
+            database_endpoint_resource_fingerprint(
+                "postgresql://rd_owner:second@db.example:5432/research?application_name=second",
+            )
+            .unwrap()
+        );
+        for changed in [
+            "postgresql://other:first@db.example:5432/research",
+            "postgresql://rd_owner:first@other.example:5432/research",
+            "postgresql://rd_owner:first@db.example:5433/research",
+            "postgresql://rd_owner:first@db.example:5432/other",
+        ] {
+            assert_ne!(
+                base,
+                database_endpoint_resource_fingerprint(changed).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn database_endpoint_fingerprint_rejects_implicit_invalid_or_socket_routes() {
+        for invalid in [
+            "not-a-postgres-url",
+            "postgresql://db.example/research",
+            "postgresql://rd_owner@/research",
+            "postgresql://rd_owner@db.example",
+            "postgresql://rd_owner@db.example/research?host=%2Ftmp",
+        ] {
+            assert!(database_endpoint_resource_fingerprint(invalid).is_err());
+        }
     }
 
     #[test]
@@ -609,5 +762,14 @@ pub(crate) mod tests {
         let mut unknown = serde_json::to_value(fixture_receipt()).unwrap();
         unknown["unknown"] = serde_json::json!(true);
         assert!(decode_exact::<LegacyPreparedAttemptDrainReceiptV1>(&unknown).is_err());
+        let unknown_product_edge = serde_json::json!({
+            "schema_version": 1,
+            "effect_invocation_admission_count": 0,
+            "effect_invocation_claim_count": 0,
+            "effect_invocation_state_count": 0,
+            "provider_start_custody_count": 0,
+            "unknown": true,
+        });
+        assert!(decode_exact::<ProductEdgeAttemptAbsenceV1>(&unknown_product_edge).is_err());
     }
 }

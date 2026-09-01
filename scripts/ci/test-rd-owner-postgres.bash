@@ -11,9 +11,9 @@ readonly guarded_roots=(
   crates/strategy_factory_rd_owner_api
 )
 
-# Every invocation below uses the same workspace test graph. Only this ordered
-# package/binary/test filter changes, so nextest can reuse the workspace build
-# while the database-sensitive tests still run one at a time and fail fast.
+# Build the three Owner test packages into one nextest archive. The ordered
+# package/binary/test filters below then run from that immutable build while
+# the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
@@ -27,7 +27,15 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
 )
-readonly nextest_graph_args=(--locked --workspace --lib --tests)
+readonly nextest_graph_args=(
+  --locked
+  --package vibe-strategy-factory
+  --package vibe-strategy-factory-rd-owner-api
+  --package vibe-product-edge
+  --lib
+  --tests
+)
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -45,7 +53,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --workspace --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
     return 1
@@ -147,6 +156,13 @@ if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
   exit 1
 fi
 readonly rd_owner_postgres_features="$RD_OWNER_POSTGRES_FEATURES"
+case ",${rd_owner_postgres_features}," in
+  *",${nextest_archive_features},"*) ;;
+  *)
+    echo "ERROR: R&D Owner PostgreSQL feature union must admit sealed Develop Composer acceptance." >&2
+    exit 1
+    ;;
+esac
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
@@ -178,6 +194,8 @@ volume_created=false
 impersonator_volume_created=false
 container_created=false
 impersonator_container_created=false
+nextest_archive_dir=''
+nextest_archive_file=''
 
 remove_docker_object_for_cleanup() {
   local object_type="$1"
@@ -207,6 +225,15 @@ cleanup() {
   local cleanup_failed=false
   trap - EXIT
   set +e
+
+  if [[ -n "$nextest_archive_file" ]] &&
+    ! rm -f -- "$nextest_archive_file"; then
+    cleanup_failed=true
+  fi
+  if [[ -n "$nextest_archive_dir" ]] &&
+    ! rmdir -- "$nextest_archive_dir"; then
+    cleanup_failed=true
+  fi
 
   if [[ "$container_created" == true ]] &&
     ! remove_docker_object_for_cleanup container "$container" 3; then
@@ -485,6 +512,7 @@ case "$postgres_port" in
     exit 1
     ;;
 esac
+readonly published_postgres_port="$postgres_port"
 
 impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
 impersonator_port="${impersonator_port_mapping##*:}"
@@ -499,6 +527,22 @@ postgres_endpoint="$(
   select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
 )"
 read -r postgres_host postgres_port <<< "$postgres_endpoint"
+if [[ -f /.dockerenv ]]; then
+  postgres_alias_host="host.docker.internal"
+  postgres_alias_port="$published_postgres_port"
+else
+  postgres_alias_host="localhost"
+  postgres_alias_port="$published_postgres_port"
+fi
+readonly postgres_alias_host postgres_alias_port
+if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
+  exit 1
+fi
+if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
+  exit 1
+fi
 impersonator_endpoint="$(
   select_reachable_postgres_endpoint \
     "$impersonator_container" "$impersonator_port" "impersonating"
@@ -510,11 +554,26 @@ export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
+
+nextest_temp_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+if [[ ! -d "$nextest_temp_root" ]]; then
+  echo "ERROR: nextest archive parent does not exist: ${nextest_temp_root}" >&2
+  exit 1
+fi
+nextest_archive_dir="$(mktemp -d "${nextest_temp_root%/}/vibe-rd-owner-nextest.XXXXXXXX")"
+nextest_archive_file="${nextest_archive_dir}/rd-owner-tests.tar.zst"
+cargo nextest archive \
+  "${nextest_graph_args[@]}" \
+  --features "$nextest_archive_features" \
+  --profile "$nextest_profile" \
+  --cargo-profile "$cargo_ci_profile" \
+  --archive-file "$nextest_archive_file"
 
 # The first filter makes the first application connection to the fresh
 # database. Filters 8 and 9 deliberately poison Owner state and therefore stay
@@ -522,10 +581,8 @@ export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   cargo nextest run \
-    "${nextest_graph_args[@]}" \
-    --features "$rd_owner_postgres_features" \
+    --archive-file "$nextest_archive_file" \
     --profile "$nextest_profile" \
-    --cargo-profile "$cargo_ci_profile" \
     "${nextest_execution_args[@]}" \
     -E "package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
 done

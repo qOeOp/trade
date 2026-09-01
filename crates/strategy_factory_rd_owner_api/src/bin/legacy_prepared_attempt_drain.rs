@@ -7,6 +7,10 @@ const FAULT_ENV: &str = "LEGACY_PREPARED_ATTEMPT_DRAIN_FAIL_AFTER_RECEIPT_COUNT"
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
+    let expected_target_database_resource_fingerprint =
+        require_option(&mut args, "--expected-target-database-resource-sha256")?;
+    let expected_target_database_fingerprint =
+        require_option(&mut args, "--expected-target-database-sha256")?;
     let expected_target_count = require_option(&mut args, "--expected-target-count")?
         .parse::<u32>()
         .context("invalid --expected-target-count")?;
@@ -14,12 +18,13 @@ async fn main() -> anyhow::Result<()> {
     if args.next().is_some() {
         bail!("unexpected legacy drain argument");
     }
-    if expected_target_set_digest.len() != 71
-        || !expected_target_set_digest.starts_with("sha256:")
-        || !expected_target_set_digest[7..]
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit())
-    {
+    if !is_sha256(&expected_target_database_resource_fingerprint) {
+        bail!("invalid --expected-target-database-resource-sha256");
+    }
+    if !is_sha256(&expected_target_database_fingerprint) {
+        bail!("invalid --expected-target-database-sha256");
+    }
+    if !is_sha256(&expected_target_set_digest) {
         bail!("invalid --expected-target-set-sha256");
     }
     let database_url = std::env::var(DATABASE_URL_ENV)
@@ -30,6 +35,8 @@ async fn main() -> anyhow::Result<()> {
         .transpose()?;
     let summary = drain_legacy_prepared_attempts_v1(
         &database_url,
+        &expected_target_database_resource_fingerprint,
+        &expected_target_database_fingerprint,
         expected_target_count,
         &expected_target_set_digest,
         fail_after_receipt_count,
@@ -37,6 +44,12 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     println!("{}", serde_json::to_string(&summary)?);
     Ok(())
+}
+
+fn is_sha256(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn require_option(

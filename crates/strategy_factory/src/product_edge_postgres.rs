@@ -51,8 +51,8 @@ use crate::{
 use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 
 use crate::source_intake::{
-    SourceIntakePolicyEvidencePort, SourceIntakePolicyEvidenceQueryV1,
-    SourceIntakePolicyEvidenceResultV1,
+    SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
+    SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
 };
 
 #[derive(Clone)]
@@ -528,6 +528,12 @@ impl PostgresResearchGoalOwnerV1 {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
+        for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1 {
+            sqlx::query(*statement)
+                .execute(pool)
+                .await
+                .map_err(|e| storage(&e))?;
+        }
         sqlx::query(
             "
             CREATE TABLE IF NOT EXISTS rd_research_request_receipts_v1 (
@@ -2449,6 +2455,48 @@ mod tests {
 
     struct SequencedSourcePolicyV1 {
         outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,
+    }
+
+    #[test]
+    fn research_bootstrap_uses_only_the_canonical_source_identity_prerequisite() {
+        assert_eq!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1.len(), 3);
+        assert_eq!(
+            &crate::source_intake::SOURCE_INTAKE_MIGRATION_SQL_V1[..3],
+            SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1
+        );
+        assert!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1[0].starts_with(
+            "CREATE OR REPLACE FUNCTION rd_owner_api.derive_source_intake_identity_v1"
+        ));
+        assert!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1[1].ends_with("OWNER TO rd_owner"));
+        assert!(
+            SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1[2].starts_with("REVOKE ALL ON FUNCTION")
+        );
+        assert!(
+            SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1
+                .iter()
+                .all(|statement| {
+                    !statement.contains("CREATE TABLE")
+                        && !statement.contains("canonical_source_intake_json_v1")
+                        && !statement.contains("peek_source_intake")
+                })
+        );
+
+        let source = include_str!("product_edge_postgres.rs");
+        let migration = source
+            .split("async fn migrate_rd_storage")
+            .nth(1)
+            .expect("research migration")
+            .split("pub async fn resolve_research_request")
+            .next()
+            .expect("research migration boundary");
+        assert!(
+            migration
+                .find("for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1")
+                .expect("source identity prerequisite")
+                < migration
+                    .find("rd_owner_api.derive_source_intake_identity_v1(")
+                    .expect("dependent research SQL")
+        );
     }
 
     #[async_trait]

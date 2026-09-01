@@ -56,9 +56,9 @@ pub(crate) use openalex_http::MAX_RESPONSE_BYTES;
 pub use openalex_http::binding_content_address_for_test;
 pub(crate) use openalex_http::{OpenAlexResponseObservationV1, ResponseHeaderV1};
 pub use postgres::{
-    SOURCE_INTAKE_MIGRATION_SQL_V1, SourceIntakeFailureTerminalCommitV1,
-    SourceIntakeSuccessTerminalCommitV1, SourceIntakeTermsBlockedCommitV1,
-    commit_source_intake_failure_terminal_in_transaction,
+    SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SOURCE_INTAKE_MIGRATION_SQL_V1,
+    SourceIntakeFailureTerminalCommitV1, SourceIntakeSuccessTerminalCommitV1,
+    SourceIntakeTermsBlockedCommitV1, commit_source_intake_failure_terminal_in_transaction,
     commit_source_intake_success_terminal_in_transaction,
     commit_source_intake_terms_blocked_in_transaction, prepare_source_invocation_in_transaction,
     read_source_intake_terminal_in_transaction, reserve_started_source_invocation_in_transaction,

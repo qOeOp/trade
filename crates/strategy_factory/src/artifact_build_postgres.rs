@@ -58,6 +58,7 @@ pub struct LegacyPreparedAttemptDrainSummaryV1 {
 #[derive(Clone)]
 pub struct PostgresArtifactBuildOwnerV1 {
     pool: PgPool,
+    database_endpoint_resource_fingerprint: String,
     sandbox: Arc<dyn ArtifactBuildSandboxPort>,
     attempt_timeout_ms: u64,
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
@@ -176,6 +177,10 @@ impl PostgresArtifactBuildOwnerV1 {
         sandbox_socket: &str,
         attempt_timeout_ms: u64,
     ) -> Result<Self, ArtifactBuildError> {
+        let database_endpoint_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                database_url,
+            )?;
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
             .connect(database_url)
@@ -183,6 +188,7 @@ impl PostgresArtifactBuildOwnerV1 {
             .map_err(storage)?;
         let owner = Self {
             pool,
+            database_endpoint_resource_fingerprint,
             sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
             attempt_timeout_ms,
             clock: Arc::new(current_epoch_ms),
@@ -282,7 +288,6 @@ impl PostgresArtifactBuildOwnerV1 {
         migrate_trial_family(&self.pool)
             .await
             .map_err(|e| trial_family_storage(&e))?;
-        migrate_legacy_drain(&self.pool).await?;
         Ok(())
     }
 
@@ -301,7 +306,12 @@ impl PostgresArtifactBuildOwnerV1 {
             }
             if let Ok(prepared) = decode_admitted_legacy_prepared(&value) {
                 let binding = verify_admitted_legacy_prepared_binding(&row, &value, &prepared)?;
-                verify_drain_in_transaction(&mut transaction, &binding).await?;
+                verify_drain_in_transaction(
+                    &mut transaction,
+                    &binding,
+                    &self.database_endpoint_resource_fingerprint,
+                )
+                .await?;
                 continue;
             }
             let (legacy, _) = decode_legacy_attempt(&value)?;
@@ -372,7 +382,12 @@ impl PostgresArtifactBuildOwnerV1 {
                 return Err(ArtifactBuildError::ConflictingReplay);
             }
             let mut transaction = self.pool.begin().await.map_err(storage)?;
-            verify_drain_in_transaction(&mut transaction, &binding).await?;
+            verify_drain_in_transaction(
+                &mut transaction,
+                &binding,
+                &self.database_endpoint_resource_fingerprint,
+            )
+            .await?;
             transaction.commit().await.map_err(storage)?;
             return Ok(ArtifactRequestIdentityPreflightV1::LegacyTerminalQuarantined);
         }
@@ -452,7 +467,12 @@ impl PostgresArtifactBuildOwnerV1 {
             {
                 return Err(ArtifactBuildError::ConflictingReplay);
             }
-            let receipt = verify_drain_in_transaction(&mut transaction, &binding).await?;
+            let receipt = verify_drain_in_transaction(
+                &mut transaction,
+                &binding,
+                &self.database_endpoint_resource_fingerprint,
+            )
+            .await?;
             transaction.commit().await.map_err(storage)?;
             return Ok(drained_prepared_result(&prepared, &receipt));
         }
@@ -1482,6 +1502,9 @@ fn drained_prepared_result(
             admission_digest: receipt.attempt.admission.admission_digest.clone(),
             disposition: crate::artifact_build::ArtifactBuildDisposition::OutcomeUnknown,
             provider_disposition: receipt.provider_disposition.clone(),
+            target_database_resource_fingerprint: receipt
+                .database_endpoint_resource_fingerprint
+                .clone(),
             target_database_fingerprint: receipt.database_resource_fingerprint.clone(),
         }),
         research_view: None,
@@ -1979,13 +2002,27 @@ fn json_storage(error: impl Display) -> ArtifactBuildError {
 /// a provider.
 pub async fn drain_legacy_prepared_attempts_v1(
     database_url: &str,
+    expected_target_database_resource_fingerprint: &str,
+    expected_target_database_fingerprint: &str,
     expected_target_count: u32,
     expected_target_set_digest: &str,
     fail_after_receipt_count: Option<u32>,
 ) -> Result<LegacyPreparedAttemptDrainSummaryV1, ArtifactBuildError> {
-    if database_url.trim().is_empty() || expected_target_count == 0 {
+    if database_url.trim().is_empty()
+        || !is_sha256_digest(expected_target_database_resource_fingerprint)
+        || !is_sha256_digest(expected_target_database_fingerprint)
+        || expected_target_count == 0
+    {
         return Err(ArtifactBuildError::Storage(
-            "legacy PREPARED drain requires an explicit database and nonzero target count".into(),
+            "legacy PREPARED drain requires an explicit database fingerprint and nonzero target count"
+                .into(),
+        ));
+    }
+    let target_database_resource_fingerprint =
+        crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(database_url)?;
+    if target_database_resource_fingerprint != expected_target_database_resource_fingerprint {
+        return Err(ArtifactBuildError::Storage(
+            "legacy PREPARED drain target database resource mismatch".into(),
         ));
     }
     let pool = sqlx::postgres::PgPoolOptions::new()
@@ -1993,20 +2030,26 @@ pub async fn drain_legacy_prepared_attempts_v1(
         .connect(database_url)
         .await
         .map_err(storage)?;
-    migrate_legacy_drain(&pool).await?;
     let mut transaction = pool.begin().await.map_err(storage)?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *transaction)
-        .await
-        .map_err(storage)?;
+    crate::legacy_prepared_attempt_drain::lock_product_edge_effects_for_drain_in_transaction(
+        &mut transaction,
+    )
+    .await?;
+    let target_database_identity =
+        crate::legacy_prepared_attempt_drain::current_database_identity(&mut transaction).await?;
+    let target_database_fingerprint =
+        crate::legacy_prepared_attempt_drain::database_fingerprint(&target_database_identity)?;
+    if target_database_fingerprint != expected_target_database_fingerprint {
+        return Err(ArtifactBuildError::Storage(
+            "legacy PREPARED drain target database mismatch".into(),
+        ));
+    }
+    migrate_legacy_drain(&mut transaction).await?;
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_strategy_artifacts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_legacy_prepared_attempt_drain_receipts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_owner_outbox_v1 IN SHARE ROW EXCLUSIVE MODE",
-        "LOCK TABLE product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE",
-        "LOCK TABLE product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE",
-        "LOCK TABLE product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE",
     ] {
         sqlx::query(statement)
             .execute(&mut *transaction)
@@ -2067,13 +2110,17 @@ pub async fn drain_legacy_prepared_attempts_v1(
         for (index, target) in targets.iter().enumerate() {
             let (database, absence) =
                 verify_live_predicates_in_transaction(&mut transaction, target).await?;
-            let fingerprint =
-                crate::legacy_prepared_attempt_drain::database_fingerprint(&database)?;
+            if database != target_database_identity {
+                return Err(ArtifactBuildError::Storage(
+                    "legacy PREPARED drain target database changed".into(),
+                ));
+            }
             let receipt = form_receipt(
                 target.clone(),
                 absence,
-                database,
-                fingerprint,
+                target_database_identity.clone(),
+                target_database_resource_fingerprint.clone(),
+                target_database_fingerprint.clone(),
                 committed_at_epoch_ms,
             )?;
             append_receipt_and_outbox_in_transaction(&mut transaction, &receipt).await?;
@@ -2086,7 +2133,13 @@ pub async fn drain_legacy_prepared_attempts_v1(
         }
     } else {
         for target in &targets {
-            receipts.push(verify_drain_in_transaction(&mut transaction, target).await?);
+            let receipt = verify_drain_in_transaction(
+                &mut transaction,
+                target,
+                &target_database_resource_fingerprint,
+            )
+            .await?;
+            receipts.push(receipt);
         }
     }
     transaction.commit().await.map_err(storage)?;
@@ -2103,6 +2156,12 @@ pub async fn drain_legacy_prepared_attempts_v1(
             .map(|value| value.receipt_digest.clone())
             .collect(),
     })
+}
+
+fn is_sha256_digest(value: &str) -> bool {
+    value.len() == 71
+        && value.starts_with("sha256:")
+        && value[7..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn legacy_drain_target_set_digest(
@@ -2179,6 +2238,14 @@ mod admitted_legacy_prepared_tests {
         assert_eq!(
             encoded["legacy_prepared_attempt_drain"]["provider_disposition"],
             "PROVIDER_NEVER_STARTED"
+        );
+        assert_eq!(
+            encoded["legacy_prepared_attempt_drain"]["target_database_resource_fingerprint"],
+            receipt.database_endpoint_resource_fingerprint
+        );
+        assert_eq!(
+            encoded["legacy_prepared_attempt_drain"]["target_database_fingerprint"],
+            receipt.database_resource_fingerprint
         );
         assert!(encoded["research_view"].is_null());
         assert!(encoded["artifact_review"].is_null());
@@ -2422,9 +2489,15 @@ mod postgres_freshness_tests {
     #[tokio::test]
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     async fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
-        let test_database = test_database().await;
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let _mutation = test_database.mutation();
-        let database_url = test_database.database_url().to_string();
+        let database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
+        let product_edge_pool =
+            PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner))
+                .await
+                .unwrap();
         let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
@@ -2434,14 +2507,35 @@ mod postgres_freshness_tests {
         .unwrap();
         let suffix = unique_suffix();
         let research_identity = format!("legacy-drain-research-{suffix}");
-        let (edge, _) =
-            bootstrap_authority(&database_url, &database_url, &research_identity, &suffix).await;
+        let (edge, research_admission) = bootstrap_authority(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &research_identity,
+            &suffix,
+        )
+        .await;
+        let research_owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        let intent_identity = research_owner
+            .submit_v2(research_request(&research_identity, research_admission))
+            .await
+            .unwrap()
+            .owner_receipt()
+            .unwrap()
+            .resulting_research_intent_identity
+            .as_deref()
+            .unwrap()
+            .to_string();
         let mut target_bindings = Vec::new();
         let mut identities = Vec::new();
         for (ordinal, channel) in [(1, "APP"), (2, "MCP")] {
             let build = format!("legacy-drain-build-{ordinal}-{suffix}");
             let attempt = format!("legacy-drain-attempt-{ordinal}-{suffix}");
-            let intent = format!("legacy-drain-intent-{ordinal}-{suffix}");
+            let intent = intent_identity.clone();
             let admission = edge
                 .admit_artifact_build_request(ProductEdgeAdmissionRequestV1 {
                     request_identity: build.clone(),
@@ -2449,7 +2543,7 @@ mod postgres_freshness_tests {
                         "build_request_identity": build,
                         "attempt_identity": attempt,
                         "intent_identity": intent,
-                        "channel": channel,
+                        "channel": "WINDMILL_PRODUCT_EDGE",
                     }),
                     operation: ARTIFACT_BUILD_OPERATION_V1.to_string(),
                     operation_schema: ARTIFACT_BUILD_SCHEMA_V1.to_string(),
@@ -2500,10 +2594,102 @@ mod postgres_freshness_tests {
                 .cmp(&right.build_request_identity)
         });
         let target_digest = legacy_drain_target_set_digest(&target_bindings).unwrap();
+        let target_database_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                &database_url,
+            )
+            .unwrap();
+        let mut transaction = owner.pool.begin().await.unwrap();
+        let target_database_identity =
+            crate::legacy_prepared_attempt_drain::current_database_identity(&mut transaction)
+                .await
+                .unwrap();
+        transaction.rollback().await.unwrap();
+        let target_database_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_fingerprint(&target_database_identity)
+                .unwrap();
+        let mut clone_database_identity = target_database_identity.clone();
+        clone_database_identity.database_name.push_str("-clone");
+        clone_database_identity.database_oid =
+            clone_database_identity.database_oid.checked_add(1).unwrap();
+        let clone_database_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_fingerprint(&clone_database_identity)
+                .unwrap();
+        let alias_database_url = std::env::var("RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL").unwrap();
+        let alias_database_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                &alias_database_url,
+            )
+            .unwrap();
+        assert_ne!(
+            target_database_resource_fingerprint,
+            alias_database_resource_fingerprint
+        );
+        let alias_pool = PgPool::connect(&alias_database_url).await.unwrap();
+        let mut alias_transaction = alias_pool.begin().await.unwrap();
+        let alias_database_identity =
+            crate::legacy_prepared_attempt_drain::current_database_identity(&mut alias_transaction)
+                .await
+                .unwrap();
+        alias_transaction.rollback().await.unwrap();
+        assert_eq!(target_database_identity, alias_database_identity);
+        let primary_attempts: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT build_request_identity,attempt_identity,semantic_digest FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity,attempt_identity",
+        )
+        .fetch_all(&owner.pool)
+        .await
+        .unwrap();
+        let alias_attempts: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT build_request_identity,attempt_identity,semantic_digest FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity,attempt_identity",
+        )
+        .fetch_all(&alias_pool)
+        .await
+        .unwrap();
+        assert_eq!(primary_attempts, alias_attempts);
         assert!(owner.assert_activation_safe().await.is_err());
+        assert!(matches!(
+        drain_legacy_prepared_attempts_v1(
+            &alias_database_url,
+            &target_database_resource_fingerprint,
+            &target_database_fingerprint,
+            2,
+            &target_digest,
+            None,
+        )
+        .await,
+        Err(ArtifactBuildError::Storage(message))
+            if message == "legacy PREPARED drain target database resource mismatch"
+        ));
+        let rejected_database_catalog: (bool, bool, i64, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
+                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
+                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(rejected_database_catalog, (true, true, 0, 0, 0));
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
+                &target_database_resource_fingerprint,
+                &clone_database_fingerprint,
+                2,
+                &target_digest,
+                None,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            drain_legacy_prepared_attempts_v1(
+                &database_url,
+                &target_database_resource_fingerprint,
+                &target_database_fingerprint,
                 2,
                 &format!("sha256:{}", "0".repeat(64)),
                 None,
@@ -2511,20 +2697,52 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
+        let rolled_back_catalog: (bool, bool, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
+                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
+                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1')",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(rolled_back_catalog, (true, true, 0, 0));
         assert!(
-            drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, Some(1))
-                .await
-                .is_err()
+            drain_legacy_prepared_attempts_v1(
+                &database_url,
+                &target_database_resource_fingerprint,
+                &target_database_fingerprint,
+                2,
+                &target_digest,
+                Some(1),
+            )
+            .await
+            .is_err()
         );
-        let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
+        let counts: (bool, i64) = sqlx::query_as("SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
             .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND).fetch_one(&owner.pool).await.unwrap();
-        assert_eq!(counts, (0, 0));
-        let first = drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, None)
-            .await
-            .unwrap();
-        let replay = drain_legacy_prepared_attempts_v1(&database_url, 2, &target_digest, None)
-            .await
-            .unwrap();
+        assert_eq!(counts, (true, 0));
+        let first = drain_legacy_prepared_attempts_v1(
+            &database_url,
+            &target_database_resource_fingerprint,
+            &target_database_fingerprint,
+            2,
+            &target_digest,
+            None,
+        )
+        .await
+        .unwrap();
+        let replay = drain_legacy_prepared_attempts_v1(
+            &database_url,
+            &target_database_resource_fingerprint,
+            &target_database_fingerprint,
+            2,
+            &target_digest,
+            None,
+        )
+        .await
+        .unwrap();
         assert_eq!(first, replay);
         let restarted = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
@@ -2551,20 +2769,54 @@ mod postgres_freshness_tests {
                 "PROVIDER_NEVER_STARTED"
             );
         }
+        let drain_state_sql =
+            "SELECT
+               COALESCE((SELECT jsonb_agg(to_jsonb(attempt_row) ORDER BY build_request_identity,attempt_identity) FROM (SELECT build_request_identity,attempt_identity,semantic_digest,attempt_json,prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1) attempt_row),'[]'::jsonb),
+               COALESCE((SELECT jsonb_agg(to_jsonb(receipt_row) ORDER BY receipt_identity) FROM (SELECT receipt_identity,receipt_digest,build_request_identity,attempt_identity,receipt_json,committed_at_epoch_ms FROM rd_legacy_prepared_attempt_drain_receipts_v1) receipt_row),'[]'::jsonb),
+               COALESCE((SELECT jsonb_agg(to_jsonb(outbox_row) ORDER BY event_identity) FROM (SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE event_kind=$1) outbox_row),'[]'::jsonb)";
+        let before_alias_rejection: (serde_json::Value, serde_json::Value, serde_json::Value) =
+            sqlx::query_as(drain_state_sql)
+                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+        assert!(matches!(
+            PostgresArtifactBuildOwnerV1::connect(
+                &alias_database_url,
+                "/tmp/unused-rd-sandbox.sock",
+                u64::MAX,
+            )
+            .await,
+            Err(ArtifactBuildError::Storage(message))
+                if message == "legacy PREPARED drain database endpoint mismatch"
+        ));
+        let after_alias_rejection: (serde_json::Value, serde_json::Value, serde_json::Value) =
+            sqlx::query_as(drain_state_sql)
+                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+        assert_eq!(before_alias_rejection, after_alias_rejection);
         let first_target = &target_bindings[0];
+        assert!(
+            sqlx::query("SELECT 1 FROM product_edge_effect_invocation_admissions_v1")
+                .fetch_optional(&owner.pool)
+                .await
+                .is_err()
+        );
         sqlx::query("INSERT INTO product_edge_effect_invocation_admissions_v1(receipt_identity,receipt_digest,admission_identity,attempt_identity,claim_identity,receipt_json,write_cut_epoch_ms) VALUES($1,$2,$3,$4,$5,'{}'::jsonb,1)")
             .bind(format!("effect-receipt-{suffix}"))
             .bind(format!("sha256:{}", "e".repeat(64)))
             .bind(&first_target.admission.admission_identity)
             .bind(&first_target.attempt_identity)
             .bind(format!("effect-claim-{suffix}"))
-            .execute(&owner.pool).await.unwrap();
+            .execute(&product_edge_pool).await.unwrap();
         assert!(owner.assert_activation_safe().await.is_err());
         sqlx::query(
             "DELETE FROM product_edge_effect_invocation_admissions_v1 WHERE attempt_identity=$1",
         )
         .bind(&first_target.attempt_identity)
-        .execute(&owner.pool)
+        .execute(&product_edge_pool)
         .await
         .unwrap();
         let unknown_build = format!("legacy-drain-unknown-build-{suffix}");

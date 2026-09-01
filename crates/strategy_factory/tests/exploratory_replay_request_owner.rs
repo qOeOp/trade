@@ -197,7 +197,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
                AND v2_receipt_json=pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
              )
            FROM (
-             SELECT legacy.*, pg_catalog.substring(replay_request_identity FROM '[0-9]+$')::bigint ordinal
+             SELECT legacy.*, pg_catalog.substring(replay_request_identity, '[0-9]+$')::bigint ordinal
                FROM public.rd_exploratory_replay_requests_v1 legacy
            ) checked",
     )

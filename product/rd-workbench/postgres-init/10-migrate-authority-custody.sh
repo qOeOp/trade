@@ -354,6 +354,65 @@ BEGIN
 END
 $product_edge_ownership$;
 
+CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()
+RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE;
+  RETURN pg_catalog.jsonb_build_object('schema_version', 1);
+END
+$function$;
+ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() TO rd_owner, product_edge_owner;
+
+CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(
+  requested_admission_identity text,
+  requested_attempt_identity text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE
+  admission_count bigint;
+  claim_count bigint;
+  state_count bigint;
+  provider_start_count bigint;
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE;
+  LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE;
+  SELECT pg_catalog.count(*) INTO admission_count
+    FROM public.product_edge_effect_invocation_admissions_v1
+   WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity;
+  SELECT pg_catalog.count(*) INTO claim_count
+    FROM public.product_edge_effect_invocation_claims_v1
+   WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity;
+  SELECT pg_catalog.count(*) INTO state_count
+    FROM public.product_edge_effect_invocation_states_v1
+   WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity;
+  SELECT pg_catalog.count(*) INTO provider_start_count
+    FROM public.product_edge_effect_invocation_states_v1
+   WHERE (admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity)
+     AND state_json->>'state'='INVOCATION_STARTED';
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version', 1,
+    'effect_invocation_admission_count', admission_count,
+    'effect_invocation_claim_count', claim_count,
+    'effect_invocation_state_count', state_count,
+    'provider_start_custody_count', provider_start_count
+  );
+END
+$function$;
+ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) TO rd_owner, product_edge_owner;
+
 CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(
   requested_request_identity text,
   requested_admission_identity text,

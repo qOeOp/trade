@@ -572,6 +572,7 @@ pub struct LegacyPreparedAttemptDrainReadbackV1 {
     pub(crate) admission_digest: String,
     pub(crate) disposition: ArtifactBuildDisposition,
     pub(crate) provider_disposition: String,
+    pub(crate) target_database_resource_fingerprint: String,
     pub(crate) target_database_fingerprint: String,
 }
 
@@ -593,6 +594,9 @@ impl LegacyPreparedAttemptDrainReadbackV1 {
     }
     pub fn provider_disposition(&self) -> &str {
         &self.provider_disposition
+    }
+    pub fn target_database_resource_fingerprint(&self) -> &str {
+        &self.target_database_resource_fingerprint
     }
     pub fn target_database_fingerprint(&self) -> &str {
         &self.target_database_fingerprint
