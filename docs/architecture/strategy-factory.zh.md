@@ -718,21 +718,30 @@ caller-authored `ReplayRequestDtoV2` 路径不满足此契约，本文不声称�
 
 这些值在 formation 前的唯一来源是 R&D Owner 内部密封、版本化的 Replay Policy Catalog fact；该 catalog
 既不是新 Owner，也不是第二个 TrialFamily aggregate。每条 immutable record 包含唯一、永不复用的非空 ASCII
-`catalog_record_id`，唯一、严格递增且永不复用的 unsigned 64-bit `catalog_version`，以及完整规范
-`replay_execution_policy_v2` bytes，以及
+`catalog_record_id`，唯一、严格递增且永不复用的 unsigned 64-bit `catalog_version`，用于标识准确 policy
+schema、canonical grammar 与 parser contract 的非空 versioned ASCII `policy_grammar_parser_id`、其 32-byte
+`policy_grammar_parser_digest`、完整规范 `replay_execution_policy_v2` bytes，以及
 `policy_digest = SHA-256("rd.replay-execution-policy.v2\0" || policy_canonical_bytes)`。其 canonical record
-bytes 依次编码 ASCII record ID 的 `u32 length || bytes`、位于两者之间的 little-endian `u64` version、policy
-bytes 的 `u32 length || bytes`，最后追加 32-byte policy digest；length 使用 little-endian，trailing bytes
-被禁止。`catalog_record_digest` 为
+bytes 按此固定顺序编码 ASCII record ID 的 `u32 length || bytes`、little-endian `u64` version、ASCII
+grammar/parser ID 的 `u32 length || bytes`、32-byte grammar/parser digest、policy bytes 的
+`u32 length || bytes` 与 32-byte policy digest；每个 length 均为 little-endian。`catalog_record_digest` 为
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`。
+
+只有在上述绑定的准确 schema/grammar/parser identity 与 digest 下，`policy_canonical_bytes` 才能唯一复现。
+该 contract 规定唯一固定 field order、明确 integer width 与 endianness、按适用类型使用 `u32` length-prefixed
+UTF-8、ASCII 与任意 byte string、在 order 具有语义时保留 list order，并在允许 map 时使用 canonical key
+order。每个 integer 均使用 schema 声明的固定 width 与 little-endian encoding，禁止 variable-width integer，
+且 string length 按 encoded byte 计数。canonical encoder 与 parser 必须拒绝 duplicate key、unknown field、
+noncanonical encoding 或 map order、invalid enum value 或 version、length overflow 与 trailing bytes；接收并
+重新编码任何 valid policy 必须逐字节复现输入。
 
 在第一笔 TrialFamily-formation 写入前，同一 Owner transaction 内的 R&D-private formation resolver 必须锁定
 并重新读取当时 current 且未被 revoked 的 catalog record，验证其 identity、version、canonical bytes、policy
-digest、record digest、currentness 与 unrevoked status，且不得从任何其他位置解析 policy field。永久 family
-root 与初始 Census Frontier 都嵌入完整 policy bytes 与 policy digest，并交叉绑定 catalog record identity、
-version 与 digest。caller、Windmill flow、
-environment variable、deployment configuration、default 或后续 catalog record 都不能 select、override、
-synthesize、backfill 或 infer 任何 field。
+digest、grammar/parser identity/digest、record digest、currentness 与 unrevoked status，且不得从任何其他位置
+解析 policy field。永久 family root 与初始 Census Frontier 都嵌入完整 policy bytes 与 policy digest，并交叉绑定
+`policy_grammar_parser_id`、`policy_grammar_parser_digest`、catalog record identity、version 与 digest。caller、
+Windmill flow、environment variable、deployment configuration、default 或后续 catalog record 都不能
+select、override、synthesize、backfill 或 infer 任何 field。
 
 该嵌套 policy 拥有组合完整 `ReplayRequestDtoV2` 含义所需的每项执行选择：
 
@@ -754,22 +763,25 @@ Composer 和 Market Data locator/digest。这些值只是证据定位器，不�
 policy、correction rule、market semantics 或任一 historical cut。
 
 在同一个 `commit_v2` 事务内、第一笔 `INSERT` 之前，R&D 必须锁定并重新读取 composition 使用的每一项规范
-Owner fact，包括 Artifact-family binding、family root 与当前 Census Frontier、密封 replay policy、Composer
-fact 和 Market Data cut；其中 replay policy 是 family-sealed policy 及其引用的 immutable catalog record，而非
-current catalog record。任何 input 缺失、过期、摘要不匹配、跨来源拼接或被 caller 覆盖，都必须拒绝操作，
-并保证 Replay request、receipt、outbox 与 head 全部零变化。Backtest 只接收由 R&D Owner 生成的密封 request，
-且只拥有其 result；它绝不创建 request 或选择 execution policy。
+Owner fact，包括 Artifact-family binding、family root 与当前 Census Frontier、Composer fact 和 Market Data
+cut。对于 policy，composition 只使用永久密封在 family 内的完整 canonical policy bytes/digest、grammar/parser
+identity/digest 与 catalog record identity/version/digest；绝不把 Catalog 重新读取为 authority。任何 input
+缺失、过期、摘要不匹配、跨来源拼接或被 caller 覆盖，都必须拒绝操作，并保证 Replay request、receipt、
+outbox 与 head 全部零变化。Backtest 只接收由 R&D Owner 生成的密封 request，且只拥有其 result；它绝不创建
+request 或选择 execution policy。
 
 formation 时 catalog record 缺失、stale 或 revoked，identity/version/bytes/digest mismatch、catalog-to-family
 cross-splice，或任何 prohibited source 到达 formation，都必须在 mutation 前失败，并对 family、Replay
 request、receipt、outbox 与 head 全部零写入。family 一旦成功形成，其嵌入的 policy bytes/digest 与 catalog
-record identity/version/digest 即永久冻结；后续 catalog version 既不能替换它们，也不能使该 family
-unavailable。
+record identity/version/digest，以及 grammar/parser identity/digest 即永久冻结。后续 catalog version、
+revocation、deletion、unreadability 或 storage tamper 既不能替换它们，也不能使已形成 family unavailable。
 
-Replay composition 只验证这份永久 family-sealed binding，以及被引用 immutable record 的准确 bytes/digest、
-未被篡改状态与可读性；禁止执行 latest/current catalog lookup。被引用 record 被删除、篡改或不可读，或
-binding mismatch，都会让 Replay V2 unavailable，并对 Replay request、receipt、outbox 与 head 全部零写入。
-formation 与 composition 都不得通过选择 default 或更新的 catalog record 修复任何失败。
+Replay composition 只验证 family-sealed canonical policy bytes/digest 在已密封 grammar/parser
+identity/digest 下成立，并验证由这些密封值重建的 embedded catalog identity/version/digest cross-binding；
+它不执行 Catalog authority lookup。可选 Catalog reread 仅用于 audit，不能影响 admissibility；后续 Catalog
+deletion、unreadability、revocation 或 tamper 不能使已形成 family 失效。family 内部 canonical-bytes、digest、
+grammar/parser 或 cross-binding mismatch 会让 Replay V2 unavailable，并对 Replay request、receipt、outbox
+与 head 全部零写入。formation 与 composition 都不得通过选择 default 或更新的 catalog record 修复任何失败。
 
 该设计既不增加第二个 request aggregate，也不增加新 Owner。它保留
 `StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`、既有 R&D request identity 与
