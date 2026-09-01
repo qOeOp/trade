@@ -216,6 +216,9 @@ $function$
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
                     .expect("clean Backtest runtime handle before R&D facade drift");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest facade verification pool");
                 let rd_pool = PgPool::connect(&rd_url)
                     .await
                     .expect("R&D facade replacement pool");
@@ -244,6 +247,12 @@ $function$
                 .await
                 .expect("make the exact seeded request stale for the forged wrapper");
                 assert_eq!(revoked.rows_affected(), 1);
+                sqlx::query(
+                    "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO rd_owner",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("temporarily allow R&D Owner to replace its lock facade");
                 sqlx::query(
                     "
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
@@ -276,6 +285,12 @@ $function$
                 .execute(&rd_pool)
                 .await
                 .expect("current non-superuser R&D Owner replaces its lock facade");
+                sqlx::query(
+                    "REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("restore canonical lock facade ACL before Backtest readback");
                 let forged_catalog_is_equivalent: bool = sqlx::query_scalar(
                     "SELECT owner.rolname='rd_owner'
                          AND facade.prosecdef
@@ -316,7 +331,7 @@ $function$
                 .bind(&locator.meaning_digest)
                 .bind(&locator.receipt_identity)
                 .bind(&locator.seal_digest)
-                .fetch_one(&rd_pool)
+                .fetch_one(&backtest_pool)
                 .await
                 .expect("forged facade executes its availability rewrite");
                 assert_eq!(forged["availability"], "AVAILABLE");
@@ -326,10 +341,38 @@ $function$
                     .commit_exploratory_replay_result_v2(&custody_locator(&locator), &result)
                     .await;
 
+                sqlx::query(
+                    "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO rd_owner",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("temporarily allow R&D Owner to restore its lock facade");
                 sqlx::query(sqlx::AssertSqlSafe(canonical_definition.as_str()))
                     .execute(&rd_pool)
                     .await
                     .expect("restore canonical lock facade definition");
+                sqlx::query(
+                    "REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("restore canonical lock facade ACL after source cleanup");
+                let restored_facade_is_canonical: bool = sqlx::query_scalar(
+                    "SELECT pg_catalog.pg_get_functiondef(facade.oid)=$2
+                         AND facade.proacl::text=$3
+                       FROM pg_catalog.pg_proc facade
+                      WHERE facade.oid=pg_catalog.to_regprocedure($1)",
+                )
+                .bind(facade_regprocedure)
+                .bind(&canonical_definition)
+                .bind(&canonical_acl)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("canonical lock facade source and ACL cleanup readback");
+                assert!(
+                    restored_facade_is_canonical,
+                    "fixture cleanup must restore canonical facade source and ACL"
+                );
                 let restored = sqlx::query(
                     "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1 AND request_schema_version=2 AND lifecycle_state='REVOKED'",
                 )
