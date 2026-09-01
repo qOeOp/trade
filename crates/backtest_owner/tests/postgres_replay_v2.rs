@@ -209,6 +209,144 @@ $function$
             }
 
             #[tokio::test]
+            #[ignore = "requires a seeded Replay V2 request and replaceable R&D lock facade"]
+            async fn existing_handle_rejects_forged_lock_facade_before_rows() {
+                let (backtest_url, rd_url, _request_owner, locator, result) =
+                    seeded_storage_context('g').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle before R&D facade drift");
+                let rd_pool = PgPool::connect(&rd_url)
+                    .await
+                    .expect("R&D facade replacement pool");
+                let facade_regprocedure =
+                    "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
+                let canonical_definition: String = sqlx::query_scalar(
+                    "SELECT pg_catalog.pg_get_functiondef(pg_catalog.to_regprocedure($1))",
+                )
+                .bind(facade_regprocedure)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("capture canonical lock facade definition");
+                let canonical_acl: String = sqlx::query_scalar(
+                    "SELECT facade.proacl::text FROM pg_catalog.pg_proc facade WHERE facade.oid=pg_catalog.to_regprocedure($1)",
+                )
+                .bind(facade_regprocedure)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("capture canonical lock facade ACL");
+
+                let revoked = sqlx::query(
+                    "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1 AND request_schema_version=2 AND lifecycle_state='FROZEN'",
+                )
+                .bind(&locator.request_identity)
+                .execute(&rd_pool)
+                .await
+                .expect("make the exact seeded request stale for the forged wrapper");
+                assert_eq!(revoked.rows_affected(), 1);
+                sqlx::query(
+                    "
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+DECLARE base jsonb;
+BEGIN
+  base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
+    requested_request_identity,
+    requested_meaning_digest,
+    requested_receipt_identity,
+    requested_seal_digest
+  );
+  IF base->>'availability' = 'STALE' THEN
+    RETURN base || pg_catalog.jsonb_build_object(
+      'availability', 'AVAILABLE',
+      'forged_facade_source', 'FORGED_LOCK_V2'
+    );
+  END IF;
+  RETURN base;
+END
+$function$
+",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("current non-superuser R&D Owner replaces its lock facade");
+                let forged_catalog_is_equivalent: bool = sqlx::query_scalar(
+                    "SELECT owner.rolname='rd_owner'
+                         AND facade.prosecdef
+                         AND facade.provolatile='v'
+                         AND facade.proparallel='u'
+                         AND facade.proisstrict
+                         AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                         AND facade.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                         AND facade.proargtypes='25 25 25 25'::pg_catalog.oidvector
+                         AND pg_catalog.md5(facade.prosrc)<>'298960419b17ff770dbd13ac2765f93a'
+                         AND facade.proacl::text=$2
+                         AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
+                         AND EXISTS (
+                           SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                            JOIN pg_catalog.pg_roles backtest ON backtest.oid=acl.grantee
+                           WHERE backtest.rolname='backtest_owner'
+                             AND acl.grantor=owner.oid
+                             AND acl.privilege_type='EXECUTE'
+                             AND NOT acl.is_grantable
+                         )
+                       FROM pg_catalog.pg_proc facade
+                       JOIN pg_catalog.pg_roles owner ON owner.oid=facade.proowner
+                      WHERE facade.oid=pg_catalog.to_regprocedure($1)",
+                )
+                .bind(facade_regprocedure)
+                .bind(&canonical_acl)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("forged facade catalog readback");
+                assert!(
+                    forged_catalog_is_equivalent,
+                    "fixture must preserve facade metadata and explicit Backtest ACL"
+                );
+                let forged: serde_json::Value = sqlx::query_scalar(
+                    "SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)",
+                )
+                .bind(&locator.request_identity)
+                .bind(&locator.meaning_digest)
+                .bind(&locator.receipt_identity)
+                .bind(&locator.seal_digest)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("forged facade executes its availability rewrite");
+                assert_eq!(forged["availability"], "AVAILABLE");
+                assert_eq!(forged["forged_facade_source"], "FORGED_LOCK_V2");
+
+                let commit = owner
+                    .commit_exploratory_replay_result_v2(&custody_locator(&locator), &result)
+                    .await;
+
+                sqlx::query(sqlx::AssertSqlSafe(canonical_definition.as_str()))
+                    .execute(&rd_pool)
+                    .await
+                    .expect("restore canonical lock facade definition");
+                let restored = sqlx::query(
+                    "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1 AND request_schema_version=2 AND lifecycle_state='REVOKED'",
+                )
+                .bind(&locator.request_identity)
+                .execute(&rd_pool)
+                .await
+                .expect("restore exact seeded request lifecycle");
+                assert_eq!(restored.rows_affected(), 1);
+
+                assert_eq!(
+                    commit.expect_err("forged lock facade must reject before persistence"),
+                    PostgresReplayOwnerErrorV2::RequestUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+            }
+
+            #[tokio::test]
             #[ignore = "requires a disposable topology with a committed Replay V2 result"]
             async fn tampered_request_seal_digest_fails_closed_after_restart() {
                 assert_binding_tamper_fails_closed(

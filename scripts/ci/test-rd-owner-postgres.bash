@@ -28,6 +28,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once'
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit'
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows'
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
@@ -52,8 +53,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 18 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 19 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all nineteen ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -63,10 +64,11 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::durable_postgres_replay_v2::canonical_backtest_role_materializes_owned_storage_once' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|postgres::durable_postgres_replay_v2::concurrent_rd_revoke_waits_for_backtest_result_commit' ]] ||
     [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -950,6 +952,7 @@ BEGIN
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND pg_catalog.md5(procedure.prosrc) = '47881280b8c38484f91e0117666e73fb'
   )
      OR NOT pg_catalog.has_schema_privilege('backtest_owner', 'rd_owner_api', 'USAGE')
      OR NOT pg_catalog.has_function_privilege(
@@ -974,6 +977,7 @@ BEGIN
       AND procedure.provolatile = 'v'
       AND procedure.proparallel = 'u'
       AND procedure.proconfig = ARRAY['search_path=pg_catalog']
+      AND pg_catalog.md5(procedure.prosrc) = '298960419b17ff770dbd13ac2765f93a'
   )
      OR NOT pg_catalog.has_function_privilege(
        'backtest_owner',
@@ -986,7 +990,6 @@ BEGIN
 
   FOREACH role_name IN ARRAY ARRAY[
     'public',
-    'rd_owner',
     'qualification_owner',
     'qualification_writer',
     'product_edge_owner',

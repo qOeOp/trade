@@ -50,6 +50,9 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+const LOCK_SOURCE_V1_MD5: &str = "47881280b8c38484f91e0117666e73fb";
+const LOCK_SOURCE_V2_MD5: &str = "298960419b17ff770dbd13ac2765f93a";
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TestFamilyFrozenOutboxV1 {
@@ -604,7 +607,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND facade.proparallel='u'
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.md5(facade.prosrc)=$1
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
@@ -662,6 +665,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
            'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
          )",
     )
+    .bind(LOCK_SOURCE_V2_MD5)
     .fetch_one(rd_pool)
     .await
     .expect("Replay V2 resolve and Backtest facade catalog");
@@ -1309,6 +1313,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND facade.proparallel='u'
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND pg_catalog.md5(facade.prosrc)=$1
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
@@ -1347,6 +1352,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
            'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)'
          )",
     )
+    .bind(LOCK_SOURCE_V1_MD5)
     .fetch_one(rd_pool)
     .await
     .expect("published replay verifier catalog");

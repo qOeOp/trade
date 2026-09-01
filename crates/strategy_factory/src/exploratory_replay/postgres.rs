@@ -36,6 +36,8 @@ const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
+const LOCK_SOURCE_V1_MD5: &str = "47881280b8c38484f91e0117666e73fb";
+const LOCK_SOURCE_V2_MD5: &str = "298960419b17ff770dbd13ac2765f93a";
 const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
         DECLARE sealed record;
         DECLARE locked_outbox record;
@@ -1650,7 +1652,7 @@ async fn validate_backtest_binding_v2(
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND pg_catalog.md5(procedure.prosrc)=$2
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
@@ -1671,6 +1673,7 @@ async fn validate_backtest_binding_v2(
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(LOCK_FUNCTION_V2)
+    .bind(LOCK_SOURCE_V2_MD5)
     .fetch_optional(backtest_pool)
     .await
     .map_err(storage)?
@@ -1957,7 +1960,7 @@ async fn validate_backtest_binding(
              AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'rd_owner_api.verify_exploratory_replay_request_internal_v1') > 0
+             AND pg_catalog.md5(procedure.prosrc)=$2
              AND backtest.rolcanlogin
              AND NOT (backtest.rolsuper OR backtest.rolcreatedb OR backtest.rolcreaterole OR backtest.rolreplication OR backtest.rolbypassrls)
              AND EXISTS (
@@ -1978,7 +1981,7 @@ async fn validate_backtest_binding(
                  FROM pg_catalog.pg_proc helper
                  JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                  JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($2)
+                WHERE helper.oid=pg_catalog.to_regprocedure($3)
                   AND NOT helper.prosecdef
                   AND helper.provolatile='v'
                   AND helper.proparallel='u'
@@ -2003,6 +2006,7 @@ async fn validate_backtest_binding(
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(LOCK_FUNCTION)
+    .bind(LOCK_SOURCE_V1_MD5)
     .bind(INTERNAL_VERIFY_FUNCTION)
     .fetch_optional(backtest_pool)
     .await
