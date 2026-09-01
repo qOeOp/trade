@@ -1,3 +1,4 @@
+use rstest::rstest;
 use sha2::{Digest, Sha256};
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
@@ -53,7 +54,7 @@ fn policy() -> ReplayExecutionPolicyV2 {
     }
 }
 
-#[test]
+#[rstest]
 fn descriptor_and_field_table_freeze_the_complete_policy_contract() {
     assert_eq!(REPLAY_EXECUTION_POLICY_SCHEMA_VERSION_V2, 2);
     assert_eq!(
@@ -93,7 +94,7 @@ fn descriptor_and_field_table_freeze_the_complete_policy_contract() {
     );
 }
 
-#[test]
+#[rstest]
 fn canonical_round_trip_is_byte_identical_and_digest_is_domain_separated() {
     let policy = policy();
     let bytes = policy.canonical_bytes().expect("canonical policy");
@@ -111,7 +112,7 @@ fn canonical_round_trip_is_byte_identical_and_digest_is_domain_separated() {
     );
 }
 
-#[test]
+#[rstest]
 fn parser_rejects_unknown_duplicate_reordered_and_invalid_wire_fields() {
     let bytes = policy().canonical_bytes().expect("canonical policy");
 
@@ -148,7 +149,7 @@ fn parser_rejects_unknown_duplicate_reordered_and_invalid_wire_fields() {
     );
 }
 
-#[test]
+#[rstest]
 fn parser_rejects_versions_lengths_trailing_bytes_and_invalid_window() {
     let bytes = policy().canonical_bytes().expect("canonical policy");
 
@@ -181,11 +182,11 @@ fn parser_rejects_versions_lengths_trailing_bytes_and_invalid_window() {
     );
 }
 
-#[test]
+#[rstest]
 fn parser_identity_boundaries_match_the_frozen_descriptor() {
     let mut boundary = policy();
     boundary.runtime_kernel.identity = identity(&"x".repeat(256));
-    boundary.simulator.identity = identity("東京-kernel");
+    boundary.simulator.identity = identity("café-kernel");
     let bytes = boundary
         .canonical_bytes()
         .expect("256-byte identity policy");
@@ -215,7 +216,7 @@ fn parser_identity_boundaries_match_the_frozen_descriptor() {
     );
 }
 
-#[test]
+#[rstest]
 fn parser_digest_and_total_bounds_match_the_frozen_descriptor() {
     let mut blake3_policy = policy();
     blake3_policy.replay_configuration.digest =
@@ -229,6 +230,7 @@ fn parser_digest_and_total_bounds_match_the_frozen_descriptor() {
 
     let canonical = policy().canonical_bytes().expect("canonical policy");
     let digest_length_offset = second_text_length_offset(&canonical, field_offset(&canonical, 15));
+
     for invalid_digest in [
         format!("SHA256:{}", "a".repeat(64)),
         format!("sha512:{}", "a".repeat(64)),
@@ -257,7 +259,7 @@ fn parser_digest_and_total_bounds_match_the_frozen_descriptor() {
     );
 }
 
-#[test]
+#[rstest]
 fn parser_header_field_count_and_window_predicate_match_the_frozen_descriptor() {
     let canonical = policy().canonical_bytes().expect("canonical policy");
 

@@ -210,6 +210,7 @@ impl ReplayExecutionPolicyV2 {
 
         let mut decoded = DecodedPolicyV2::default();
         let mut seen = 0_u32;
+
         for ordinal in 0..field_count {
             let raw_tag = parser.read_u8()?;
             let tag = FieldTagV2::try_from(raw_tag)
@@ -239,6 +240,7 @@ impl ReplayExecutionPolicyV2 {
                 tag: field_count.saturating_add(1) as u8,
             });
         }
+
         if !parser.is_finished() {
             return Err(ReplayExecutionPolicyErrorV2::TrailingBytes);
         }
@@ -280,7 +282,7 @@ pub enum ReplayExecutionPolicyErrorV2 {
     #[error("Replay execution policy duplicates field tag {tag}")]
     DuplicateField { tag: u8 },
     #[error(
-        "Replay execution policy field order is noncanonical: expected {expected}, got {actual}"
+        "Replay execution policy field order is noncanonical: expected {expected}, received {actual}"
     )]
     NonCanonicalFieldOrder { expected: u8, actual: u8 },
     #[error("Replay execution policy wire-kind enum value {actual} is invalid")]
