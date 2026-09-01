@@ -756,6 +756,36 @@ that no later family member, Composer, Windmill flow, Backtest adapter, or other
 the policy. This remains a target architecture contract; the current caller-authored `ReplayRequestDtoV2` path does
 not satisfy it, and no current PostgreSQL or Windmill acceptance is claimed.
 
+The sole pre-formation source of those values is an R&D Owner-internal, sealed, versioned Replay Policy Catalog
+fact; the catalog is neither a new Owner nor a second TrialFamily aggregate. Each immutable record contains a
+unique, never-reused non-empty ASCII `catalog_record_id`, a unique, strictly increasing, never-reused unsigned
+64-bit `catalog_version`, a non-empty versioned ASCII `policy_grammar_parser_id` that identifies the exact policy
+schema, canonical grammar, and parser contract, its 32-byte `policy_grammar_parser_digest`, the complete canonical
+`replay_execution_policy_v2` bytes, and
+`policy_digest = SHA-256("rd.replay-execution-policy.v2\0" || policy_canonical_bytes)`. Its canonical record bytes
+encode, in that fixed order, the ASCII record ID as `u32 length || bytes`, the version as little-endian `u64`, the
+ASCII grammar/parser ID as `u32 length || bytes`, the 32 grammar/parser-digest bytes, the policy bytes as
+`u32 length || bytes`, and the 32 policy-digest bytes; every length is little-endian. `catalog_record_digest` is
+`SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`.
+
+`policy_canonical_bytes` are uniquely reproducible only under the exact schema/grammar/parser identity and digest
+bound above. That contract defines one fixed field order; explicit integer widths and endianness; `u32`-length-
+prefixed UTF-8, ASCII, and arbitrary byte strings as applicable; preserved list order where order is semantic; and
+canonical key order wherever maps are admitted. Every integer uses its schema-declared fixed width and
+little-endian encoding, variable-width integers are forbidden, and string lengths count encoded bytes. The
+canonical encoder and parser reject duplicate keys, unknown fields, noncanonical encodings or map order, invalid
+enum values or versions, length overflow, and trailing bytes; accepting then re-encoding any valid policy must
+reproduce the input byte-for-byte.
+
+Before the first TrialFamily-formation write, an R&D-private formation resolver in the same Owner transaction must
+lock and reread the then-current, unrevoked catalog record, verify its identity, version, canonical bytes, policy
+digest, grammar/parser identity and digest, record digest, currentness, and unrevoked status, and resolve no policy
+field from anywhere else. The
+permanent family root and initial Census Frontier both embed the complete policy bytes and policy digest and
+cross-bind the `policy_grammar_parser_id`, `policy_grammar_parser_digest`, catalog record identity, version, and
+digest. A caller, Windmill flow, environment variable, deployment configuration, default, or later catalog record
+cannot select, override, synthesize, backfill, or infer any field.
+
 The nested policy owns every execution choice needed to compose the complete `ReplayRequestDtoV2` meaning:
 
 - the runtime-kernel, simulator, cost, slippage, and capacity profile identities and versions;
@@ -770,17 +800,35 @@ TrialFamily without the sealed policy remains historically readable, but is inel
 V2 composition: there is no default, backfill, caller substitution, or inference from a newer family.
 
 Windmill and every other Exploratory Replay caller may submit only the Artifact and TrialFamily identities plus
-Owner-sealed Composer, Market Data, and replay-policy locators and digests. Those values are evidence locators, not
-selection authority. The R&D Owner alone resolves them and composes the complete canonical Replay request; callers
-cannot supply or override runtime/model profiles, replay window, calendar/session/time zone, deterministic seed,
+Owner-sealed Composer and Market Data locators and digests. Those values are evidence locators, not selection
+authority; a replay-policy locator or value is not a caller input. The R&D Owner alone resolves the family-sealed
+policy and composes the complete canonical Replay request; callers cannot supply or override runtime/model profiles,
+replay window, calendar/session/time zone, deterministic seed,
 diagnostic policy, correction rule, market semantics, or either historical cut.
 
 Within the same `commit_v2` transaction, immediately before the first `INSERT`, R&D must lock and reread every
 canonical Owner fact used by composition, including the Artifact-family binding, family root and current Census
-Frontier, sealed replay policy, Composer facts, and Market Data cuts. Missing, stale, digest-mismatched,
-cross-spliced, or caller-overridden input rejects the operation with zero Replay request, receipt, outbox, or head
-change. Backtest accepts only the resulting R&D-owned sealed request and owns only its result; it never creates a
-request or selects execution policy.
+Frontier, Composer facts, and Market Data cuts. For policy, composition uses only the complete canonical policy
+bytes and digest, grammar/parser identity and digest, and catalog record identity, version, and digest permanently
+sealed in the family; it never rereads the Catalog as authority. Missing, stale, digest-mismatched, cross-spliced,
+or caller-overridden input rejects the operation with zero Replay request, receipt, outbox, or head change.
+Backtest accepts only the resulting R&D-owned sealed request and owns only its result; it never creates a request
+or selects execution policy.
+
+A missing, stale, or revoked catalog record at formation, an identity/version/bytes/digest mismatch, a
+catalog-to-family cross-splice, or any prohibited source reaching formation fails before mutation with zero family,
+Replay request, receipt, outbox, or head writes. Once a family forms successfully, its embedded policy bytes and
+digest, grammar/parser identity and digest, and catalog record identity, version, and digest are permanent. A later
+catalog version, revocation, deletion, unreadability, or storage tamper neither replaces them nor makes that formed
+family unavailable.
+
+Replay composition validates only the family-sealed canonical policy bytes and digest under the sealed
+grammar/parser identity and digest, plus the embedded catalog identity/version/digest cross-binding reconstructed
+from those sealed values. It performs no Catalog authority lookup. An optional Catalog reread is audit-only and
+cannot affect admissibility; later Catalog deletion, unreadability, revocation, or tamper cannot invalidate a formed
+family. A family-internal canonical-bytes, digest, grammar/parser, or cross-binding mismatch makes Replay V2
+unavailable with zero Replay request, receipt, outbox, or head writes. Formation and composition may not repair any
+failure by selecting a default or newer catalog record.
 
 This adds neither a second request aggregate nor a new Owner. It preserves
 `StrategyDesignV2 -> StrategyPlanV2 -> StrategyArtifactV2 -> ProgramHostV2`, the existing R&D request identity and
