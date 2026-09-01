@@ -234,10 +234,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     sqlx::query(
         "
         DO $migration$
+        DECLARE public_oid oid;
         DECLARE internal_oid oid;
         DECLARE sealed_oid oid;
         DECLARE candidate_oid oid;
         DECLARE candidate_is_current boolean;
+        DECLARE public_is_current boolean := false;
+        DECLARE public_is_legacy boolean := false;
+        DECLARE current_candidate_count integer;
         BEGIN
           PERFORM pg_catalog.pg_advisory_xact_lock(
             pg_catalog.hashtext('public.rd_exploratory_replay_request_custody_v1')
@@ -245,10 +249,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           PERFORM pg_catalog.pg_advisory_xact_lock(
             pg_catalog.hashtext('public.rd_sealed_exploratory_replay_requests_v1')
           );
+          PERFORM pg_catalog.pg_advisory_xact_lock(
+            pg_catalog.hashtext('public.rd_exploratory_replay_requests_v1')
+          );
+          public_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1');
           internal_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1');
           sealed_oid := pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1');
 
-          FOREACH candidate_oid IN ARRAY ARRAY[internal_oid,sealed_oid] LOOP
+          FOREACH candidate_oid IN ARRAY ARRAY[public_oid,internal_oid,sealed_oid] LOOP
             CONTINUE WHEN candidate_oid IS NULL;
             SELECT relation.relkind='r'
                AND relation.relpersistence='p'
@@ -291,13 +299,72 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               INTO candidate_is_current
               FROM pg_catalog.pg_class relation WHERE relation.oid=candidate_oid;
 
-            IF NOT candidate_is_current THEN
+            IF candidate_oid=public_oid THEN
+              public_is_current := candidate_is_current;
+            ELSIF NOT candidate_is_current THEN
               RAISE EXCEPTION 'unknown exploratory Replay table shape: %', candidate_oid::pg_catalog.regclass;
             END IF;
           END LOOP;
 
-          IF internal_oid IS NOT NULL AND sealed_oid IS NOT NULL THEN
-            RAISE EXCEPTION 'ambiguous duplicate internal and sealed exploratory Replay tables';
+          IF public_oid IS NOT NULL THEN
+            SELECT relation.relkind='r'
+               AND relation.relpersistence='p'
+               AND (
+                 SELECT pg_catalog.count(*)=13
+                    AND pg_catalog.bool_and(CASE attribute.attname
+                      WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'handoff_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'research_view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      ELSE false
+                    END)
+                   FROM pg_catalog.pg_attribute attribute
+                  WHERE attribute.attrelid=public_oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+               )
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                  WHERE constraint_entry.conrelid=public_oid
+                    AND constraint_entry.contype='p'
+                    AND constraint_entry.conkey=ARRAY[(
+                      SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=public_oid AND attribute.attname='replay_request_identity'
+                    )]::smallint[]
+               )
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+                  WHERE constraint_entry.conrelid=public_oid
+                    AND constraint_entry.contype='u'
+                    AND constraint_entry.conkey=ARRAY[(
+                      SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+                       WHERE attribute.attrelid=public_oid AND attribute.attname='run_attempt_identity'
+                    )]::smallint[]
+               )
+              INTO public_is_legacy
+              FROM pg_catalog.pg_class relation WHERE relation.oid=public_oid;
+
+            IF NOT public_is_current AND NOT public_is_legacy THEN
+              RAISE EXCEPTION 'unknown exploratory Replay table shape: %', public_oid::pg_catalog.regclass;
+            END IF;
+          END IF;
+
+          current_candidate_count :=
+            CASE WHEN public_is_current THEN 1 ELSE 0 END
+            + CASE WHEN internal_oid IS NOT NULL THEN 1 ELSE 0 END
+            + CASE WHEN sealed_oid IS NOT NULL THEN 1 ELSE 0 END;
+          IF current_candidate_count>1 THEN
+            RAISE EXCEPTION 'ambiguous duplicate current exploratory Replay tables';
+          ELSIF public_is_current THEN
+            ALTER TABLE public.rd_exploratory_replay_requests_v1
+              RENAME TO rd_sealed_exploratory_replay_requests_v1;
           ELSIF internal_oid IS NOT NULL THEN
             ALTER TABLE public.rd_exploratory_replay_request_custody_v1
               RENAME TO rd_sealed_exploratory_replay_requests_v1;
@@ -348,6 +415,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "
         DO $acl$
         DECLARE grantee_name text;
+        DECLARE column_name text;
         BEGIN
           FOR grantee_name IN
             SELECT role.rolname
@@ -363,6 +431,43 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           LOOP
             EXECUTE pg_catalog.format(
               'REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+              grantee_name
+            );
+          END LOOP;
+
+          FOR column_name IN
+            SELECT attribute.attname
+              FROM pg_catalog.pg_class relation
+              JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+              CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND attribute.attnum>0
+               AND NOT attribute.attisdropped
+               AND acl.grantee=0
+             GROUP BY attribute.attname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC',
+              column_name
+            );
+          END LOOP;
+
+          FOR grantee_name,column_name IN
+            SELECT role.rolname,attribute.attname
+              FROM pg_catalog.pg_class relation
+              JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+              CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+              JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+             WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+               AND attribute.attnum>0
+               AND NOT attribute.attisdropped
+               AND acl.grantee<>0
+               AND acl.grantee<>relation.relowner
+             GROUP BY role.rolname,attribute.attname
+          LOOP
+            EXECUTE pg_catalog.format(
+              'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+              column_name,
               grantee_name
             );
           END LOOP;

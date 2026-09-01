@@ -122,6 +122,15 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
               relation.oid,
               'SELECT,UPDATE'
             )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND acl.grantee<>relation.relowner
+            )
            FROM pg_catalog.pg_class relation
            JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
           WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass",
@@ -414,6 +423,117 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .execute(rd_pool)
         .await
         .expect("remove duplicate internal Replay test candidate");
+}
+
+#[tokio::test]
+#[ignore = "requires the canonical disposable Origin-current PostgreSQL route"]
+async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let sealed_v1 = fixture
+        .owner
+        .commit_exploratory_replay_request_v1(fixture.proposal.clone())
+        .await
+        .expect("Origin-current Replay V1 request committed");
+    let sealed_v2 = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("Origin-current Replay V2 request committed");
+
+    sqlx::query(
+        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+         RENAME TO rd_exploratory_replay_requests_v1",
+    )
+    .execute(rd_pool)
+    .await
+    .expect("restore Origin current Replay table name");
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect("Origin current Replay custody migrated");
+    let names_are_exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NULL
+            AND pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
+            AND pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("Origin current Replay relation names");
+    assert!(names_are_exact);
+    let sealed_is_owner_private: bool = sqlx::query_scalar(
+        "SELECT owner.rolname='rd_owner'
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  relation.relacl,
+                  pg_catalog.acldefault('r',relation.relowner)
+                )) acl
+               WHERE acl.grantee<>relation.relowner
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND acl.grantee<>relation.relowner
+            )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("Origin current sealed Replay ACL");
+    assert!(sealed_is_owner_private);
+
+    let locked_v1 = restarted
+        .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
+        .await
+        .expect("Origin-current Replay V1 request locked");
+    let committed_v1_json = serde_json::to_value(&sealed_v1).unwrap();
+    let locked_v1_json = serde_json::to_value(&locked_v1).unwrap();
+    assert_eq!(
+        locked_v1_json.pointer("/readback/frozen"),
+        committed_v1_json.pointer("/frozen")
+    );
+    assert_eq!(
+        locked_v1_json.pointer("/readback/receipt"),
+        committed_v1_json.pointer("/receipt")
+    );
+
+    let locked_v2 = restarted
+        .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
+        .await
+        .expect("Origin-current Replay V2 request locked");
+    let locked_v2_readback = locked_v2.readback().expect("Origin-current V2 readback");
+    assert_eq!(locked_v2_readback.locator(), sealed_v2.locator().clone());
+    assert_eq!(
+        locked_v2_readback.canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
+
+    let resolved_v2 = restarted
+        .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
+            request_identity: sealed_v2.locator().request_identity.clone(),
+            meaning_digest: sealed_v2.locator().meaning_digest.clone(),
+        })
+        .await
+        .expect("Origin-current Replay V2 request resolved");
+    let resolved_v2_readback = resolved_v2
+        .readback()
+        .expect("resolved Origin-current V2 readback");
+    assert_eq!(resolved_v2_readback.locator(), sealed_v2.locator().clone());
+    assert_eq!(
+        resolved_v2_readback.canonical_request_bytes(),
+        sealed_v2.canonical_request_bytes()
+    );
 }
 
 #[tokio::test]
@@ -2045,6 +2165,7 @@ async fn replay_candidate_fingerprint(pool: &PgPool, table: ReplayCandidateTable
                'not_null',attribute.attnotnull,
                'identity',attribute.attidentity,
                'generated',attribute.attgenerated,
+               'acl',COALESCE(attribute.attacl::text,'<NULL>'),
                'default',pg_catalog.pg_get_expr(default_entry.adbin,default_entry.adrelid)
              )
                FROM pg_catalog.pg_attribute attribute
