@@ -19,20 +19,43 @@ pub const REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_ID_V2: &str =
 /// Stable descriptor whose digest binds the exact policy grammar and parser contract.
 pub const REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DESCRIPTOR_V2: &str = concat!(
     "id=rd.replay-execution-policy.fixed-record-le.v2\n",
-    "header=magic:RPE2[4],schema:u16le=2,field_count:u16le=17\n",
-    "record=field_tag:u8,wire_kind:u8,value\n",
-    "wire=1:versioned_identity(u32le utf8 identity,u32le utf8 version);",
-    "2:u64le;3:window(u64le start,u64le exclusive_end);",
-    "4:content_identity(u32le utf8 identity,u32le ascii digest)\n",
+    "total=canonical input byte length <=16384; cursor addition, u32-to-usize conversion, and ",
+    "every declared text length must not overflow; every declared text length must be <=16384 ",
+    "and fit in the remaining input\n",
+    "header=exact magic bytes 52 50 45 32 (ASCII RPE2),schema:u16le exactly 2,",
+    "field_count:u16le exactly 17\n",
+    "record=field_tag:u8,wire_kind:u8,value; exactly 17 records\n",
+    "wire_kind=1:versioned_identity(text identity,text version);2:u64le;",
+    "3:window(u64le start,u64le exclusive_end);4:content_identity(text identity,text digest);",
+    "all other wire-kind enum values rejected; each field requires its declared wire kind\n",
+    "text=u32le encoded-byte length followed by exactly that many bytes; length counts encoded ",
+    "bytes; bytes must be valid UTF-8\n",
+    "opaque_identity=UTF-8 encoded-byte length 1..=256; decoded value must equal Rust str::trim; ",
+    "the rejected leading/trailing Unicode White_Space scalars are U+0009..U+000D,U+0020,",
+    "U+0085,U+00A0,U+1680,U+2000..U+200A,U+2028,U+2029,U+202F,U+205F,U+3000; ",
+    "no normalization or other character restriction\n",
+    "canonical_digest=exactly 71 ASCII bytes: lowercase algorithm sha256 or blake3, then colon, ",
+    "then exactly 64 lowercase hexadecimal bytes [0-9a-f]; all other algorithms, widths, cases, ",
+    "or characters rejected\n",
+    "window=start_event_ns < end_event_ns_exclusive\n",
     "fields=1:runtime_kernel:v;2:simulator:v;3:cost:v;4:slippage:v;",
     "5:capacity:v;6:runner_operational_profile:v;7:diagnostic_policy:v;",
     "8:deterministic_seed:u64;9:window:window;10:calendar:v;11:session:v;",
     "12:time_zone:v;13:correction_rule:v;14:market_semantics:v;",
     "15:replay_configuration:c;16:corporate_action_cut:c;",
     "17:historical_membership_cut:c\n",
-    "constraints=fixed-order,no-maps,no-lists,no-unknown,no-duplicate,no-trailing,",
-    "roundtrip-byte-equality\n",
+    "field_kinds=v:wire-kind 1 with two opaque_identity values;u64:wire-kind 2;",
+    "window:wire-kind 3;c:wire-kind 4 with opaque_identity then canonical_digest\n",
+    "constraints=field tags exactly 1..17 in listed order; no maps or lists; unknown, duplicate, ",
+    "missing, or reordered fields rejected; trailing bytes rejected; accepting then re-encoding ",
+    "must reproduce every input byte exactly\n",
 );
+
+/// Independently frozen SHA-256 of the exact grammar/parser descriptor.
+pub const REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DIGEST_V2: [u8; 32] = [
+    115, 95, 189, 134, 43, 39, 33, 97, 136, 227, 16, 45, 162, 186, 0, 134, 81, 189, 82, 202, 128,
+    188, 148, 64, 57, 245, 220, 142, 112, 185, 12, 185,
+];
 
 const POLICY_MAGIC_V2: [u8; 4] = *b"RPE2";
 const POLICY_FIELD_COUNT_V2: u16 = 17;

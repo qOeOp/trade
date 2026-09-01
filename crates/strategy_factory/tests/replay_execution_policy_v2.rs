@@ -3,7 +3,7 @@ use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
 };
 use vibe_strategy_factory::replay_execution_policy_v2::{
-    REPLAY_EXECUTION_POLICY_FIELDS_V2, REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DESCRIPTOR_V2,
+    REPLAY_EXECUTION_POLICY_FIELDS_V2, REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DIGEST_V2,
     REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_ID_V2, REPLAY_EXECUTION_POLICY_SCHEMA_VERSION_V2,
     ReplayExecutionPolicyErrorV2, ReplayExecutionPolicyV2,
     replay_execution_policy_grammar_parser_digest_v2,
@@ -60,11 +60,9 @@ fn descriptor_and_field_table_freeze_the_complete_policy_contract() {
         REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_ID_V2,
         "rd.replay-execution-policy.fixed-record-le.v2"
     );
-    let expected_descriptor_digest: [u8; 32] =
-        Sha256::digest(REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DESCRIPTOR_V2.as_bytes()).into();
     assert_eq!(
         replay_execution_policy_grammar_parser_digest_v2(),
-        expected_descriptor_digest
+        REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DIGEST_V2
     );
 
     let rows: Vec<_> = REPLAY_EXECUTION_POLICY_FIELDS_V2
@@ -183,18 +181,162 @@ fn parser_rejects_versions_lengths_trailing_bytes_and_invalid_window() {
     );
 }
 
+#[test]
+fn parser_identity_boundaries_match_the_frozen_descriptor() {
+    let mut boundary = policy();
+    boundary.runtime_kernel.identity = identity(&"x".repeat(256));
+    boundary.simulator.identity = identity("東京-kernel");
+    let bytes = boundary
+        .canonical_bytes()
+        .expect("256-byte identity policy");
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&bytes).expect("identity boundary parse"),
+        boundary
+    );
+
+    let canonical = policy().canonical_bytes().expect("canonical policy");
+    let identity_length_offset = field_offset(&canonical, 1) + 2;
+    for invalid_identity in [b"".as_slice(), b" leading".as_slice(), &vec![b'x'; 257]] {
+        let mut invalid = canonical.clone();
+        replace_length_prefixed(&mut invalid, identity_length_offset, invalid_identity);
+        assert_eq!(
+            ReplayExecutionPolicyV2::parse_canonical(&invalid),
+            Err(ReplayExecutionPolicyErrorV2::InvalidComponent {
+                field: "runtime_kernel"
+            })
+        );
+    }
+
+    let mut invalid_utf8 = canonical;
+    replace_length_prefixed(&mut invalid_utf8, identity_length_offset, &[0xff]);
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&invalid_utf8),
+        Err(ReplayExecutionPolicyErrorV2::InvalidUtf8)
+    );
+}
+
+#[test]
+fn parser_digest_and_total_bounds_match_the_frozen_descriptor() {
+    let mut blake3_policy = policy();
+    blake3_policy.replay_configuration.digest =
+        CanonicalDigestV2::try_from(format!("blake3:{}", "d".repeat(64)))
+            .expect("valid blake3 digest");
+    let blake3_bytes = blake3_policy.canonical_bytes().expect("blake3 policy");
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&blake3_bytes).expect("blake3 parse"),
+        blake3_policy
+    );
+
+    let canonical = policy().canonical_bytes().expect("canonical policy");
+    let digest_length_offset = second_text_length_offset(&canonical, field_offset(&canonical, 15));
+    for invalid_digest in [
+        format!("SHA256:{}", "a".repeat(64)),
+        format!("sha512:{}", "a".repeat(64)),
+        format!("sha256:{}", "A".repeat(64)),
+        format!("sha256:{}", "a".repeat(63)),
+    ] {
+        let mut invalid = canonical.clone();
+        replace_length_prefixed(
+            &mut invalid,
+            digest_length_offset,
+            invalid_digest.as_bytes(),
+        );
+        assert_eq!(
+            ReplayExecutionPolicyV2::parse_canonical(&invalid),
+            Err(ReplayExecutionPolicyErrorV2::InvalidComponent {
+                field: "replay_configuration"
+            })
+        );
+    }
+
+    let mut oversized = canonical;
+    oversized.resize(16 * 1024 + 1, 0);
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&oversized),
+        Err(ReplayExecutionPolicyErrorV2::LengthOverflow)
+    );
+}
+
+#[test]
+fn parser_header_field_count_and_window_predicate_match_the_frozen_descriptor() {
+    let canonical = policy().canonical_bytes().expect("canonical policy");
+
+    let mut magic = canonical.clone();
+    magic[0] = b'X';
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&magic),
+        Err(ReplayExecutionPolicyErrorV2::InvalidMagic)
+    );
+
+    let mut missing = canonical.clone();
+    missing[6..8].copy_from_slice(&16_u16.to_le_bytes());
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&missing),
+        Err(ReplayExecutionPolicyErrorV2::MissingField { tag: 17 })
+    );
+
+    let mut unknown_count = canonical.clone();
+    unknown_count[6..8].copy_from_slice(&18_u16.to_le_bytes());
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&unknown_count),
+        Err(ReplayExecutionPolicyErrorV2::UnknownFieldCount { actual: 18 })
+    );
+
+    let window_offset = field_offset(&canonical, 9) + 2;
+    let mut invalid_window = canonical;
+    invalid_window[window_offset..window_offset + 8].copy_from_slice(&42_u64.to_le_bytes());
+    invalid_window[window_offset + 8..window_offset + 16].copy_from_slice(&42_u64.to_le_bytes());
+    assert_eq!(
+        ReplayExecutionPolicyV2::parse_canonical(&invalid_window),
+        Err(ReplayExecutionPolicyErrorV2::InvalidReplayWindow)
+    );
+}
+
 fn next_field_offset(bytes: &[u8], offset: usize) -> usize {
-    assert_eq!(bytes[offset + 1], 1, "fixture field must be versioned");
-    let identity_length = u32::from_le_bytes(
-        bytes[offset + 2..offset + 6]
+    let mut cursor = offset + 2;
+    match bytes[offset + 1] {
+        1 | 4 => {
+            for _ in 0..2 {
+                let length =
+                    u32::from_le_bytes(bytes[cursor..cursor + 4].try_into().expect("text length"))
+                        as usize;
+                cursor += 4 + length;
+            }
+            cursor
+        }
+        2 => cursor + 8,
+        3 => cursor + 16,
+        kind => panic!("unexpected fixture wire kind {kind}"),
+    }
+}
+
+fn field_offset(bytes: &[u8], tag: u8) -> usize {
+    let mut offset = 8;
+    while bytes[offset] != tag {
+        offset = next_field_offset(bytes, offset);
+    }
+    offset
+}
+
+fn second_text_length_offset(bytes: &[u8], field_offset: usize) -> usize {
+    let first_length = u32::from_le_bytes(
+        bytes[field_offset + 2..field_offset + 6]
             .try_into()
-            .expect("identity length"),
+            .expect("first text length"),
     ) as usize;
-    let version_length_offset = offset + 6 + identity_length;
-    let version_length = u32::from_le_bytes(
-        bytes[version_length_offset..version_length_offset + 4]
+    field_offset + 6 + first_length
+}
+
+fn replace_length_prefixed(bytes: &mut Vec<u8>, length_offset: usize, replacement: &[u8]) {
+    let old_length = u32::from_le_bytes(
+        bytes[length_offset..length_offset + 4]
             .try_into()
-            .expect("version length"),
+            .expect("old text length"),
     ) as usize;
-    version_length_offset + 4 + version_length
+    let new_length = u32::try_from(replacement.len()).expect("fixture replacement length");
+    bytes[length_offset..length_offset + 4].copy_from_slice(&new_length.to_le_bytes());
+    bytes.splice(
+        length_offset + 4..length_offset + 4 + old_length,
+        replacement.iter().copied(),
+    );
 }
