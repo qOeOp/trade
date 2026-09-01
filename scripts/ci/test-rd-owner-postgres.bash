@@ -11,7 +11,7 @@ readonly guarded_roots=(
   crates/strategy_factory_rd_owner_api
 )
 
-# Build the three Owner test packages into one nextest archive. The ordered
+# Build the four Owner test packages into one nextest archive. The ordered
 # package/binary/test filters below then run from that immutable build while
 # the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
@@ -30,6 +30,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing'
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows'
   'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed'
+  'vibe-backtest-owner|vibe_backtest_owner|postgres::durable_postgres_replay_v2::all_public_seams_reject_capability_free_inbound_backtest_owner_membership'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
@@ -40,11 +41,12 @@ readonly nextest_graph_args=(
   --package vibe-strategy-factory
   --package vibe-strategy-factory-rd-owner-api
   --package vibe-product-edge
+  --package vibe-backtest-owner
   --lib
   --tests
 )
 # The incoming Makefile union also contains workspace-root features that none of
-# the three selected packages expose. Keep the archive projection package-scoped.
+# the four selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
@@ -53,8 +55,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 19 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all nineteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 20 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -66,13 +68,22 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::durable_postgres_replay_v2::revocation_between_validation_and_insert_writes_nothing' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::durable_postgres_replay_v2::existing_handle_rejects_forged_lock_facade_before_rows' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::durable_postgres_replay_v2::v2_storage_adapter_is_atomic_restart_stable_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres::durable_postgres_replay_v2::all_public_seams_reject_capability_free_inbound_backtest_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
+  local test_selection test_package
+  for test_selection in "${rd_owner_postgres_tests[@]}"; do
+    IFS='|' read -r test_package _ _ <<< "$test_selection"
+    if [[ " ${nextest_graph_args[*]} " != *" --package ${test_package} "* ]]; then
+      echo "ERROR: selected test package ${test_package} is unreachable from the nextest archive graph." >&2
+      return 1
+    fi
+  done
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
@@ -462,6 +473,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=test_marker="$test_marker" << 'SQL'
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
+CREATE ROLE replay_rogue_backtest_inbound_v1 NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
   marker_identity text NOT NULL,
   database_name text NOT NULL,
@@ -496,6 +508,22 @@ REVOKE ALL ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_per
   FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,
        rd_owner, qualification_writer, qualification_owner;
 GRANT EXECUTE ON FUNCTION vibe_test_admin.revoke_replay_request_before_backtest_persist_v2(text)
+  TO backtest_owner;
+CREATE FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(enabled boolean)
+RETURNS void LANGUAGE plpgsql VOLATILE SECURITY DEFINER SET search_path=pg_catalog
+AS $function$
+BEGIN
+  IF enabled THEN
+    GRANT backtest_owner TO replay_rogue_backtest_inbound_v1 WITH INHERIT FALSE, SET TRUE;
+  ELSE
+    REVOKE backtest_owner FROM replay_rogue_backtest_inbound_v1;
+  END IF;
+END
+$function$;
+REVOKE ALL ON FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(boolean)
+  FROM PUBLIC, operator_authorization_writer, operator_authorization_owner, product_edge_owner,
+       rd_owner, qualification_writer, qualification_owner;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.set_rogue_backtest_inbound_membership_v1(boolean)
   TO backtest_owner;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name

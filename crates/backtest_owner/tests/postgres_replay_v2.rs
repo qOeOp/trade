@@ -12,6 +12,10 @@ macro_rules! postgres_replay_v2_tests {
                 ComponentObservationLocatorV2, DiagnosticCategoryV2, ObservationComponentV2,
                 VersionedIdentityV2,
             };
+            use vibe_backtest_result_custody::{
+                ExploratoryResultCustodyQueryV1, ExploratoryResultLocatorV1,
+                lock_exploratory_result_v1_in_transaction,
+            };
             use vibe_strategy_factory::{
                 exploratory_replay::ExploratoryReplayRequestLocatorV2,
                 product_edge_postgres::PostgresResearchGoalOwnerV1,
@@ -25,6 +29,19 @@ macro_rules! postgres_replay_v2_tests {
                 ConsumedComponentObservationV2, DiagnosticEvidenceV2, OwnerResultDraftV2,
                 ReplayOwnerErrorV2, commit_owner_result, requested_component_meanings,
             };
+
+            #[test]
+            fn writer_shape_oracles_freeze_collation_index_and_dependency_identity() {
+                for shape in [STORAGE_SHAPE_V2, AUXILIARY_STORAGE_SHAPE_V1] {
+                    assert!(shape.contains("attribute.attcollation"));
+                    assert!(shape.contains("pg_catalog.\"C\""));
+                    assert!(shape.contains("operator_class.opcname<>'text_ops'"));
+                    assert!(shape.contains("index_entry.indcollation[key_position]"));
+                    assert!(shape.contains("index_entry.indoption[key_position]"));
+                    assert!(shape.contains("dependency_entry.deptype IN ('e','x')"));
+                    assert!(shape.contains("reltoastrelid"));
+                }
+            }
 
             #[tokio::test]
             #[ignore = "requires explicit disposable bootstrap DDL authority"]
@@ -55,6 +72,24 @@ macro_rules! postgres_replay_v2_tests {
                         .expect_err("bootstrap must not adopt malformed existing storage"),
                     PostgresReplayOwnerErrorV2::StorageUnavailable
                 );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires canonical Backtest storage with dropped receipt uniqueness"]
+            async fn bootstrap_rejects_auxiliary_dropped_uniqueness() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                assert_eq!(
+                    PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                        .await
+                        .expect_err("bootstrap must not adopt an auxiliary table without exact uniqueness"),
+                    PostgresReplayOwnerErrorV2::StorageUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -142,7 +177,7 @@ macro_rules! postgres_replay_v2_tests {
 
                 assert_eq!(
                     total_counts(&backtest_url).await,
-                    [0, 0],
+                    [0, 0, 0, 0],
                     "revocation immediately before the run insert must win"
                 );
                 assert_eq!(
@@ -211,7 +246,7 @@ $function$
             #[tokio::test]
             #[ignore = "requires a seeded Replay V2 request and replaceable R&D lock facade"]
             async fn existing_handle_rejects_forged_lock_facade_before_rows() {
-                let (backtest_url, rd_url, _request_owner, locator, result) =
+                let (backtest_url, rd_url, request_owner, locator, result) =
                     seeded_storage_context('8').await;
                 let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
                     .await
@@ -238,23 +273,26 @@ $function$
                 .fetch_one(&rd_pool)
                 .await
                 .expect("capture canonical lock facade ACL");
-
-                let revoked = sqlx::query(
-                    "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1 AND request_schema_version=2 AND lifecycle_state='FROZEN'",
+                let canonical_available: serde_json::Value = sqlx::query_scalar(
+                    "SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)",
                 )
                 .bind(&locator.request_identity)
-                .execute(&rd_pool)
+                .bind(&locator.meaning_digest)
+                .bind(&locator.receipt_identity)
+                .bind(&locator.seal_digest)
+                .fetch_one(&backtest_pool)
                 .await
-                .expect("make the exact seeded request stale for the forged wrapper");
-                assert_eq!(revoked.rows_affected(), 1);
+                .expect("capture exact canonical AVAILABLE envelope before revocation");
+                assert_eq!(canonical_available["availability"], "AVAILABLE");
+
                 sqlx::query(
                     "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO rd_owner",
                 )
                 .execute(&rd_pool)
                 .await
                 .expect("temporarily allow R&D Owner to replace its lock facade");
-                sqlx::query(
-                    "
+                let forged_source = format!(
+                    r#"
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
   requested_request_identity text,
   requested_meaning_digest text,
@@ -263,28 +301,25 @@ CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
-DECLARE base jsonb;
 BEGIN
-  base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
-    requested_request_identity,
-    requested_meaning_digest,
-    requested_receipt_identity,
-    requested_seal_digest
-  );
-  IF base->>'availability' = 'STALE' THEN
-    RETURN base || pg_catalog.jsonb_build_object(
-      'availability', 'AVAILABLE',
-      'forged_facade_source', 'FORGED_LOCK_V2'
+  IF false THEN
+    RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+      requested_request_identity,
+      requested_meaning_digest,
+      requested_receipt_identity,
+      requested_seal_digest
     );
   END IF;
-  RETURN base;
+  RETURN $canonical${}$canonical$::pg_catalog.jsonb;
 END
 $function$
-",
-                )
+"#,
+                    canonical_available
+                );
+                sqlx::query(sqlx::AssertSqlSafe(forged_source.as_str()))
                 .execute(&rd_pool)
                 .await
-                .expect("current non-superuser R&D Owner replaces its lock facade");
+                .expect("current non-superuser R&D Owner installs a canonical-envelope non-locking facade");
                 sqlx::query(
                     "REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner",
                 )
@@ -324,6 +359,10 @@ $function$
                     forged_catalog_is_equivalent,
                     "fixture must preserve facade metadata and explicit Backtest ACL"
                 );
+                let mut forged_transaction = backtest_pool
+                    .begin()
+                    .await
+                    .expect("hold the non-locking facade transaction open");
                 let forged: serde_json::Value = sqlx::query_scalar(
                     "SELECT rd_owner_api.lock_exploratory_replay_request_v2($1,$2,$3,$4)",
                 )
@@ -331,15 +370,26 @@ $function$
                 .bind(&locator.meaning_digest)
                 .bind(&locator.receipt_identity)
                 .bind(&locator.seal_digest)
-                .fetch_one(&backtest_pool)
+                .fetch_one(&mut *forged_transaction)
                 .await
-                .expect("forged facade executes its availability rewrite");
-                assert_eq!(forged["availability"], "AVAILABLE");
-                assert_eq!(forged["forged_facade_source"], "FORGED_LOCK_V2");
+                .expect("non-locking facade returns the pre-revocation canonical envelope");
+                assert_eq!(forged, canonical_available);
+                let revoked = sqlx::query(
+                    "UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1 AND request_schema_version=2 AND lifecycle_state='FROZEN'",
+                )
+                .bind(&locator.request_identity)
+                .execute(&rd_pool)
+                .await
+                .expect("revocation must complete while the forged facade transaction remains open");
+                assert_eq!(revoked.rows_affected(), 1);
 
                 let commit = owner
-                    .commit_exploratory_replay_result_v2(&custody_locator(&locator), &result)
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
                     .await;
+                forged_transaction
+                    .rollback()
+                    .await
+                    .expect("release forged facade transaction");
 
                 sqlx::query(
                     "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO rd_owner",
@@ -386,7 +436,7 @@ $function$
                     commit.expect_err("forged lock facade must reject before persistence"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -551,7 +601,7 @@ $function$
                         && elapsed < Duration::from_secs(4),
                     "lock wait must remain bounded near one second: {elapsed:?}"
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -582,7 +632,7 @@ $function$
                         .is_none()
                 );
                 reader.rollback().await.expect("release reader lock");
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -606,6 +656,197 @@ $function$
                 PostgresReplayResultOwnerV2::connect(&impersonator_url)
                     .await
                     .expect_err("session user must not impersonate the Backtest owner via SET ROLE");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-bootstrap Backtest SET membership into R&D Owner"]
+            async fn runtime_rejects_backtest_set_membership_into_rd_owner() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect_err("Backtest must not inherit or SET ROLE into R&D Owner");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires an unknown capability-bearing role granted to Backtest and R&D"]
+            async fn writer_and_reader_reject_unknown_capability_role_membership() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect_err("writer must reject an unknown capability role membership");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &absent_result_custody_query(),
+                )
+                .await;
+                transaction
+                    .rollback()
+                    .await
+                    .expect("rollback rejected custody read");
+                assert!(
+                    read.is_err(),
+                    "reader must reject an unknown capability role membership"
+                );
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect Backtest membership into Product Edge Owner"]
+            async fn existing_handle_rejects_product_edge_owner_membership() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let mutation = database.mutation();
+                let mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('backtest_owner','product_edge_owner',true)")
+                    .execute(mutation_pool)
+                    .await
+                    .expect("inject Product Edge Owner membership after connect");
+                let read = owner.read_result_v2(&identity("absent-result-v2")).await;
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('backtest_owner','product_edge_owner',false)")
+                    .execute(mutation_pool)
+                    .await
+                    .expect("clear Product Edge Owner membership");
+                assert_eq!(
+                    read.expect_err("existing handle must reject Product Edge Owner membership"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect R&D membership into Qualification Owner"]
+            async fn result_reader_rejects_qualification_owner_membership() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let rd_pool = PgPool::connect(&rd_url)
+                    .await
+                    .expect("clean R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('rd_owner','qualification_owner',true)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("inject Qualification Owner membership after transaction start");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &absent_result_custody_query(),
+                )
+                .await;
+                transaction.rollback().await.expect("rollback rejected custody read");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('rd_owner','qualification_owner',false)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("clear Qualification Owner membership");
+                assert!(read.is_err(), "reader must reject Qualification Owner membership");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect Backtest membership into Qualification Writer"]
+            async fn writer_and_request_lock_reject_qualification_writer_membership() {
+                let (backtest_url, _, request_owner, locator, result) =
+                    seeded_storage_context('7').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest role-graph mutation pool");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('backtest_owner','qualification_writer',true)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("inject Qualification Writer membership after connect");
+
+                let read = owner.read_result_v2(result.result_identity()).await;
+                let mut transaction = mutation_pool
+                    .begin()
+                    .await
+                    .expect("Backtest caller transaction");
+                let request_read = request_owner
+                    .lock_exploratory_replay_request_for_backtest_v2_in_transaction(
+                        &mut transaction,
+                        &locator,
+                    )
+                    .await;
+                transaction
+                    .rollback()
+                    .await
+                    .expect("rollback rejected request read");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('backtest_owner','qualification_writer',false)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("clear Qualification Writer membership");
+
+                assert_eq!(
+                    read.expect_err("writer must reject Qualification Writer membership"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert!(
+                    request_read.is_err(),
+                    "request lock must reject Qualification Writer membership"
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect R&D membership into Operator Authorization Writer"]
+            async fn result_reader_rejects_operator_authorization_writer_membership() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('rd_owner','operator_authorization_writer',true)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("inject Operator Authorization Writer membership");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &absent_result_custody_query(),
+                )
+                .await;
+                transaction
+                    .rollback()
+                    .await
+                    .expect("rollback rejected custody read");
+                sqlx::query("SELECT vibe_test_admin.set_replay_owner_membership_v1('rd_owner','operator_authorization_writer',false)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("clear Operator Authorization Writer membership");
+                assert!(
+                    read.is_err(),
+                    "reader must reject Operator Authorization Writer membership"
+                );
             }
 
             #[tokio::test]
@@ -676,7 +917,7 @@ $function$
                         .expect_err("wrong V2 locator must write nothing"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 let absent = ExploratoryReplayRequestLocatorV2 {
                     request_identity: "absent-replay-v2".into(),
@@ -691,7 +932,7 @@ $function$
                         .expect_err("absent V2 locator must write nothing"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 let cross_spliced = ExploratoryReplayRequestLocatorV2 {
                     request_identity: locator.request_identity.clone(),
@@ -710,7 +951,7 @@ $function$
                         .expect_err("cross-spliced V2 locator must write nothing"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='REVOKED' WHERE request_identity=$1")
                     .bind(&locator.request_identity)
@@ -724,7 +965,7 @@ $function$
                         .expect_err("stale V2 locator must write nothing"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
                 sqlx::query("UPDATE public.rd_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
                     .bind(&locator.request_identity)
                     .execute(&rd_pool)
@@ -751,7 +992,7 @@ $function$
                         .expect_err("request/result meaning mismatch must write nothing"),
                     PostgresReplayOwnerErrorV2::RequestBindingMismatch
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 assert_eq!(
                     mismatched_consumption_fixture(&request)
@@ -760,13 +1001,13 @@ $function$
                         ObservationComponentV2::ReplayConfiguration
                     )
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 let committed = owner
                     .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
                     .await
                     .expect("exact U1 request and already sealed U2 result commit atomically");
-                assert_eq!(total_counts(&backtest_url).await, [1, 1]);
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
                 assert_eq!(committed.request_canonical_bytes(), request_bytes);
                 assert_eq!(committed.result_canonical_bytes(), result_bytes);
                 assert_result_census(committed.result_canonical_bytes());
@@ -786,6 +1027,47 @@ $function$
                     .expect("durable result exists");
                 assert_eq!(committed, replayed);
                 assert_eq!(committed, reread);
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
+                assert_eq!(committed.receipt_canonical_bytes(), replayed.receipt_canonical_bytes());
+                assert_eq!(committed.outbox_canonical_bytes(), replayed.outbox_canonical_bytes());
+
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+                let mut rd_transaction = rd_pool.begin().await.expect("caller-held R&D transaction");
+                let sealed = lock_exploratory_result_v1_in_transaction(&mut rd_transaction, &query)
+                    .await
+                    .expect("fixed Backtest facade")
+                    .expect("pre-existing exact result custody");
+                assert_eq!(sealed.canonical_result_bytes(), committed.result_canonical_bytes());
+                assert_eq!(sealed.canonical_receipt_bytes(), committed.receipt_canonical_bytes());
+                assert_eq!(sealed.canonical_outbox_bytes(), committed.outbox_canonical_bytes());
+                let mut blocked = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("lock probe pool")
+                    .begin()
+                    .await
+                    .expect("lock probe transaction");
+                sqlx::query("SET LOCAL lock_timeout='100ms'")
+                    .execute(&mut *blocked)
+                    .await
+                    .expect("bounded lock probe");
+                assert!(
+                    sqlx::query("UPDATE public.backtest_replay_results_v2 SET result_digest=result_digest WHERE result_identity=$1")
+                        .bind(result.result_identity().as_str())
+                        .execute(&mut *blocked)
+                        .await
+                        .is_err(),
+                    "facade row locks must remain held until the caller commits"
+                );
+                blocked.rollback().await.expect("rollback timed-out lock probe");
+                rd_transaction.commit().await.expect("caller commits its own transaction");
 
                 let pool = PgPool::connect(&backtest_url)
                     .await
@@ -870,8 +1152,759 @@ $function$
                         .expect_err("one request attempt cannot bind a second result"),
                     PostgresReplayOwnerErrorV2::ConflictingReplay
                 );
-                assert_eq!(total_counts(&backtest_url).await, [1, 1]);
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
                 assert_eq!(counts_by_result(&backtest_url, conflicting.result_identity()).await, [0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires disposable fixed-facade owner/source/ACL drift controls"]
+            async fn result_custody_facade_drift_never_produces_positive_readback() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('9').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact Backtest custody");
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D drift-control pool");
+
+                sqlx::query("SELECT vibe_test_admin.forge_backtest_result_facade_source_v1()")
+                    .execute(&rd_pool)
+                    .await
+                    .expect("forge fixed facade source");
+                assert_result_custody_rejected(&rd_pool, &query).await;
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
+                PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                    .await
+                    .expect("restore canonical facade source");
+
+                sqlx::query("SELECT vibe_test_admin.set_backtest_result_facade_owner_drift_v1(true)")
+                    .execute(&rd_pool)
+                    .await
+                    .expect("drift facade owner");
+                assert_result_custody_rejected(&rd_pool, &query).await;
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
+                sqlx::query("SELECT vibe_test_admin.set_backtest_result_facade_owner_drift_v1(false)")
+                    .execute(&rd_pool)
+                    .await
+                    .expect("restore facade owner");
+                PostgresReplayResultOwnerV2::bootstrap_storage(&backtest_url)
+                    .await
+                    .expect("restore canonical facade ACL after owner drift");
+
+                sqlx::query("SELECT vibe_test_admin.set_backtest_result_facade_acl_drift_v1(true)")
+                    .execute(&rd_pool)
+                    .await
+                    .expect("drift facade ACL");
+                assert_result_custody_rejected(&rd_pool, &query).await;
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
+                sqlx::query("SELECT vibe_test_admin.set_backtest_result_facade_acl_drift_v1(false)")
+                    .execute(&rd_pool)
+                    .await
+                    .expect("restore facade ACL");
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires disposable post-connect role-membership controls"]
+            async fn all_public_seams_reject_capability_free_inbound_rd_owner_membership() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('3').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest result Owner handle");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest role-drift control pool");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D reader pool");
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+
+                sqlx::query("SELECT vibe_test_admin.set_rogue_rd_inbound_membership_v1(true)")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("grant rd_owner to a capability-free rogue role after connect");
+                assert!(
+                    request_owner
+                        .lock_exploratory_replay_request_for_backtest_v2(&locator)
+                        .await
+                        .is_err(),
+                    "request-lock seam must reject inbound rd_owner reachability"
+                );
+                assert_eq!(
+                    owner
+                        .read_result_v2(&query.locator.result_identity)
+                        .await
+                        .expect_err("writer/readback seam must reject inbound rd_owner reachability"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_result_custody_rejected(&rd_pool, &query).await;
+                assert_eq!(
+                    owner
+                        .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                        .await
+                        .expect_err("writer seam must reject before first custody"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
+
+                sqlx::query("SELECT vibe_test_admin.set_rogue_rd_inbound_membership_v1(false)")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("restore closed role topology");
+                assert!(
+                    request_owner
+                        .lock_exploratory_replay_request_for_backtest_v2(&locator)
+                        .await
+                        .expect("restored request-lock seam")
+                        .readback()
+                        .is_some()
+                );
+                assert!(
+                    owner
+                        .read_result_v2(&query.locator.result_identity)
+                        .await
+                        .expect("restored writer/readback seam")
+                        .is_none()
+                );
+                let mut transaction = rd_pool.begin().await.expect("restored R&D transaction");
+                assert!(
+                    lock_exploratory_result_v1_in_transaction(&mut transaction, &query)
+                        .await
+                        .expect("restored result-reader seam")
+                        .is_none()
+                );
+                transaction.rollback().await.expect("rollback absent read");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires disposable post-connect inbound Backtest role controls"]
+            async fn all_public_seams_reject_capability_free_inbound_backtest_owner_membership() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('2').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest result Owner handle");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest role-drift control pool");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D reader pool");
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+
+                sqlx::query(
+                    "SELECT vibe_test_admin.set_rogue_backtest_inbound_membership_v1(true)",
+                )
+                .execute(&backtest_pool)
+                .await
+                .expect("grant backtest_owner SET reachability to a capability-free rogue role");
+                assert!(
+                    request_owner
+                        .lock_exploratory_replay_request_for_backtest_v2(&locator)
+                        .await
+                        .is_err(),
+                    "non-transaction request seam must reject inbound Backtest reachability"
+                );
+                assert_eq!(
+                    owner
+                        .read_result_v2(&query.locator.result_identity)
+                        .await
+                        .expect_err("writer/readback seam must reject inbound Backtest reachability"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_result_custody_rejected(&rd_pool, &query).await;
+                assert_eq!(
+                    owner
+                        .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                        .await
+                        .expect_err("writer seam must reject before first custody"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
+
+                sqlx::query(
+                    "SELECT vibe_test_admin.set_rogue_backtest_inbound_membership_v1(false)",
+                )
+                .execute(&backtest_pool)
+                .await
+                .expect("restore closed Backtest role topology");
+                assert!(
+                    request_owner
+                        .lock_exploratory_replay_request_for_backtest_v2(&locator)
+                        .await
+                        .expect("restored request seam")
+                        .readback()
+                        .is_some()
+                );
+                assert!(
+                    owner
+                        .read_result_v2(&query.locator.result_identity)
+                        .await
+                        .expect("restored writer/readback seam")
+                        .is_none()
+                );
+                let mut transaction = rd_pool.begin().await.expect("restored R&D transaction");
+                assert!(
+                    lock_exploratory_result_v1_in_transaction(&mut transaction, &query)
+                        .await
+                        .expect("restored result-reader seam")
+                        .is_none()
+                );
+                transaction.rollback().await.expect("rollback absent read");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires disposable same-source facade declaration controls"]
+            async fn result_reader_rejects_same_source_out_declaration_drift() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('4').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact result custody");
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+                let rd_pool = PgPool::connect(&rd_url)
+                    .await
+                    .expect("R&D declaration-drift pool");
+
+                sqlx::query(
+                    "SELECT vibe_test_admin.set_backtest_result_facade_out_name_drift_v1(true)",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("replace only the facade OUT declaration");
+                let same_source_with_drifted_out_name: bool = sqlx::query_scalar(
+                    "SELECT procedure.prosrc=$1 AND procedure.proargnames[5]='run_request_identity_drift' FROM pg_catalog.pg_proc procedure WHERE procedure.oid='backtest_owner_api.lock_exploratory_result_v1(text,text,text,text)'::pg_catalog.regprocedure",
+                )
+                .bind(LOCK_RESULT_SOURCE_V1)
+                .fetch_one(&rd_pool)
+                .await
+                .expect("same-source declaration drift readback");
+                assert!(same_source_with_drifted_out_name);
+                assert_result_custody_rejected(&rd_pool, &query).await;
+
+                sqlx::query(
+                    "SELECT vibe_test_admin.set_backtest_result_facade_out_name_drift_v1(false)",
+                )
+                .execute(&rd_pool)
+                .await
+                .expect("restore exact facade OUT declaration");
+                let mut transaction = rd_pool.begin().await.expect("restored R&D transaction");
+                assert!(
+                    lock_exploratory_result_v1_in_transaction(&mut transaction, &query)
+                        .await
+                        .expect("exact declaration must remain accepted")
+                        .is_some()
+                );
+                transaction.rollback().await.expect("rollback accepted read");
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires canonical disposable Backtest/R&D PostgreSQL roles"]
+            async fn scalar_mirror_tamper_and_cross_splice_fail_closed_at_both_public_seams() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('5').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                let committed = owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact four-table custody");
+                let receipt: BacktestResultReceiptV1 =
+                    serde_json::from_slice(committed.receipt_canonical_bytes())
+                        .expect("canonical receipt fixture");
+                let outbox: BacktestResultOutboxV1 =
+                    serde_json::from_slice(committed.outbox_canonical_bytes())
+                        .expect("canonical outbox fixture");
+                let request_bytes = committed.request_canonical_bytes().to_vec();
+                let request_storage_digest =
+                    canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, &request_bytes);
+                let request_binding = request_binding_digest(
+                    &request_bytes,
+                    &locator.seal_digest,
+                    &locator.receipt_identity,
+                );
+                let query = ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: result.request_identity().clone(),
+                        request_meaning_digest: result.request_meaning_digest().clone(),
+                        result_identity: result.result_identity().clone(),
+                        result_digest: result.result_digest().clone(),
+                    },
+                };
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D reader pool");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest scalar mutation pool");
+
+                sqlx::query("UPDATE public.backtest_replay_result_receipts_v1 SET receipt_digest='sha256:' || repeat('f',64) WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("tamper only the receipt digest mirror");
+                assert_scalar_mirrors_rejected(&owner, &rd_pool, &query).await;
+                sqlx::query("UPDATE public.backtest_replay_result_receipts_v1 SET receipt_digest=$2 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(receipt.receipt_digest.as_str())
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("restore receipt digest mirror");
+
+                sqlx::query("UPDATE public.backtest_replay_result_outbox_v1 SET event_identity=$2,event_digest=$3,payload_digest=$4 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(receipt.receipt_identity.as_str())
+                    .bind(receipt.receipt_digest.as_str())
+                    .bind(result.result_digest().as_str())
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("cross-splice valid scalars into outbox mirrors");
+                assert_scalar_mirrors_rejected(&owner, &rd_pool, &query).await;
+                sqlx::query("UPDATE public.backtest_replay_result_outbox_v1 SET event_identity=$2,event_digest=$3,payload_digest=$4 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(outbox.event_identity.as_str())
+                    .bind(outbox.event_digest.as_str())
+                    .bind(outbox.payload_digest.as_str())
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("restore outbox scalar mirrors");
+
+                sqlx::query("UPDATE public.backtest_replay_runs_v2 SET request_binding_blake3='blake3:' || repeat('0',64) WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("tamper only the retained request binding mirror");
+                assert_scalar_mirrors_rejected(&owner, &rd_pool, &query).await;
+                sqlx::query("UPDATE public.backtest_replay_runs_v2 SET request_binding_blake3=$2 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(&request_binding)
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("restore request binding mirror");
+
+                let spliced_request_bytes = committed.result_canonical_bytes();
+                let spliced_storage_digest =
+                    canonical_bytes_digest(REQUEST_STORAGE_DOMAIN, spliced_request_bytes);
+                let spliced_binding = request_binding_digest(
+                    spliced_request_bytes,
+                    &locator.seal_digest,
+                    &locator.receipt_identity,
+                );
+                sqlx::query("UPDATE public.backtest_replay_runs_v2 SET request_canonical_bytes=$2,request_canonical_bytes_blake3=$3,request_binding_blake3=$4 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(spliced_request_bytes)
+                    .bind(spliced_storage_digest)
+                    .bind(spliced_binding)
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("cross-splice canonical bytes with matching storage and binding hashes");
+                assert_scalar_mirrors_rejected(&owner, &rd_pool, &query).await;
+                sqlx::query("UPDATE public.backtest_replay_runs_v2 SET request_canonical_bytes=$2,request_canonical_bytes_blake3=$3,request_binding_blake3=$4 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .bind(&request_bytes)
+                    .bind(request_storage_digest)
+                    .bind(request_binding)
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("restore retained request representation");
+
+                assert!(owner.read_result_v2(result.result_identity()).await.expect("valid writer read").is_some());
+                let mut transaction = rd_pool.begin().await.expect("valid R&D transaction");
+                assert!(lock_exploratory_result_v1_in_transaction(&mut transaction, &query)
+                    .await
+                    .expect("valid reader read")
+                    .is_some());
+                transaction.rollback().await.expect("rollback valid read");
+                mutation_pool.close().await;
+                rd_pool.close().await;
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires a committed result and direct R&D facade access"]
+            async fn result_custody_sql_facade_excludes_protected_namespaces() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('7').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact Backtest custody");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest namespace mutation pool");
+                sqlx::query("UPDATE public.backtest_replay_result_receipts_v1 SET namespace='PROTECTED' WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("mark receipt as protected custody");
+                sqlx::query("UPDATE public.backtest_replay_result_outbox_v1 SET namespace='PROTECTED' WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("mark outbox as protected custody");
+
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D direct facade pool");
+                let disclosed: i64 = sqlx::query_scalar(
+                    "SELECT count(*) FROM backtest_owner_api.lock_exploratory_result_v1($1,$2,$3,$4)",
+                )
+                .bind(result.request_identity().as_str())
+                .bind(result.request_meaning_digest().as_str())
+                .bind(result.result_identity().as_str())
+                .bind(result.result_digest().as_str())
+                .fetch_one(&rd_pool)
+                .await
+                .expect("direct fixed-facade protected namespace probe");
+                assert_eq!(disclosed, 0, "SQL facade must disclose zero protected custody rows");
+                assert_eq!(total_counts(&backtest_url).await, [1, 1, 1, 1]);
+
+                sqlx::query("UPDATE public.backtest_replay_result_receipts_v1 SET namespace='EXPLORATORY' WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("restore receipt namespace");
+                sqlx::query("UPDATE public.backtest_replay_result_outbox_v1 SET namespace='EXPLORATORY' WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("restore outbox namespace");
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires canonical Backtest storage and post-connect auxiliary DDL drift"]
+            async fn existing_handle_rejects_auxiliary_dropped_uniqueness() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let backtest_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::BacktestOwner)
+                    .to_string();
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest auxiliary-shape mutation pool");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_receipts_v1 DROP CONSTRAINT backtest_replay_result_receipts_v1_receipt_identity_key")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("drop declared receipt uniqueness after connect");
+
+                let read = owner.read_result_v2(&identity("absent-result-v2")).await;
+
+                sqlx::query("ALTER TABLE public.backtest_replay_result_receipts_v1 ADD CONSTRAINT backtest_replay_result_receipts_v1_receipt_identity_key UNIQUE(receipt_identity)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("restore declared receipt uniqueness");
+                assert_eq!(
+                    read.expect_err("next read must reject auxiliary shape drift"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
+            }
+
+            #[tokio::test]
+            #[ignore = "requires committed custody and controlled collation/opclass drift"]
+            async fn writer_and_reader_reject_collation_and_index_opclass_drift_without_byte_changes()
+            {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('8').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact Backtest custody");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest shape-drift pool");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let before = exact_canonical_storage_bytes(
+                    &mutation_pool,
+                    result.result_identity().as_str(),
+                )
+                .await;
+
+                for drift_kind in ["collation", "opclass"] {
+                    sqlx::query("SELECT vibe_test_admin.set_backtest_scalar_shape_drift_v1($1,true)")
+                        .bind(drift_kind)
+                        .execute(&mutation_pool)
+                        .await
+                        .expect("inject scalar/index shape drift");
+                    let writer_read = owner.read_result_v2(result.result_identity()).await;
+                    let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                    let reader_read = lock_exploratory_result_v1_in_transaction(
+                        &mut transaction,
+                        &ExploratoryResultCustodyQueryV1 {
+                            schema_version: 1,
+                            locator: ExploratoryResultLocatorV1 {
+                                request_identity: result.request_identity().clone(),
+                                request_meaning_digest: result.request_meaning_digest().clone(),
+                                result_identity: result.result_identity().clone(),
+                                result_digest: result.result_digest().clone(),
+                            },
+                        },
+                    )
+                    .await;
+                    transaction
+                        .rollback()
+                        .await
+                        .expect("rollback rejected custody read");
+                    sqlx::query("SELECT vibe_test_admin.set_backtest_scalar_shape_drift_v1($1,false)")
+                        .bind(drift_kind)
+                        .execute(&mutation_pool)
+                        .await
+                        .expect("restore canonical scalar/index shape");
+
+                    assert_eq!(
+                        writer_read.expect_err("writer must reject scalar/index shape drift"),
+                        PostgresReplayOwnerErrorV2::CustodyUnavailable
+                    );
+                    assert!(
+                        reader_read.is_err(),
+                        "independent reader must reject scalar/index shape drift"
+                    );
+                    assert_eq!(
+                        exact_canonical_storage_bytes(
+                            &mutation_pool,
+                            result.result_identity().as_str(),
+                        )
+                        .await,
+                        before,
+                        "shape drift must not alter any canonical custody bytes"
+                    );
+                }
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires committed custody and controlled extension-membership drift"]
+            async fn writer_and_reader_reject_extension_membership_dependency_without_byte_changes()
+            {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('9').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("clean Backtest runtime handle");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact Backtest custody");
+                let mutation_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest dependency-drift pool");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let before = exact_canonical_storage_bytes(
+                    &mutation_pool,
+                    result.result_identity().as_str(),
+                )
+                .await;
+                sqlx::query("SELECT vibe_test_admin.set_backtest_extension_membership_v1(true)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("attach Backtest table to an external extension");
+
+                let writer_read = owner.read_result_v2(result.result_identity()).await;
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                let reader_read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &ExploratoryResultCustodyQueryV1 {
+                        schema_version: 1,
+                        locator: ExploratoryResultLocatorV1 {
+                            request_identity: result.request_identity().clone(),
+                            request_meaning_digest: result.request_meaning_digest().clone(),
+                            result_identity: result.result_identity().clone(),
+                            result_digest: result.result_digest().clone(),
+                        },
+                    },
+                )
+                .await;
+                transaction
+                    .rollback()
+                    .await
+                    .expect("rollback rejected custody read");
+                sqlx::query("SELECT vibe_test_admin.set_backtest_extension_membership_v1(false)")
+                    .execute(&mutation_pool)
+                    .await
+                    .expect("detach Backtest table from external extension");
+
+                assert_eq!(
+                    writer_read.expect_err("writer must reject extension-owned custody"),
+                    PostgresReplayOwnerErrorV2::CustodyUnavailable
+                );
+                assert!(
+                    reader_read.is_err(),
+                    "independent reader must reject extension-owned custody"
+                );
+                assert_eq!(
+                    exact_canonical_storage_bytes(
+                        &mutation_pool,
+                        result.result_identity().as_str(),
+                    )
+                    .await,
+                    before,
+                    "dependency drift must not alter canonical custody bytes"
+                );
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect read-side constraint drift"]
+            async fn result_reader_rejects_dropped_receipt_uniqueness() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_receipts_v1 DROP CONSTRAINT backtest_replay_result_receipts_v1_receipt_identity_key")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("drop receipt uniqueness after reader connect");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &absent_result_custody_query(),
+                )
+                .await;
+                transaction.rollback().await.expect("rollback rejected custody read");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_receipts_v1 ADD CONSTRAINT backtest_replay_result_receipts_v1_receipt_identity_key UNIQUE(receipt_identity)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("restore receipt uniqueness");
+                assert!(read.is_err(), "reader must reject a dropped declared constraint");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires post-connect read-side undeclared constraint drift"]
+            async fn result_reader_rejects_undeclared_constraint() {
+                let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+                    .await
+                    .expect("canonical disposable topology");
+                let rd_url = database
+                    .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+                    .to_string();
+                let mutation = database.mutation();
+                let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 ADD CONSTRAINT aaa_undeclared_result_outbox_check CHECK (namespace IS NOT NULL)")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("add undeclared constraint after reader connect");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &absent_result_custody_query(),
+                )
+                .await;
+                transaction.rollback().await.expect("rollback rejected custody read");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 DROP CONSTRAINT aaa_undeclared_result_outbox_check")
+                    .execute(backtest_pool)
+                    .await
+                    .expect("remove undeclared constraint");
+                assert!(read.is_err(), "reader must reject an undeclared constraint");
+            }
+
+            #[tokio::test]
+            #[ignore = "requires committed custody and post-connect duplicate drift"]
+            async fn result_reader_rejects_duplicate_outbox_rows() {
+                let (backtest_url, rd_url, request_owner, locator, result) =
+                    seeded_storage_context('6').await;
+                let owner = PostgresReplayResultOwnerV2::connect(&backtest_url)
+                    .await
+                    .expect("Backtest result Owner");
+                owner
+                    .commit_exploratory_replay_result_v2(&request_owner, &locator, &result)
+                    .await
+                    .expect("seed exact custody before duplicate drift");
+                let rd_pool = PgPool::connect(&rd_url).await.expect("R&D custody-reader pool");
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                let backtest_pool = PgPool::connect(&backtest_url)
+                    .await
+                    .expect("Backtest duplicate-drift pool");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 DROP CONSTRAINT backtest_replay_result_outbox_v1_pkey")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("drop outbox primary key after reader connect");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 DROP CONSTRAINT backtest_replay_result_outbox_v1_receipt_identity_key")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("drop outbox receipt uniqueness after reader connect");
+                sqlx::query("INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) SELECT result_identity,event_identity || '-duplicate',event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3 FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1")
+                    .bind(result.result_identity().as_str())
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("duplicate the exact outbox row");
+                let read = lock_exploratory_result_v1_in_transaction(
+                    &mut transaction,
+                    &ExploratoryResultCustodyQueryV1 {
+                        schema_version: 1,
+                        locator: ExploratoryResultLocatorV1 {
+                            request_identity: result.request_identity().clone(),
+                            request_meaning_digest: result.request_meaning_digest().clone(),
+                            result_identity: result.result_identity().clone(),
+                            result_digest: result.result_digest().clone(),
+                        },
+                    },
+                )
+                .await;
+                transaction.rollback().await.expect("rollback rejected custody read");
+                remove_exact_result_fixture(&backtest_url, result.result_identity()).await;
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 ADD CONSTRAINT backtest_replay_result_outbox_v1_pkey PRIMARY KEY(result_identity)")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("restore outbox primary key");
+                sqlx::query("ALTER TABLE public.backtest_replay_result_outbox_v1 ADD CONSTRAINT backtest_replay_result_outbox_v1_receipt_identity_key UNIQUE(receipt_identity)")
+                    .execute(&backtest_pool)
+                    .await
+                    .expect("restore outbox receipt uniqueness");
+                assert!(read.is_err(), "reader must reject duplicate custody rows");
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -907,7 +1940,7 @@ $function$
                     write.expect_err("next write must reject external inbound FK"),
                     PostgresReplayOwnerErrorV2::CustodyUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             #[tokio::test]
@@ -943,7 +1976,7 @@ $function$
                     write.expect_err("next write must reject external storage view"),
                     PostgresReplayOwnerErrorV2::CustodyUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
 
                 let rd_pool = PgPool::connect(&rd_url)
                     .await
@@ -973,14 +2006,77 @@ $function$
                 assert_eq!(encoded["terminal"], "TERMINAL_RESULT");
             }
 
-            async fn total_counts(database_url: &str) -> [i64; 2] {
+            async fn total_counts(database_url: &str) -> [i64; 4] {
                 let pool = PgPool::connect(database_url).await.expect("Backtest count pool");
                 [
                     sqlx::query_scalar("SELECT COUNT(*) FROM public.backtest_replay_runs_v2")
                         .fetch_one(&pool).await.expect("run count"),
                     sqlx::query_scalar("SELECT COUNT(*) FROM public.backtest_replay_results_v2")
                         .fetch_one(&pool).await.expect("result count"),
+                    sqlx::query_scalar("SELECT COUNT(*) FROM public.backtest_replay_result_receipts_v1")
+                        .fetch_one(&pool).await.expect("receipt count"),
+                    sqlx::query_scalar("SELECT COUNT(*) FROM public.backtest_replay_result_outbox_v1")
+                        .fetch_one(&pool).await.expect("outbox count"),
                 ]
+            }
+
+            async fn exact_canonical_storage_bytes(
+                pool: &PgPool,
+                result_identity: &str,
+            ) -> Vec<Vec<u8>> {
+                sqlx::query_scalar(
+                    "SELECT canonical_bytes FROM (
+                       SELECT request_canonical_bytes AS canonical_bytes,1 AS ordinal FROM public.backtest_replay_runs_v2 WHERE result_identity=$1
+                       UNION ALL SELECT canonical_bytes,2 FROM public.backtest_replay_results_v2 WHERE result_identity=$1
+                       UNION ALL SELECT canonical_bytes,3 FROM public.backtest_replay_result_receipts_v1 WHERE result_identity=$1
+                       UNION ALL SELECT canonical_bytes,4 FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1
+                     ) custody_bytes ORDER BY ordinal",
+                )
+                .bind(result_identity)
+                .fetch_all(pool)
+                .await
+                .expect("exact canonical storage byte snapshot")
+            }
+
+            async fn assert_result_custody_rejected(
+                rd_pool: &PgPool,
+                query: &ExploratoryResultCustodyQueryV1,
+            ) {
+                let mut transaction = rd_pool.begin().await.expect("R&D caller transaction");
+                assert!(
+                    lock_exploratory_result_v1_in_transaction(&mut transaction, query)
+                        .await
+                        .is_err(),
+                    "drifted facade must produce zero positive custody"
+                );
+                transaction.rollback().await.expect("rollback rejected read");
+            }
+
+            async fn assert_scalar_mirrors_rejected(
+                owner: &PostgresReplayResultOwnerV2,
+                rd_pool: &PgPool,
+                query: &ExploratoryResultCustodyQueryV1,
+            ) {
+                assert_eq!(
+                    owner
+                        .read_result_v2(&query.locator.result_identity)
+                        .await
+                        .expect_err("writer must reject drifted scalar mirrors"),
+                    PostgresReplayOwnerErrorV2::CorruptReadback
+                );
+                assert_result_custody_rejected(rd_pool, query).await;
+            }
+
+            fn absent_result_custody_query() -> ExploratoryResultCustodyQueryV1 {
+                ExploratoryResultCustodyQueryV1 {
+                    schema_version: 1,
+                    locator: ExploratoryResultLocatorV1 {
+                        request_identity: identity("absent-request-v2"),
+                        request_meaning_digest: digest('1'),
+                        result_identity: identity("absent-result-v2"),
+                        result_digest: digest('2'),
+                    },
+                }
             }
 
             async fn counts_by_result(
@@ -1163,7 +2259,7 @@ $function$
                     commit.expect_err("forged internal helper must reject before persistence"),
                     PostgresReplayOwnerErrorV2::RequestUnavailable
                 );
-                assert_eq!(total_counts(&backtest_url).await, [0, 0]);
+                assert_eq!(total_counts(&backtest_url).await, [0, 0, 0, 0]);
             }
 
             async fn remove_exact_result_fixture(
@@ -1177,6 +2273,20 @@ $function$
                     .begin()
                     .await
                     .expect("Backtest positive-control cleanup transaction");
+                sqlx::query(
+                    "DELETE FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1",
+                )
+                .bind(result_identity.as_str())
+                .execute(&mut *transaction)
+                .await
+                .expect("remove exact positive-control outbox");
+                sqlx::query(
+                    "DELETE FROM public.backtest_replay_result_receipts_v1 WHERE result_identity=$1",
+                )
+                .bind(result_identity.as_str())
+                .execute(&mut *transaction)
+                .await
+                .expect("remove exact positive-control receipt");
                 sqlx::query(
                     "DELETE FROM public.backtest_replay_results_v2 WHERE result_identity=$1",
                 )

@@ -7,6 +7,13 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const REQUEST_SCHEMA_V2: u16 = 2;
+const RESULT_SCHEMA_V2: u16 = 2;
+const RESULT_RECEIPT_SCHEMA_V1: u16 = 1;
+const RESULT_OUTBOX_SCHEMA_V1: u16 = 1;
+
+/// Fixed append-only event kind for an exploratory Backtest Result commit.
+pub const EXPLORATORY_RESULT_COMMITTED_EVENT_KIND_V1: &str =
+    "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 
 /// A validated but non-authoritative identity value carried by an untrusted request.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -468,6 +475,257 @@ pub enum ReplayTerminalV2 {
     InvalidReplayEvidence,
 }
 
+/// Untrusted reconciliation status carried by canonical Backtest Result bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResultReconciliationStatusV2 {
+    Exact,
+    Missing,
+    Mismatched,
+}
+
+/// Untrusted wire representation of one requested-to-consumed reconciliation atom.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultReconciliationAtomV2 {
+    pub component: ObservationComponentV2,
+    pub requested_meaning_identity: OpaqueIdentityV2,
+    pub requested_meaning_digest: CanonicalDigestV2,
+    pub observed_meaning_identity: Option<OpaqueIdentityV2>,
+    pub observed_meaning_digest: Option<CanonicalDigestV2>,
+    pub observation_locator: Option<ComponentObservationLocatorV2>,
+    pub status: ResultReconciliationStatusV2,
+}
+
+/// Untrusted wire representation of Backtest's semantic-trace observation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultConsumptionObservationV2 {
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub component: ObservationComponentV2,
+    pub locator: ComponentObservationLocatorV2,
+    pub observed_meaning_identity: OpaqueIdentityV2,
+    pub observed_meaning_digest: CanonicalDigestV2,
+}
+
+/// Untrusted wire representation of one Backtest diagnostic classification.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResultDiagnosticEvidenceV2 {
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub category: DiagnosticCategoryV2,
+    pub decisive_evidence: ComponentObservationLocatorV2,
+}
+
+/// Untrusted wire representation of a mature Backtest-owned Replay V2 Result.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayResultDtoV2 {
+    pub schema_version: u16,
+    pub result_identity: OpaqueIdentityV2,
+    pub result_digest: CanonicalDigestV2,
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub namespace: ReplayNamespaceV2,
+    pub replay_authority: ReplayAuthorityClaimV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub terminal: ReplayTerminalV2,
+    pub reconciliation: Vec<ResultReconciliationAtomV2>,
+    pub semantic_trace: Option<ResultConsumptionObservationV2>,
+    pub diagnostic_census: Vec<ResultDiagnosticEvidenceV2>,
+}
+
+impl ReplayResultDtoV2 {
+    /// Returns canonical bytes for this complete untrusted wire value.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ReplayContractErrorV2> {
+        serde_json::to_vec(self).map_err(|e| encoding_error(&e))
+    }
+
+    /// Recomputes the digest used by the Backtest Owner's sealed result constructor.
+    pub fn expected_result_digest(&self) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+        if self.schema_version != RESULT_SCHEMA_V2 {
+            return Err(ReplayContractErrorV2::UnsupportedResultSchema {
+                expected: RESULT_SCHEMA_V2,
+                actual: self.schema_version,
+            });
+        }
+        digest_serialized(
+            "vibe.backtest.replay-result.v2",
+            &ProvisionalReplayResultV2 {
+                schema_version: self.schema_version,
+                request_identity: &self.request_identity,
+                request_meaning_digest: &self.request_meaning_digest,
+                namespace: self.namespace,
+                replay_authority: &self.replay_authority,
+                attempt_identity: &self.attempt_identity,
+                terminal: self.terminal,
+                reconciliation: &self.reconciliation,
+                semantic_trace: self.semantic_trace.as_ref(),
+                diagnostic_census: &self.diagnostic_census,
+            },
+        )
+    }
+
+    /// Recomputes the content-addressed Result identity.
+    pub fn expected_result_identity(&self) -> Result<OpaqueIdentityV2, ReplayContractErrorV2> {
+        let digest = self.expected_result_digest()?;
+        OpaqueIdentityV2::try_from(format!(
+            "backtest-replay-result-v2-{}",
+            digest.as_str().trim_start_matches("blake3:")
+        ))
+    }
+}
+
+#[derive(Serialize)]
+struct ProvisionalReplayResultV2<'a> {
+    schema_version: u16,
+    request_identity: &'a OpaqueIdentityV2,
+    request_meaning_digest: &'a CanonicalDigestV2,
+    namespace: ReplayNamespaceV2,
+    replay_authority: &'a ReplayAuthorityClaimV2,
+    attempt_identity: &'a OpaqueIdentityV2,
+    terminal: ReplayTerminalV2,
+    reconciliation: &'a [ResultReconciliationAtomV2],
+    semantic_trace: Option<&'a ResultConsumptionObservationV2>,
+    diagnostic_census: &'a [ResultDiagnosticEvidenceV2],
+}
+
+/// Canonical receipt wire owned and persisted by Backtest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BacktestResultReceiptV1 {
+    pub schema_version: u16,
+    pub receipt_identity: OpaqueIdentityV2,
+    pub receipt_digest: CanonicalDigestV2,
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub result_identity: OpaqueIdentityV2,
+    pub result_digest: CanonicalDigestV2,
+    pub namespace: ReplayNamespaceV2,
+    pub outbox_event_identity: OpaqueIdentityV2,
+    pub committed_at_epoch_ms: u64,
+}
+
+impl BacktestResultReceiptV1 {
+    /// Recomputes the canonical receipt digest.
+    pub fn expected_digest(&self) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+        if self.schema_version != RESULT_RECEIPT_SCHEMA_V1 {
+            return Err(ReplayContractErrorV2::UnsupportedResultReceiptSchema {
+                expected: RESULT_RECEIPT_SCHEMA_V1,
+                actual: self.schema_version,
+            });
+        }
+        digest_serialized(
+            "vibe.backtest.result-receipt.v1",
+            &ProvisionalResultReceiptV1 {
+                schema_version: self.schema_version,
+                receipt_identity: &self.receipt_identity,
+                request_identity: &self.request_identity,
+                request_meaning_digest: &self.request_meaning_digest,
+                result_identity: &self.result_identity,
+                result_digest: &self.result_digest,
+                namespace: self.namespace,
+                outbox_event_identity: &self.outbox_event_identity,
+                committed_at_epoch_ms: self.committed_at_epoch_ms,
+            },
+        )
+    }
+}
+
+#[derive(Serialize)]
+struct ProvisionalResultReceiptV1<'a> {
+    schema_version: u16,
+    receipt_identity: &'a OpaqueIdentityV2,
+    request_identity: &'a OpaqueIdentityV2,
+    request_meaning_digest: &'a CanonicalDigestV2,
+    result_identity: &'a OpaqueIdentityV2,
+    result_digest: &'a CanonicalDigestV2,
+    namespace: ReplayNamespaceV2,
+    outbox_event_identity: &'a OpaqueIdentityV2,
+    committed_at_epoch_ms: u64,
+}
+
+/// Canonical append-only outbox payload wire owned by Backtest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BacktestResultOutboxPayloadV1 {
+    pub schema_version: u16,
+    pub receipt_identity: OpaqueIdentityV2,
+    pub receipt_digest: CanonicalDigestV2,
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub result_identity: OpaqueIdentityV2,
+    pub result_digest: CanonicalDigestV2,
+    pub namespace: ReplayNamespaceV2,
+    pub committed_at_epoch_ms: u64,
+}
+
+/// Canonical append-only outbox event wire owned by Backtest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BacktestResultOutboxV1 {
+    pub schema_version: u16,
+    pub event_identity: OpaqueIdentityV2,
+    pub event_digest: CanonicalDigestV2,
+    pub aggregate_identity: OpaqueIdentityV2,
+    pub event_kind: OpaqueIdentityV2,
+    pub payload_digest: CanonicalDigestV2,
+    pub payload: BacktestResultOutboxPayloadV1,
+    pub committed_at_epoch_ms: u64,
+}
+
+impl BacktestResultOutboxV1 {
+    /// Recomputes the canonical payload digest.
+    pub fn expected_payload_digest(&self) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+        if self.schema_version != RESULT_OUTBOX_SCHEMA_V1
+            || self.payload.schema_version != RESULT_OUTBOX_SCHEMA_V1
+        {
+            return Err(ReplayContractErrorV2::UnsupportedResultOutboxSchema {
+                expected: RESULT_OUTBOX_SCHEMA_V1,
+                actual: self.schema_version,
+            });
+        }
+        digest_serialized("vibe.backtest.result-outbox-payload.v1", &self.payload)
+    }
+
+    /// Recomputes the canonical outbox event digest.
+    pub fn expected_event_digest(&self) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+        if self.schema_version != RESULT_OUTBOX_SCHEMA_V1 {
+            return Err(ReplayContractErrorV2::UnsupportedResultOutboxSchema {
+                expected: RESULT_OUTBOX_SCHEMA_V1,
+                actual: self.schema_version,
+            });
+        }
+        digest_serialized(
+            "vibe.backtest.result-outbox-event.v1",
+            &ProvisionalResultOutboxV1 {
+                schema_version: self.schema_version,
+                event_identity: &self.event_identity,
+                aggregate_identity: &self.aggregate_identity,
+                event_kind: &self.event_kind,
+                payload_digest: &self.payload_digest,
+                payload: &self.payload,
+                committed_at_epoch_ms: self.committed_at_epoch_ms,
+            },
+        )
+    }
+}
+
+#[derive(Serialize)]
+struct ProvisionalResultOutboxV1<'a> {
+    schema_version: u16,
+    event_identity: &'a OpaqueIdentityV2,
+    aggregate_identity: &'a OpaqueIdentityV2,
+    event_kind: &'a OpaqueIdentityV2,
+    payload_digest: &'a CanonicalDigestV2,
+    payload: &'a BacktestResultOutboxPayloadV1,
+    committed_at_epoch_ms: u64,
+}
+
 /// Typed failures at the untrusted Replay V2 contract boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ReplayContractErrorV2 {
@@ -477,6 +735,12 @@ pub enum ReplayContractErrorV2 {
     InvalidDigest,
     #[error("unsupported Replay V2 schema: expected {expected}, received {actual}")]
     UnsupportedSchema { expected: u16, actual: u16 },
+    #[error("unsupported Replay V2 Result schema: expected {expected}, received {actual}")]
+    UnsupportedResultSchema { expected: u16, actual: u16 },
+    #[error("unsupported Backtest Result receipt schema: expected {expected}, received {actual}")]
+    UnsupportedResultReceiptSchema { expected: u16, actual: u16 },
+    #[error("unsupported Backtest Result outbox schema: expected {expected}, received {actual}")]
+    UnsupportedResultOutboxSchema { expected: u16, actual: u16 },
     #[error("Replay V2 window start must precede its exclusive end")]
     InvalidReplayWindow,
     #[error("Replay V2 canonical encoding unavailable: {0}")]
@@ -503,6 +767,18 @@ fn valid_digest(value: &str) -> bool {
 
 fn encoding_error(error: &serde_json::Error) -> ReplayContractErrorV2 {
     ReplayContractErrorV2::CanonicalEncodingUnavailable(error.to_string())
+}
+
+fn digest_serialized<T: Serialize>(
+    domain: &str,
+    value: &T,
+) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+    let bytes = serde_json::to_vec(value).map_err(|e| encoding_error(&e))?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
 }
 
 #[cfg(test)]

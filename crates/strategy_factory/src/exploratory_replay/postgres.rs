@@ -34,10 +34,30 @@ use crate::{
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
+const INTERNAL_VERIFY_FUNCTION_V2: &str =
+    "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
 const LOCK_SOURCE_V1_MD5: &str = "47881280b8c38484f91e0117666e73fb";
+#[expect(
+    clippy::needless_raw_strings,
+    reason = "fixed SQL source is compared byte-for-byte"
+)]
+const LOCK_SOURCE_V2: &str = r#"
+        BEGIN
+          RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+            requested_request_identity,
+            requested_meaning_digest,
+            requested_receipt_identity,
+            requested_seal_digest
+          );
+        END
+        "#;
 const LOCK_SOURCE_V2_MD5: &str = "298960419b17ff770dbd13ac2765f93a";
+#[expect(
+    clippy::needless_raw_strings,
+    reason = "fixed SQL source is compared byte-for-byte"
+)]
 const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
         DECLARE sealed record;
         DECLARE locked_outbox record;
@@ -236,6 +256,10 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
         END
 "#;
+#[expect(
+    clippy::needless_raw_strings,
+    reason = "fixed SQL source is compared byte-for-byte"
+)]
 const INTERNAL_VERIFY_SOURCE_V2: &str = r#"
         DECLARE base jsonb;
         DECLARE sealed record;
@@ -1644,16 +1668,24 @@ async fn validate_backtest_binding_v2(
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let function_ok: bool = sqlx::query_scalar(
         "SELECT procedure.prosecdef
+             AND session_user='backtest_owner'
+             AND current_user='backtest_owner'
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
+             AND NOT procedure.proleakproof
+             AND NOT procedure.proretset
+             AND procedure.pronargs=4
+             AND procedure.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.md5(procedure.prosrc)=$2
+             AND procedure.prosrc=$2
+             AND pg_catalog.md5(procedure.prosrc)=$3
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
                 WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
@@ -1667,12 +1699,77 @@ async fn validate_backtest_binding_v2(
                   AND (acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
                        OR acl.grantor<>owner.oid OR acl.is_grantable)
              )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_roles principal
+                WHERE principal.rolname IN ('backtest_owner','rd_owner')
+                  AND (principal.rolsuper OR principal.rolcreatedb OR principal.rolcreaterole
+                    OR principal.rolreplication OR principal.rolbypassrls)
+             )
+             AND NOT pg_catalog.pg_has_role('backtest_owner','rd_owner','USAGE')
+             AND NOT pg_catalog.pg_has_role('backtest_owner','rd_owner','SET')
+             AND NOT pg_catalog.pg_has_role('rd_owner','backtest_owner','USAGE')
+             AND NOT pg_catalog.pg_has_role('rd_owner','backtest_owner','SET')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_roles role_entry
+                WHERE role_entry.rolname<>'backtest_owner' AND NOT role_entry.rolsuper
+                  AND (pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
+                    OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','SET'))
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_roles role_entry
+                WHERE role_entry.rolname<>'rd_owner' AND NOT role_entry.rolsuper
+                  AND (pg_catalog.pg_has_role(role_entry.oid,'rd_owner','USAGE')
+                    OR pg_catalog.pg_has_role(role_entry.oid,'rd_owner','SET'))
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_roles authority_role
+                WHERE authority_role.rolname NOT IN ('backtest_owner','rd_owner')
+                  AND (authority_role.rolsuper OR authority_role.rolcreatedb OR authority_role.rolcreaterole
+                    OR authority_role.rolreplication OR authority_role.rolbypassrls
+                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_namespace authority_namespace
+                      WHERE authority_namespace.nspowner=authority_role.oid
+                        AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                        AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                        AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_class authority_class
+                      JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_class.relnamespace
+                      WHERE authority_class.relowner=authority_role.oid
+                        AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                        AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                        AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_class authority_class
+                      JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_class.relnamespace
+                      CROSS JOIN LATERAL pg_catalog.aclexplode(authority_class.relacl) authority_acl
+                      WHERE authority_acl.grantee=authority_role.oid
+                        AND authority_acl.privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+                        AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                        AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                        AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc authority_procedure
+                      JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_procedure.pronamespace
+                      WHERE authority_procedure.proowner=authority_role.oid
+                        AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema')
+                        AND authority_namespace.nspname NOT LIKE 'pg_temp_%')
+                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc authority_procedure
+                      JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_procedure.pronamespace
+                      CROSS JOIN LATERAL pg_catalog.aclexplode(authority_procedure.proacl) authority_acl
+                      WHERE authority_acl.grantee=authority_role.oid
+                        AND authority_acl.privilege_type='EXECUTE'
+                        AND authority_procedure.prosecdef
+                        AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema')
+                        AND authority_namespace.nspname NOT LIKE 'pg_temp_%'))
+                  AND (pg_catalog.pg_has_role('backtest_owner',authority_role.oid,'USAGE')
+                    OR pg_catalog.pg_has_role('backtest_owner',authority_role.oid,'SET')
+                    OR pg_catalog.pg_has_role('rd_owner',authority_role.oid,'USAGE')
+                    OR pg_catalog.pg_has_role('rd_owner',authority_role.oid,'SET'))
+             )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
            JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(LOCK_FUNCTION_V2)
+    .bind(LOCK_SOURCE_V2)
     .bind(LOCK_SOURCE_V2_MD5)
     .fetch_optional(backtest_pool)
     .await
@@ -1718,6 +1815,22 @@ async fn validate_backtest_transaction_binding_v2(
         "SELECT role.rolcanlogin
             AND NOT (role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls)
             AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_roles principal
+               WHERE principal.rolname='rd_owner'
+                 AND (principal.rolsuper OR principal.rolcreatedb OR principal.rolcreaterole
+                   OR principal.rolreplication OR principal.rolbypassrls)
+            )
+            AND NOT pg_catalog.pg_has_role('backtest_owner','rd_owner','USAGE')
+            AND NOT pg_catalog.pg_has_role('backtest_owner','rd_owner','SET')
+            AND NOT pg_catalog.pg_has_role('rd_owner','backtest_owner','USAGE')
+            AND NOT pg_catalog.pg_has_role('rd_owner','backtest_owner','SET')
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_roles role_entry
+               WHERE role_entry.rolname<>'rd_owner' AND NOT role_entry.rolsuper
+                 AND (pg_catalog.pg_has_role(role_entry.oid,'rd_owner','USAGE')
+                   OR pg_catalog.pg_has_role(role_entry.oid,'rd_owner','SET'))
+            )
+            AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.pg_roles role_entry
                WHERE role_entry.rolname<>'backtest_owner'
@@ -1726,6 +1839,48 @@ async fn validate_backtest_transaction_binding_v2(
                    pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','USAGE')
                    OR pg_catalog.pg_has_role(role_entry.oid,'backtest_owner','SET')
                  )
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_roles authority_role
+               WHERE authority_role.rolname NOT IN ('backtest_owner','rd_owner')
+                 AND (authority_role.rolsuper OR authority_role.rolcreatedb OR authority_role.rolcreaterole
+                   OR authority_role.rolreplication OR authority_role.rolbypassrls
+                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_namespace authority_namespace
+                     WHERE authority_namespace.nspowner=authority_role.oid
+                       AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                       AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                       AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_class authority_class
+                     JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_class.relnamespace
+                     WHERE authority_class.relowner=authority_role.oid
+                       AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                       AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                       AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_class authority_class
+                     JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_class.relnamespace
+                     CROSS JOIN LATERAL pg_catalog.aclexplode(authority_class.relacl) authority_acl
+                     WHERE authority_acl.grantee=authority_role.oid
+                       AND authority_acl.privilege_type IN ('INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+                       AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+                       AND authority_namespace.nspname NOT LIKE 'pg_temp_%'
+                       AND authority_namespace.nspname NOT LIKE 'pg_toast_temp_%')
+                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc authority_procedure
+                     JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_procedure.pronamespace
+                     WHERE authority_procedure.proowner=authority_role.oid
+                       AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema')
+                       AND authority_namespace.nspname NOT LIKE 'pg_temp_%')
+                   OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc authority_procedure
+                     JOIN pg_catalog.pg_namespace authority_namespace ON authority_namespace.oid=authority_procedure.pronamespace
+                     CROSS JOIN LATERAL pg_catalog.aclexplode(authority_procedure.proacl) authority_acl
+                     WHERE authority_acl.grantee=authority_role.oid
+                       AND authority_acl.privilege_type='EXECUTE'
+                       AND authority_procedure.prosecdef
+                       AND authority_namespace.nspname NOT IN ('pg_catalog','information_schema')
+                       AND authority_namespace.nspname NOT LIKE 'pg_temp_%'))
+                 AND (pg_catalog.pg_has_role('backtest_owner',authority_role.oid,'USAGE')
+                   OR pg_catalog.pg_has_role('backtest_owner',authority_role.oid,'SET')
+                   OR pg_catalog.pg_has_role('rd_owner',authority_role.oid,'USAGE')
+                   OR pg_catalog.pg_has_role('rd_owner',authority_role.oid,'SET'))
             )
            FROM pg_catalog.pg_roles role
           WHERE role.rolname=current_user",
@@ -1784,25 +1939,38 @@ async fn validate_backtest_transaction_binding_v2(
              AND procedure.provolatile='v'
              AND procedure.proparallel='u'
              AND procedure.proisstrict
+             AND NOT procedure.proleakproof
+             AND NOT procedure.proretset
+             AND procedure.pronargs=4
+             AND procedure.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
              AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
+             AND procedure.prosrc=$2
+             AND pg_catalog.md5(procedure.prosrc)=$3
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                  AND (acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>owner.oid OR acl.is_grantable)
              )
              AND EXISTS (
                SELECT 1
                  FROM pg_catalog.pg_proc helper
                  JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                  JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($2)
+                WHERE helper.oid=pg_catalog.to_regprocedure($4)
                   AND NOT helper.prosecdef
                   AND helper.provolatile='v'
                   AND helper.proparallel='u'
@@ -1810,7 +1978,7 @@ async fn validate_backtest_transaction_binding_v2(
                   AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
-                  AND helper.prosrc=$3
+                  AND helper.prosrc=$5
                   AND helper_owner.rolname='rd_owner'
                   AND helper_language.lanname='plpgsql'
                   AND EXISTS (
@@ -1835,7 +2003,7 @@ async fn validate_backtest_transaction_binding_v2(
                  FROM pg_catalog.pg_proc helper
                  JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                  JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($4)
+                WHERE helper.oid=pg_catalog.to_regprocedure($6)
                   AND NOT helper.prosecdef
                   AND helper.provolatile='v'
                   AND helper.proparallel='u'
@@ -1843,7 +2011,7 @@ async fn validate_backtest_transaction_binding_v2(
                   AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
-                  AND helper.prosrc=$5
+                  AND helper.prosrc=$7
                   AND helper_owner.rolname='rd_owner'
                   AND helper_language.lanname='plpgsql'
                   AND EXISTS (
@@ -1869,6 +2037,8 @@ async fn validate_backtest_transaction_binding_v2(
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
     .bind(LOCK_FUNCTION_V2)
+    .bind(LOCK_SOURCE_V2)
+    .bind(LOCK_SOURCE_V2_MD5)
     .bind(INTERNAL_VERIFY_FUNCTION)
     .bind(INTERNAL_VERIFY_SOURCE_V1)
     .bind(INTERNAL_VERIFY_FUNCTION_V2)

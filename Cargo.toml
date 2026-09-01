@@ -27,6 +27,7 @@ members = [
   "crates/backtest",
   "crates/backtest_owner",
   "crates/backtest_owner_contracts",
+  "crates/backtest_result_custody",
   "crates/cli",
   "crates/common",
   "crates/core",
@@ -83,6 +84,7 @@ strategy-factory-program-sdk = { path = "crates/strategy_factory/programs/sdk", 
 vibe-analysis = { path = "crates/analysis", version = "0.62.0" }
 vibe-backtest = { path = "crates/backtest", version = "0.62.0" }
 vibe-backtest-owner-contracts = { path = "crates/backtest_owner_contracts", version = "0.62.0" }
+vibe-backtest-result-custody = { path = "crates/backtest_result_custody", version = "0.62.0" }
 vibe-cli = { path = "crates/cli", version = "0.62.0" }
 vibe-common = { path = "crates/common", version = "0.62.0" }
 vibe-core = { path = "crates/core", version = "0.62.0" }

@@ -759,7 +759,8 @@ mod tests {
 
     use super::*;
     use vibe_backtest_owner_contracts::{
-        ContentIdentityV2, ReplayModelProfilesV2, ReplayWindowV2, VersionedIdentityV2,
+        ContentIdentityV2, ReplayModelProfilesV2, ReplayResultDtoV2, ReplayWindowV2,
+        VersionedIdentityV2,
     };
 
     fn identity(value: &str) -> OpaqueIdentityV2 {
@@ -919,6 +920,25 @@ mod tests {
         assert_eq!(first.reconciliation().len(), 28);
         assert!(first.semantic_trace().is_some());
         assert_eq!(first.diagnostic_census().as_slice().len(), 1);
+    }
+
+    #[rstest]
+    fn mature_owner_result_matches_dependency_neutral_wire_contract() {
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request))
+            .expect("complete owner observations must commit");
+        let canonical = result.to_canonical_bytes().expect("result must encode");
+        let wire: ReplayResultDtoV2 =
+            serde_json::from_slice(&canonical).expect("result must match shared wire DTO");
+        assert_eq!(serde_json::to_vec(&wire).expect("wire encode"), canonical);
+        assert_eq!(
+            wire.expected_result_digest().expect("wire digest"),
+            *result.result_digest()
+        );
+        assert_eq!(
+            wire.expected_result_identity().expect("wire identity"),
+            *result.result_identity()
+        );
     }
 
     #[rstest]
