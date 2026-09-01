@@ -664,7 +664,7 @@ BEGIN
       FROM pg_catalog.pg_database AS db
       CROSS JOIN LATERAL pg_catalog.aclexplode(
         COALESCE(db.datacl, pg_catalog.acldefault('d', db.datdba))
-      ) AS acl(grantor, grantee, privilege_type, grantable, is_grantable)
+      ) AS acl(grantor, grantee, privilege_type, is_grantable)
      WHERE db.datname = pg_catalog.current_database()
        AND acl.grantee = 0
        AND acl.privilege_type IN ('CONNECT', 'TEMPORARY')
