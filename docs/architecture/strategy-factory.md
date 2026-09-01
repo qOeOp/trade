@@ -68,7 +68,13 @@ The maturity boundary is explicit:
   Missing, stale, future, mismatched, cross-Design/role or conflicting-lineage input is rejected before guest,
   plugin-state, lifecycle-state, target or checkpoint mutation. This is a parallel complex-strategy substrate and
   isolated Backtest acceptance only; it is not the default R&D path, product readiness, Paper, Live, production
-  Owner readiness or trading authority.
+  Owner readiness or trading authority. **CURRENT/PARTIAL, Native Replay preparation only:** the preparation seam
+  now additionally requires the exact Owner-sealed V1 joined-cut receipt and move-only V2 JOINED_CUT projection
+  readback. Before constructing the ProgramHost handoff it verifies EVENT lifecycle, exact joined-cut subject digest,
+  positive complete component count, and strict equality between the projection's role/binding set and the compiled
+  Plan. The handoff retains the exact projection digest and count and rechecks their binding before promotion. This
+  is fail-closed preparation and public consumer-shape evidence; it does not execute Native Replay, start a production
+  resolver, prove dynamic PostgreSQL product composition or end-to-end Windmill acceptance, or admit trading.
 - **CURRENT/DYNAMIC, bounded exactly-two-member Backtest target-set vertical:** one complete Owner-sealed
   universe frame is prepared on a cloned `ProgramHostV2`, produces one canonical target set and one plugin
   invocation, and is committed only after one account-scoped `Portfolio::equity` snapshot, both exact instrument
@@ -392,6 +398,11 @@ that exact V2 projection and the referenced
 native historical receipt. They cannot derive or repair either from the value, row digest, frame/event digest,
 trigger time, latest head, or a local timeframe interpretation. A restart must resolve the same native receipt
 bytes and, for the same role/binding, the same coordinate bytes.
+
+**CURRENT/PARTIAL:** the retained JOINED_CUT slice implements that V2 structural projection and exact-digest
+readback shape for EVENT components, and Native Replay preparation consumes it only together with the exact V1
+joined-cut receipt and the complete Plan binding set. This does not make the future BFP coordinate port executable
+and does not establish a Native Replay run, production startup, durable product composition, or Backtest closure.
 
 Market Data resolves the exact historical timeframe-projection receipt for the sealed static binding and selects
 and seals the coordinate from its verified census. R&D, Strategy Factory, the Host caller, Backtest, and the plugin cannot
