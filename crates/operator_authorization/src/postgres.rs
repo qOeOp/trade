@@ -54,10 +54,10 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner 
               ORDER BY constraint_entry.contype, pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
             ) = ARRAY[
               'c:CHECK (committed_at_epoch_ms >= 0)',
-              'c:CHECK (predecessor_authorization_identity <> ''::text)',
-              'c:CHECK (recovery_epoch_digest <> ''::text)',
-              'c:CHECK (recovery_epoch_identity <> ''::text)',
-              'c:CHECK (successor_authorization_identity <> ''::text AND successor_authorization_identity <> predecessor_authorization_identity)',
+              'c:CHECK (predecessor_authorization_identity <> ''''::text)',
+              'c:CHECK (recovery_epoch_digest <> ''''::text)',
+              'c:CHECK (recovery_epoch_identity <> ''''::text)',
+              'c:CHECK (successor_authorization_identity <> ''''::text AND successor_authorization_identity <> predecessor_authorization_identity)',
               'f:FOREIGN KEY (successor_authorization_identity) REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity)',
               'p:PRIMARY KEY (recovery_epoch_identity)',
               'u:UNIQUE (recovery_epoch_digest)',

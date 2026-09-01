@@ -94,10 +94,10 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner 
               ORDER BY constraint_entry.contype, pg_catalog.pg_get_constraintdef(constraint_entry.oid, true)
             ) = ARRAY[
               'c:CHECK (committed_at_epoch_ms >= 0)',
-              'c:CHECK (predecessor_binding_identity <> ''::text)',
-              'c:CHECK (recovery_epoch_digest <> ''::text)',
-              'c:CHECK (recovery_epoch_identity <> ''::text)',
-              'c:CHECK (successor_binding_identity <> ''::text AND successor_binding_identity <> predecessor_binding_identity)',
+              'c:CHECK (predecessor_binding_identity <> ''''::text)',
+              'c:CHECK (recovery_epoch_digest <> ''''::text)',
+              'c:CHECK (recovery_epoch_identity <> ''''::text)',
+              'c:CHECK (successor_binding_identity <> ''''::text AND successor_binding_identity <> predecessor_binding_identity)',
               'f:FOREIGN KEY (predecessor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)',
               'f:FOREIGN KEY (successor_binding_identity) REFERENCES product_edge_deployment_bindings_v1(binding_identity)',
               'p:PRIMARY KEY (recovery_epoch_identity)',
