@@ -18,7 +18,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back'
   'vibe-strategy-factory|exploratory_replay_request_owner|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
-  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
+  'vibe-strategy-factory|vibe_strategy_factory|postgres_freshness_tests::postgres_rd_owner_api_path|fresh_rd_owner_existing_custody_validates_after_migration'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
@@ -50,7 +50,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if [[ "${#rd_owner_postgres_tests[@]}" -ne 15 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered tests." >&2
+    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -180,9 +180,20 @@ if actual != digest_match.group(1):
 PY
 }
 
+check_migration_authority_boundary() {
+  if [[ "$(rg -F -c 'revoke_runtime_schema_create "$fixture_database"' "${BASH_SOURCE[0]}")" -ne 4 ]] ||
+    [[ "$(rg -F -c 'revoke_runtime_schema_create "$migration_database"' "${BASH_SOURCE[0]}")" -ne 2 ]] ||
+    ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}"; then
+    echo "ERROR: bounded Owner migration grant/revoke topology changed." >&2
+    return 1
+  fi
+}
+
 check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
+check_migration_authority_boundary
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -989,14 +1000,39 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
-provision_product_edge_schema() {
+revoke_runtime_schema_create() {
+  local fixture_database="$1"
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+REVOKE CREATE ON SCHEMA public FROM rd_owner, product_edge_owner;
+DO $runtime_acl$
+BEGIN
+  IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+     OR pg_catalog.has_schema_privilege('product_edge_owner','public','CREATE')
+     OR pg_catalog.has_database_privilege(
+       'rd_owner',pg_catalog.current_database(),'CREATE,TEMPORARY'
+     )
+     OR pg_catalog.has_database_privilege(
+       'product_edge_owner',pg_catalog.current_database(),'CREATE,TEMPORARY'
+     ) THEN
+    RAISE EXCEPTION 'Owner migration authority survived deployment';
+  END IF;
+END
+$runtime_acl$;
+SQL
+}
+
+provision_owner_schemas() {
   local fixture_database="$1"
   local product_edge_url="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
-  local migration_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
+  local rd_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
+  local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
+  local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
+  local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=rd_owner_schema_is_provisioned_before_runtime_connections)'
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
-GRANT CREATE ON SCHEMA public TO product_edge_owner;
+GRANT CREATE ON SCHEMA public TO rd_owner, product_edge_owner;
 SQL
 
   if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$product_edge_url" \
@@ -1004,41 +1040,50 @@ SQL
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
-      -E "$migration_filter"; then
-    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-      --username postgres --dbname "$fixture_database" << 'SQL'
-REVOKE CREATE ON SCHEMA public FROM product_edge_owner;
-SQL
+      -E "$product_edge_filter"; then
+    revoke_runtime_schema_create "$fixture_database"
     return 1
   fi
 
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$fixture_database" << 'SQL'
-REVOKE CREATE ON SCHEMA public FROM product_edge_owner;
-DO $product_edge_runtime_acl$
-BEGIN
-  IF pg_catalog.has_schema_privilege('product_edge_owner','public','CREATE')
-     OR pg_catalog.has_database_privilege(
-       'product_edge_owner',pg_catalog.current_database(),'CREATE,TEMPORARY'
-     ) THEN
-    RAISE EXCEPTION 'Product Edge migration authority survived deployment';
-  END IF;
-END
-$product_edge_runtime_acl$;
-SQL
+  if ! env \
+    RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_url" \
+    QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
+    cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$rd_owner_filter"; then
+    revoke_runtime_schema_create "$fixture_database"
+    return 1
+  fi
+
+  revoke_runtime_schema_create "$fixture_database"
 }
 
-provision_product_edge_schema "$test_database"
-provision_product_edge_schema "$origin_current_database"
+provision_owner_schemas "$test_database"
+provision_owner_schemas "$origin_current_database"
 
-# The first two filters make the first application connection to their separate
-# fresh databases. The final filters deliberately poison Owner state and therefore
-# stay after every positive consumer, with the malformed OA/PE schema probe last.
+# The first two filters exercise explicit legacy/origin migration under separate,
+# test-bounded schema authority. The final filters deliberately poison Owner state
+# and therefore stay after every positive consumer, with the malformed OA/PE schema probe last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
+  migration_database=''
+  if [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
+    migration_database="$test_database"
+  elif [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
+    migration_database="$origin_current_database"
+  fi
+  if [[ -n "$migration_database" ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$migration_database" << 'SQL'
+GRANT CREATE ON SCHEMA public TO rd_owner;
+SQL
+  fi
+  test_passed=false
   if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
-    env \
+    if env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
@@ -1051,13 +1096,23 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
-      -E "$test_filter"
+      -E "$test_filter"; then
+      test_passed=true
+    fi
   else
-    cargo nextest run \
+    if cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
-      -E "$test_filter"
+      -E "$test_filter"; then
+      test_passed=true
+    fi
+  fi
+  if [[ -n "$migration_database" ]]; then
+    revoke_runtime_schema_create "$migration_database"
+  fi
+  if [[ "$test_passed" != true ]]; then
+    exit 1
   fi
   if [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
     for fixture_database in "$test_database" "$origin_current_database"; do

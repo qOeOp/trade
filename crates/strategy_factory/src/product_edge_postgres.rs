@@ -508,6 +508,32 @@ impl PostgresResearchGoalOwnerV1 {
         })
     }
 
+    /// Connects the runtime Owner to custody installed by the deployment migration.
+    ///
+    /// This path performs read-only topology and authority validation. It never runs migration
+    /// DDL, so missing or incomplete custody remains unavailable to the runtime role.
+    pub async fn connect_existing(
+        database_url: &str,
+        qualification_database_url: &str,
+    ) -> Result<Self, ResearchGoalOwnerError> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(|e| storage(&e))?;
+        Self::validate_existing_rd_storage(&pool).await?;
+        let qualification = PostgresQualificationOwnerV1::connect(qualification_database_url)
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        Ok(Self {
+            pool,
+            qualification,
+            backtest: None,
+            source_policy: None,
+            source_submission: None,
+        })
+    }
+
     pub async fn connect_with_backtest(
         database_url: &str,
         qualification_database_url: &str,
@@ -523,6 +549,88 @@ impl PostgresResearchGoalOwnerV1 {
             .map_err(json_storage)?,
         );
         Ok(owner)
+    }
+
+    /// Connects the runtime Owner and Backtest read capability without migration authority.
+    pub async fn connect_with_backtest_existing(
+        database_url: &str,
+        qualification_database_url: &str,
+        backtest_database_url: &str,
+    ) -> Result<Self, ResearchGoalOwnerError> {
+        let mut owner = Self::connect_existing(database_url, qualification_database_url).await?;
+        owner.backtest = Some(
+            crate::exploratory_replay::postgres::bind_backtest_read(
+                &owner.pool,
+                backtest_database_url,
+            )
+            .await
+            .map_err(json_storage)?,
+        );
+        Ok(owner)
+    }
+
+    async fn validate_existing_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
+        let available: bool = sqlx::query_scalar(
+            "WITH required_relations(name) AS (
+               SELECT * FROM pg_catalog.unnest(ARRAY[
+                 'rd_research_request_receipts_v1',
+                 'rd_independence_bases_v1',
+                 'rd_independence_basis_admissions_v1',
+                 'rd_independence_basis_heads_v1',
+                 'rd_trial_families_v1',
+                 'rd_trial_family_members_v1',
+                 'rd_trial_family_heads_v1',
+                 'rd_trial_family_attempt_cuts_v2',
+                 'rd_artifact_trial_family_bindings_v1',
+                 'rd_owner_outbox_v1',
+                 'rd_sealed_exploratory_replay_requests_v1',
+                 'rd_complex_strategy_develop_evaluations_v1',
+                 'rd_complex_strategy_develop_evaluation_heads_v1'
+               ]::text[])
+             ), required_routines(signature) AS (
+               SELECT * FROM pg_catalog.unnest(ARRAY[
+                 'rd_owner_api.derive_source_intake_identity_v1(text,text[])',
+                 'rd_owner_api.peek_current_research_for_artifact_v1(text)',
+                 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)',
+                 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)',
+                 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)',
+                 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',
+                 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)',
+                 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)',
+                 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
+               ]::text[])
+             )
+             SELECT session_user='rd_owner'
+               AND pg_catalog.has_database_privilege(
+                 session_user,pg_catalog.current_database(),'CONNECT'
+               )
+               AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
+               AND NOT EXISTS (
+                 SELECT 1 FROM required_relations required
+                 LEFT JOIN pg_catalog.pg_class relation
+                   ON relation.oid=pg_catalog.to_regclass('public.' || required.name)
+                 WHERE relation.oid IS NULL
+                    OR relation.relkind <> 'r'
+                    OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_owner'
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM required_routines required
+                 LEFT JOIN pg_catalog.pg_proc routine
+                   ON routine.oid=pg_catalog.to_regprocedure(required.signature)
+                 WHERE routine.oid IS NULL
+                    OR pg_catalog.pg_get_userbyid(routine.proowner) <> 'rd_owner'
+                    OR pg_catalog.has_function_privilege('public',routine.oid,'EXECUTE')
+               )",
+        )
+        .fetch_one(pool)
+        .await
+        .map_err(|e| storage(&e))?;
+        if !available {
+            return Err(ResearchGoalOwnerError::Storage(
+                "existing R&D Owner custody or runtime authority is unavailable".into(),
+            ));
+        }
+        Ok(())
     }
 
     async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
@@ -2510,6 +2618,33 @@ mod tests {
         );
     }
 
+    #[test]
+    fn existing_connection_path_contains_no_migration_or_ddl() {
+        let source = include_str!("product_edge_postgres.rs");
+        let existing = source
+            .split("pub async fn connect_existing")
+            .nth(1)
+            .expect("existing R&D Owner connection")
+            .split("pub async fn connect_with_backtest(")
+            .next()
+            .expect("existing connection boundary");
+        assert!(!existing.contains("migrate_rd_storage"));
+        assert!(!existing.contains("CREATE "));
+        assert!(!existing.contains("ALTER "));
+        assert!(!existing.contains("DROP "));
+
+        let existing_with_backtest = source
+            .split("pub async fn connect_with_backtest_existing")
+            .nth(1)
+            .expect("existing R&D Owner Backtest connection")
+            .split("async fn validate_existing_rd_storage")
+            .next()
+            .expect("existing Backtest connection boundary");
+        assert!(existing_with_backtest.contains("Self::connect_existing"));
+        assert!(!existing_with_backtest.contains("Self::connect("));
+        assert!(!existing_with_backtest.contains("migrate_rd_storage"));
+    }
+
     #[async_trait]
     impl SourceIntakePolicyEvidencePort for SequencedSourcePolicyV1 {
         async fn resolve_source_intake_policy_evidence(
@@ -2878,14 +3013,14 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn fresh_rd_owner_migrates_before_qualification_writer_validates() {
+    async fn fresh_rd_owner_existing_custody_validates_after_migration() {
         let rd_database_url =
             std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
         let qualification_database_url =
             std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
                 .expect("fresh qualification_writer URL");
 
-        let owner = PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+        let owner = PostgresResearchGoalOwnerV1::connect_existing(&rd_database_url, &qualification_database_url)
             .await
             .expect("fresh R&D storage migration and Qualification validation must be atomic in startup order");
         let catalog: (String, bool, String, String, bool, Option<Vec<String>>) = sqlx::query_as(

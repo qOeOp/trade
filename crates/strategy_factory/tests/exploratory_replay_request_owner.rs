@@ -768,7 +768,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
         .as_str()
         .to_string();
     let pre_run_owner =
-        PostgresResearchGoalOwnerV1::connect(&fixture.rd_url, &fixture.qualification_url)
+        PostgresResearchGoalOwnerV1::connect_existing(&fixture.rd_url, &fixture.qualification_url)
             .await
             .expect("pre-RUN R&D Owner without Backtest capability");
     let unknown = ExploratoryReplayRecoverySelectorV2 {
@@ -814,7 +814,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     drop(lost_response);
     let counts_after_commit = request_counts_v2(rd_pool, &request_identity).await;
     let rd_only_owner =
-        PostgresResearchGoalOwnerV1::connect(&fixture.rd_url, &fixture.qualification_url)
+        PostgresResearchGoalOwnerV1::connect_existing(&fixture.rd_url, &fixture.qualification_url)
             .await
             .expect("reconnected R&D Owner without Backtest capability");
     let resolved = rd_only_owner
@@ -1745,7 +1745,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
     sqlx::query("UPDATE public.rd_sealed_exploratory_replay_requests_v1 SET lifecycle_state='FROZEN' WHERE request_identity=$1")
         .bind(&proposal.request_identity).execute(rd_pool).await.unwrap();
 
-    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest_existing(
         &rd_url,
         &qualification_url,
         &backtest_url,
@@ -1938,7 +1938,7 @@ async fn assert_impersonator_rejected(
     assert_eq!(observed, *envelope);
     drop(connection);
     assert!(
-        PostgresResearchGoalOwnerV1::connect_with_backtest(
+        PostgresResearchGoalOwnerV1::connect_with_backtest_existing(
             rd_url,
             qualification_url,
             impersonator_url,
@@ -1999,7 +1999,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let edge =
         TestProductEdge::bootstrap_with_validity(&issuer_url, &edge_url, &suffix, validity_ms)
             .await;
-    let owner = PostgresResearchGoalOwnerV1::connect_with_backtest(
+    let owner = PostgresResearchGoalOwnerV1::connect_with_backtest_existing(
         &rd_url,
         &qualification_url,
         &backtest_url,
@@ -2771,6 +2771,18 @@ async fn product_edge_schema_is_provisioned_before_runtime_connections() {
     )
     .await
     .expect("canonical Product Edge schema migration");
+}
+
+#[tokio::test]
+#[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+async fn rd_owner_schema_is_provisioned_before_runtime_connections() {
+    let rd_url =
+        std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("disposable R&D migration URL");
+    let qualification_url = std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
+        .expect("disposable Qualification validation URL");
+    PostgresResearchGoalOwnerV1::connect(&rd_url, &qualification_url)
+        .await
+        .expect("canonical R&D Owner schema migration");
 }
 
 fn research_request(identity: &str) -> ProductEdgeResearchGoalRequestV2 {
