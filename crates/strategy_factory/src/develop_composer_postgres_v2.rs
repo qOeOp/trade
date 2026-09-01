@@ -669,7 +669,58 @@ async fn verify_composer_read_authority_in_transaction(
          SELECT count(*)=9
             AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
             AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')
-            AND (SELECT count(*)=2 AND bool_and(procedure.oid IN (pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)'),pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'))) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+            AND (
+              SELECT count(*)=2
+                 AND bool_and(procedure.oid IN (
+                   pg_catalog.to_regprocedure($1),
+                   pg_catalog.to_regprocedure($3)
+                 ))
+                 AND bool_and((
+                   SELECT count(*)=CASE procedure.proname
+                            WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=procedure.proowner
+                          AND acl.privilege_type='EXECUTE'
+                      )=1
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=(
+                          SELECT oid FROM pg_catalog.pg_roles
+                           WHERE rolname='rd_fact_writer'
+                        )
+                          AND acl.privilege_type='EXECUTE'
+                          AND NOT acl.is_grantable
+                      )=1
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=(
+                          SELECT oid FROM pg_catalog.pg_roles
+                           WHERE rolname='rd_owner'
+                        )
+                          AND acl.privilege_type='EXECUTE'
+                          AND NOT acl.is_grantable
+                      )=CASE procedure.proname
+                          WHEN 'commit_develop_composer_v2' THEN 0 ELSE 1 END
+                      AND count(*) FILTER (WHERE acl.grantee=0)=0
+                      AND count(*) FILTER (
+                        WHERE acl.privilege_type<>'EXECUTE'
+                           OR acl.grantee NOT IN (
+                             procedure.proowner,
+                             (SELECT oid FROM pg_catalog.pg_roles
+                               WHERE rolname='rd_owner'),
+                             (SELECT oid FROM pg_catalog.pg_roles
+                               WHERE rolname='rd_fact_writer')
+                           )
+                           OR (acl.grantee<>procedure.proowner AND acl.is_grantable)
+                      )=0
+                     FROM pg_catalog.aclexplode(COALESCE(
+                            procedure.proacl,
+                            pg_catalog.acldefault('f',procedure.proowner)
+                          )) acl
+                 ))
+                FROM pg_catalog.pg_proc procedure
+                JOIN pg_catalog.pg_namespace namespace
+                  ON namespace.oid=procedure.pronamespace
+               WHERE namespace.nspname='composer_owner_api'
+            )
             AND bool_and(relowner=relations.proowner)
             AND NOT bool_or(EXISTS (
               SELECT 1
@@ -741,6 +792,7 @@ async fn verify_composer_read_authority_in_transaction(
     )
     .bind(SEALED_READ_FUNCTION_V2)
     .bind(SEALED_READ_FUNCTION_SOURCE_V2)
+    .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
@@ -817,11 +869,35 @@ async fn verify_composer_commit_authority_in_transaction(
             AND NOT procedure.proretset AND procedure.prosecdef AND procedure.proisstrict
             AND procedure.provolatile='v' AND procedure.proparallel='u'
             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
-            AND NOT EXISTS (
-              SELECT 1 FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
-              WHERE acl.privilege_type<>'EXECUTE'
-                 OR acl.grantee NOT IN (procedure.proowner,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_fact_writer'))
-                 OR (acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_fact_writer') AND acl.is_grantable))
+            AND (
+              SELECT count(*)=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=procedure.proowner
+                     AND acl.privilege_type='EXECUTE'
+                 )=1
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=(
+                     SELECT oid FROM pg_catalog.pg_roles
+                      WHERE rolname='rd_fact_writer'
+                   )
+                     AND acl.privilege_type='EXECUTE'
+                     AND NOT acl.is_grantable
+                 )=1
+                 AND count(*) FILTER (WHERE acl.grantee=0)=0
+                 AND count(*) FILTER (
+                   WHERE acl.privilege_type<>'EXECUTE'
+                      OR acl.grantee NOT IN (
+                        procedure.proowner,
+                        (SELECT oid FROM pg_catalog.pg_roles
+                          WHERE rolname='rd_fact_writer')
+                      )
+                      OR (acl.grantee<>procedure.proowner AND acl.is_grantable)
+                 )=0
+                FROM pg_catalog.aclexplode(COALESCE(
+                       procedure.proacl,
+                       pg_catalog.acldefault('f',procedure.proowner)
+                     )) acl
+            )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
           WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
@@ -1376,5 +1452,36 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
                 || message.ends_with(" is not an exact 32-byte digest")
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn composer_authority_rejects_public_execute_on_commit() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        let read_authority = source
+            .split("async fn verify_composer_read_authority_in_transaction")
+            .nth(1)
+            .expect("Composer read authority")
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .next()
+            .expect("bounded Composer read authority");
+        assert!(read_authority.contains("pg_catalog.to_regprocedure($3)"));
+        assert!(read_authority.contains(".bind(COMMIT_FUNCTION_V2)"));
+        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END"));
+        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 0 ELSE 1 END"));
+        assert!(read_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
+
+        let commit_authority = source
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .nth(1)
+            .expect("Composer commit authority")
+            .split("fn exact_ordinal_array")
+            .next()
+            .expect("bounded Composer commit authority");
+        assert!(commit_authority.contains("SESSION_USER='rd_fact_writer'"));
+        assert!(commit_authority.contains("SELECT count(*)=2"));
+        assert!(commit_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
     }
 }
