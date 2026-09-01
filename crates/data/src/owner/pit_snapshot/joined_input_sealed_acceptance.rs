@@ -116,6 +116,7 @@ pub struct SealedAcceptanceStrategyInputJoinCorpus {
     bindings: Box<[StrategyInputBindingReceipt]>,
     events: Box<[StrategyInputJoinedCutReceiptV1]>,
     repeated_first: StrategyInputJoinedCutReceiptV1,
+    alternate_join_claim_for_negative_test: StrategyInputJoinedCutReceiptV1,
     missing: StrategyInputJoinedCutUnavailable,
     stale: StrategyInputJoinedCutUnavailable,
     cross_splice: StrategyInputJoinedCutUnavailable,
@@ -132,6 +133,12 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
 
     pub const fn repeated_first(&self) -> &StrategyInputJoinedCutReceiptV1 {
         &self.repeated_first
+    }
+
+    /// Returns fixed Owner-sealed evidence whose valid join claim intentionally differs from the
+    /// canonical Strategy Plan. This exists only for cross-crate fail-close acceptance tests.
+    pub const fn alternate_join_claim_for_negative_test(&self) -> &StrategyInputJoinedCutReceiptV1 {
+        &self.alternate_join_claim_for_negative_test
     }
 
     pub const fn stale(&self) -> StrategyInputJoinedCutUnavailable {
@@ -306,6 +313,12 @@ pub fn issue_strategy_input_join_corpus()
         }
         events.push(receipt);
     }
+    let alternate_join_claim_for_negative_test = issue_strategy_input_joined_cut_v1(
+        &alternate_join_claim_for_negative_test(),
+        &bindings,
+        &seal_strategy_input_join_census_v1(cumulative.clone())?,
+        event_times[2],
+    )?;
     let missing_census = seal_strategy_input_join_census_v1(
         cumulative
             .iter()
@@ -331,6 +344,7 @@ pub fn issue_strategy_input_join_corpus()
         bindings: bindings.into_boxed_slice(),
         events: events.into_boxed_slice(),
         repeated_first: repeated_first.expect("fixed corpus has a first event"),
+        alternate_join_claim_for_negative_test,
         missing,
         stale,
         cross_splice,
@@ -375,6 +389,24 @@ fn join_claim() -> UntrustedStrategyInputJoinClaimV1 {
         max_staleness_ns,
         roles,
     }
+}
+
+fn alternate_join_claim_for_negative_test() -> UntrustedStrategyInputJoinClaimV1 {
+    let mut claim = join_claim();
+    claim.join_semantic_id = "research.input-join.alternate-negative-test.v1".into();
+    let inputs = claim
+        .roles
+        .iter()
+        .map(|role| role.semantic_id.clone())
+        .collect::<Vec<_>>();
+    claim.join_identity = derive_strategy_input_join_identity_v2(
+        &claim.join_semantic_id,
+        &inputs,
+        &claim.alignment_semantic_id,
+        &claim.trigger_input_id,
+        claim.max_staleness_ns,
+    );
+    claim
 }
 
 fn clock() -> MarketDataClockAdmission {
@@ -636,4 +668,38 @@ const fn field_name(field: MarketDataFieldSemantic) -> &'static str {
 
 fn digest_byte(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn alternate_join_claim_is_owner_valid_and_differs_only_in_join_identity() {
+        let corpus = issue_strategy_input_join_corpus().expect("Owner-sealed joined corpus");
+        let canonical = corpus.events().last().expect("fixed final joined cut");
+        let alternate = corpus.alternate_join_claim_for_negative_test();
+
+        assert!(alternate.has_valid_digest());
+        assert_eq!(
+            alternate.strategy_design_identity(),
+            canonical.strategy_design_identity()
+        );
+        assert_ne!(alternate.join_identity(), canonical.join_identity());
+        assert_eq!(
+            alternate.alignment_semantic_id(),
+            canonical.alignment_semantic_id()
+        );
+        assert_eq!(alternate.trigger_input_id(), canonical.trigger_input_id());
+        assert_eq!(alternate.trigger_digest(), canonical.trigger_digest());
+        assert_eq!(alternate.max_staleness_ns(), canonical.max_staleness_ns());
+        assert_eq!(
+            alternate.market_semantics_identity(),
+            canonical.market_semantics_identity()
+        );
+        assert_eq!(alternate.components(), canonical.components());
+        assert_eq!(alternate.components().len(), corpus.bindings().len());
+    }
 }

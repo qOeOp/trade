@@ -4,13 +4,6 @@
 //! Market Data bindings. It deliberately stops before Backtest construction and makes no claim
 //! about execution, actual consumption, diagnostics, terminals, or persisted results.
 
-use crate::{
-    artifact_v2::StrategyArtifactV2,
-    develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
-    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
-    program_host_v2::{ProgramHostV2, ProgramHostV2Error},
-    strategy_plan_v2::{BindingProjectionV2, StrategyPlanV2, VerifiedStrategyInputBindingsV2},
-};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayRequestV2;
@@ -23,6 +16,16 @@ use vibe_data::owner::{
     source_binding::BindingDigest,
     strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
+};
+
+use crate::{
+    artifact_v2::StrategyArtifactV2,
+    develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
+    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
+    program_host_v2::{
+        ProgramHostV2, ProgramHostV2Error, admit_market_data_joined_program_event_v2,
+    },
+    strategy_plan_v2::{BindingProjectionV2, StrategyPlanV2, VerifiedStrategyInputBindingsV2},
 };
 
 const OWNER_SEMANTICS_VERSION_V2: &str = "v2";
@@ -118,6 +121,7 @@ impl PreparedProgramHostCapabilityV2 {
             sample_projection,
             binding,
         } = self;
+
         if !prepared_projection_binding_matches_v2(
             &binding,
             &joined_cut,
@@ -287,6 +291,7 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
     let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
+    validate_joined_cut_plan_admission_v2(&plan, &joined_cut)?;
     validate_sample_projection_admission_v2(
         &sample_projection,
         &joined_cut,
@@ -306,6 +311,15 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         sample_projection,
         binding,
     })
+}
+
+fn validate_joined_cut_plan_admission_v2(
+    plan: &StrategyPlanV2,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+) -> Result<(), ProgramPreparationFaultV2> {
+    admit_market_data_joined_program_event_v2(plan, joined_cut)
+        .map(|_| ())
+        .map_err(|_| ProgramPreparationFaultV2::OwnerMismatch)
 }
 
 struct ProgramPreparationClaimsV2 {
@@ -560,6 +574,7 @@ fn validate_sample_projection_admission_v2(
             let [value] = component.frame().values() else {
                 return Err(ProgramPreparationFaultV2::OwnerMismatch);
             };
+
             if component.frame().trigger().lifecycle().kind() != StrategyInputEventKind::Event {
                 return Err(ProgramPreparationFaultV2::OwnerMismatch);
             }
@@ -570,6 +585,7 @@ fn validate_sample_projection_admission_v2(
         })
         .collect::<Result<Vec<_>, _>>()?;
     joined_components.sort_unstable();
+
     if projection.kind() != StrategyInputSampleProjectionKindV2::JoinedCut
         || projection.lifecycle() != StrategyInputEventKind::Event
         || !joined_cut.has_valid_digest()
@@ -596,6 +612,7 @@ fn validate_sample_projection_binding_set_v2(
 ) -> Result<(), ProgramPreparationFaultV2> {
     let count =
         usize::try_from(component_count).map_err(|_| ProgramPreparationFaultV2::OwnerMismatch)?;
+
     if receipt_digest == [0; 32]
         || subject_identity == [0; 32]
         || count != components.len()
@@ -975,10 +992,48 @@ mod preparation_tests {
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
         ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayWindowV2, VersionedIdentityV2,
     };
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    use vibe_data::owner::pit_snapshot::joined_input_sealed_acceptance::issue_strategy_input_join_corpus;
     use vibe_model::instruments::{Instrument, stubs::crypto_perpetual_ethusdt};
 
     use super::*;
     use crate::program_host_v2_backtest_tests::preparation_fixture;
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    use crate::{
+        program_host_v2::joined_design,
+        strategy_plan_v2::{
+            StrategyCompilationV2, compile_strategy_design_v2,
+            plugin_implementation_receipts_for_test,
+        },
+    };
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn owner_valid_alternate_join_claim_fails_before_native_preparation() {
+        let corpus = issue_strategy_input_join_corpus().expect("Owner-sealed joined corpus");
+        let design = joined_design();
+        let implementation_receipts = plugin_implementation_receipts_for_test(&design, 71);
+        let StrategyCompilationV2::Compiled(plan) =
+            compile_strategy_design_v2(design, corpus.bindings(), &implementation_receipts)
+        else {
+            panic!("canonical joined Plan compiles from the fixed Owner bindings")
+        };
+        let canonical = &corpus.events()[0];
+        let alternate = corpus.alternate_join_claim_for_negative_test();
+
+        assert_eq!(
+            validate_joined_cut_plan_admission_v2(&plan, canonical),
+            Ok(())
+        );
+        assert!(alternate.has_valid_digest());
+        assert_eq!(alternate.strategy_design_identity(), plan.design_identity());
+        assert_eq!(alternate.components().len(), corpus.bindings().len());
+        assert_ne!(alternate.join_identity(), canonical.join_identity());
+        assert_eq!(
+            validate_joined_cut_plan_admission_v2(&plan, alternate),
+            Err(ProgramPreparationFaultV2::OwnerMismatch)
+        );
+    }
 
     #[rstest]
     fn projection_binding_set_requires_exact_complete_strict_plan_order() {
