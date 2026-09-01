@@ -659,9 +659,16 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 DO $origin_database_acl$
 DECLARE runtime_role text;
 BEGIN
-  IF pg_catalog.has_database_privilege(
-       'PUBLIC',pg_catalog.current_database(),'CONNECT,TEMPORARY'
-     ) THEN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_database AS db
+      CROSS JOIN LATERAL pg_catalog.aclexplode(
+        COALESCE(db.datacl, pg_catalog.acldefault('d', db.datdba))
+      ) AS acl(grantor, grantee, privilege_type, grantable, is_grantable)
+     WHERE db.datname = pg_catalog.current_database()
+       AND acl.grantee = 0
+       AND acl.privilege_type IN ('CONNECT', 'TEMPORARY')
+  ) THEN
     RAISE EXCEPTION 'origin-current PUBLIC database privilege survived clone';
   END IF;
   FOREACH runtime_role IN ARRAY ARRAY[
