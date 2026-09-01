@@ -79,13 +79,6 @@ pub enum TrialFamilyCensusMemberKindV1 {
     Intent,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum TrialFamilyCensusMemberKindV2 {
@@ -94,13 +87,6 @@ pub(crate) enum TrialFamilyCensusMemberKindV2 {
     Result,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub(crate) enum TrialFamilyAttemptTerminalDispositionV2 {
@@ -110,13 +96,6 @@ pub(crate) enum TrialFamilyAttemptTerminalDispositionV2 {
     Unknown,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCensusMemberV2 {
@@ -132,13 +111,6 @@ pub(crate) struct TrialFamilyCensusMemberV2 {
     member_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyAttemptFrontierV2 {
@@ -150,13 +122,6 @@ pub(crate) struct TrialFamilyAttemptFrontierV2 {
     frontier_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCandidateFactV2 {
@@ -164,13 +129,6 @@ pub(crate) struct TrialFamilyCandidateFactV2 {
     candidate_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCandidateSetFrontierV2 {
@@ -185,13 +143,6 @@ pub(crate) struct TrialFamilyCandidateSetFrontierV2 {
     frontier_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCensusFrontierV2 {
@@ -229,13 +180,6 @@ pub(crate) struct TrialFamilyAttemptAppendV2 {
     pub candidate_set: TrialFamilyCandidateSetProposalV2,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCandidateSetProposalV2 {
@@ -245,13 +189,6 @@ pub(crate) struct TrialFamilyCandidateSetProposalV2 {
     pub candidates: Vec<TrialFamilyCandidateFactV2>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct TrialFamilyCensusReadbackV2 {
@@ -675,13 +612,6 @@ impl TrialFamilyMembershipReceiptV1 {
         &self.member_digest
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-        )
-    )]
     pub(crate) fn committed_at_epoch_ms(&self) -> u64 {
         self.committed_at_epoch_ms
     }
@@ -800,13 +730,6 @@ impl TrialFamilyCensusMemberV2 {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 impl TrialFamilyAttemptFrontierV2 {
     pub(crate) fn frontier_identity(&self) -> &str {
         &self.frontier_identity
@@ -846,13 +769,6 @@ impl TrialFamilyCandidateSetFrontierV2 {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 impl TrialFamilyCensusFrontierV2 {
     pub(crate) fn frontier_identity(&self) -> &str {
         &self.frontier_identity
@@ -918,13 +834,6 @@ pub(crate) fn admit_stored_family(
     Ok(family)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) fn admit_stored_legacy_family_without_frontier(
     root_json: &serde_json::Value,
     root_receipt_json: &serde_json::Value,
@@ -954,13 +863,6 @@ pub(crate) fn admit_stored_legacy_family_without_frontier(
     Ok(expected)
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) fn admit_stored_census_member_v2(
     member_json: &serde_json::Value,
     membership_receipt_json: &serde_json::Value,
@@ -970,13 +872,6 @@ pub(crate) fn admit_stored_census_member_v2(
     Ok((member, receipt.into()))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) fn legacy_initial_member_for_census_v2(
     family: &TrialFamilyReadbackV1,
 ) -> (TrialFamilyCensusMemberV2, TrialFamilyMembershipReceiptV1) {
@@ -1363,13 +1258,6 @@ fn push_census_member_v2(
     Ok(())
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 fn form_candidate_set_frontier_v2(
     trial_family_identity: &str,
     attempt_ordinal: u32,
@@ -1531,13 +1419,6 @@ pub(crate) fn verify_family(readback: &TrialFamilyReadbackV1) -> Result<(), Tria
     Ok(())
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) fn verify_census_v2(
     readback: &TrialFamilyCensusReadbackV2,
 ) -> Result<(), TrialFamilyError> {
@@ -1815,13 +1696,6 @@ struct MemberMeaningV1<'a> {
     ordinal: u32,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Serialize)]
 struct MemberMeaningV2<'a> {
     schema_version: u32,
@@ -1834,13 +1708,6 @@ struct MemberMeaningV2<'a> {
     terminal_disposition: Option<TrialFamilyAttemptTerminalDispositionV2>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Serialize)]
 struct MembershipReceiptMeaningV2<'a> {
     schema_version: u32,
@@ -1850,13 +1717,6 @@ struct MembershipReceiptMeaningV2<'a> {
     committed_at_epoch_ms: u64,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Serialize)]
 struct AttemptFrontierMeaningV2<'a> {
     schema_version: u32,
@@ -1865,13 +1725,6 @@ struct AttemptFrontierMeaningV2<'a> {
     consumed_trial_budget: u32,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Serialize)]
 struct CandidateSetFrontierMeaningV2<'a> {
     schema_version: u32,
@@ -1883,13 +1736,6 @@ struct CandidateSetFrontierMeaningV2<'a> {
     candidates: &'a [TrialFamilyCandidateFactV2],
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Serialize)]
 struct CensusFrontierMeaningV2<'a> {
     schema_version: u32,
@@ -2052,13 +1898,6 @@ fn canonical_digest(domain: &str, value: &impl Serialize) -> Result<String, Tria
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 fn unavailable(error: impl std::fmt::Display) -> TrialFamilyError {
     TrialFamilyError::Unavailable(error.to_string())
 }

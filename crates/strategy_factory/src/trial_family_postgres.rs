@@ -19,13 +19,6 @@ use crate::{
 
 const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
@@ -251,18 +244,44 @@ pub(crate) async fn load_trial_family_in_transaction(
         .await
         .map_err(storage)?;
 
-    if member_rows.len() != 1 || head_rows.len() != 1 {
+    if head_rows.len() != 1 {
+        return Err(TrialFamilyError::Unavailable(
+            "family census incomplete".to_string(),
+        ));
+    }
+    let head_row = &head_rows[0];
+    let frontier_json: serde_json::Value = head_row.try_get("frontier_json").map_err(storage)?;
+    let schema_version = frontier_json
+        .get("schema_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+    match schema_version {
+        1 => {}
+        2 => {
+            return Box::pin(load_trial_family_census_v2_in_transaction(
+                transaction,
+                intent_identity,
+                research_receipt_identity,
+            ))
+            .await
+            .map(|readback| readback.legacy_family);
+        }
+        _ => {
+            return Err(TrialFamilyError::Unavailable(
+                "family head schema is unsupported".to_string(),
+            ));
+        }
+    }
+    if member_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census incomplete".to_string(),
         ));
     }
     let member_row = &member_rows[0];
-    let head_row = &head_rows[0];
     let member_json = member_row.try_get("member_json").map_err(storage)?;
     let membership_receipt_json = member_row
         .try_get("membership_receipt_json")
         .map_err(storage)?;
-    let frontier_json = head_row.try_get("frontier_json").map_err(storage)?;
     let readback = admit_stored_family(
         &root_json,
         &root_receipt_json,
@@ -413,13 +432,6 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     .await
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 pub(crate) async fn load_trial_family_census_v2_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     intent_identity: &str,
@@ -722,13 +734,6 @@ fn verify_family_outbox_row(
     Ok(())
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 async fn verify_census_outbox_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     readback: &TrialFamilyCensusReadbackV2,
@@ -863,13 +868,6 @@ struct FamilyFrozenOutboxV1 {
     census_frontier_digest: String,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct CensusAdvancedOutboxV2 {
@@ -905,13 +903,6 @@ fn family_event_identity(family: &TrialFamilyReadbackV1) -> String {
     )
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "TrialFamily Census V2 awaits the admitted R&D Decision composition consumer"
-    )
-)]
 fn census_event_identity(readback: &TrialFamilyCensusReadbackV2) -> String {
     format!(
         "rd-owner-outbox-v2-{}",
@@ -1350,6 +1341,18 @@ mod postgres_binding_tests {
             .await
             .unwrap();
         let mut transaction = restarted_pool.begin().await.unwrap();
+        let projected_family = load_trial_family_in_transaction(
+            &mut transaction,
+            &intent_identity,
+            &receipt.receipt_identity,
+        )
+        .await
+        .unwrap();
+        assert_eq!(projected_family, family);
+        assert_eq!(
+            serde_json::to_vec(&projected_family).unwrap(),
+            serde_json::to_vec(&family).unwrap()
+        );
         assert_eq!(
             load_trial_family_census_v2_in_transaction(
                 &mut transaction,
@@ -1441,6 +1444,15 @@ mod postgres_binding_tests {
         .unwrap();
         assert!(
             load_trial_family_census_v2_in_transaction(
+                &mut transaction,
+                &intent_identity,
+                &receipt.receipt_identity,
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            load_trial_family_in_transaction(
                 &mut transaction,
                 &intent_identity,
                 &receipt.receipt_identity,
