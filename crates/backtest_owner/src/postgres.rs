@@ -255,6 +255,7 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayOwnerErrorV2::RequestUnavailable)?;
         let (revalidated_request, revalidated_bytes, revalidated_meaning_digest) =
             validate_locked_request(&revalidated, locator)?;
+
         if revalidated_request != request
             || revalidated_bytes != request_canonical_bytes
             || revalidated_meaning_digest != request_meaning_digest
@@ -329,6 +330,9 @@ async fn run_pre_persist_action(
     locator: &ExploratoryReplayRequestLocatorV2,
     action: PrePersistActionV2,
 ) -> Result<(), PostgresReplayOwnerErrorV2> {
+    #[cfg(not(test))]
+    let _ = (transaction, locator);
+
     match action {
         PrePersistActionV2::None => Ok(()),
         #[cfg(test)]
@@ -576,6 +580,7 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
     if existing_objects != 0 && existing_objects != 2 {
         return Err(PostgresReplayOwnerErrorV2::StorageUnavailable);
     }
+
     if existing_objects == 2 {
         sqlx::query(
             "LOCK TABLE public.backtest_replay_runs_v2,public.backtest_replay_results_v2 IN ACCESS EXCLUSIVE MODE",
@@ -615,6 +620,7 @@ async fn migrate(pool: &PgPool) -> Result<(), PostgresReplayOwnerErrorV2> {
             .await
             .map_err(|_| PostgresReplayOwnerErrorV2::StorageUnavailable)?;
     }
+
     if !storage_shape_v2_in_transaction(&mut transaction).await? {
         return Err(PostgresReplayOwnerErrorV2::StorageUnavailable);
     }
@@ -978,6 +984,7 @@ fn request_binding_digest(
 ) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(REQUEST_BINDING_DOMAIN.as_bytes());
+
     for value in [
         request_canonical_bytes,
         request_seal_digest.as_bytes(),
