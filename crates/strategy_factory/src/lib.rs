@@ -97,6 +97,7 @@ pub mod program_runtime_v2;
 mod program_session;
 mod rd_owner_postgres_custody;
 pub mod receipt;
+pub mod replay_execution_policy_v2;
 mod representative;
 mod research;
 mod robustness;
