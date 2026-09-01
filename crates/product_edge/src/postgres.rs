@@ -1620,11 +1620,24 @@ impl ProductEdgePostgresOwnerV1 {
                 recovery_epoch,
             )
             .await?;
-        let manifest_identities = proposal
-            .manifests
-            .iter()
-            .map(AgentOperationManifestProposalV1::manifest_identity)
-            .collect::<Result<Vec<_>, _>>()?;
+        let manifest_identities = if recovery_epoch.is_some() {
+            let mut identities = Vec::with_capacity(proposal.manifests.len());
+
+            for manifest in &proposal.manifests {
+                identities.push(
+                    store_manifest(&mut transaction, manifest, committed_at)
+                        .await?
+                        .manifest_identity,
+                );
+            }
+            identities
+        } else {
+            proposal
+                .manifests
+                .iter()
+                .map(AgentOperationManifestProposalV1::manifest_identity)
+                .collect::<Result<Vec<_>, _>>()?
+        };
         let mut successor = StoredBindingV1 {
             schema_version: PRODUCT_EDGE_SCHEMA_V1,
             deployment_identity: proposal.deployment_identity.clone(),
@@ -1802,11 +1815,6 @@ impl ProductEdgePostgresOwnerV1 {
             )
             .await?;
 
-            if recovery_epoch.is_some() {
-                for manifest in &proposal.manifests {
-                    store_manifest(&mut transaction, manifest, fence_cut).await?;
-                }
-            }
             let mut fence = StoredSupersessionV1 {
                 schema_version: PRODUCT_EDGE_SCHEMA_V1,
                 binding_identity: current.binding_identity.clone(),
@@ -6711,6 +6719,47 @@ mod tests {
                 manifests: successor_manifests,
             },
         };
+        let successor_manifest_bindings = recovery
+            .successor
+            .manifests
+            .iter()
+            .map(|manifest| {
+                (
+                    manifest.manifest_identity().unwrap(),
+                    manifest.manifest_digest().unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let successor_digest = recovery.semantic_digest().unwrap();
+        assert_eq!(
+            owner
+                .commit_successor_fence(
+                    &recovery.successor,
+                    &successor_digest,
+                    Some(&recovery.recovery_epoch),
+                )
+                .await
+                .unwrap(),
+            None
+        );
+        let phase_one_state: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM product_edge_operation_manifests_v1 WHERE manifest_identity IN ($1,$2)), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind=$3 AND aggregate_identity IN ($1,$2)), (SELECT COUNT(*) FROM product_edge_deployment_bindings_v1 WHERE binding_identity=$4), (SELECT COUNT(*) FROM product_edge_binding_manifests_v1 WHERE binding_identity=$4), (SELECT COUNT(*) FROM product_edge_expired_manifest_recoveries_v1 WHERE successor_binding_identity=$4), (SELECT COUNT(*) FROM product_edge_deployment_heads_v1 WHERE binding_identity=$4)",
+        )
+        .bind(&successor_manifest_bindings[0].0)
+        .bind(&successor_manifest_bindings[1].0)
+        .bind(MANIFEST_EVENT)
+        .bind(&recovery.successor.binding_identity)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            phase_one_state,
+            (0, 0, 0, 0, 0, 0),
+            "a durable B1 fence must not expose successor manifests, approved events, or B2 custody"
+        );
+
+        // Simulate response/process loss after the independently durable B1
+        // fence. Exact rejoin must finish the complete B2 cut atomically.
         let (first_binding_recovery, concurrent_binding_recovery) = tokio::join!(
             owner.recover_expired_manifests(recovery.clone()),
             owner.recover_expired_manifests(recovery.clone()),
@@ -6724,6 +6773,26 @@ mod tests {
                 .unwrap(),
             recovered
         );
+        let phase_two_state: (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM product_edge_operation_manifests_v1 WHERE manifest_identity IN ($1,$2)), (SELECT COUNT(*) FROM product_edge_owner_outbox_v1 WHERE event_kind=$3 AND aggregate_identity IN ($1,$2)), (SELECT COUNT(*) FROM product_edge_deployment_bindings_v1 WHERE binding_identity=$4), (SELECT COUNT(*) FROM product_edge_binding_manifests_v1 WHERE binding_identity=$4), (SELECT COUNT(*) FROM product_edge_expired_manifest_recoveries_v1 WHERE successor_binding_identity=$4), (SELECT COUNT(*) FROM product_edge_deployment_heads_v1 WHERE binding_identity=$4)",
+        )
+        .bind(&successor_manifest_bindings[0].0)
+        .bind(&successor_manifest_bindings[1].0)
+        .bind(MANIFEST_EVENT)
+        .bind(&recovery.successor.binding_identity)
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(phase_two_state, (2, 2, 1, 2, 1, 1));
+        let stored_successor_manifests: Vec<(String, String)> = sqlx::query_as(
+            "SELECT manifest_identity, manifest_digest FROM product_edge_operation_manifests_v1 WHERE manifest_identity IN ($1,$2) ORDER BY manifest_identity",
+        )
+        .bind(&successor_manifest_bindings[0].0)
+        .bind(&successor_manifest_bindings[1].0)
+        .fetch_all(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_successor_manifests, successor_manifest_bindings);
         let mut changed_replay = recovery.clone();
         changed_replay.successor.valid_through_epoch_ms = changed_replay
             .successor
