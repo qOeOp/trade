@@ -121,6 +121,12 @@ acquisition binding、终态 receipt 和 readback。runner 必须：
 - **SEALED_ACCEPTANCE：** 只有完成所有动态 gate 的 A2 runner 才能宣称组合验收拓扑。该证据仍仅用于
   验收，不能建立 `PRODUCT_CURRENT` 或生产 readiness。
 
+Replay Policy V2 只能来自 [R&D Owner 合同](../owners/rd)定义的密封 版本化且内容寻址的 R&D Catalog。
+formation 前，R&D 解析并绑定显式 current head 与其 revocation cut。公开 Composer 或 Research request 不携带
+policy selector。Product Edge、Windmill、caller、provider、environment value、default、migration 与
+deployment configuration 都不能创建或选择 version、推进 head、撤销 version、seed Catalog 或合成
+fallback。只有私有且受审计的 R&D Catalog Administration Port 拥有这些写入。
+
 公开 Composer `RUN` 只接收不受信的 request identity、Research custody reference、Design proposal、
 binding request 和有界 plugin-source capsule。这些值只能是 proposal 与 locator，绝不是 verified fact。
 operation 必须在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以
@@ -129,8 +135,14 @@ move 消费该 token。该正向类型既不可 `Clone`，也不可序列化或�
 数据库或 API token representation；provider、caller、Windmill flow 或重启路径都不得从 bytes、digest、
 receipt 或 label 重建 verified token。
 
-A0 完成后且正向提交前，A1 锁定并重读最终已接纳 Research custody 与每份准确 fact-Owner binding。一个
-R&D transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、`StrategyArtifactV2` package 与私有
+A0 完成后且正向提交前，A1 锁定并重读最终已接纳 Research custody 与每份准确 fact-Owner binding。R&D、
+Composer 与 Market Data 路径使用一个已准入 R&D PostgreSQL transaction domain：A1 把其既有 transaction
+capability 传给每个适用且由 Owner 拥有的密封 Catalog、Composer 或 Market Data read method。每个 Owner
+都在该准确 transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
+connection 或 transaction；caller 与 Windmill 都不能读取 raw Owner table、重建 sealed evidence 或取得
+Owner 的 fact authority。evidence 缺失、不可用、过期、不匹配、跨 cut 或 wrong-owner 时，都必须在第一笔
+正向写入前失败。该同一个 R&D transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
+`StrategyArtifactV2` package 与私有
 module bytes、私有规范 A0 Build Receipt bytes，以及 Composer receipt、host-admission receipt、operation
 receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
 规范 Build Receipt，校验其 capsule、toolchain、linker、configuration 与确定性 two-build provenance，
@@ -172,7 +184,10 @@ verified build、规范 bytes 或业务结果。验收 binary 在编译期选择
 corpus 与固定 A0 source/build corpus，并且不暴露 runtime provider selector、provider URL、credential、
 fixture path、DSN、header 或 environment switch。每次 run 都获得唯一内部 PostgreSQL instance/schema、
 Windmill project/workspace、network、ingress allocation 与 volumes，不能与生产或另一 run 共享 route 或
-mutable state。
+mutable state。固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有
+administration port 创建它并显式推进其 head。fixture、administration hook 与 policy bytes 只存在于编译期
+`SEALED_ACCEPTANCE` composition；它们不是 runtime default、migration seed、production artifact 或
+deployment selector。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
 
@@ -196,7 +211,8 @@ mutable state。
 在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source
 Intake-to-Research handoff 与 Windmill A2 topology 都保持 `TARGET`。生产 Market Data binding resolver、
 live OpenAlex policy/rights/DNS/credentials/egress、`PRODUCT_CURRENT`、Dashboard implementation、Paper、
-Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。
+Live、deployment 与任何 trading effect 都保持不可用，也不在本验收权威内。固定 corpus、固定 adapter、
+隔离 PostgreSQL/Windmill runner 即使通过也只构成 `SEALED_ACCEPTANCE` 证据，绝不代表生产 readiness。
 
 外部对话 client 与 Windmill 内部 AI 是两个 credential plane。client 可以先使用自己的 model provider
 key 再调用 MCP；内部 AI Agent step 使用单独 scoped Windmill AI resource。两种 model credential 都不能

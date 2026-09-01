@@ -21,6 +21,9 @@
 - **TARGET：** R&D 冻结的规范 `BoundedFeatureProgramV1` identity/digest 及其准确 Design/plugin binding，
   以及 tagged V3 first-party lowering/build capsule 与持久 receipt；这些不是 CURRENT executable fact。
 - 冻结 Exploratory Replay Request，绑定准确意图 TrialFamily 工件 请求 PIT 数据范围 重放配置和成本容量模型。
+- **TARGET / NOT_ADMITTED：** 密封 版本化且内容寻址的 Replay Policy V2 Catalog version、显式
+  current-head fact、revocation fact 及其私有 administration audit。Catalog 只属于 R&D，是 Replay
+  formation 前唯一 policy 来源；caller 选择的 policy 不是权威事实。
 - **TARGET / `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`：** 版本化 密封的 Exploratory Replay Request locator 与
   receipt，只能由 R&D 根据该 canonical 请求签发，并绑定其准确 canonical bytes 与 digest Owner 请求者角色和
   请求身份。只有 R&D 提供该 locator 的固定只读 resolver 与持久 逐字节一致的 readback。locator caller 提供的
@@ -237,6 +240,34 @@ Backtest 为每个终态探索结果提供完整有限 `diagnosticCategorySet`�
 | 含任一 `MARKET_DATA` `ARTIFACT` `RUNTIME_KERNEL` `BACKTEST_OPERATIONAL` `SIMULATOR` `REPLAY_CONFIGURATION` | 缺陷证据优先于经济解释；保留全部支持缺陷，再按 `MARKET_DATA > ARTIFACT > RUNTIME_KERNEL > BACKTEST_OPERATIONAL > SIMULATOR > REPLAY_CONFIGURATION` 选择唯一 `REPAIR_INPUTS` 目标。 |
 | 不含缺陷，且含 `NO_EXECUTION_DEFECT` 或 `VALID_ECONOMIC_FAILURE`                                           | 允许经济与机制解释，但都不强制迭代或选择。                                                                                                                                         |
 | `UNRESOLVED_FAILURE`                                                                                       | 不产生 Iteration Decision；保留在 census，直到取得可隔离证据。                                                                                                                     |
+
+### TARGET / NOT_ADMITTED - Replay Policy V2 权威与事务拓扑
+
+Replay Policy V2 Catalog 保持 R&D 私有。每个 policy version 都是密封 版本化且内容寻址的事实；显式
+current-head fact 与 revocation fact 是规范 R&D 事实。任何 Replay formation 之前，R&D 都通过密封 Catalog
+read capability 解析 current head，并绑定准确 version、content digest、head 与 revocation cut。Catalog 是
+formation 前唯一 policy 来源。head 不存在、version 已撤销、cut 过期、digest 不匹配或回读不可用时必须失败
+关闭，且不创建 Replay Request、Composer fact、receipt 或 outbox entry；不存在隐式 fallback。
+
+Catalog 唯一 writer 是私有且受审计的 R&D Catalog Administration Port。它拥有 policy create、immutable
+version append、显式 current-head advance 与 revocation。每个已接纳 administration command 都原子记录其
+已认证 administrative identity、准确 predecessor/head、结果 content identity、audit fact 与 outbox。普通
+caller、Product Edge、Windmill、provider 与其他 Owner 不能调用该 port、选择 policy version、推进 head、
+撤销 version 或写入 Catalog storage。environment value、default、migration、deployment configuration 与
+runtime selector 都不能 seed 或合成 policy 或 current head。
+
+Replay Policy V2 composition 在 R&D、Composer 与 Market Data 路径上共用一个已准入 R&D PostgreSQL
+transaction domain。caller 把其既有 transaction capability 传给每个适用且由 Owner 拥有的密封 Catalog、
+Composer 或 Market Data read method。每个 Owner 都在该准确 transaction 上执行自己的 lock、规范回读、
+校验与 sealing。Owner 或 caller 都不能为 composition 打开另一个 pool、connection 或 transaction，不能读取
+其他 Owner 的 raw table、重建 sealed evidence 或转移 fact authority。任何不可用、过期、不匹配、跨 cut
+或 wrong-owner evidence 都必须在第一笔正向写入前失败。随后 R&D 在同一 transaction 上原子提交形成的
+fact、receipt 与 R&D outbox。
+
+disposable Catalog fixture 仅用于测试。隔离的 `SEALED_ACCEPTANCE` harness 可以通过私有 administration
+port 在其 fresh PostgreSQL instance 中创建并显式推进一个固定的内容寻址 policy head。fixture、
+administrative hook 与 policy bytes 都不是 runtime default、migration seed data、production configuration，
+也不是 deployed Owner/Windmill readiness 证据。
 
 ### TARGET / NOT_ADMITTED - 同一截面的 Decision 与 Selection composition
 

@@ -139,6 +139,13 @@ capability current. The maturity split is exact:
 - **SEALED_ACCEPTANCE:** only a completed A2 runner with all listed dynamic gates may claim the composed acceptance
   topology. It remains acceptance-only and cannot establish `PRODUCT_CURRENT` or production readiness.
 
+Replay Policy V2 comes only from the sealed, versioned, content-addressed R&D Catalog defined by the
+[R&D Owner contract](../owners/rd). Before formation, R&D resolves and binds the explicit current head and its
+revocation cut. Public Composer or Research requests carry no policy selector. Product Edge, Windmill, callers,
+providers, environment values, defaults, migrations, and deployment configuration cannot create or select a
+version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private audited
+R&D Catalog Administration Port owns those writes.
+
 The public Composer `RUN` accepts only an untrusted request identity, Research custody reference, Design proposal,
 binding requests, and bounded plugin-source capsule. These values are proposals and locators, never verified facts.
 In the same process, the operation must invoke the accepted A0 deterministic build boundary, preserve its opaque
@@ -149,7 +156,13 @@ representation, and no provider, caller, Windmill flow, or restart path may reco
 bytes, digests, receipts, or labels.
 
 After A0 and immediately before its positive commit, A1 locks and rereads the final accepted Research custody and
-every exact fact-Owner binding. One R&D transaction atomically stores the canonical `StrategyDesignV2`,
+every exact fact-Owner binding. The R&D, Composer, and Market Data path uses one admitted R&D PostgreSQL
+transaction domain: A1 passes its existing transaction capability to each applicable Owner-owned sealed Catalog,
+Composer, or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
+that exact transaction. No method may open another pool, connection, or transaction; neither caller nor Windmill
+may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority. Missing,
+unavailable, stale, mismatched, cross-cut, or wrong-owner evidence fails before the first positive write. That same
+R&D transaction atomically stores the canonical `StrategyDesignV2`,
 `StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, private canonical A0 Build Receipt bytes,
 the Composer receipt, host-admission receipt, operation receipt, and R&D outbox. JSON is a projection only and
 cannot be the canonical readback or hash source. Restart and `RESOLVE` reread and parse the canonical Build Receipt,
@@ -194,7 +207,10 @@ verified build, canonical bytes, or business result. The acceptance binary selec
 uses the fixed Source Intake corpus and fixed A0 source/build corpus, and exposes no runtime provider selector,
 provider URL, credential, fixture path, DSN, header, or environment switch. Every run receives a unique internal
 PostgreSQL instance/schema, Windmill project/workspace, network, ingress allocation, and volumes, with no route or
-mutable state shared with production or another run.
+mutable state shared with production or another run. A fixed content-addressed Replay Policy Catalog fixture is
+test-only: the isolated harness creates it and explicitly advances its head through the private administration
+port. The fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE`
+composition; they are not a runtime default, migration seed, production artifact, or deployment selector.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
 
@@ -220,7 +236,8 @@ The composed runner must prove all of the following against the deployed operati
 Until those gates pass, durable Composer custody, public API composition, typed Source Intake-to-Research handoff,
 and the Windmill A2 topology remain `TARGET`. A production Market Data binding resolver, live OpenAlex
 policy/rights/DNS/credentials/egress, `PRODUCT_CURRENT`, Dashboard implementation, Paper, Live, deployment, and any
-trading effect remain unavailable and outside this acceptance authority.
+trading effect remain unavailable and outside this acceptance authority. Passing the fixed-corpus, fixed-adapter,
+isolated PostgreSQL/Windmill runner is `SEALED_ACCEPTANCE` evidence only and never production readiness.
 
 The external conversation client and Windmill internal AI are separate credential planes. A client may use its
 own model provider key before calling MCP; an internal AI Agent step uses an independently scoped Windmill AI

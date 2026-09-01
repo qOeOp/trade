@@ -22,6 +22,9 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
 - **TARGET:** R&D-frozen canonical `BoundedFeatureProgramV1` identity/digest and its exact Design/plugin binding,
   plus a tagged V3 first-party lowering/build capsule and durable receipt. These are not CURRENT executable facts.
 - Frozen Exploratory Replay Request binding the exact intent, TrialFamily, artifact, requested PIT data scope, replay configuration, and cost-capacity model.
+- **TARGET / NOT_ADMITTED:** sealed, versioned, content-addressed Replay Policy V2 Catalog versions, an explicit
+  current-head fact, revocation facts, and their private administration audit. The Catalog is R&D-internal and is
+  the sole policy source before Replay formation; no caller-selected policy is an authoritative fact.
 - **TARGET / `ISOLATED_EVENT_REPLAY_ACCEPTANCE_V1`:** versioned sealed Exploratory Replay Request locator and
   receipt, issued only by R&D from that canonical request and bound to its exact canonical bytes and digest, Owner,
   requester role, and request identity. R&D alone provides the fixed read-only resolver and durable byte-identical
@@ -254,6 +257,36 @@ preserves every supported member and applies this exact mapping before interpret
 | Any of `MARKET_DATA`, `ARTIFACT`, `RUNTIME_KERNEL`, `BACKTEST_OPERATIONAL`, `SIMULATOR`, `REPLAY_CONFIGURATION` | Defect evidence preempts economic interpretation. Preserve all supported defects, then select one `REPAIR_INPUTS` target by `MARKET_DATA > ARTIFACT > RUNTIME_KERNEL > BACKTEST_OPERATIONAL > SIMULATOR > REPLAY_CONFIGURATION`. |
 | No defect, with `NO_EXECUTION_DEFECT` or `VALID_ECONOMIC_FAILURE`                                               | Economic and mechanism interpretation is allowed; neither category forces iteration or selection.                                                                                                                                |
 | `UNRESOLVED_FAILURE`                                                                                            | No Iteration Decision; retain the attempt in the census until isolating evidence exists.                                                                                                                                         |
+
+### TARGET / NOT_ADMITTED - Replay Policy V2 authority and transaction topology
+
+The Replay Policy V2 Catalog remains private to R&D. Every policy version is sealed, versioned, and
+content-addressed; the explicit current-head fact and revocation facts are canonical R&D facts. Before any Replay
+formation, R&D resolves the current head through its sealed Catalog read capability and binds that exact version,
+content digest, head, and revocation cut. The Catalog is the sole pre-formation policy source. An absent head,
+revoked version, stale cut, digest mismatch, or unavailable read fails closed and creates no Replay Request,
+Composer fact, receipt, or outbox entry; there is no implicit fallback.
+
+The sole Catalog writer is a private audited R&D Catalog Administration Port. It owns policy creation, immutable
+version append, explicit current-head advancement, and revocation. Each admitted administration command records
+its authenticated administrative identity, exact predecessor/head, resulting content identity, audit fact, and
+outbox atomically. Ordinary callers, Product Edge, Windmill, providers, and other Owners cannot invoke that port,
+select a policy version, advance the head, revoke a version, or write Catalog storage. Environment values,
+defaults, migrations, deployment configuration, and runtime selectors cannot seed or synthesize a policy or
+current head.
+
+Replay Policy V2 composition uses one admitted R&D PostgreSQL transaction domain across the R&D, Composer, and
+Market Data path. The caller passes its existing transaction capability to each applicable Owner-owned sealed
+Catalog, Composer, or Market Data read method. Each Owner performs its own locking, canonical reread, validation,
+and sealing on that exact transaction. No Owner or caller may open another pool, connection, or transaction for
+the composition, read another Owner's raw tables, reconstruct sealed evidence, or transfer fact authority. Any
+unavailable, stale, mismatched, cross-cut, or wrong-owner evidence fails before the first positive write. R&D then
+commits the formed facts, receipts, and R&D outbox atomically on that same transaction.
+
+A disposable Catalog fixture is test-only. An isolated `SEALED_ACCEPTANCE` harness may use the private
+administration port to create and explicitly advance one fixed content-addressed policy head in its fresh
+PostgreSQL instance. The fixture, administrative hook, and policy bytes are not runtime defaults, migration seed
+data, production configuration, or evidence of deployed Owner/Windmill readiness.
 
 ### TARGET / NOT_ADMITTED - same-cut Decision and Selection composition
 
