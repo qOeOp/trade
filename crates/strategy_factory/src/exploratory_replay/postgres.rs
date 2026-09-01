@@ -1652,11 +1652,18 @@ async fn validate_backtest_binding_v2(
              AND language.lanname='plpgsql'
              AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                  AND (acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>owner.oid OR acl.is_grantable)
              )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
@@ -1963,9 +1970,9 @@ async fn validate_backtest_binding(
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,backtest.oid)
+                  AND (acl.grantee NOT IN (owner.oid,backtest.oid)
+                       OR acl.grantor<>owner.oid OR acl.is_grantable)
              )
-             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1
                  FROM pg_catalog.pg_proc helper

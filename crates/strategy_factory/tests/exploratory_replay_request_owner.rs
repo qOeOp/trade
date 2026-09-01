@@ -606,7 +606,19 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=facade_owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND (acl.grantee NOT IN (facade_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>facade_owner.oid OR acl.is_grantable)
+             )
              AND helper_owner.rolname='rd_owner'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
@@ -1298,11 +1310,18 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND facade.proisstrict
              AND facade.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
+             AND EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
+                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND acl.grantor=facade_owner.oid
+                  AND acl.privilege_type='EXECUTE'
+                  AND NOT acl.is_grantable
+             )
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(facade.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
+                  AND (acl.grantee NOT IN (facade_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
+                       OR acl.grantor<>facade_owner.oid OR acl.is_grantable)
              )
              AND helper_owner.rolname='rd_owner'
              AND NOT helper.prosecdef
