@@ -989,6 +989,48 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
+provision_product_edge_schema() {
+  local fixture_database="$1"
+  local product_edge_url="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
+  local migration_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+GRANT CREATE ON SCHEMA public TO product_edge_owner;
+SQL
+
+  if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$product_edge_url" \
+    cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$migration_filter"; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$fixture_database" << 'SQL'
+REVOKE CREATE ON SCHEMA public FROM product_edge_owner;
+SQL
+    return 1
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+REVOKE CREATE ON SCHEMA public FROM product_edge_owner;
+DO $product_edge_runtime_acl$
+BEGIN
+  IF pg_catalog.has_schema_privilege('product_edge_owner','public','CREATE')
+     OR pg_catalog.has_database_privilege(
+       'product_edge_owner',pg_catalog.current_database(),'CREATE,TEMPORARY'
+     ) THEN
+    RAISE EXCEPTION 'Product Edge migration authority survived deployment';
+  END IF;
+END
+$product_edge_runtime_acl$;
+SQL
+}
+
+provision_product_edge_schema "$test_database"
+provision_product_edge_schema "$origin_current_database"
+
 # The first two filters make the first application connection to their separate
 # fresh databases. The final filters deliberately poison Owner state and therefore
 # stay after every positive consumer, with the malformed OA/PE schema probe last.

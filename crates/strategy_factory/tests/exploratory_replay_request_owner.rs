@@ -2755,6 +2755,24 @@ fn manifest(
     }
 }
 
+#[tokio::test]
+#[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+async fn product_edge_schema_is_provisioned_before_runtime_connections() {
+    let edge_url = std::env::var("PRODUCT_EDGE_TEST_DATABASE_URL")
+        .expect("disposable Product Edge migration URL");
+    ProductEdgePostgresOwnerV1::connect(
+        &edge_url,
+        "product-edge-test-schema-migration-v1",
+        ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "product-edge-test-schema-migration-v1".into(),
+            issuer_key_version: "test-key-v1".into(),
+            audience: "R_AND_D".into(),
+        },
+    )
+    .await
+    .expect("canonical Product Edge schema migration");
+}
+
 fn research_request(identity: &str) -> ProductEdgeResearchGoalRequestV2 {
     ProductEdgeResearchGoalRequestV2 {
         request_identity: identity.into(),
