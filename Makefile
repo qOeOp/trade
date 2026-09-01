@@ -775,7 +775,7 @@ cargo-test-postgres-ci:  #-- Run focused PostgreSQL tests with the CI bootstrap 
 cargo-test-rd-owner-postgres-isolated: check-nextest-installed  #-- Run destructive R&D Owner tests in a disposable marked PostgreSQL instance
 	NEXTEST_PROFILE="$(NEXTEST_PROFILE)" \
 	CARGO_CI_PROFILE="$(CARGO_CI_PROFILE)" \
-	RD_OWNER_POSTGRES_FEATURES="$(CARGO_FEATURES)" \
+	RD_OWNER_POSTGRES_FEATURES="$(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance" \
 	bash scripts/ci/test-rd-owner-postgres.bash
 
 .PHONY: check-rd-owner-postgres-isolation
