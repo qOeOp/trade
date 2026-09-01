@@ -762,9 +762,9 @@ unique, never-reused non-empty ASCII `catalog_record_id`, a unique, strictly inc
 64-bit `catalog_version`, the complete
 canonical `replay_execution_policy_v2` bytes, and
 `policy_digest = SHA-256("rd.replay-execution-policy.v2\0" || policy_canonical_bytes)`. Its canonical record bytes
-are the successive `u32 length || bytes` encoding of the ASCII record ID and policy bytes, with the version encoded
-between them as little-endian `u64`, followed by the 32 policy-digest bytes; lengths are little-endian, and trailing
-bytes are forbidden. `catalog_record_digest` is
+encode the ASCII record ID as `u32 length || bytes`, the version as little-endian `u64`, and the policy bytes as
+`u32 length || bytes`, followed by the 32 policy-digest bytes; lengths are little-endian, and trailing bytes are
+forbidden. `catalog_record_digest` is
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`.
 
 Before the first TrialFamily-formation write, an R&D-private formation resolver in the same Owner transaction must
