@@ -370,10 +370,11 @@ exchange-session bar，partial bar 仍是
 TARGET。Market Data 仍是所有已准入 record 的唯一 writer。所有既有 V1
 binding、event、value、frame、joined-cut、row、digest 与 byte 含义继续保持权威且逐字节不变；不得删除、
 合成、backfill、garbage-collect、reinterpret 或 promote 任何 V1 record。新增的
-`StrategyInputSampleProjectionReceiptV2` 仍是 Owner fact 之上的 canonical EVENT FRAME projection，不是
-替代权威。不存在独立的 V2 event/value/frame/joined-cut codec；未改变的 V1 event/value/frame/join receipt
-中，只有 event/value/frame receipt 是当前准确 evidence input。V2 JOINED_CUT projection 尚未实现并保持
-TARGET。BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是 CURRENT/PARTIAL，而
+`StrategyInputSampleProjectionReceiptV2` 仍是 Owner fact 之上的 canonical EVENT FRAME 或 JOINED_CUT
+projection，不是替代权威。不存在独立的 V2 event/value/frame/joined-cut codec；未改变的 V1
+event/value/frame 与 joined-cut receipt 仍是准确 evidence input。V2 JOINED_CUT projection 与准确 locator
+readback 在下述结构 Owner-custody seam 达到 `CURRENT / PARTIAL`；它们不证明 production startup 或产品消费。
+BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是 CURRENT/PARTIAL，而
 其 sealed exact historical resolver core 是 CURRENT/PARTIAL，而 production startup 与产品 resolution 仍为
 TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。
 
@@ -545,15 +546,15 @@ value-receipt digest `[u8; 32]`。entry 按 input-role identity 严格排序，�
 乱序或不匹配的 trigger/value evidence 都不生成 identity。该 identity 不是 V1 frame receipt，不替换 joined-cut
 receipt 的 private single-value component digest，也不能只从一个 trigger 或一个 value 派生。
 
-只有 `StrategyInputSampleProjectionReceiptV2` 形成既有 EVENT FRAME role-bound coordinate projection。其 canonical bytes 是
+只有 `StrategyInputSampleProjectionReceiptV2` 形成既有 EVENT FRAME 或 JOINED_CUT role-bound coordinate projection。其 canonical bytes 是
 一个 header 后接 fixed component entry。header 按顺序为：schema `u16LE = 2`、reserved-zero `u16LE`、kind
-`u8 = 0x01 FRAME`、准确 subject identity/digest `[u8; 32]` 与正 component count
+闭集为 `u8 = 0x01 FRAME` 或 `0x02 JOINED_CUT`、准确 subject identity/digest `[u8; 32]` 与正 component count
 `u32LE`。每个 entry 恰好是 612 bytes，按顺序为：input-role identity `[u8; 32]`、static V1 binding-receipt
 digest `[u8; 32]`、frame-evidence identity `[u8; 32]`、V1 frame-trigger receipt digest `[u8; 32]`、V1
 role-bound trigger event identity `[u8; 16]`、V1 value-receipt digest `[u8; 32]`、historical timeframe-
 projection-receipt digest `[u8; 32]`、sample identity `[u8; 32]`、native `SampleReceiptV1` digest `[u8; 32]`、
 coordinate digest `[u8; 32]` 与准确 308 coordinate bytes。entry 按 input-role identity bytes 严格排序，重复 role
-unsupported；总长度恰好是 `41 + 612 * count`。reserved、任何非 FRAME kind、zero count、其他 order/width、缺失或
+unsupported；总长度恰好是 `41 + 612 * count`。reserved、闭集外 kind、zero count、其他 order/width、缺失或
 trailing byte 都不生成 receipt。
 
 subject identity 是 additive frame-evidence identity，entry 穷尽同一有序 role value。每个 entry 解析准确
@@ -564,8 +565,12 @@ timeframe、row digest、lineage、Market Semantics、sample identity、native r
 sequence 必须等于 component coordinate；其 role-bound event identity 只作为单独存储的 V1 evidence，绝不复制
 进 role-independent native event identity 或与之判等。current/latest lookup、partial component set、cross-
 frame splice 或 caller-derived field 都 unsupported。每个 V2 component 必须解析未改变的 V1 `EVENT`
-lifecycle。V2 JOINED_CUT、BAR lifecycle、BAR timeframe、BAR schedule receipt 或对 kind `0x02` 的任何解释
-均未实现，在 schema 2 下 unsupported，且不生成 V2 receipt 或 readback。
+lifecycle。对于 FRAME，subject 是穷尽的 frame-evidence identity，且所有 entry 共享它。对于 JOINED_CUT，
+subject 是准确且有效的 V1 joined-cut receipt digest，至少包含两个 component；每个 component 都是准确的
+single-value EVENT frame，且独立重算的 frame-evidence identity 必须匹配该 entry。entry 仍按 role 严格排序。
+Market Data 只有在 stored closed kind、subject、count、canonical bytes、custody digest 与准确 receipt-digest
+locator 全部匹配后，才能 promote move-only readback。BAR lifecycle、BAR timeframe、BAR schedule receipt 或
+其他 V2 kind 仍 unsupported，且不生成 V2 receipt 或 readback。
 
 V2 receipt identity 与 digest 是
 `market-data.sample-projection-receipt.v2\0 || canonical receipt bytes` 的同一 SHA-256。Market Data 按该 digest

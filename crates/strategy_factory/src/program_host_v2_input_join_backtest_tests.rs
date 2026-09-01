@@ -443,7 +443,7 @@ fn started_host(plan: &StrategyPlanV2, artifact: &StrategyArtifactV2) -> Program
     host
 }
 
-fn joined_design() -> crate::strategy_design_v2::StrategyDesignV2 {
+pub(crate) fn joined_design() -> crate::strategy_design_v2::StrategyDesignV2 {
     let mut design = crate::program_host_v2_tests::executable_design();
     design
         .inputs

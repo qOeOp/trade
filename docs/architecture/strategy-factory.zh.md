@@ -65,7 +65,13 @@ R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt�
   重复运行相等和 checkpoint/restore 后缀相等。缺失、过期、来自未来、不匹配、跨 Design/role 或 lineage
   冲突的 input 都在 guest、plugin state、lifecycle state、target 或 checkpoint 变更前被拒绝。这只是并行的
   complex-strategy substrate 与隔离 Backtest acceptance；不是默认 R&D 路径、产品 readiness、Paper、Live、
-  生产 Owner readiness 或交易授权。
+  生产 Owner readiness 或交易授权。**CURRENT/PARTIAL，仅 Native Replay preparation：** preparation seam
+  现在还必须接收准确 Owner-sealed V1 joined-cut receipt 与 move-only V2 JOINED_CUT projection readback。
+  在构造 ProgramHost handoff 前，它校验 EVENT lifecycle、准确 joined-cut subject digest、正且完整的
+  component count，以及 projection role/binding set 与已编译 Plan 的严格相等。handoff 保留准确 projection
+  digest/count，并在 promote 前重新校验绑定。这只是 fail-closed preparation 与 public consumer-shape
+  evidence；它不执行 Native Replay，不启动 production resolver，不证明 dynamic PostgreSQL product
+  composition 或 end-to-end Windmill acceptance，也不准入 trading。
 - **CURRENT/DYNAMIC，有界准确双成员 Backtest target-set 纵向切片：** 一份完整 Owner-sealed universe
   frame 先在克隆的 `ProgramHostV2` 上 prepare，只产生一份规范 target set 与一次 plugin 调用；只有单份
   account-scoped `Portfolio::equity` 快照、两个准确 instrument fact、Decimal target conversion、成员
@@ -373,6 +379,11 @@ identity 与 role-independent native event identity 分开。ProgramHostV2 与 B
 projection 及其引用的原生历史 receipt，不能从 value、row digest、frame/event digest、
 trigger time、latest head 或本地 timeframe 解释派生或修复任何一个。restart 必须为同一 identity 解析出
 相同 native receipt bytes，并为同一 role/binding 解析出相同 coordinate bytes。
+
+**CURRENT/PARTIAL：** 保留的 JOINED_CUT slice 已为 EVENT component 实现该 V2 结构 projection 与准确 digest
+readback shape；Native Replay preparation 仅在同时持有准确 V1 joined-cut receipt 和完整 Plan binding set 时消费
+它。这不会使未来 BFP coordinate port 可执行，也不证明 Native Replay run、production startup、durable product
+composition 或 Backtest 闭合。
 
 Market Data 为 sealed static binding 解析准确 historical timeframe-projection receipt，并从 verified census
 中选择、封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、

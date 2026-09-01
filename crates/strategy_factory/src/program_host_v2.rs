@@ -3064,3 +3064,5 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ProgramHostV2Error> {
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 #[path = "program_host_v2_input_join_backtest_tests.rs"]
 mod input_join_backtest_tests;
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) use input_join_backtest_tests::joined_design;

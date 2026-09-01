@@ -391,10 +391,11 @@ exchange-session bars, while partial bars remain TARGET. Market Data remains the
 records. Every existing V1
 binding, event, value, frame, joined-cut, row, digest, and byte meaning remains
 authoritative and byte-identical; no V1 record is deleted, synthesized, backfilled, garbage-collected, reinterpreted,
-or promoted. The additive `StrategyInputSampleProjectionReceiptV2` remains the canonical EVENT FRAME
+or promoted. The additive `StrategyInputSampleProjectionReceiptV2` remains the canonical EVENT FRAME or JOINED_CUT
 projection over Owner facts, not a replacement authority. There are no separate V2 event, value, frame, or joined-cut
-codecs; the unchanged V1 event/value/frame receipts remain its exact evidence inputs. V2 JOINED_CUT projection is
-unimplemented and remains TARGET. BAR uses only the separate V3 FRAME projection described below; its durable Owner
+codecs; the unchanged V1 event/value/frame and joined-cut receipts remain its exact evidence inputs. V2 JOINED_CUT
+projection and exact locator readback are `CURRENT / PARTIAL` at the structural Owner-custody seam described below.
+They do not establish production startup or product consumption. BAR uses only the separate V3 FRAME projection described below; its durable Owner
 custody and its sealed exact historical resolver core are CURRENT/PARTIAL, while production startup and product
 resolution remain TARGET/UNAVAILABLE. It
 never widens or reinterprets V2.
@@ -570,17 +571,17 @@ or mismatched trigger/value evidence produces no identity. This identity is not 
 replace the joined-cut receipt's private single-value component digest, and cannot be derived from only a trigger
 or one value.
 
-Only `StrategyInputSampleProjectionReceiptV2` forms the existing EVENT FRAME role-bound coordinate projection. Its
+Only `StrategyInputSampleProjectionReceiptV2` forms the existing EVENT FRAME or JOINED_CUT role-bound coordinate projection. Its
 canonical bytes are
 one header followed by fixed component entries. The header is, in order: schema `u16LE = 2`, reserved-zero
-`u16LE`, kind `u8 = 0x01 FRAME`, exact subject identity/digest `[u8; 32]`, and positive
+`u16LE`, closed kind `u8 = 0x01 FRAME` or `0x02 JOINED_CUT`, exact subject identity/digest `[u8; 32]`, and positive
 component count `u32LE`. Each entry is exactly 612 bytes, in order: input-role identity `[u8; 32]`, static V1
 binding-receipt digest `[u8; 32]`, frame-evidence identity `[u8; 32]`, V1 frame-trigger receipt digest
 `[u8; 32]`, V1 role-bound trigger event identity `[u8; 16]`, V1 value-receipt digest `[u8; 32]`, historical
 timeframe-projection-receipt digest `[u8; 32]`, sample identity `[u8; 32]`, native `SampleReceiptV1` digest
 `[u8; 32]`, coordinate digest `[u8; 32]`, and the exact 308 coordinate bytes. Entries are strictly sorted by
 input-role identity bytes and duplicate roles are unsupported; the total length is exactly `41 + 612 * count`.
-Reserved, any kind other than FRAME, zero count, alternate order/width, missing, or trailing bytes produce no receipt.
+Reserved, any kind outside the closed registry, zero count, alternate order/width, missing, or trailing bytes produce no receipt.
 
 The subject identity is the additive frame-evidence identity and the entries exhaust the same ordered role values.
 Every entry resolves the exact binding and its
@@ -591,9 +592,13 @@ snapshot/correction census must verify its lineage version. The V1 trigger's log
 sequence must equal the component's coordinate, while its role-bound event identity remains only the separately
 stored V1 evidence and is never copied into or equated with the role-independent native event identity. A
 current/latest lookup, partial component set, cross-frame splice, or caller-derived field is unsupported. Every V2
-component must resolve an unchanged V1 `EVENT` lifecycle. V2 JOINED_CUT, a BAR lifecycle, BAR timeframe, BAR
-schedule receipt, or any interpretation of kind `0x02` is unimplemented and unsupported under schema 2 and produces
-no V2 receipt or readback.
+component must resolve an unchanged V1 `EVENT` lifecycle. For FRAME, the subject is the exhaustive frame-evidence
+identity and every entry shares it. For JOINED_CUT, the subject is the exact valid V1 joined-cut receipt digest,
+there are at least two components, each component is one exact single-value EVENT frame, and its independently
+recomputed frame-evidence identity must match the entry. Entries remain strictly role-sorted. The stored closed kind,
+subject, count, canonical bytes, custody digest, and exact receipt-digest locator must all match before Market Data
+promotes a move-only readback. A BAR lifecycle, BAR timeframe, BAR schedule receipt, or any other V2 kind remains
+unsupported and produces no V2 receipt or readback.
 
 The V2 receipt identity and digest are the same SHA-256 over
 `market-data.sample-projection-receipt.v2\0 || canonical receipt bytes`. Market Data stores and resolves those

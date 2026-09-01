@@ -142,7 +142,9 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_correction_heads_v1 (correction_slot_identity BYTEA PRIMARY KEY CHECK (octet_length(correction_slot_identity)=32), series_identity BYTEA NOT NULL CHECK (octet_length(series_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_facts_v1(sample_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_receipts_v1 (sample_identity BYTEA PRIMARY KEY REFERENCES market_data_private.sample_facts_v1(sample_identity), receipt_digest BYTEA UNIQUE NOT NULL CHECK (octet_length(receipt_digest)=32), receipt_bytes BYTEA NOT NULL CHECK (octet_length(receipt_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
     "CREATE TABLE IF NOT EXISTS market_data_private.sample_outbox_v1 (outbox_identity BYTEA PRIMARY KEY CHECK (octet_length(outbox_identity)=32), sample_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.sample_receipts_v1(sample_identity), payload_digest BYTEA NOT NULL CHECK (octet_length(payload_digest)=32), payload_bytes BYTEA NOT NULL CHECK (octet_length(payload_bytes)>0), custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v2 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind=1), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,subject_identity), CHECK (octet_length(receipt_bytes)=41+612*component_count))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v2 (receipt_digest BYTEA PRIMARY KEY CHECK (octet_length(receipt_digest)=32), kind SMALLINT NOT NULL CHECK (kind IN (1,2)), subject_identity BYTEA NOT NULL CHECK (octet_length(subject_identity)=32), component_count BIGINT NOT NULL CHECK (component_count>0 AND component_count<=4294967295), receipt_bytes BYTEA NOT NULL, custody_digest BYTEA NOT NULL CHECK (octet_length(custody_digest)=32), UNIQUE(kind,subject_identity), CHECK (octet_length(receipt_bytes)=41+612*component_count))",
+    "ALTER TABLE market_data_private.strategy_input_sample_projection_receipts_v2 DROP CONSTRAINT IF EXISTS strategy_input_sample_projection_receipts_v2_kind_check",
+    "ALTER TABLE market_data_private.strategy_input_sample_projection_receipts_v2 ADD CONSTRAINT strategy_input_sample_projection_receipts_v2_kind_check CHECK (kind IN (1,2))",
     "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), store_generation_identity BYTEA NOT NULL CHECK (octet_length(store_generation_identity)=32), append_sequence BIGINT NOT NULL CHECK (append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_facts_v1 (fact_digest BYTEA PRIMARY KEY CHECK (octet_length(fact_digest)=32), canonical_instrument TEXT NOT NULL CHECK (canonical_instrument<>''), predecessor_fact_digest BYTEA NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest), fact_bytes BYTEA NOT NULL CHECK (octet_length(fact_bytes)>0), UNIQUE(canonical_instrument,predecessor_fact_digest))",
     "CREATE TABLE IF NOT EXISTS market_data_private.bar_schedule_heads_v1 (canonical_instrument TEXT PRIMARY KEY CHECK (canonical_instrument<>''), fact_digest BYTEA UNIQUE NOT NULL REFERENCES market_data_private.bar_schedule_facts_v1(fact_digest))",
@@ -2096,8 +2098,7 @@ fn validate_prepared_sample_projection_v2(
     )
     .map_err(|_| SampleProjectionCustodyErrorV2::InvalidPrepared)?;
 
-    if prepared.kind_tag() != 0x01
-        || stored.kind_tag() != prepared.kind_tag()
+    if stored.kind_tag() != prepared.kind_tag()
         || stored.subject_identity() != prepared.subject_identity()
         || stored.component_count() != prepared.component_count()
         || stored.canonical_bytes() != prepared.canonical_bytes()
@@ -2233,7 +2234,6 @@ async fn load_strategy_input_sample_projection_v2(
         .map_err(|_| SampleProjectionCustodyErrorV2::StoreUnavailable)?;
 
     if receipt_digest != expected_digest
-        || kind != 0x01
         || custody_digest
             != sample_projection_custody_digest_v2(
                 receipt_digest,
@@ -6186,7 +6186,6 @@ fn verify_admitted_sample_projection_v2(
     let receipt_bytes = projection_raw_bytes_field(projection, "receipt_bytes")?;
 
     if receipt_digest != expected_digest
-        || kind != 0x01
         || component_count == 0
         || custody_digest
             != sample_projection_custody_digest_v2(
