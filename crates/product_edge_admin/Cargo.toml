@@ -19,8 +19,17 @@ tokio = { workspace = true }
 vibe-operator-authorization = { workspace = true }
 vibe-product-edge = { workspace = true }
 
+[dev-dependencies]
+rstest = { workspace = true }
+
 [[bin]]
 name = "product-edge-authority-bootstrap"
 path = "src/main.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "product-edge-recover-expired-manifests"
+path = "src/bin/recover_expired_manifests.rs"
 doc = false
 test = false

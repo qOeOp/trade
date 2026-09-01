@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_operator_authorization::{
+    ExpiredManifestRecoveryEpochV1, ManifestSemanticKeyV1, OperationManifestBindingV1,
     OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
     PortfolioResourceGrantLocatorV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
     UntrustedCanonicalAuthorizationEvidenceV1, UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
@@ -111,6 +112,14 @@ impl AgentOperationManifestProposalV1 {
             "product-edge-operation-manifest-v1",
             &[&self.manifest_digest()?],
         ))
+    }
+
+    pub fn semantic_key(&self) -> ManifestSemanticKeyV1 {
+        ManifestSemanticKeyV1 {
+            operation: self.operation.clone(),
+            operation_schema: self.operation_schema.clone(),
+            target_owner: self.target_owner.clone(),
+        }
     }
 }
 
@@ -219,6 +228,44 @@ pub struct ProductEdgeSuccessorProposalV1 {
     pub valid_through_epoch_ms: u64,
     pub authorization: OperatorAuthorizationLocatorV1,
     pub manifests: Vec<AgentOperationManifestProposalV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProductEdgeExpiredManifestRecoveryProposalV1 {
+    pub recovery_epoch: ExpiredManifestRecoveryEpochV1,
+    pub successor: ProductEdgeSuccessorProposalV1,
+}
+
+impl ProductEdgeExpiredManifestRecoveryProposalV1 {
+    pub fn validate(&self) -> Result<(), ProductEdgeError> {
+        self.recovery_epoch
+            .validate()
+            .map_err(|_| ProductEdgeError::InvalidProposal("expired manifest recovery epoch"))?;
+        self.successor.validate()?;
+        let successor_bindings = self
+            .successor
+            .manifests
+            .iter()
+            .map(|manifest| {
+                Ok(OperationManifestBindingV1 {
+                    manifest_identity: manifest.manifest_identity()?,
+                    manifest_digest: manifest.manifest_digest()?,
+                })
+            })
+            .collect::<Result<Vec<_>, ProductEdgeError>>()?;
+        if successor_bindings != self.recovery_epoch.successor_operation_manifests() {
+            return Err(ProductEdgeError::InvalidProposal(
+                "expired manifest recovery delta",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn semantic_digest(&self) -> Result<String, ProductEdgeError> {
+        self.validate()?;
+        canonical_digest("product-edge.expired-manifest-recovery-proposal.v1", self)
+    }
 }
 
 impl ProductEdgeSuccessorProposalV1 {
@@ -818,7 +865,10 @@ fn is_sha256_digest(value: &str) -> bool {
 mod portfolio_read_policy_tests {
     use super::*;
     use rstest::rstest;
-    use vibe_operator_authorization::{PORTFOLIO_OWNER_AUDIENCE_V1, PORTFOLIO_VIEW_PERMISSION_V1};
+    use vibe_operator_authorization::{
+        ExpiredManifestRecoveryTransitionV1, PORTFOLIO_OWNER_AUDIENCE_V1,
+        PORTFOLIO_VIEW_PERMISSION_V1,
+    };
 
     fn payload() -> PortfolioReadPolicyPayloadV1 {
         PortfolioReadPolicyPayloadV1 {
@@ -931,5 +981,61 @@ mod portfolio_read_policy_tests {
             }
             assert!(changed.validate().is_err());
         }
+    }
+
+    #[rstest]
+    fn expired_manifest_recovery_requires_exact_content_bound_successor_delta() {
+        let old_manifest = AgentOperationManifestProposalV1 {
+            operation: "research.submit.v1".into(),
+            operation_schema: "research-submit-v1".into(),
+            target_owner: "R_AND_D".into(),
+            allowed_effects: vec!["R_AND_D_MUTATION_V1".into()],
+            prohibited_effects: vec!["REAL_TRADING".into()],
+            capability_policy_digest: "sha256:policy".into(),
+            effective_from_epoch_ms: 10,
+            valid_through_epoch_ms: 20,
+        };
+        let mut new_manifest = old_manifest.clone();
+        new_manifest.effective_from_epoch_ms = 20;
+        new_manifest.valid_through_epoch_ms = 30;
+        let epoch = ExpiredManifestRecoveryEpochV1::new(vec![
+            ExpiredManifestRecoveryTransitionV1::Retained {
+                semantic_key: old_manifest.semantic_key(),
+                predecessor_manifest: OperationManifestBindingV1 {
+                    manifest_identity: old_manifest.manifest_identity().unwrap(),
+                    manifest_digest: old_manifest.manifest_digest().unwrap(),
+                },
+                successor_manifest: OperationManifestBindingV1 {
+                    manifest_identity: new_manifest.manifest_identity().unwrap(),
+                    manifest_digest: new_manifest.manifest_digest().unwrap(),
+                },
+            },
+        ])
+        .unwrap();
+        let proposal = ProductEdgeExpiredManifestRecoveryProposalV1 {
+            recovery_epoch: epoch,
+            successor: ProductEdgeSuccessorProposalV1 {
+                deployment_identity: "deployment-1".into(),
+                binding_identity: "binding-2".into(),
+                predecessor_binding_identity: "binding-1".into(),
+                expected_history_head: "binding-1".into(),
+                generation: 2,
+                effective_principal: "principal-1".into(),
+                scope_policy_version: "scope-v1".into(),
+                capability_policy_version: "capability-v1".into(),
+                audit_policy_version: "audit-v1".into(),
+                valid_from_epoch_ms: 20,
+                valid_through_epoch_ms: 30,
+                authorization: OperatorAuthorizationLocatorV1 {
+                    authorization_identity: "authorization-2".into(),
+                    issuance_receipt_identity: "receipt-2".into(),
+                },
+                manifests: vec![new_manifest],
+            },
+        };
+        assert!(proposal.validate().is_ok());
+        let mut changed = proposal;
+        changed.successor.manifests[0].valid_through_epoch_ms = 31;
+        assert!(changed.validate().is_err());
     }
 }

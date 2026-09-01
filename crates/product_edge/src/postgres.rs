@@ -8,9 +8,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_operator_authorization::{
-    AuthorizationReadModeV1, OperationManifestBindingV1, OperatorAuthorizationError,
-    OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
-    UntrustedCanonicalAuthorizationEvidenceV1, parse_untrusted_authorization_envelope_v1,
+    AuthorizationReadModeV1, ExpiredManifestRecoveryEpochV1, ExpiredManifestRecoveryTransitionV1,
+    OperationManifestBindingV1, OperatorAuthorizationError, OperatorAuthorizationLocatorV1,
+    OperatorAuthorizationReadbackV1, UntrustedCanonicalAuthorizationEvidenceV1,
+    parse_untrusted_authorization_envelope_v1,
     parse_untrusted_portfolio_resource_grant_envelope_v1, resolve_authorization_in_transaction,
 };
 use vibe_product_edge_claim_custody::{
@@ -42,11 +43,11 @@ use crate::{
     ProductEdgeAdmissionReadbackV1, ProductEdgeAdmissionReceiptV1, ProductEdgeAdmissionRequestV1,
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeBootstrapReadbackV1, ProductEdgeCurrentPolicyEvidenceV1, ProductEdgeError,
-    ProductEdgeInvocationClaimDispositionV1, ProductEdgeInvocationClaimReadbackV1,
-    ProductEdgeInvocationClaimRequestV1, ProductEdgeInvocationStartDispositionV1,
-    ProductEdgeInvocationStartReadbackV1, ProductEdgeSourceInvocationClaimRequestV1,
-    ProductEdgeSourceInvocationStartRequestV1, ProductEdgeSuccessorProposalV1,
-    SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
+    ProductEdgeExpiredManifestRecoveryProposalV1, ProductEdgeInvocationClaimDispositionV1,
+    ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
+    ProductEdgeInvocationStartDispositionV1, ProductEdgeInvocationStartReadbackV1,
+    ProductEdgeSourceInvocationClaimRequestV1, ProductEdgeSourceInvocationStartRequestV1,
+    ProductEdgeSuccessorProposalV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1, SOURCE_INTAKE_OPERATION_V1,
     SOURCE_INTAKE_REQUIRED_EFFECTS_V1, SOURCE_INTAKE_TARGET_OWNER_V1, canonical_digest, identity,
     is_sha256_digest,
 };
@@ -64,6 +65,11 @@ const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
 const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
 const MAX_ADMISSION_EVENT_PAGE_V1: u32 = 100;
+const ADDED_MANIFEST_PROHIBITED_FLOOR_V1: [&str; 3] = [
+    "LIVE_TRADING_V1",
+    "PROTECTED_FEEDBACK_DETAIL_V1",
+    "REAL_TRADING_V1",
+];
 
 fn has_exact_artifact_build_effects(requested_effects: &[String]) -> bool {
     requested_effects
@@ -493,6 +499,7 @@ fn decode_locked_binding(
 ) -> Result<(StoredBindingV1, StoredBindingReceiptV1), ProductEdgeError> {
     let stored: StoredBindingV1 = from_json(row.binding_json.clone())?;
     let receipt: StoredBindingReceiptV1 = from_json(row.receipt_json.clone())?;
+
     if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
         || row.binding_identity != stored.binding_identity
         || row.deployment_identity != stored.deployment_identity
@@ -540,6 +547,7 @@ fn decode_locked_manifest(
 ) -> Result<(StoredManifestV1, StoredManifestReceiptV1), ProductEdgeError> {
     let stored: StoredManifestV1 = from_json(row.manifest_json.clone())?;
     let receipt: StoredManifestReceiptV1 = from_json(row.receipt_json.clone())?;
+
     if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
         || row.manifest_identity != stored.manifest_identity
         || row.operation != stored.proposal.operation
@@ -816,8 +824,18 @@ fn verify_locked_downstream_envelope(
                 manifests,
             };
 
+            let expected_digest = if let Some(epoch) = &successor.recovery_epoch {
+                ProductEdgeExpiredManifestRecoveryProposalV1 {
+                    recovery_epoch: epoch.clone(),
+                    successor: expected_proposal,
+                }
+                .semantic_digest()?
+            } else {
+                expected_proposal.semantic_digest()?
+            };
+
             if supersession.successor_binding_identity != successor.binding_identity
-                || supersession.successor_proposal_digest != expected_proposal.semantic_digest()?
+                || supersession.successor_proposal_digest != expected_digest
             {
                 return Err(ProductEdgeError::Unavailable);
             }
@@ -1180,6 +1198,7 @@ impl ProductEdgePostgresOwnerV1 {
             "ALTER TABLE product_edge_deployment_bindings_v1 ADD COLUMN IF NOT EXISTS authorization_frontier_identity TEXT",
             "UPDATE product_edge_deployment_bindings_v1 SET authorization_identity=binding_json#>>'{authorization,authorization_identity}', issuance_receipt_identity=binding_json#>>'{authorization,issuance_receipt_identity}', authorization_frontier_identity=binding_json->>'authorization_frontier_identity' WHERE binding_json ? 'authorization_frontier_identity' AND (authorization_identity IS NULL OR issuance_receipt_identity IS NULL OR authorization_frontier_identity IS NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity) CHECK (predecessor_binding_identity <> ''), successor_binding_identity TEXT NOT NULL UNIQUE REFERENCES product_edge_deployment_bindings_v1(binding_identity) CHECK (successor_binding_identity <> '' AND successor_binding_identity <> predecessor_binding_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
             "CREATE TABLE IF NOT EXISTS product_edge_binding_manifests_v1 (binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), manifest_identity TEXT NOT NULL REFERENCES product_edge_operation_manifests_v1(manifest_identity), manifest_digest TEXT NOT NULL, PRIMARY KEY(binding_identity, manifest_identity))",
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_heads_v1 (deployment_identity TEXT PRIMARY KEY, binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), generation BIGINT NOT NULL, binding_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
@@ -1316,6 +1335,7 @@ impl ProductEdgePostgresOwnerV1 {
         }
 
         let mut manifest_identities = Vec::with_capacity(proposal.manifests.len());
+
         for manifest in &proposal.manifests {
             require_manifest_covers_binding(
                 manifest,
@@ -1347,6 +1367,7 @@ impl ProductEdgePostgresOwnerV1 {
             manifest_identities,
             binding_digest: String::new(),
             committed_at_epoch_ms: committed_at,
+            recovery_epoch: None,
         };
         stored.binding_digest = binding_digest(&stored)?;
         let receipt = binding_receipt(&stored);
@@ -1399,7 +1420,7 @@ impl ProductEdgePostgresOwnerV1 {
 
         for attempt in 0..2 {
             match self
-                .commit_successor_fence(&proposal, &proposal_digest)
+                .commit_successor_fence(&proposal, &proposal_digest, None)
                 .await
             {
                 Ok(Some(readback)) => return Ok(readback),
@@ -1412,9 +1433,49 @@ impl ProductEdgePostgresOwnerV1 {
         // A concurrent exact activation may change absence to presence after
         // this transaction's hint. Never chase that row while PE locks are
         // held: discard the complete transaction and restart once at entry.
+
         for attempt in 0..2 {
             match self
-                .activate_successor_phase_two(&proposal, &proposal_digest)
+                .activate_successor_phase_two(&proposal, &proposal_digest, None)
+                .await
+            {
+                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                result => return result,
+            }
+        }
+        Err(ProductEdgeError::Unavailable)
+    }
+
+    pub async fn recover_expired_manifests(
+        &self,
+        recovery: ProductEdgeExpiredManifestRecoveryProposalV1,
+    ) -> Result<ProductEdgeBootstrapReadbackV1, ProductEdgeError> {
+        recovery.validate()?;
+        let proposal_digest = recovery.semantic_digest()?;
+        let proposal = &recovery.successor;
+        if proposal.deployment_identity != self.deployment_identity {
+            return Err(ProductEdgeError::InvalidProposal("deployment mismatch"));
+        }
+
+        for attempt in 0..2 {
+            match self
+                .commit_successor_fence(proposal, &proposal_digest, Some(&recovery.recovery_epoch))
+                .await
+            {
+                Ok(Some(readback)) => return Ok(readback),
+                Ok(None) => break,
+                Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
+                Err(e) => return Err(e),
+            }
+        }
+
+        for attempt in 0..2 {
+            match self
+                .activate_successor_phase_two(
+                    proposal,
+                    &proposal_digest,
+                    Some(&recovery.recovery_epoch),
+                )
                 .await
             {
                 Err(ProductEdgeError::Unavailable) if attempt == 0 => {}
@@ -1428,6 +1489,7 @@ impl ProductEdgePostgresOwnerV1 {
         &self,
         proposal: &ProductEdgeSuccessorProposalV1,
         proposal_digest: &str,
+        recovery_epoch: Option<&ExpiredManifestRecoveryEpochV1>,
     ) -> Result<ProductEdgeBootstrapReadbackV1, ProductEdgeError> {
         // Phase two activates only from that exact durable fence.
         let mut transaction = begin_read_committed(&self.pool).await?;
@@ -1444,6 +1506,13 @@ impl ProductEdgePostgresOwnerV1 {
             if !binding_matches_successor(&existing, proposal)? {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
+            require_exact_recovery_sidecar(
+                &mut transaction,
+                &existing,
+                recovery_epoch,
+                proposal_digest,
+            )
+            .await?;
             let readback = load_bootstrap_readback(
                 &mut transaction,
                 &existing,
@@ -1484,6 +1553,7 @@ impl ProductEdgePostgresOwnerV1 {
                 proposal,
                 committed_at,
                 &authorization_plan,
+                recovery_epoch,
             )
             .await?;
         let manifest_identities = proposal
@@ -1512,6 +1582,7 @@ impl ProductEdgePostgresOwnerV1 {
             manifest_identities,
             binding_digest: String::new(),
             committed_at_epoch_ms: committed_at,
+            recovery_epoch: recovery_epoch.cloned(),
         };
         successor.binding_digest = binding_digest(&successor)?;
         let receipt = binding_receipt(&successor);
@@ -1529,6 +1600,28 @@ impl ProductEdgePostgresOwnerV1 {
             sqlx::query("INSERT INTO product_edge_binding_manifests_v1 (binding_identity, manifest_identity, manifest_digest) VALUES ($1,$2,$3)")
                 .bind(&successor.binding_identity).bind(&stored_manifest.manifest_identity).bind(&stored_manifest.manifest_digest)
                 .execute(&mut *transaction).await.map_err(storage)?;
+        }
+
+        if let Some(epoch) = recovery_epoch {
+            let recovery = StoredExpiredManifestRecoveryV1 {
+                schema_version: PRODUCT_EDGE_SCHEMA_V1,
+                proposal: ProductEdgeExpiredManifestRecoveryProposalV1 {
+                    recovery_epoch: epoch.clone(),
+                    successor: proposal.clone(),
+                },
+                proposal_digest: proposal_digest.to_string(),
+                committed_at_epoch_ms: committed_at,
+            };
+            sqlx::query("INSERT INTO product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity, recovery_epoch_digest, predecessor_binding_identity, successor_binding_identity, recovery_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+                .bind(&epoch.recovery_epoch_identity)
+                .bind(&epoch.recovery_epoch_digest)
+                .bind(&proposal.predecessor_binding_identity)
+                .bind(&proposal.binding_identity)
+                .bind(json(&recovery)?)
+                .bind(to_i64(committed_at)?)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
         }
         insert_outbox(
             &mut transaction,
@@ -1581,6 +1674,7 @@ impl ProductEdgePostgresOwnerV1 {
         &self,
         proposal: &ProductEdgeSuccessorProposalV1,
         proposal_digest: &str,
+        recovery_epoch: Option<&ExpiredManifestRecoveryEpochV1>,
     ) -> Result<Option<ProductEdgeBootstrapReadbackV1>, ProductEdgeError> {
         let mut transaction = begin_read_committed(&self.pool).await?;
         let (hinted_bindings, authorization_plan) = lock_deployment_authorizations(
@@ -1596,6 +1690,13 @@ impl ProductEdgePostgresOwnerV1 {
             if !binding_matches_successor(&existing, proposal)? {
                 return Err(ProductEdgeError::ConflictingReplay);
             }
+            require_exact_recovery_sidecar(
+                &mut transaction,
+                &existing,
+                recovery_epoch,
+                proposal_digest,
+            )
+            .await?;
             let readback = load_bootstrap_readback(
                 &mut transaction,
                 &existing,
@@ -1633,8 +1734,15 @@ impl ProductEdgePostgresOwnerV1 {
                 proposal,
                 fence_cut,
                 &authorization_plan,
+                recovery_epoch,
             )
             .await?;
+
+            if recovery_epoch.is_some() {
+                for manifest in &proposal.manifests {
+                    store_manifest(&mut transaction, manifest, fence_cut).await?;
+                }
+            }
             let mut fence = StoredSupersessionV1 {
                 schema_version: PRODUCT_EDGE_SCHEMA_V1,
                 binding_identity: current.binding_identity.clone(),
@@ -2844,13 +2952,15 @@ impl ProductEdgePostgresOwnerV1 {
         proposal: &ProductEdgeSuccessorProposalV1,
         read_cut: u64,
         authorization_plan: &LockedAuthorizationPlanV1,
+        recovery_epoch: Option<&ExpiredManifestRecoveryEpochV1>,
     ) -> Result<OperatorAuthorizationReadbackV1, ProductEdgeError> {
         if read_cut < proposal.valid_from_epoch_ms
             || read_cut >= proposal.valid_through_epoch_ms
             || proposal.valid_from_epoch_ms <= predecessor.valid_from_epoch_ms
             || proposal.effective_principal != predecessor.effective_principal
             || proposal.scope_policy_version != predecessor.scope_policy_version
-            || proposal.capability_policy_version != predecessor.capability_policy_version
+            || recovery_epoch.is_none()
+                && proposal.capability_policy_version != predecessor.capability_policy_version
             || proposal.audit_policy_version != predecessor.audit_policy_version
         {
             return Err(ProductEdgeError::Unavailable);
@@ -2872,27 +2982,48 @@ impl ProductEdgePostgresOwnerV1 {
             })
             .collect::<Result<Vec<_>, ProductEdgeError>>()?;
 
-        if predecessor.manifest_identities
-            != manifest_bindings
-                .iter()
-                .map(|manifest| manifest.manifest_identity.clone())
-                .collect::<Vec<_>>()
-        {
-            return Err(ProductEdgeError::Unavailable);
-        }
+        if let Some(epoch) = recovery_epoch {
+            let predecessor_authorization =
+                authorization_plan.get(&AuthorizationRequirementV1::historical(
+                    &predecessor.authorization,
+                    &predecessor.authorization_frontier_identity,
+                ))?;
 
-        for (proposal_manifest, manifest_binding) in
-            proposal.manifests.iter().zip(&manifest_bindings)
-        {
-            let stored =
-                load_manifest_by_identity(transaction, &manifest_binding.manifest_identity, false)
-                    .await?
-                    .ok_or(ProductEdgeError::Unavailable)?;
-
-            if stored.proposal != *proposal_manifest
-                || stored.manifest_digest != manifest_binding.manifest_digest
+            if predecessor_authorization.valid_through_epoch_ms()
+                != predecessor.valid_through_epoch_ms
+                || proposal.valid_from_epoch_ms
+                    != predecessor_authorization.valid_through_epoch_ms()
             {
                 return Err(ProductEdgeError::Unavailable);
+            }
+            verify_recovery_manifest_delta(transaction, predecessor, proposal, epoch).await?;
+        } else {
+            if read_cut >= predecessor.valid_through_epoch_ms
+                || predecessor.manifest_identities
+                    != manifest_bindings
+                        .iter()
+                        .map(|manifest| manifest.manifest_identity.clone())
+                        .collect::<Vec<_>>()
+            {
+                return Err(ProductEdgeError::Unavailable);
+            }
+
+            for (proposal_manifest, manifest_binding) in
+                proposal.manifests.iter().zip(&manifest_bindings)
+            {
+                let stored = load_manifest_by_identity(
+                    transaction,
+                    &manifest_binding.manifest_identity,
+                    false,
+                )
+                .await?
+                .ok_or(ProductEdgeError::Unavailable)?;
+
+                if stored.proposal != *proposal_manifest
+                    || stored.manifest_digest != manifest_binding.manifest_digest
+                {
+                    return Err(ProductEdgeError::Unavailable);
+                }
             }
         }
         let authorization = authorization_plan.get(&AuthorizationRequirementV1::current(
@@ -2906,6 +3037,7 @@ impl ProductEdgePostgresOwnerV1 {
         if authorization.scope().principal != predecessor.effective_principal
             || authorization.scope().permissions != predecessor.authorized_scope
             || authorization.operation_manifests() != manifest_bindings.as_slice()
+            || authorization.recovery_epoch() != recovery_epoch
             || proposal.valid_from_epoch_ms < authorization.not_before_epoch_ms()
             || proposal.valid_through_epoch_ms > authorization.valid_through_epoch_ms()
         {
@@ -2926,6 +3058,275 @@ fn require_successor_head(
         return Err(ProductEdgeError::ConflictingReplay);
     }
     Ok(())
+}
+
+async fn verify_recovery_manifest_delta(
+    transaction: &mut Transaction<'_, Postgres>,
+    predecessor: &StoredBindingV1,
+    proposal: &ProductEdgeSuccessorProposalV1,
+    epoch: &ExpiredManifestRecoveryEpochV1,
+) -> Result<(), ProductEdgeError> {
+    if proposal.valid_from_epoch_ms != predecessor.valid_through_epoch_ms
+        || epoch.predecessor_operation_manifests().len() != predecessor.manifest_identities.len()
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let mut predecessor_bindings = Vec::with_capacity(predecessor.manifest_identities.len());
+    let mut old_by_key = BTreeMap::new();
+
+    for identity in &predecessor.manifest_identities {
+        let stored = load_manifest_by_identity(transaction, identity, false)
+            .await?
+            .ok_or(ProductEdgeError::Unavailable)?;
+        predecessor_bindings.push(OperationManifestBindingV1 {
+            manifest_identity: stored.manifest_identity.clone(),
+            manifest_digest: stored.manifest_digest.clone(),
+        });
+
+        if old_by_key
+            .insert(stored.proposal.semantic_key(), stored)
+            .is_some()
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+    }
+    predecessor_bindings
+        .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+    if predecessor_bindings != epoch.predecessor_operation_manifests() {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    let mut new_by_key = BTreeMap::new();
+
+    for manifest in &proposal.manifests {
+        if manifest.effective_from_epoch_ms != proposal.valid_from_epoch_ms
+            || manifest.valid_through_epoch_ms < proposal.valid_through_epoch_ms
+            || new_by_key
+                .insert(manifest.semantic_key(), manifest)
+                .is_some()
+        {
+            return Err(ProductEdgeError::Unavailable);
+        }
+    }
+    let transition_old_keys = epoch
+        .manifest_transitions
+        .iter()
+        .filter_map(|transition| match transition {
+            ExpiredManifestRecoveryTransitionV1::Retained { semantic_key, .. }
+            | ExpiredManifestRecoveryTransitionV1::Removed { semantic_key, .. } => {
+                Some(semantic_key)
+            }
+            ExpiredManifestRecoveryTransitionV1::Added { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    let transition_new_keys = epoch
+        .manifest_transitions
+        .iter()
+        .filter_map(|transition| match transition {
+            ExpiredManifestRecoveryTransitionV1::Retained { semantic_key, .. }
+            | ExpiredManifestRecoveryTransitionV1::Added { semantic_key, .. } => Some(semantic_key),
+            ExpiredManifestRecoveryTransitionV1::Removed { .. } => None,
+        })
+        .collect::<Vec<_>>();
+
+    if old_by_key.keys().ne(transition_old_keys)
+        || new_by_key.keys().ne(transition_new_keys)
+        || epoch.successor_operation_manifests()
+            != proposal
+                .manifests
+                .iter()
+                .map(|manifest| {
+                    Ok(OperationManifestBindingV1 {
+                        manifest_identity: manifest.manifest_identity()?,
+                        manifest_digest: manifest.manifest_digest()?,
+                    })
+                })
+                .collect::<Result<Vec<_>, ProductEdgeError>>()?
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+
+    for transition in &epoch.manifest_transitions {
+        match transition {
+            ExpiredManifestRecoveryTransitionV1::Retained {
+                semantic_key,
+                predecessor_manifest,
+                successor_manifest,
+            } => {
+                let old = old_by_key
+                    .get(semantic_key)
+                    .ok_or(ProductEdgeError::Unavailable)?;
+                let new = new_by_key
+                    .get(semantic_key)
+                    .ok_or(ProductEdgeError::Unavailable)?;
+
+                if manifest_binding(old)? != *predecessor_manifest
+                    || manifest_binding_from_proposal(new)? != *successor_manifest
+                    || !retained_manifest_is_non_widening(
+                        &old.proposal,
+                        new,
+                        proposal.valid_from_epoch_ms,
+                    )
+                {
+                    return Err(ProductEdgeError::Unavailable);
+                }
+            }
+            ExpiredManifestRecoveryTransitionV1::Added {
+                semantic_key,
+                successor_manifest,
+            } => {
+                let new = new_by_key
+                    .get(semantic_key)
+                    .ok_or(ProductEdgeError::Unavailable)?;
+
+                if manifest_binding_from_proposal(new)? != *successor_manifest
+                    || !added_manifest_is_bounded(new)
+                {
+                    return Err(ProductEdgeError::Unavailable);
+                }
+            }
+            ExpiredManifestRecoveryTransitionV1::Removed {
+                semantic_key,
+                predecessor_manifest,
+            } => {
+                let old = old_by_key
+                    .get(semantic_key)
+                    .ok_or(ProductEdgeError::Unavailable)?;
+                if manifest_binding(old)? != *predecessor_manifest {
+                    return Err(ProductEdgeError::Unavailable);
+                }
+            }
+        }
+    }
+
+    if !recovery_capability_policy_is_valid(&predecessor.capability_policy_version, proposal, epoch)
+    {
+        return Err(ProductEdgeError::Unavailable);
+    }
+    Ok(())
+}
+
+fn manifest_binding(
+    stored: &StoredManifestV1,
+) -> Result<OperationManifestBindingV1, ProductEdgeError> {
+    Ok(OperationManifestBindingV1 {
+        manifest_identity: stored.proposal.manifest_identity()?,
+        manifest_digest: stored.proposal.manifest_digest()?,
+    })
+}
+
+fn manifest_binding_from_proposal(
+    proposal: &AgentOperationManifestProposalV1,
+) -> Result<OperationManifestBindingV1, ProductEdgeError> {
+    Ok(OperationManifestBindingV1 {
+        manifest_identity: proposal.manifest_identity()?,
+        manifest_digest: proposal.manifest_digest()?,
+    })
+}
+
+fn added_manifest_is_bounded(manifest: &AgentOperationManifestProposalV1) -> bool {
+    let target = manifest.target_owner.to_ascii_uppercase();
+    let prohibited_floor_present = ADDED_MANIFEST_PROHIBITED_FLOOR_V1.iter().all(|required| {
+        manifest
+            .prohibited_effects
+            .iter()
+            .any(|effect| effect == required)
+    });
+    prohibited_floor_present
+        && !target.contains("LIVE")
+        && !target.contains("TRADING")
+        && manifest.allowed_effects.iter().all(|effect| {
+            let effect = effect.to_ascii_uppercase();
+            !effect.contains("LIVE") && !effect.contains("TRADING")
+        })
+}
+
+fn retained_manifest_is_non_widening(
+    predecessor: &AgentOperationManifestProposalV1,
+    successor: &AgentOperationManifestProposalV1,
+    successor_start: u64,
+) -> bool {
+    successor.capability_policy_digest == predecessor.capability_policy_digest
+        && successor.effective_from_epoch_ms == predecessor.valid_through_epoch_ms
+        && successor.effective_from_epoch_ms == successor_start
+        && successor
+            .allowed_effects
+            .iter()
+            .all(|effect| predecessor.allowed_effects.contains(effect))
+        && predecessor
+            .prohibited_effects
+            .iter()
+            .all(|effect| successor.prohibited_effects.contains(effect))
+}
+
+fn recovery_capability_policy_is_valid(
+    predecessor_version: &str,
+    successor: &ProductEdgeSuccessorProposalV1,
+    epoch: &ExpiredManifestRecoveryEpochV1,
+) -> bool {
+    if epoch.evolves_capability_set() {
+        !successor.capability_policy_version.is_empty()
+            && successor.manifests.iter().all(|manifest| {
+                manifest.capability_policy_digest == successor.capability_policy_version
+            })
+    } else {
+        successor.capability_policy_version == predecessor_version
+    }
+}
+
+async fn require_exact_recovery_sidecar(
+    transaction: &mut Transaction<'_, Postgres>,
+    binding: &StoredBindingV1,
+    expected_epoch: Option<&ExpiredManifestRecoveryEpochV1>,
+    expected_digest: &str,
+) -> Result<(), ProductEdgeError> {
+    if binding.recovery_epoch.as_ref() != expected_epoch {
+        return Err(ProductEdgeError::ConflictingReplay);
+    }
+    let rows = sqlx::query("SELECT recovery_epoch_identity, recovery_epoch_digest, predecessor_binding_identity, successor_binding_identity, recovery_json, committed_at_epoch_ms FROM product_edge_expired_manifest_recoveries_v1 WHERE successor_binding_identity=$1 FOR SHARE")
+        .bind(&binding.binding_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    match expected_epoch {
+        None if rows.is_empty() => Ok(()),
+        None => Err(ProductEdgeError::ConflictingReplay),
+        Some(_) if rows.len() != 1 => Err(ProductEdgeError::Unavailable),
+        Some(epoch) => {
+            let row = &rows[0];
+            let stored: StoredExpiredManifestRecoveryV1 =
+                from_json(row.try_get("recovery_json").map_err(storage)?)?;
+
+            if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
+                || stored.proposal.validate().is_err()
+                || stored.proposal.recovery_epoch != *epoch
+                || stored.proposal.successor.binding_identity != binding.binding_identity
+                || stored.proposal_digest != expected_digest
+                || stored.proposal.semantic_digest()? != stored.proposal_digest
+                || row
+                    .try_get::<String, _>("recovery_epoch_identity")
+                    .map_err(storage)?
+                    != epoch.recovery_epoch_identity
+                || row
+                    .try_get::<String, _>("recovery_epoch_digest")
+                    .map_err(storage)?
+                    != epoch.recovery_epoch_digest
+                || row
+                    .try_get::<String, _>("predecessor_binding_identity")
+                    .map_err(storage)?
+                    != stored.proposal.successor.predecessor_binding_identity
+                || row
+                    .try_get::<String, _>("successor_binding_identity")
+                    .map_err(storage)?
+                    != binding.binding_identity
+                || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
+                    != stored.committed_at_epoch_ms
+            {
+                return Err(ProductEdgeError::Unavailable);
+            }
+            Ok(())
+        }
+    }
 }
 
 async fn commit_source_invocation_claim(
@@ -3679,6 +4080,21 @@ async fn verify_deployment_history(
             return Err(ProductEdgeError::Unavailable);
         }
 
+        if binding.predecessor_binding_identity.is_none() {
+            if binding.recovery_epoch.is_some() {
+                return Err(ProductEdgeError::Unavailable);
+            }
+        } else {
+            let proposal_digest = successor_proposal_digest(transaction, &binding).await?;
+            require_exact_recovery_sidecar(
+                transaction,
+                &binding,
+                binding.recovery_epoch.as_ref(),
+                &proposal_digest,
+            )
+            .await?;
+        }
+
         let supersession = load_supersession(transaction, &binding.binding_identity).await?;
         let is_current = index + 1 == binding_rows.len();
         if is_current {
@@ -3762,7 +4178,7 @@ async fn successor_proposal_digest(
                 .proposal,
         );
     }
-    ProductEdgeSuccessorProposalV1 {
+    let proposal = ProductEdgeSuccessorProposalV1 {
         deployment_identity: binding.deployment_identity.clone(),
         binding_identity: binding.binding_identity.clone(),
         predecessor_binding_identity: predecessor.clone(),
@@ -3776,8 +4192,17 @@ async fn successor_proposal_digest(
         valid_through_epoch_ms: binding.valid_through_epoch_ms,
         authorization: binding.authorization.clone(),
         manifests,
+    };
+
+    if let Some(epoch) = &binding.recovery_epoch {
+        ProductEdgeExpiredManifestRecoveryProposalV1 {
+            recovery_epoch: epoch.clone(),
+            successor: proposal,
+        }
+        .semantic_digest()
+    } else {
+        proposal.semantic_digest()
     }
-    .semantic_digest()
 }
 
 async fn load_supersession(
@@ -3939,6 +4364,7 @@ fn decode_binding_row(
 ) -> Result<(StoredBindingV1, StoredBindingReceiptV1), ProductEdgeError> {
     let stored: StoredBindingV1 = from_json(row.try_get("binding_json").map_err(storage)?)?;
     let receipt: StoredBindingReceiptV1 = from_json(row.try_get("receipt_json").map_err(storage)?)?;
+
     if stored.schema_version != PRODUCT_EDGE_SCHEMA_V1
         || row
             .try_get::<String, _>("binding_identity")
@@ -4954,12 +5380,15 @@ mod tests {
     use rstest::rstest;
     use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
     use vibe_operator_authorization::{
-        OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
-        OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationRevocationProposalV1,
-        OperatorAuthorizationScopeV1, PORTFOLIO_OWNER_AUDIENCE_V1, PORTFOLIO_VIEW_PERMISSION_V1,
-        PortfolioResourceGrantContentV1, PortfolioResourceGrantIssuanceProposalV1,
-        PortfolioResourceGrantRevocationProposalV1, PortfolioResourceGrantSuccessorProposalV1,
-        PortfolioResourceModeV1, PortfolioResourceV1, ProductEdgeManifestBindingV1,
+        ExpiredManifestRecoveryEpochV1, ExpiredManifestRecoveryTransitionV1,
+        OperationManifestBindingV1, OperatorAuthorizationExpiredManifestRecoveryProposalV1,
+        OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuerPostgresV1,
+        OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationScopeV1,
+        OperatorAuthorizationSuccessorIssuanceProposalV1, PORTFOLIO_OWNER_AUDIENCE_V1,
+        PORTFOLIO_VIEW_PERMISSION_V1, PortfolioResourceGrantContentV1,
+        PortfolioResourceGrantIssuanceProposalV1, PortfolioResourceGrantRevocationProposalV1,
+        PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceModeV1, PortfolioResourceV1,
+        ProductEdgeManifestBindingV1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -5022,6 +5451,109 @@ mod tests {
         assert!(matches!(
             require_manifest_covers_binding(&manifest, 100, 201, 100),
             Err(ProductEdgeError::Unavailable)
+        ));
+    }
+
+    #[rstest]
+    fn recovery_capability_evolution_is_explicit_and_fail_closed() {
+        let manifest =
+            |operation: &str, from: u64, through: u64| AgentOperationManifestProposalV1 {
+                operation: operation.into(),
+                operation_schema: format!("{operation}-schema"),
+                target_owner: "R_AND_D".into(),
+                allowed_effects: vec!["R_AND_D_MUTATION_V1".into()],
+                prohibited_effects: ADDED_MANIFEST_PROHIBITED_FLOOR_V1
+                    .iter()
+                    .map(|effect| (*effect).to_string())
+                    .collect(),
+                capability_policy_digest: "policy-v2".into(),
+                effective_from_epoch_ms: from,
+                valid_through_epoch_ms: through,
+            };
+        let binding = |manifest: &AgentOperationManifestProposalV1| OperationManifestBindingV1 {
+            manifest_identity: manifest.manifest_identity().unwrap(),
+            manifest_digest: manifest.manifest_digest().unwrap(),
+        };
+        let retained_old = manifest("alpha.retained", 10, 20);
+        let retained_new = manifest("alpha.retained", 20, 30);
+        assert!(retained_manifest_is_non_widening(
+            &retained_old,
+            &retained_new,
+            20
+        ));
+        let mut widened = retained_new.clone();
+        widened.allowed_effects.push("R_AND_D_WRITE_V2".into());
+        assert!(!retained_manifest_is_non_widening(
+            &retained_old,
+            &widened,
+            20
+        ));
+        let mut weakened = retained_new.clone();
+        weakened.prohibited_effects.remove(0);
+        assert!(!retained_manifest_is_non_widening(
+            &retained_old,
+            &weakened,
+            20
+        ));
+
+        let added = manifest("gamma.added", 20, 30);
+        assert!(added_manifest_is_bounded(&added));
+        let mut missing_floor = added.clone();
+        missing_floor.prohibited_effects.remove(0);
+        assert!(!added_manifest_is_bounded(&missing_floor));
+        let mut live_target = added.clone();
+        live_target.target_owner = "LIVE_EXECUTION".into();
+        assert!(!added_manifest_is_bounded(&live_target));
+        let mut trading_effect = added.clone();
+        trading_effect.allowed_effects = vec!["LIVE_TRADING_V1".into()];
+        assert!(!added_manifest_is_bounded(&trading_effect));
+
+        let removed = manifest("beta.removed", 10, 20);
+        let epoch = ExpiredManifestRecoveryEpochV1::new(vec![
+            ExpiredManifestRecoveryTransitionV1::Retained {
+                semantic_key: retained_old.semantic_key(),
+                predecessor_manifest: binding(&retained_old),
+                successor_manifest: binding(&retained_new),
+            },
+            ExpiredManifestRecoveryTransitionV1::Removed {
+                semantic_key: removed.semantic_key(),
+                predecessor_manifest: binding(&removed),
+            },
+            ExpiredManifestRecoveryTransitionV1::Added {
+                semantic_key: added.semantic_key(),
+                successor_manifest: binding(&added),
+            },
+        ])
+        .unwrap();
+        let proposal = ProductEdgeSuccessorProposalV1 {
+            deployment_identity: "deployment-1".into(),
+            binding_identity: "binding-2".into(),
+            predecessor_binding_identity: "binding-1".into(),
+            expected_history_head: "binding-1".into(),
+            generation: 2,
+            effective_principal: "principal-1".into(),
+            scope_policy_version: "scope-v1".into(),
+            capability_policy_version: "policy-v2".into(),
+            audit_policy_version: "audit-v1".into(),
+            valid_from_epoch_ms: 20,
+            valid_through_epoch_ms: 30,
+            authorization: OperatorAuthorizationLocatorV1 {
+                authorization_identity: "authorization-2".into(),
+                issuance_receipt_identity: "receipt-2".into(),
+            },
+            manifests: vec![retained_new, added],
+        };
+        assert!(recovery_capability_policy_is_valid(
+            "policy-v1",
+            &proposal,
+            &epoch
+        ));
+        let mut mismatched = proposal;
+        mismatched.manifests[0].capability_policy_digest = "other-policy".into();
+        assert!(!recovery_capability_policy_is_valid(
+            "policy-v1",
+            &mismatched,
+            &epoch
         ));
     }
 
@@ -5134,6 +5666,7 @@ mod tests {
             manifest_identities: vec!["manifest-1".to_string()],
             binding_digest: format!("sha256:binding-{generation}"),
             committed_at_epoch_ms: generation * 100,
+            recovery_epoch: None,
         }
     }
 
@@ -5817,6 +6350,348 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE PostgreSQL topology"]
+    async fn expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let suffix = unique_suffix();
+        let now = now_ms().unwrap();
+        let expiry = now.saturating_add(500);
+        let successor_expiry = expiry.saturating_add(600_000);
+        let principal = format!("recovery-principal-{suffix}");
+        let deployment = format!("recovery-deployment-{suffix}");
+        let first_binding = format!("recovery-binding-1-{suffix}");
+        let second_binding = format!("recovery-binding-2-{suffix}");
+        let capability_digest = format!("sha256:{}", "a".repeat(64));
+        let prohibited_floor = ADDED_MANIFEST_PROHIBITED_FLOOR_V1
+            .iter()
+            .map(|effect| (*effect).to_string())
+            .collect::<Vec<_>>();
+        let first_manifest = AgentOperationManifestProposalV1 {
+            operation: "alpha.recovery.retained.v1".into(),
+            operation_schema: "alpha-recovery-retained-v1".into(),
+            target_owner: "R_AND_D".into(),
+            allowed_effects: vec!["R_AND_D_RESEARCH_MUTATION_V1".into()],
+            prohibited_effects: prohibited_floor.clone(),
+            capability_policy_digest: capability_digest.clone(),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: expiry,
+        };
+        let mut second_manifest = first_manifest.clone();
+        second_manifest.effective_from_epoch_ms = expiry;
+        second_manifest.valid_through_epoch_ms = successor_expiry;
+        let removed_manifest = AgentOperationManifestProposalV1 {
+            operation: "beta.recovery.removed.v1".into(),
+            operation_schema: "beta-recovery-removed-v1".into(),
+            target_owner: "R_AND_D".into(),
+            allowed_effects: vec!["R_AND_D_OLD_MUTATION_V1".into()],
+            prohibited_effects: prohibited_floor.clone(),
+            capability_policy_digest: capability_digest.clone(),
+            effective_from_epoch_ms: now.saturating_sub(1_000),
+            valid_through_epoch_ms: expiry,
+        };
+        let added_manifest = AgentOperationManifestProposalV1 {
+            operation: "gamma.recovery.added.v1".into(),
+            operation_schema: "gamma-recovery-added-v1".into(),
+            target_owner: "R_AND_D".into(),
+            allowed_effects: vec!["R_AND_D_S3_MUTATION_V1".into()],
+            prohibited_effects: prohibited_floor,
+            capability_policy_digest: capability_digest.clone(),
+            effective_from_epoch_ms: expiry,
+            valid_through_epoch_ms: successor_expiry,
+        };
+        let first_manifest_binding = OperationManifestBindingV1 {
+            manifest_identity: first_manifest.manifest_identity().unwrap(),
+            manifest_digest: first_manifest.manifest_digest().unwrap(),
+        };
+        let second_manifest_binding = OperationManifestBindingV1 {
+            manifest_identity: second_manifest.manifest_identity().unwrap(),
+            manifest_digest: second_manifest.manifest_digest().unwrap(),
+        };
+        let removed_manifest_binding = OperationManifestBindingV1 {
+            manifest_identity: removed_manifest.manifest_identity().unwrap(),
+            manifest_digest: removed_manifest.manifest_digest().unwrap(),
+        };
+        let added_manifest_binding = OperationManifestBindingV1 {
+            manifest_identity: added_manifest.manifest_identity().unwrap(),
+            manifest_digest: added_manifest.manifest_digest().unwrap(),
+        };
+        let epoch = ExpiredManifestRecoveryEpochV1::new(vec![
+            ExpiredManifestRecoveryTransitionV1::Retained {
+                semantic_key: first_manifest.semantic_key(),
+                predecessor_manifest: first_manifest_binding.clone(),
+                successor_manifest: second_manifest_binding.clone(),
+            },
+            ExpiredManifestRecoveryTransitionV1::Removed {
+                semantic_key: removed_manifest.semantic_key(),
+                predecessor_manifest: removed_manifest_binding.clone(),
+            },
+            ExpiredManifestRecoveryTransitionV1::Added {
+                semantic_key: added_manifest.semantic_key(),
+                successor_manifest: added_manifest_binding.clone(),
+            },
+        ])
+        .unwrap();
+        let mut first_manifest_bindings =
+            vec![first_manifest_binding.clone(), removed_manifest_binding];
+        first_manifest_bindings
+            .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+        let mut first_manifests = vec![first_manifest.clone(), removed_manifest];
+        first_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
+        let first_authorization = issuer
+            .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("recovery-authorization-1-{suffix}"),
+                issuer_identity: "operator-authorization-issuer-test-v1".into(),
+                issuer_key_version: "test-key-v1".into(),
+                scope: OperatorAuthorizationScopeV1 {
+                    principal: principal.clone(),
+                    audience: "R_AND_D".into(),
+                    permissions: vec!["research:submit".into()],
+                },
+                request_proof_digest: "sha256:recovery-proof".into(),
+                operation_manifests: first_manifest_bindings,
+                not_before_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: expiry,
+                expected_revocation_head: "EMPTY".into(),
+            })
+            .await
+            .unwrap();
+        let owner = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            &deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".into(),
+                issuer_key_version: "test-key-v1".into(),
+                audience: "R_AND_D".into(),
+            },
+        )
+        .await
+        .unwrap();
+        owner
+            .bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
+                deployment_identity: deployment.clone(),
+                binding_identity: first_binding.clone(),
+                expected_history_head: "EMPTY".into(),
+                generation: 1,
+                effective_principal: principal.clone(),
+                scope_policy_version: "scope-v1".into(),
+                capability_policy_version: "capability-v1".into(),
+                audit_policy_version: "audit-v1".into(),
+                valid_from_epoch_ms: now.saturating_sub(1_000),
+                valid_through_epoch_ms: expiry,
+                authorization: first_authorization.locator(),
+                manifests: first_manifests,
+            })
+            .await
+            .unwrap();
+        let pe_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let old_rows: (serde_json::Value, serde_json::Value) = sqlx::query_as(
+            "SELECT binding_json, (SELECT manifest_json FROM product_edge_operation_manifests_v1 WHERE manifest_identity=$2) FROM product_edge_deployment_bindings_v1 WHERE binding_identity=$1",
+        )
+        .bind(&first_binding)
+        .bind(first_manifest.manifest_identity().unwrap())
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        let remaining = expiry.saturating_sub(now_ms().unwrap());
+        tokio::time::sleep(Duration::from_millis(remaining.saturating_add(25))).await;
+
+        let ordinary_authorization = OperatorAuthorizationSuccessorIssuanceProposalV1 {
+            predecessor_authorization: first_authorization.locator(),
+            expected_current_frontier_identity: first_authorization
+                .frontier()
+                .frontier_identity()
+                .into(),
+            successor: OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("ordinary-authorization-2-{suffix}"),
+                valid_through_epoch_ms: successor_expiry,
+                ..first_authorization_proposal(&first_authorization, expiry)
+            },
+        };
+        assert!(matches!(
+            issuer.issue_successor(ordinary_authorization).await,
+            Err(OperatorAuthorizationError::ConflictingReplay)
+        ));
+        let mut successor_manifest_bindings = vec![second_manifest_binding, added_manifest_binding];
+        successor_manifest_bindings
+            .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+        let mut successor_manifests = vec![second_manifest, added_manifest];
+        successor_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
+
+        let recovery_authorization = OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
+            recovery_epoch: epoch.clone(),
+            predecessor_authorization: first_authorization.locator(),
+            expected_current_frontier_identity: first_authorization
+                .frontier()
+                .frontier_identity()
+                .into(),
+            successor: OperatorAuthorizationIssuanceProposalV1 {
+                authorization_identity: format!("recovery-authorization-2-{suffix}"),
+                issuer_identity: first_authorization.issuer_identity().into(),
+                issuer_key_version: first_authorization.issuer_key_version().into(),
+                scope: first_authorization.scope().clone(),
+                request_proof_digest: first_authorization.request_proof_digest().into(),
+                operation_manifests: successor_manifest_bindings,
+                not_before_epoch_ms: expiry,
+                valid_through_epoch_ms: successor_expiry,
+                expected_revocation_head: "EMPTY".into(),
+            },
+        };
+        let mut widened_authorization = recovery_authorization.clone();
+        widened_authorization
+            .successor
+            .authorization_identity
+            .push_str("-widened");
+        widened_authorization
+            .successor
+            .scope
+            .permissions
+            .push("trade:live".into());
+        assert!(matches!(
+            issuer
+                .recover_expired_manifests(widened_authorization)
+                .await,
+            Err(OperatorAuthorizationError::ConflictingReplay)
+        ));
+        let mut stale_frontier = recovery_authorization.clone();
+        stale_frontier
+            .successor
+            .authorization_identity
+            .push_str("-stale-frontier");
+        stale_frontier
+            .expected_current_frontier_identity
+            .push_str("-stale");
+        assert!(matches!(
+            issuer.recover_expired_manifests(stale_frontier).await,
+            Err(OperatorAuthorizationError::ConflictingReplay)
+        ));
+        let (first_recovery, concurrent_recovery) = tokio::join!(
+            issuer.recover_expired_manifests(recovery_authorization.clone()),
+            issuer.recover_expired_manifests(recovery_authorization.clone()),
+        );
+        let second_authorization = first_recovery.unwrap();
+        assert_eq!(concurrent_recovery.unwrap(), second_authorization);
+        assert_eq!(
+            issuer
+                .recover_expired_manifests(recovery_authorization)
+                .await
+                .unwrap(),
+            second_authorization
+        );
+        let expired_request = ProductEdgeAdmissionRequestV1 {
+            request_identity: format!("recovery-before-pe-{suffix}"),
+            typed_payload: serde_json::json!({"request_identity": format!("recovery-before-pe-{suffix}")}),
+            operation: first_manifest.operation.clone(),
+            operation_schema: first_manifest.operation_schema.clone(),
+            target_owner: first_manifest.target_owner.clone(),
+            requested_effects: first_manifest.allowed_effects.clone(),
+            request_proof_digest: "sha256:recovery-proof".into(),
+            audit_correlation: format!("recovery:{suffix}"),
+        };
+        assert!(matches!(
+            owner.admit_request(expired_request).await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let recovery = ProductEdgeExpiredManifestRecoveryProposalV1 {
+            recovery_epoch: epoch,
+            successor: ProductEdgeSuccessorProposalV1 {
+                deployment_identity: deployment.clone(),
+                binding_identity: second_binding,
+                predecessor_binding_identity: first_binding.clone(),
+                expected_history_head: first_binding.clone(),
+                generation: 2,
+                effective_principal: principal,
+                scope_policy_version: "scope-v1".into(),
+                capability_policy_version: capability_digest,
+                audit_policy_version: "audit-v1".into(),
+                valid_from_epoch_ms: expiry,
+                valid_through_epoch_ms: successor_expiry,
+                authorization: second_authorization.locator(),
+                manifests: successor_manifests,
+            },
+        };
+        let (first_binding_recovery, concurrent_binding_recovery) = tokio::join!(
+            owner.recover_expired_manifests(recovery.clone()),
+            owner.recover_expired_manifests(recovery.clone()),
+        );
+        let recovered = first_binding_recovery.unwrap();
+        assert_eq!(concurrent_binding_recovery.unwrap(), recovered);
+        assert_eq!(
+            owner
+                .recover_expired_manifests(recovery.clone())
+                .await
+                .unwrap(),
+            recovered
+        );
+        let mut changed_replay = recovery.clone();
+        changed_replay.successor.valid_through_epoch_ms = changed_replay
+            .successor
+            .valid_through_epoch_ms
+            .saturating_add(1);
+        assert!(matches!(
+            owner.recover_expired_manifests(changed_replay).await,
+            Err(ProductEdgeError::ConflictingReplay | ProductEdgeError::InvalidProposal(_))
+        ));
+        let mut stale_head = recovery.clone();
+        stale_head
+            .successor
+            .predecessor_binding_identity
+            .push_str("-stale");
+        stale_head.successor.expected_history_head =
+            stale_head.successor.predecessor_binding_identity.clone();
+        assert!(matches!(
+            owner.recover_expired_manifests(stale_head).await,
+            Err(ProductEdgeError::ConflictingReplay)
+        ));
+        let restarted = ProductEdgePostgresOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
+            deployment,
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "operator-authorization-issuer-test-v1".into(),
+                issuer_key_version: "test-key-v1".into(),
+                audience: "R_AND_D".into(),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            restarted.recover_expired_manifests(recovery).await.unwrap(),
+            recovered
+        );
+        let preserved_rows: (serde_json::Value, serde_json::Value) = sqlx::query_as(
+            "SELECT binding_json, (SELECT manifest_json FROM product_edge_operation_manifests_v1 WHERE manifest_identity=$2) FROM product_edge_deployment_bindings_v1 WHERE binding_identity=$1",
+        )
+        .bind(&first_binding)
+        .bind(first_manifest.manifest_identity().unwrap())
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(preserved_rows, old_rows);
+    }
+
+    fn first_authorization_proposal(
+        readback: &OperatorAuthorizationReadbackV1,
+        expiry: u64,
+    ) -> OperatorAuthorizationIssuanceProposalV1 {
+        OperatorAuthorizationIssuanceProposalV1 {
+            authorization_identity: readback.locator().authorization_identity,
+            issuer_identity: readback.issuer_identity().into(),
+            issuer_key_version: readback.issuer_key_version().into(),
+            scope: readback.scope().clone(),
+            request_proof_digest: readback.request_proof_digest().into(),
+            operation_manifests: readback.operation_manifests().to_vec(),
+            not_before_epoch_ms: readback.not_before_epoch_ms(),
+            valid_through_epoch_ms: expiry,
+            expected_revocation_head: "EMPTY".into(),
+        }
+    }
+
+    #[tokio::test]
     #[ignore = "requires the disposable canonical OA/PE/R&D/Qualification PostgreSQL topology"]
     async fn genesis_admission_claim_cutover_and_revocation_are_canonical() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
@@ -6451,7 +7326,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let waiting_fence = owner.commit_successor_fence(&successor, &successor_digest);
+        let waiting_fence = owner.commit_successor_fence(&successor, &successor_digest, None);
         tokio::pin!(waiting_fence);
         assert!(
             tokio::time::timeout(Duration::from_millis(100), &mut waiting_fence)
@@ -6469,7 +7344,7 @@ mod tests {
         );
         assert_eq!(
             owner
-                .commit_successor_fence(&successor, &successor_digest)
+                .commit_successor_fence(&successor, &successor_digest, None)
                 .await
                 .unwrap(),
             None,

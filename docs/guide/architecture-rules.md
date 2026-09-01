@@ -62,6 +62,15 @@ the same bytes; concurrent or changed meaning conflicts without creating another
 commits the exact predecessor `SUPERSEDED` fence and only then may commit its policy-equivalent successor
 `ACTIVE`; the zero-active interval is fail closed and no request may recreate genesis.
 
+An expired predecessor cannot use ordinary authorization or deployment successor paths. Its only forward recovery is
+one explicit `ExpiredManifestRecoveryEpochV1` binding exact authorization and deployment heads, the current revocation
+frontier, and a complete sorted `RETAINED`/`ADDED`/`REMOVED` manifest transition set. Retained capabilities only narrow;
+added capabilities stay inside unchanged principal, audience, scope, proof, scope-policy and audit-policy bounds and
+retain the live-trading, real-trading and protected-feedback prohibition floor; removal grants nothing. The Issuer may
+append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority. Product Edge commits one
+irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the same epoch, partial recovery stays
+fail closed, and no old issuance, binding, manifest, admission, receipt, outbox, or Owner fact is rewritten.
+
 An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
 deployment binding and head, effective principal and scope, authorization identity, issuer and key version,
 validity and revocation frontier, manifest identity and digest, operation, schema, target and effects, time

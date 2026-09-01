@@ -7,13 +7,14 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use crate::{
-    AuthorizationReadModeV1, GENESIS_REVOCATION_FRONTIER, OPERATOR_AUTHORIZATION_SCHEMA_V1,
-    OperatorAuthorizationError, OperatorAuthorizationIssuanceProposalV1,
-    OperatorAuthorizationIssuanceReceiptV1, OperatorAuthorizationLocatorV1,
-    OperatorAuthorizationReadbackV1, OperatorAuthorizationRevocationFrontierV1,
-    OperatorAuthorizationRevocationProposalV1, OperatorAuthorizationSuccessorIssuanceProposalV1,
-    UntrustedCanonicalAuthorizationEvidenceV1, UntrustedCanonicalPortfolioResourceGrantEvidenceV1,
-    canonical_digest, identity,
+    AuthorizationReadModeV1, ExpiredManifestRecoveryEpochV1, GENESIS_REVOCATION_FRONTIER,
+    OPERATOR_AUTHORIZATION_SCHEMA_V1, OperatorAuthorizationError,
+    OperatorAuthorizationExpiredManifestRecoveryProposalV1,
+    OperatorAuthorizationIssuanceProposalV1, OperatorAuthorizationIssuanceReceiptV1,
+    OperatorAuthorizationLocatorV1, OperatorAuthorizationReadbackV1,
+    OperatorAuthorizationRevocationFrontierV1, OperatorAuthorizationRevocationProposalV1,
+    OperatorAuthorizationSuccessorIssuanceProposalV1, UntrustedCanonicalAuthorizationEvidenceV1,
+    UntrustedCanonicalPortfolioResourceGrantEvidenceV1, canonical_digest, identity,
 };
 
 pub use portfolio_resource_grant::{
@@ -33,6 +34,8 @@ struct StoredIssuanceV1 {
     predecessor_authorization: Option<OperatorAuthorizationLocatorV1>,
     #[serde(default)]
     admitted_frontier_identity: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    recovery_epoch: Option<ExpiredManifestRecoveryEpochV1>,
     issuance_digest: String,
     committed_at_epoch_ms: u64,
 }
@@ -104,6 +107,15 @@ struct StoredOutboxV1 {
     aggregate_identity: String,
     event_kind: String,
     payload_digest: String,
+    committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StoredExpiredManifestRecoveryV1 {
+    schema_version: u32,
+    proposal: OperatorAuthorizationExpiredManifestRecoveryProposalV1,
+    proposal_digest: String,
     committed_at_epoch_ms: u64,
 }
 
@@ -230,6 +242,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_revocation_frontiers_v1 (frontier_identity TEXT PRIMARY KEY, issuer_identity TEXT NOT NULL, principal TEXT NOT NULL, audience TEXT NOT NULL, scope_digest TEXT NOT NULL, sequence BIGINT NOT NULL, predecessor_frontier_identity TEXT, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(scope_digest, sequence))",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_revocation_heads_v1 (scope_digest TEXT PRIMARY KEY, frontier_identity TEXT NOT NULL REFERENCES operator_authorization_private.operator_authorization_revocation_frontiers_v1(frontier_identity), sequence BIGINT NOT NULL, frontier_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_authorization_identity TEXT NOT NULL CHECK (predecessor_authorization_identity <> ''), successor_authorization_identity TEXT NOT NULL UNIQUE REFERENCES operator_authorization_private.operator_authorization_issuances_v1(authorization_identity) CHECK (successor_authorization_identity <> '' AND successor_authorization_identity <> predecessor_authorization_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
             "CREATE INDEX IF NOT EXISTS operator_authorization_issuance_scope_v1 ON operator_authorization_private.operator_authorization_issuances_v1(scope_digest, authorization_identity)",
             "CREATE INDEX IF NOT EXISTS operator_authorization_outbox_aggregate_v1 ON operator_authorization_private.operator_authorization_owner_outbox_v1(aggregate_identity, event_kind)",
         ] {
@@ -303,6 +316,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             proposal,
             predecessor_authorization: None,
             admitted_frontier_identity: None,
+            recovery_epoch: None,
             issuance_digest: semantic_digest,
             committed_at_epoch_ms: committed_at,
         };
@@ -578,11 +592,14 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .await?
             .ok_or(OperatorAuthorizationError::Unavailable)?;
         let current = history.current()?.clone();
+        let committed_at = now_ms()?;
+
         if history.issuance_head()? != &predecessor
             || current.frontier_identity != proposal.expected_current_frontier_identity
             || current.revocations.iter().any(|entry| {
                 entry.authorization_identity == predecessor.proposal.authorization_identity
             })
+            || committed_at >= predecessor.proposal.valid_through_epoch_ms
         {
             return Err(OperatorAuthorizationError::ConflictingReplay);
         }
@@ -598,7 +615,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         {
             return Err(OperatorAuthorizationError::ConflictingReplay);
         }
-        let committed_at = now_ms()?;
+
         if committed_at < proposal.successor.not_before_epoch_ms
             || committed_at >= proposal.successor.valid_through_epoch_ms
         {
@@ -611,6 +628,7 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             proposal: proposal.successor,
             predecessor_authorization: Some(proposal.predecessor_authorization),
             admitted_frontier_identity: Some(proposal.expected_current_frontier_identity),
+            recovery_epoch: None,
             issuance_digest: semantic_digest,
             committed_at_epoch_ms: committed_at,
         };
@@ -624,6 +642,195 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             .bind(&stored.issuance_digest)
             .bind(json(&stored)?)
             .bind(json(&receipt)?)
+            .bind(to_i64(committed_at)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        insert_outbox(
+            &mut transaction,
+            &receipt.receipt_identity,
+            &stored.proposal.authorization_identity,
+            ISSUED_EVENT,
+            &receipt,
+            committed_at,
+        )
+        .await?;
+        let verified = verify_scope_history(&mut transaction, &scope_digest, false, false)
+            .await?
+            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        if verified.issuance_head()? != &stored || verified.current()? != &current {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
+        let result = load_verified(
+            &mut transaction,
+            &OperatorAuthorizationLocatorV1 {
+                authorization_identity: stored.proposal.authorization_identity.clone(),
+                issuance_receipt_identity: receipt.receipt_identity,
+            },
+            AuthorizationReadModeV1::Current {
+                read_cut_epoch_ms: committed_at,
+            },
+            false,
+        )
+        .await?;
+        transaction.commit().await.map_err(storage)?;
+        Ok(result)
+    }
+
+    pub async fn recover_expired_manifests(
+        &self,
+        proposal: OperatorAuthorizationExpiredManifestRecoveryProposalV1,
+    ) -> Result<OperatorAuthorizationReadbackV1, OperatorAuthorizationError> {
+        proposal.validate()?;
+        let semantic_digest = proposal.semantic_digest()?;
+        let scope_digest = proposal.successor.scope.digest()?;
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let mut lock_keys = [
+            format!(
+                "operator-authorization-identity:{}",
+                proposal.successor.authorization_identity
+            ),
+            format!("operator-authorization-scope:{scope_digest}"),
+        ];
+        lock_keys.sort();
+        for lock_key in lock_keys {
+            sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+                .bind(lock_key)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
+        }
+
+        if let Some(existing) = load_issuance_row(
+            &mut transaction,
+            &proposal.successor.authorization_identity,
+            CanonicalRowLockV1::Update,
+        )
+        .await?
+        {
+            if existing.proposal != proposal.successor
+                || existing.predecessor_authorization
+                    != Some(proposal.predecessor_authorization.clone())
+                || existing.admitted_frontier_identity
+                    != Some(proposal.expected_current_frontier_identity.clone())
+                || existing.recovery_epoch != Some(proposal.recovery_epoch.clone())
+                || existing.issuance_digest != semantic_digest
+            {
+                return Err(OperatorAuthorizationError::ConflictingReplay);
+            }
+            let recovery = load_expired_manifest_recovery(
+                &mut transaction,
+                &proposal.recovery_epoch.recovery_epoch_identity,
+            )
+            .await?
+            .ok_or(OperatorAuthorizationError::Unavailable)?;
+            if recovery.proposal != proposal || recovery.proposal_digest != semantic_digest {
+                return Err(OperatorAuthorizationError::ConflictingReplay);
+            }
+            lock_current_rows_for_update(&mut transaction, &existing).await?;
+            let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
+                .await?
+                .ok_or(OperatorAuthorizationError::Unavailable)?;
+            if history.issuance(&existing.proposal.authorization_identity)? != &existing {
+                return Err(OperatorAuthorizationError::Unavailable);
+            }
+            let result = load_verified(
+                &mut transaction,
+                &OperatorAuthorizationLocatorV1 {
+                    authorization_identity: existing.proposal.authorization_identity.clone(),
+                    issuance_receipt_identity: issuance_receipt(&existing).receipt_identity,
+                },
+                AuthorizationReadModeV1::CurrentAtLock,
+                false,
+            )
+            .await?;
+            transaction.commit().await.map_err(storage)?;
+            return Ok(result);
+        }
+
+        let predecessor = load_issuance_row(
+            &mut transaction,
+            &proposal.predecessor_authorization.authorization_identity,
+            CanonicalRowLockV1::Update,
+        )
+        .await?
+        .ok_or(OperatorAuthorizationError::Unavailable)?;
+
+        if issuance_receipt(&predecessor).receipt_identity
+            != proposal.predecessor_authorization.issuance_receipt_identity
+        {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
+
+        if predecessor.proposal.scope.digest()? != scope_digest {
+            return Err(OperatorAuthorizationError::ConflictingReplay);
+        }
+        lock_current_rows_for_update(&mut transaction, &predecessor).await?;
+        let history = verify_scope_history(&mut transaction, &scope_digest, false, false)
+            .await?
+            .ok_or(OperatorAuthorizationError::Unavailable)?;
+        let current = history.current()?.clone();
+        let committed_at = now_ms()?;
+
+        if history.issuance_head()? != &predecessor
+            || current.frontier_identity != proposal.expected_current_frontier_identity
+            || current.revocations.iter().any(|entry| {
+                entry.authorization_identity == predecessor.proposal.authorization_identity
+            })
+            || committed_at < predecessor.proposal.valid_through_epoch_ms
+        {
+            return Err(OperatorAuthorizationError::ConflictingReplay);
+        }
+
+        if proposal.recovery_epoch.predecessor_operation_manifests()
+            != predecessor.proposal.operation_manifests
+            || proposal.successor.issuer_identity != predecessor.proposal.issuer_identity
+            || proposal.successor.issuer_key_version != predecessor.proposal.issuer_key_version
+            || proposal.successor.scope != predecessor.proposal.scope
+            || proposal.successor.request_proof_digest != predecessor.proposal.request_proof_digest
+            || proposal.successor.not_before_epoch_ms != predecessor.proposal.valid_through_epoch_ms
+            || proposal.successor.valid_through_epoch_ms
+                <= predecessor.proposal.valid_through_epoch_ms
+            || committed_at >= proposal.successor.valid_through_epoch_ms
+        {
+            return Err(OperatorAuthorizationError::ConflictingReplay);
+        }
+
+        let stored = StoredIssuanceV1 {
+            schema_version: OPERATOR_AUTHORIZATION_SCHEMA_V1,
+            proposal: proposal.successor.clone(),
+            predecessor_authorization: Some(proposal.predecessor_authorization.clone()),
+            admitted_frontier_identity: Some(proposal.expected_current_frontier_identity.clone()),
+            recovery_epoch: Some(proposal.recovery_epoch.clone()),
+            issuance_digest: semantic_digest.clone(),
+            committed_at_epoch_ms: committed_at,
+        };
+        let receipt = issuance_receipt(&stored);
+        sqlx::query("INSERT INTO operator_authorization_private.operator_authorization_issuances_v1 (authorization_identity, issuer_identity, principal, audience, scope_digest, semantic_digest, issuance_json, receipt_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            .bind(&stored.proposal.authorization_identity)
+            .bind(&stored.proposal.issuer_identity)
+            .bind(&stored.proposal.scope.principal)
+            .bind(&stored.proposal.scope.audience)
+            .bind(&scope_digest)
+            .bind(&stored.issuance_digest)
+            .bind(json(&stored)?)
+            .bind(json(&receipt)?)
+            .bind(to_i64(committed_at)?)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        let recovery = StoredExpiredManifestRecoveryV1 {
+            schema_version: OPERATOR_AUTHORIZATION_SCHEMA_V1,
+            proposal: proposal.clone(),
+            proposal_digest: semantic_digest.clone(),
+            committed_at_epoch_ms: committed_at,
+        };
+        sqlx::query("INSERT INTO operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 (recovery_epoch_identity, recovery_epoch_digest, predecessor_authorization_identity, successor_authorization_identity, recovery_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6)")
+            .bind(&proposal.recovery_epoch.recovery_epoch_identity)
+            .bind(&proposal.recovery_epoch.recovery_epoch_digest)
+            .bind(&proposal.predecessor_authorization.authorization_identity)
+            .bind(&proposal.successor.authorization_identity)
+            .bind(json(&recovery)?)
             .bind(to_i64(committed_at)?)
             .execute(&mut *transaction)
             .await
@@ -734,6 +941,7 @@ pub async fn resolve_authorization_in_transaction(
         operation_manifests: evidence.operation_manifests,
         not_before_epoch_ms: evidence.not_before_epoch_ms,
         valid_through_epoch_ms: evidence.valid_through_epoch_ms,
+        recovery_epoch: evidence.recovery_epoch,
     })
 }
 
@@ -796,7 +1004,57 @@ pub fn parse_untrusted_authorization_envelope_v1(
         operation_manifests: issuance.proposal.operation_manifests,
         not_before_epoch_ms: issuance.proposal.not_before_epoch_ms,
         valid_through_epoch_ms: issuance.proposal.valid_through_epoch_ms,
+        recovery_epoch: issuance.recovery_epoch,
     })
+}
+
+async fn load_expired_manifest_recovery(
+    transaction: &mut Transaction<'_, Postgres>,
+    recovery_epoch_identity: &str,
+) -> Result<Option<StoredExpiredManifestRecoveryV1>, OperatorAuthorizationError> {
+    let rows = sqlx::query("SELECT recovery_epoch_identity, recovery_epoch_digest, predecessor_authorization_identity, successor_authorization_identity, recovery_json, committed_at_epoch_ms FROM operator_authorization_private.operator_authorization_expired_manifest_recoveries_v1 WHERE recovery_epoch_identity=$1 FOR SHARE")
+        .bind(recovery_epoch_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(storage)?;
+
+    if rows.len() > 1 {
+        return Err(OperatorAuthorizationError::Unavailable);
+    }
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let stored: StoredExpiredManifestRecoveryV1 =
+        from_json(row.try_get("recovery_json").map_err(storage)?)?;
+
+    if stored.schema_version != OPERATOR_AUTHORIZATION_SCHEMA_V1
+        || stored.proposal.validate().is_err()
+        || stored.proposal.semantic_digest()? != stored.proposal_digest
+        || row
+            .try_get::<String, _>("recovery_epoch_identity")
+            .map_err(storage)?
+            != stored.proposal.recovery_epoch.recovery_epoch_identity
+        || row
+            .try_get::<String, _>("recovery_epoch_digest")
+            .map_err(storage)?
+            != stored.proposal.recovery_epoch.recovery_epoch_digest
+        || row
+            .try_get::<String, _>("predecessor_authorization_identity")
+            .map_err(storage)?
+            != stored
+                .proposal
+                .predecessor_authorization
+                .authorization_identity
+        || row
+            .try_get::<String, _>("successor_authorization_identity")
+            .map_err(storage)?
+            != stored.proposal.successor.authorization_identity
+        || from_i64(row.try_get("committed_at_epoch_ms").map_err(storage)?)?
+            != stored.committed_at_epoch_ms
+    {
+        return Err(OperatorAuthorizationError::Unavailable);
+    }
+    Ok(Some(stored))
 }
 
 fn verify_locked_envelope(
@@ -1128,6 +1386,7 @@ async fn load_verified(
         operation_manifests: issuance.proposal.operation_manifests,
         not_before_epoch_ms: issuance.proposal.not_before_epoch_ms,
         valid_through_epoch_ms: issuance.proposal.valid_through_epoch_ms,
+        recovery_epoch: issuance.recovery_epoch,
     })
 }
 
@@ -1514,12 +1773,22 @@ fn stored_issuance_digest(stored: &StoredIssuanceV1) -> Result<String, OperatorA
     ) {
         (None, None) => stored.proposal.semantic_digest(),
         (Some(predecessor_authorization), Some(expected_current_frontier_identity)) => {
-            OperatorAuthorizationSuccessorIssuanceProposalV1 {
-                predecessor_authorization: predecessor_authorization.clone(),
-                expected_current_frontier_identity: expected_current_frontier_identity.clone(),
-                successor: stored.proposal.clone(),
+            if let Some(recovery_epoch) = &stored.recovery_epoch {
+                OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
+                    recovery_epoch: recovery_epoch.clone(),
+                    predecessor_authorization: predecessor_authorization.clone(),
+                    expected_current_frontier_identity: expected_current_frontier_identity.clone(),
+                    successor: stored.proposal.clone(),
+                }
+                .semantic_digest()
+            } else {
+                OperatorAuthorizationSuccessorIssuanceProposalV1 {
+                    predecessor_authorization: predecessor_authorization.clone(),
+                    expected_current_frontier_identity: expected_current_frontier_identity.clone(),
+                    successor: stored.proposal.clone(),
+                }
+                .semantic_digest()
             }
-            .semantic_digest()
         }
         _ => Err(OperatorAuthorizationError::Unavailable),
     }
@@ -1546,6 +1815,7 @@ fn order_and_verify_issuances(
         .ok_or(OperatorAuthorizationError::Unavailable)?;
     let genesis = remaining.remove(genesis_index);
     if genesis.admitted_frontier_identity.is_some()
+        || genesis.recovery_epoch.is_some()
         || stored_issuance_digest(&genesis)? != genesis.issuance_digest
     {
         return Err(OperatorAuthorizationError::Unavailable);
@@ -1573,6 +1843,20 @@ fn order_and_verify_issuances(
             return Err(OperatorAuthorizationError::Unavailable);
         }
         let successor = remaining.remove(matches[0]);
+        let valid_manifest_transition = if let Some(epoch) = &successor.recovery_epoch {
+            epoch.validate().is_ok()
+                && epoch.predecessor_operation_manifests()
+                    == predecessor.proposal.operation_manifests
+                && epoch.successor_operation_manifests() == successor.proposal.operation_manifests
+                && successor.proposal.not_before_epoch_ms
+                    == predecessor.proposal.valid_through_epoch_ms
+        } else {
+            successor.proposal.operation_manifests == predecessor.proposal.operation_manifests
+                && successor.proposal.not_before_epoch_ms
+                    >= predecessor.proposal.not_before_epoch_ms
+                && successor.committed_at_epoch_ms < predecessor.proposal.valid_through_epoch_ms
+        };
+
         if successor.schema_version != OPERATOR_AUTHORIZATION_SCHEMA_V1
             || successor.proposal.authorization_identity
                 == predecessor.proposal.authorization_identity
@@ -1580,8 +1864,7 @@ fn order_and_verify_issuances(
             || successor.proposal.issuer_key_version != predecessor.proposal.issuer_key_version
             || successor.proposal.scope != predecessor.proposal.scope
             || successor.proposal.request_proof_digest != predecessor.proposal.request_proof_digest
-            || successor.proposal.operation_manifests != predecessor.proposal.operation_manifests
-            || successor.proposal.not_before_epoch_ms < predecessor.proposal.not_before_epoch_ms
+            || !valid_manifest_transition
             || successor.proposal.valid_through_epoch_ms
                 <= predecessor.proposal.valid_through_epoch_ms
             || successor.committed_at_epoch_ms < predecessor.committed_at_epoch_ms

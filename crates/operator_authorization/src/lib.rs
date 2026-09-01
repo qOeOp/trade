@@ -61,6 +61,204 @@ pub struct OperationManifestBindingV1 {
     pub manifest_digest: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestSemanticKeyV1 {
+    pub operation: String,
+    pub operation_schema: String,
+    pub target_owner: String,
+}
+
+impl ManifestSemanticKeyV1 {
+    fn validate(&self) -> bool {
+        !self.operation.trim().is_empty()
+            && !self.operation_schema.trim().is_empty()
+            && !self.target_owner.trim().is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "transition",
+    rename_all = "SCREAMING_SNAKE_CASE",
+    deny_unknown_fields
+)]
+pub enum ExpiredManifestRecoveryTransitionV1 {
+    Retained {
+        semantic_key: ManifestSemanticKeyV1,
+        predecessor_manifest: OperationManifestBindingV1,
+        successor_manifest: OperationManifestBindingV1,
+    },
+    Added {
+        semantic_key: ManifestSemanticKeyV1,
+        successor_manifest: OperationManifestBindingV1,
+    },
+    Removed {
+        semantic_key: ManifestSemanticKeyV1,
+        predecessor_manifest: OperationManifestBindingV1,
+    },
+}
+
+impl ExpiredManifestRecoveryTransitionV1 {
+    pub fn semantic_key(&self) -> &ManifestSemanticKeyV1 {
+        match self {
+            Self::Retained { semantic_key, .. }
+            | Self::Added { semantic_key, .. }
+            | Self::Removed { semantic_key, .. } => semantic_key,
+        }
+    }
+}
+
+/// One content-addressed recovery epoch that explicitly binds the complete
+/// retained, added, and removed operation-manifest capability set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpiredManifestRecoveryEpochV1 {
+    pub recovery_epoch_identity: String,
+    pub recovery_epoch_digest: String,
+    pub manifest_transitions: Vec<ExpiredManifestRecoveryTransitionV1>,
+}
+
+impl ExpiredManifestRecoveryEpochV1 {
+    pub fn new(
+        manifest_transitions: Vec<ExpiredManifestRecoveryTransitionV1>,
+    ) -> Result<Self, OperatorAuthorizationError> {
+        let mut value = Self {
+            recovery_epoch_identity: String::new(),
+            recovery_epoch_digest: String::new(),
+            manifest_transitions,
+        };
+        value.recovery_epoch_digest = value.expected_digest()?;
+        value.recovery_epoch_identity = identity(
+            "expired-manifest-recovery-epoch-v1",
+            &[&value.recovery_epoch_digest],
+        );
+        value.validate()?;
+        Ok(value)
+    }
+
+    pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
+        let predecessor = self.predecessor_operation_manifests();
+        let successor = self.successor_operation_manifests();
+
+        if self.manifest_transitions.is_empty()
+            || self
+                .manifest_transitions
+                .iter()
+                .any(|transition| !valid_recovery_transition(transition))
+            || self
+                .manifest_transitions
+                .windows(2)
+                .any(|pair| pair[0].semantic_key() >= pair[1].semantic_key())
+            || !valid_manifest_bindings(&predecessor)
+            || !valid_manifest_bindings(&successor)
+            || self.recovery_epoch_digest != self.expected_digest()?
+            || self.recovery_epoch_identity
+                != identity(
+                    "expired-manifest-recovery-epoch-v1",
+                    &[&self.recovery_epoch_digest],
+                )
+        {
+            return Err(OperatorAuthorizationError::InvalidProposal(
+                "expired manifest recovery epoch",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn predecessor_operation_manifests(&self) -> Vec<OperationManifestBindingV1> {
+        let mut manifests = self
+            .manifest_transitions
+            .iter()
+            .filter_map(|transition| match transition {
+                ExpiredManifestRecoveryTransitionV1::Retained {
+                    predecessor_manifest,
+                    ..
+                }
+                | ExpiredManifestRecoveryTransitionV1::Removed {
+                    predecessor_manifest,
+                    ..
+                } => Some(predecessor_manifest.clone()),
+                ExpiredManifestRecoveryTransitionV1::Added { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        manifests.sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+        manifests
+    }
+
+    pub fn successor_operation_manifests(&self) -> Vec<OperationManifestBindingV1> {
+        let mut manifests = self
+            .manifest_transitions
+            .iter()
+            .filter_map(|transition| match transition {
+                ExpiredManifestRecoveryTransitionV1::Retained {
+                    successor_manifest, ..
+                }
+                | ExpiredManifestRecoveryTransitionV1::Added {
+                    successor_manifest, ..
+                } => Some(successor_manifest.clone()),
+                ExpiredManifestRecoveryTransitionV1::Removed { .. } => None,
+            })
+            .collect::<Vec<_>>();
+        manifests.sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
+        manifests
+    }
+
+    pub fn evolves_capability_set(&self) -> bool {
+        self.manifest_transitions.iter().any(|transition| {
+            matches!(
+                transition,
+                ExpiredManifestRecoveryTransitionV1::Added { .. }
+                    | ExpiredManifestRecoveryTransitionV1::Removed { .. }
+            )
+        })
+    }
+
+    fn expected_digest(&self) -> Result<String, OperatorAuthorizationError> {
+        canonical_digest(
+            "expired-manifest-recovery-epoch.v1",
+            &self.manifest_transitions,
+        )
+    }
+}
+
+fn valid_recovery_transition(transition: &ExpiredManifestRecoveryTransitionV1) -> bool {
+    if !transition.semantic_key().validate() {
+        return false;
+    }
+
+    match transition {
+        ExpiredManifestRecoveryTransitionV1::Retained {
+            predecessor_manifest,
+            successor_manifest,
+            ..
+        } => {
+            valid_manifest_binding(predecessor_manifest)
+                && valid_manifest_binding(successor_manifest)
+                && predecessor_manifest != successor_manifest
+        }
+        ExpiredManifestRecoveryTransitionV1::Added {
+            successor_manifest, ..
+        } => valid_manifest_binding(successor_manifest),
+        ExpiredManifestRecoveryTransitionV1::Removed {
+            predecessor_manifest,
+            ..
+        } => valid_manifest_binding(predecessor_manifest),
+    }
+}
+
+fn valid_manifest_binding(binding: &OperationManifestBindingV1) -> bool {
+    !binding.manifest_identity.trim().is_empty() && !binding.manifest_digest.trim().is_empty()
+}
+
+fn valid_manifest_bindings(bindings: &[OperationManifestBindingV1]) -> bool {
+    !bindings.is_empty()
+        && bindings.iter().all(valid_manifest_binding)
+        && bindings
+            .windows(2)
+            .all(|pair| pair[0].manifest_identity < pair[1].manifest_identity)
+}
+
 /// Exact resource coordinates for one Portfolio read grant.
 ///
 /// These coordinates are deliberately separate from V1's generic permission
@@ -500,6 +698,52 @@ pub struct OperatorAuthorizationSuccessorIssuanceProposalV1 {
     pub successor: OperatorAuthorizationIssuanceProposalV1,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
+    pub recovery_epoch: ExpiredManifestRecoveryEpochV1,
+    pub predecessor_authorization: OperatorAuthorizationLocatorV1,
+    pub expected_current_frontier_identity: String,
+    pub successor: OperatorAuthorizationIssuanceProposalV1,
+}
+
+impl OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
+    pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
+        self.recovery_epoch.validate()?;
+        self.successor.validate()?;
+
+        if self
+            .predecessor_authorization
+            .authorization_identity
+            .trim()
+            .is_empty()
+            || self
+                .predecessor_authorization
+                .issuance_receipt_identity
+                .trim()
+                .is_empty()
+            || self.expected_current_frontier_identity.trim().is_empty()
+            || self.successor.authorization_identity
+                == self.predecessor_authorization.authorization_identity
+            || self.successor.operation_manifests
+                != self.recovery_epoch.successor_operation_manifests()
+        {
+            return Err(OperatorAuthorizationError::InvalidProposal(
+                "expired manifest recovery",
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn semantic_digest(&self) -> Result<String, OperatorAuthorizationError> {
+        self.validate()?;
+        canonical_digest(
+            "operator-authorization.expired-manifest-recovery-proposal.v1",
+            self,
+        )
+    }
+}
+
 impl OperatorAuthorizationSuccessorIssuanceProposalV1 {
     pub fn validate(&self) -> Result<(), OperatorAuthorizationError> {
         self.successor.validate()?;
@@ -611,6 +855,8 @@ pub struct OperatorAuthorizationReadbackV1 {
     operation_manifests: Vec<OperationManifestBindingV1>,
     not_before_epoch_ms: u64,
     valid_through_epoch_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_epoch: Option<ExpiredManifestRecoveryEpochV1>,
 }
 
 impl OperatorAuthorizationReadbackV1 {
@@ -647,6 +893,9 @@ impl OperatorAuthorizationReadbackV1 {
     pub fn valid_through_epoch_ms(&self) -> u64 {
         self.valid_through_epoch_ms
     }
+    pub fn recovery_epoch(&self) -> Option<&ExpiredManifestRecoveryEpochV1> {
+        self.recovery_epoch.as_ref()
+    }
     pub fn is_current_at(&self, read_cut_epoch_ms: u64) -> bool {
         read_cut_epoch_ms >= self.not_before_epoch_ms
             && read_cut_epoch_ms < self.valid_through_epoch_ms
@@ -666,6 +915,7 @@ impl OperatorAuthorizationReadbackV1 {
             operation_manifests: self.operation_manifests.clone(),
             not_before_epoch_ms: self.not_before_epoch_ms,
             valid_through_epoch_ms: self.valid_through_epoch_ms,
+            recovery_epoch: self.recovery_epoch.clone(),
         }
     }
 }
@@ -687,6 +937,8 @@ pub struct UntrustedCanonicalAuthorizationEvidenceV1 {
     operation_manifests: Vec<OperationManifestBindingV1>,
     not_before_epoch_ms: u64,
     valid_through_epoch_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recovery_epoch: Option<ExpiredManifestRecoveryEpochV1>,
 }
 
 impl UntrustedCanonicalAuthorizationEvidenceV1 {
@@ -722,6 +974,9 @@ impl UntrustedCanonicalAuthorizationEvidenceV1 {
     }
     pub fn valid_through_epoch_ms(&self) -> u64 {
         self.valid_through_epoch_ms
+    }
+    pub fn recovery_epoch(&self) -> Option<&ExpiredManifestRecoveryEpochV1> {
+        self.recovery_epoch.as_ref()
     }
     pub fn is_current_at(&self, read_cut_epoch_ms: u64) -> bool {
         read_cut_epoch_ms >= self.not_before_epoch_ms
@@ -857,6 +1112,65 @@ mod tests {
             serde_json::from_value::<OperatorAuthorizationSuccessorIssuanceProposalV1>(malformed)
                 .is_err()
         );
+    }
+
+    #[rstest]
+    fn expired_manifest_recovery_epoch_binds_complete_old_and_new_sets() {
+        let binding = |identity: &str| OperationManifestBindingV1 {
+            manifest_identity: identity.into(),
+            manifest_digest: format!("sha256:{identity}"),
+        };
+        let key = |operation: &str| ManifestSemanticKeyV1 {
+            operation: operation.into(),
+            operation_schema: format!("{operation}-schema"),
+            target_owner: "R_AND_D".into(),
+        };
+        let epoch = ExpiredManifestRecoveryEpochV1::new(vec![
+            ExpiredManifestRecoveryTransitionV1::Added {
+                semantic_key: key("alpha.add"),
+                successor_manifest: binding("manifest-added"),
+            },
+            ExpiredManifestRecoveryTransitionV1::Removed {
+                semantic_key: key("beta.remove"),
+                predecessor_manifest: binding("manifest-removed"),
+            },
+            ExpiredManifestRecoveryTransitionV1::Retained {
+                semantic_key: key("gamma.keep"),
+                predecessor_manifest: binding("manifest-retained-old"),
+                successor_manifest: binding("manifest-retained-new"),
+            },
+        ])
+        .unwrap();
+        assert!(epoch.validate().is_ok());
+        assert!(epoch.evolves_capability_set());
+        assert_eq!(epoch.predecessor_operation_manifests().len(), 2);
+        assert_eq!(epoch.successor_operation_manifests().len(), 2);
+
+        let mut changed = epoch.clone();
+        let ExpiredManifestRecoveryTransitionV1::Added {
+            successor_manifest, ..
+        } = &mut changed.manifest_transitions[0]
+        else {
+            unreachable!()
+        };
+        successor_manifest.manifest_digest.push_str("-changed");
+        assert!(changed.validate().is_err());
+
+        let mut duplicate_key = epoch.clone();
+        let first_key = duplicate_key.manifest_transitions[0].semantic_key().clone();
+        let ExpiredManifestRecoveryTransitionV1::Removed { semantic_key, .. } =
+            &mut duplicate_key.manifest_transitions[1]
+        else {
+            unreachable!()
+        };
+        *semantic_key = first_key;
+        assert!(duplicate_key.validate().is_err());
+
+        let mut changed_identity = epoch;
+        changed_identity
+            .recovery_epoch_identity
+            .push_str("-changed");
+        assert!(changed_identity.validate().is_err());
     }
 
     fn portfolio_content(mode: PortfolioResourceModeV1) -> PortfolioResourceGrantContentV1 {

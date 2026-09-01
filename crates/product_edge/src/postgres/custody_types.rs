@@ -47,6 +47,17 @@ pub(super) struct StoredBindingV1 {
     pub(super) manifest_identities: Vec<String>,
     pub(super) binding_digest: String,
     pub(super) committed_at_epoch_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) recovery_epoch: Option<ExpiredManifestRecoveryEpochV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct StoredExpiredManifestRecoveryV1 {
+    pub(super) schema_version: u32,
+    pub(super) proposal: ProductEdgeExpiredManifestRecoveryProposalV1,
+    pub(super) proposal_digest: String,
+    pub(super) committed_at_epoch_ms: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

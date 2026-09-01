@@ -55,6 +55,15 @@ manifest、一份不可变 receipt 及其 outbox。准确重放加入相同字�
 第二个 `ACTIVE` binding。切换必须先提交准确前驱的 `SUPERSEDED` fence，随后才可提交政策等价后继
 `ACTIVE`；零活动区间失败关闭，任何请求都不能重新创建 genesis。
 
+到期前驱不能使用普通 authorization 或 deployment successor 路径。唯一前向恢复是显式
+`ExpiredManifestRecoveryEpochV1`，它绑定准确 authorization 与 deployment head、当前 revocation frontier，
+以及完整排序的 `RETAINED`/`ADDED`/`REMOVED` manifest transition 集。保留能力只能收窄；新增能力必须处于
+不变的 principal、audience、scope、proof、scope-policy 与 audit-policy 边界内，并保留 live-trading、
+real-trading 与 protected-feedback 禁止下限；删除项不授予任何权威。Issuer 可以先追加 OA2，但只有 OA2
+不构成 Product Edge 权威。Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2；
+准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧 issuance、binding、manifest、admission、receipt、
+outbox 或 Owner 事实都不得重写。
+
 不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment
 binding 与 head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation
 frontier、manifest identity 与 digest、operation、schema、target 与 effects、time evidence、request-proof
