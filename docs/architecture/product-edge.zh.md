@@ -299,6 +299,12 @@ manifest receipt 与 outbox 原子提交。准确重放加入原字节；含义�
 Authorization issuance head 与 revocation frontier、准确 Product Edge deployment head 与 generation，以及
 完整前驱和后继 manifest 集。它绝不是 rollback、第二次 genesis、服务启动动作或请求路径 fallback。
 
+recovery 命令只接受一份内容绑定的 PostgreSQL target，其中声明准确 authority database、PostgreSQL system
+identifier、Operator Authorization role，以及与其不同的 Product Edge role。在任一 Owner 写入前，命令以
+只读方式连接两个给定 endpoint，并要求 `current_database()`、`current_user` 与 `pg_control_system()` system
+identifier 回读匹配该 target，同时证明两个 role 到达同一 database cluster。缺失、空值、相同 role、环境
+默认或交叉拼接 binding 一律失败关闭且不产生 Owner 写入；URL 与 secret 绝不记录。
+
 epoch 必须把每个 manifest semantic key 准确枚举一次，并标为 `RETAINED`、`ADDED` 或 `REMOVED`，同时
 绑定该处置对应的准确旧/新内容寻址 binding。保留项只能收窄 allowed effect，且必须保留前驱的全部
 prohibited effect。新增项必须处于不变的 principal、audience、Operator Authorization scope、request proof、

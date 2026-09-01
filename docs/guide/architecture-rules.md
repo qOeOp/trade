@@ -70,6 +70,10 @@ retain the live-trading, real-trading and protected-feedback prohibition floor; 
 append OA2 before Product Edge commits B2, but OA2 alone grants no Product Edge authority. Product Edge commits one
 irreversible B1 fence and then B2 by head compare-and-swap; exact retry rejoins the same epoch, partial recovery stays
 fail closed, and no old issuance, binding, manifest, admission, receipt, outbox, or Owner fact is rewritten.
+The recovery config also content-binds the exact authority database name, PostgreSQL system identifier, and distinct
+Operator Authorization and Product Edge roles. Before either Owner write, the command read-only connects both supplied
+endpoints and requires their database, role, and system-identifier readbacks to match the config and the same database
+cluster. Ambient endpoints, cross-splices, empty identities, or equal roles fail closed; URLs and secrets are not logged.
 
 An immutable Product Edge Request Admission binds the stable request identity and typed-payload digest, exact
 deployment binding and head, effective principal and scope, authorization identity, issuer and key version,

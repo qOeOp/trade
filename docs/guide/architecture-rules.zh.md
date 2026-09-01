@@ -63,6 +63,10 @@ real-trading 与 protected-feedback 禁止下限；删除项不授予任何权�
 不构成 Product Edge 权威。Product Edge 只提交一个不可逆 B1 fence，再以 head compare-and-swap 提交 B2；
 准确重试加入同一 epoch，部分恢复保持失败关闭，任何旧 issuance、binding、manifest、admission、receipt、
 outbox 或 Owner 事实都不得重写。
+recovery 配置还内容绑定准确 authority database 名称、PostgreSQL system identifier，以及不同的 Operator
+Authorization 与 Product Edge role。在任一 Owner 写入前，命令只读连接两个给定 endpoint，并要求其
+database、role 和 system-identifier 回读匹配配置及同一 database cluster。环境 endpoint、交叉拼接、空
+identity 或相同 role 一律失败关闭；URL 与 secret 不得记录。
 
 不可变 Product Edge Request Admission 绑定稳定 request identity 与 typed-payload digest、准确 deployment
 binding 与 head、有效 principal 与 scope、authorization identity、issuer 与 key version、有效期与 revocation

@@ -341,6 +341,13 @@ explicit `ExpiredManifestRecoveryEpochV1` bound to the exact Operator Authorizat
 frontier, the exact Product Edge deployment head and generation, and the complete prior and successor manifest sets.
 It is never a rollback, a second genesis, a service-start action, or a request-path fallback.
 
+The recovery command accepts only a content-bound PostgreSQL target naming the exact authority database, PostgreSQL
+system identifier, Operator Authorization role, and distinct Product Edge role. Before either Owner write, it opens
+both supplied endpoints read-only and requires `current_database()`, `current_user`, and `pg_control_system()` system
+identifier readback to match that target and to prove both roles reach the same database cluster. Any absent, empty,
+same-role, ambient-default, or cross-spliced binding fails closed without an Owner write; URLs and secrets are never
+logged.
+
 The epoch enumerates every manifest semantic key exactly once as `RETAINED`, `ADDED`, or `REMOVED`, with the exact
 old and new content-addressed bindings applicable to that disposition. A retained manifest may only narrow allowed
 effects and must preserve every prior prohibited effect. An added manifest must remain inside the unchanged

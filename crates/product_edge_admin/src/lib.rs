@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use sqlx::{Connection, Row};
 use vibe_operator_authorization::{
     ExpiredManifestRecoveryEpochV1, OperatorAuthorizationExpiredManifestRecoveryProposalV1,
     OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationLocatorV1,
@@ -16,8 +17,18 @@ pub const EXPIRED_MANIFEST_RECOVERY_ADMIN_SCHEMA_V1: u32 = 1;
 #[serde(deny_unknown_fields)]
 pub struct ExpiredManifestRecoveryAdminConfigV1 {
     pub schema_version: u32,
+    pub postgresql_target: ExpiredManifestRecoveryPostgresqlTargetV1,
     pub operator_authorization: OperatorAuthorizationExpiredManifestRecoveryProposalV1,
     pub product_edge: ProductEdgeExpiredManifestRecoveryTemplateV1,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ExpiredManifestRecoveryPostgresqlTargetV1 {
+    pub database_name: String,
+    pub operator_authorization_role: String,
+    pub product_edge_role: String,
+    pub system_identifier: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +92,7 @@ impl ExpiredManifestRecoveryAdminConfigV1 {
         if self.schema_version != EXPIRED_MANIFEST_RECOVERY_ADMIN_SCHEMA_V1 {
             anyhow::bail!("unsupported expired manifest recovery admin schema");
         }
+        self.postgresql_target.validate()?;
         self.operator_authorization.validate()?;
         runtime.trust.validate()?;
 
@@ -123,6 +135,23 @@ impl ExpiredManifestRecoveryAdminConfigV1 {
         self.product_edge
             .proposal(validation_locator())
             .validate()?;
+        Ok(())
+    }
+}
+
+impl ExpiredManifestRecoveryPostgresqlTargetV1 {
+    fn validate(&self) -> anyhow::Result<()> {
+        if self.database_name.trim().is_empty()
+            || self.operator_authorization_role.trim().is_empty()
+            || self.product_edge_role.trim().is_empty()
+            || self.system_identifier.trim().is_empty()
+        {
+            anyhow::bail!("recovery PostgreSQL target fields must be nonempty");
+        }
+
+        if self.operator_authorization_role == self.product_edge_role {
+            anyhow::bail!("recovery PostgreSQL Owner roles must be distinct");
+        }
         Ok(())
     }
 }
@@ -170,6 +199,13 @@ pub async fn recover_expired_manifests(
 ) -> anyhow::Result<ExpiredManifestRecoveryAdminReceiptV1> {
     config.validate(&runtime)?;
 
+    require_recovery_postgresql_target(
+        &config.postgresql_target,
+        operator_authorization_database_url,
+        product_edge_database_url,
+    )
+    .await?;
+
     let issuer =
         OperatorAuthorizationIssuerPostgresV1::connect(operator_authorization_database_url).await?;
     let authorization = issuer
@@ -214,6 +250,72 @@ pub async fn recover_expired_manifests(
             history_head_identity: binding.history_head_identity().to_string(),
         },
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ObservedPostgresqlTargetV1 {
+    database_name: String,
+    role: String,
+    system_identifier: String,
+}
+
+async fn require_recovery_postgresql_target(
+    expected: &ExpiredManifestRecoveryPostgresqlTargetV1,
+    operator_authorization_database_url: &str,
+    product_edge_database_url: &str,
+) -> anyhow::Result<()> {
+    let operator_authorization =
+        read_postgresql_target(operator_authorization_database_url).await?;
+    let product_edge = read_postgresql_target(product_edge_database_url).await?;
+
+    require_observed_postgresql_targets(expected, &operator_authorization, &product_edge)
+}
+
+fn require_observed_postgresql_targets(
+    expected: &ExpiredManifestRecoveryPostgresqlTargetV1,
+    operator_authorization: &ObservedPostgresqlTargetV1,
+    product_edge: &ObservedPostgresqlTargetV1,
+) -> anyhow::Result<()> {
+    if operator_authorization.database_name != expected.database_name
+        || operator_authorization.role != expected.operator_authorization_role
+        || operator_authorization.system_identifier != expected.system_identifier
+    {
+        anyhow::bail!("Operator Authorization PostgreSQL target does not match recovery config");
+    }
+
+    if product_edge.database_name != expected.database_name
+        || product_edge.role != expected.product_edge_role
+        || product_edge.system_identifier != expected.system_identifier
+    {
+        anyhow::bail!("Product Edge PostgreSQL target does not match recovery config");
+    }
+
+    if operator_authorization.database_name != product_edge.database_name
+        || operator_authorization.system_identifier != product_edge.system_identifier
+    {
+        anyhow::bail!("recovery PostgreSQL Owner targets do not share one authority database");
+    }
+    Ok(())
+}
+
+async fn read_postgresql_target(database_url: &str) -> anyhow::Result<ObservedPostgresqlTargetV1> {
+    let mut connection = sqlx::PgConnection::connect(database_url).await?;
+    let mut transaction = connection.begin().await?;
+    sqlx::query("SET TRANSACTION READ ONLY")
+        .execute(&mut *transaction)
+        .await?;
+    let row = sqlx::query(
+        "SELECT current_database()::text AS database_name, current_user::text AS role_name, system_identifier::text AS system_identifier FROM pg_control_system()",
+    )
+    .fetch_one(&mut *transaction)
+    .await?;
+    let observed = ObservedPostgresqlTargetV1 {
+        database_name: row.try_get("database_name")?,
+        role: row.try_get("role_name")?,
+        system_identifier: row.try_get("system_identifier")?,
+    };
+    transaction.rollback().await?;
+    Ok(observed)
 }
 
 fn require_exact_authorization_readback(
@@ -296,6 +398,12 @@ mod tests {
         let successor_bindings = epoch.successor_operation_manifests();
         ExpiredManifestRecoveryAdminConfigV1 {
             schema_version: 1,
+            postgresql_target: ExpiredManifestRecoveryPostgresqlTargetV1 {
+                database_name: "authority".to_string(),
+                operator_authorization_role: "operator_authorization_owner".to_string(),
+                product_edge_role: "product_edge_owner".to_string(),
+                system_identifier: "7257365662980929064".to_string(),
+            },
             operator_authorization: OperatorAuthorizationExpiredManifestRecoveryProposalV1 {
                 recovery_epoch: epoch.clone(),
                 predecessor_authorization: OperatorAuthorizationLocatorV1 {
@@ -364,6 +472,7 @@ mod tests {
     fn parser_rejects_unknown_top_level_fields() {
         let value = serde_json::json!({
             "schema_version": 1,
+            "postgresql_target": config().postgresql_target,
             "operator_authorization": config().operator_authorization,
             "product_edge": config().product_edge,
             "unexpected": true,
@@ -376,6 +485,16 @@ mod tests {
         nested["product_edge"]["successor"]["unexpected"] = serde_json::json!(true);
         assert!(
             parse_expired_manifest_recovery_config(&serde_json::to_vec(&nested).unwrap()).is_err()
+        );
+
+        let mut missing_target = serde_json::to_value(config()).unwrap();
+        missing_target
+            .as_object_mut()
+            .unwrap()
+            .remove("postgresql_target");
+        assert!(
+            parse_expired_manifest_recovery_config(&serde_json::to_vec(&missing_target).unwrap())
+                .is_err()
         );
     }
 
@@ -418,5 +537,71 @@ mod tests {
         let mut policy = config();
         policy.product_edge.successor.capability_policy_version = "other".to_string();
         assert!(policy.validate(&runtime()).is_err());
+    }
+
+    #[rstest]
+    fn prevalidation_rejects_postgresql_target_cross_splices() {
+        let mut empty_database = config();
+        empty_database.postgresql_target.database_name = " ".to_string();
+        assert!(empty_database.validate(&runtime()).is_err());
+
+        let mut empty_system = config();
+        empty_system.postgresql_target.system_identifier.clear();
+        assert!(empty_system.validate(&runtime()).is_err());
+
+        let mut empty_role = config();
+        empty_role
+            .postgresql_target
+            .operator_authorization_role
+            .clear();
+        assert!(empty_role.validate(&runtime()).is_err());
+
+        let mut same_role = config();
+        same_role.postgresql_target.product_edge_role = same_role
+            .postgresql_target
+            .operator_authorization_role
+            .clone();
+        assert!(same_role.validate(&runtime()).is_err());
+    }
+
+    #[rstest]
+    fn prewrite_readback_rejects_postgresql_target_cross_splices() {
+        let expected = config().postgresql_target;
+        let operator_authorization = ObservedPostgresqlTargetV1 {
+            database_name: expected.database_name.clone(),
+            role: expected.operator_authorization_role.clone(),
+            system_identifier: expected.system_identifier.clone(),
+        };
+        let product_edge = ObservedPostgresqlTargetV1 {
+            database_name: expected.database_name.clone(),
+            role: expected.product_edge_role.clone(),
+            system_identifier: expected.system_identifier.clone(),
+        };
+        require_observed_postgresql_targets(&expected, &operator_authorization, &product_edge)
+            .unwrap();
+
+        let mut wrong_role = product_edge.clone();
+        wrong_role.role = operator_authorization.role.clone();
+        assert!(
+            require_observed_postgresql_targets(&expected, &operator_authorization, &wrong_role,)
+                .is_err()
+        );
+
+        let mut wrong_database = product_edge.clone();
+        wrong_database.database_name = "other".to_string();
+        assert!(
+            require_observed_postgresql_targets(
+                &expected,
+                &operator_authorization,
+                &wrong_database,
+            )
+            .is_err()
+        );
+
+        let mut wrong_system = operator_authorization;
+        wrong_system.system_identifier = "other".to_string();
+        assert!(
+            require_observed_postgresql_targets(&expected, &wrong_system, &product_edge).is_err()
+        );
     }
 }

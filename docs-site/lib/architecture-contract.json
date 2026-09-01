@@ -4183,6 +4183,7 @@
         "A history-head advance between admission read and request commit rejects the new request while a previously committed in-flight request continues to resolve by its original request binding and admission-head identities",
         "In-flight requests retain their original request and binding identities and after cutover may perform a still-unreceipted first mutation only against the immediate policy-equivalent ACTIVE successor with exact stored lineage and current original authorization at the final cut while zero ACTIVE blocks it and every new admission requires the current ACTIVE head",
         "An expired predecessor cannot use the ordinary successor path and may recover only through one content-addressed ExpiredManifestRecoveryEpochV1 that binds the exact authorization frontier deployment head and complete retained added and removed manifest transition set",
+        "Before either expired-manifest recovery Owner write one content-bound target must match read-only database role and PostgreSQL system-identifier readback from both supplied endpoints with distinct Owner roles in the same authority database",
         "Expired-manifest recovery appends or exact-replays OA2 before Product Edge irreversibly fences B1 and compare-and-swaps B2 while every partial state remains fail closed and no historical fact is rewritten",
         "Missing stale self-asserted or policy-mismatched binding context is rejected before any business Owner mutation"
       ]
