@@ -739,7 +739,7 @@ BEGIN
      WHERE namespace.nspname='public'
        AND relation.relname='rd_sealed_exploratory_replay_requests_v1'
        AND relation.relkind='r' AND relation.relpersistence='p'
-       AND owner.rolname='rd_owner'
+       AND owner.rolname='rd_custodian'
   ) THEN
     RAISE EXCEPTION 'sealed Replay source unavailable' USING ERRCODE='55000';
   END IF;

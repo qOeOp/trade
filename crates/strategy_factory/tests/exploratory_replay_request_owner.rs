@@ -108,7 +108,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
     let sealed_catalog_is_private: bool = sqlx::query_scalar(
-        "SELECT owner.rolname='rd_owner'
+        "SELECT owner.rolname='rd_custodian'
             AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.aclexplode(COALESCE(
@@ -226,7 +226,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .fetch_one(rd_pool)
         .await
         .expect("legacy Replay table catalog");
-    assert_eq!(legacy_catalog.0, "rd_owner");
+    assert_eq!(legacy_catalog.0, "rd_custodian");
     assert_eq!(
         legacy_catalog.1.as_deref(),
         Some("legacy Replay sentinel v1")
@@ -552,7 +552,7 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
     .expect("Origin current Replay relation names");
     assert!(names_are_exact);
     let sealed_is_owner_private: bool = sqlx::query_scalar(
-        "SELECT owner.rolname='rd_owner'
+        "SELECT owner.rolname='rd_custodian'
             AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.aclexplode(COALESCE(
@@ -684,7 +684,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     let mutation = fixture.database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let v2_catalog_is_exact: bool = sqlx::query_scalar(
-        "SELECT facade_owner.rolname='rd_owner'
+        "SELECT facade_owner.rolname='rd_custodian'
              AND facade.prosecdef
              AND facade.provolatile='v'
              AND facade.proparallel='u'
@@ -693,7 +693,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
-             AND helper_owner.rolname='rd_owner'
+             AND helper_owner.rolname='rd_custodian'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
              AND helper.proparallel='u'
@@ -706,7 +706,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
                 WHERE acl.privilege_type='EXECUTE'
                   AND acl.grantee<>helper_owner.oid
              )
-             AND recovery_owner.rolname='rd_owner'
+             AND recovery_owner.rolname='rd_custodian'
              AND NOT recovery.prosecdef
              AND recovery.provolatile='v'
              AND recovery.proparallel='u'
@@ -1377,7 +1377,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
 
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
     let publication_catalog_is_exact: bool = sqlx::query_scalar(
-        "SELECT facade_owner.rolname='rd_owner'
+        "SELECT facade_owner.rolname='rd_custodian'
              AND facade.prosecdef
              AND facade.provolatile='v'
              AND facade.proparallel='u'
@@ -1390,7 +1390,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
                 WHERE acl.privilege_type='EXECUTE'
                   AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
              )
-             AND helper_owner.rolname='rd_owner'
+             AND helper_owner.rolname='rd_custodian'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
              AND helper.proparallel='u'
@@ -2025,7 +2025,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let _ = std::fs::remove_file(&socket);
     let listener = UnixListener::bind(&socket).expect("sandbox listener");
     let sandbox = tokio::spawn(serve_one_verified_sandbox(listener, socket.clone()));
-    let artifact_owner = PostgresArtifactBuildOwnerV1::connect(&rd_url, &socket, u64::MAX)
+    let artifact_owner = PostgresArtifactBuildOwnerV1::connect_existing(&rd_url, &socket, u64::MAX)
         .await
         .expect("artifact Owner");
     assert_eq!(
