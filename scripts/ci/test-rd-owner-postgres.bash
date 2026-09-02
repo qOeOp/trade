@@ -1881,7 +1881,7 @@ verify_sealed_column_acl_fails_closed() {
   local cleanup_status=0
 
   if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$fixture_database" << 'SQL'
+    --username postgres --dbname "$fixture_database" << 'SQL'; then
 BEGIN;
 GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
   TO vibe_test_legacy_replay_fault_writer;
@@ -1922,7 +1922,6 @@ END
 $sealed_column_acl_injection$;
 COMMIT;
 SQL
-  then
     :
   else
     injection_status="$?"
@@ -1942,7 +1941,7 @@ SQL
   fi
 
   if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$fixture_database" << 'SQL'
+    --username postgres --dbname "$fixture_database" << 'SQL'; then
 REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
   FROM vibe_test_legacy_replay_fault_writer;
 DO $sealed_column_acl_cleanup$
@@ -1970,7 +1969,6 @@ BEGIN
 END
 $sealed_column_acl_cleanup$;
 SQL
-  then
     :
   else
     cleanup_status="$?"
@@ -1996,8 +1994,7 @@ verify_runtime_startup() {
     --archive-file "$nextest_archive_file" \
     --profile "$nextest_profile" \
     "${nextest_execution_args[@]}" \
-    -E "$runtime_diagnostic_filter"
-  then
+    -E "$runtime_diagnostic_filter"; then
     :
   else
     return "$?"
