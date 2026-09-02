@@ -3273,6 +3273,8 @@ fn postgres_design_reuses_owner_lock_acl_outbox_and_keeps_raw_private() {
 #[rstest]
 fn existing_source_intake_topology_validator_is_exact_and_read_only() {
     let source = include_str!("../src/source_intake/postgres.rs");
+    let migration =
+        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
     let validator = source
         .split_once("pub async fn validate_existing_source_intake_topology")
         .expect("Source Intake topology validator")
@@ -3287,7 +3289,42 @@ fn existing_source_intake_topology_validator_is_exact_and_read_only() {
     assert!(validator.contains("vibe-closed-relation-v2:"));
     assert!(validator.contains("vibe-source-md5:"));
     assert!(validator.contains("required_triggers"));
-    assert!(validator.contains("'rd_owner:DELETE:false'"));
+    let assert_seal_projection = |text: &str| {
+        let columns = text.find("'columns'").expect("sealed columns projection");
+        let constraints = text[columns..]
+            .find("'constraints'")
+            .map(|offset| columns + offset)
+            .expect("sealed constraints projection");
+        let acl = text[constraints..]
+            .find("'acl',COALESCE(relation.relacl::text,'<NULL>')")
+            .map(|offset| constraints + offset)
+            .expect("sealed ACL projection");
+        assert!(columns < constraints && constraints < acl);
+    };
+    assert_seal_projection(validator);
+    assert_seal_projection(
+        migration
+            .split_once("DO $runtime_custody_cutover$")
+            .expect("runtime custody migration")
+            .1,
+    );
+    assert!(
+        validator
+            .contains("('rd_source_intake_bindings_v1',ARRAY['INSERT','SELECT','UPDATE']::text[])")
+    );
+    assert!(validator.contains(
+        "('rd_source_intake_receipts_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[])"
+    ));
+    assert!(validator.contains("IS DISTINCT FROM required.runtime_privileges"));
+    assert!(validator.contains("pg_catalog.count(*)<>7+pg_catalog.cardinality"));
+    assert!(validator.contains("required.product_edge_execute"));
+    assert!(validator.contains("'product_edge_owner:EXECUTE:false'"));
+    assert!(validator.contains("trigger_fact.tgtype=required.trigger_type"));
+    assert!(
+        validator
+            .contains("pg_catalog.pg_get_triggerdef(trigger_fact.oid,true)=required.definition")
+    );
+    assert!(!validator.contains("'rd_owner:DELETE:false'"));
     assert!(!validator.contains("product_edge_owner:SELECT"));
     assert!(!validator.contains("SOURCE_INTAKE_MIGRATION_SQL_V1"));
     assert!(!validator.contains("sqlx::query("));
