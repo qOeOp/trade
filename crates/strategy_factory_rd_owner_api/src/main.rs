@@ -55,7 +55,6 @@ use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequ
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
     SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
-    submitted_or_unknown_response,
 };
 
 mod exploratory_replay;
@@ -148,6 +147,8 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let rd_fact_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
     let token = required_env("RD_OWNER_API_TOKEN")?;
@@ -180,8 +181,13 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let develop_composer =
-        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&database_url).await?);
+    let develop_composer = Arc::new(
+        SealedDevelopComposerAcceptanceV2::connect_with_writer(
+            &database_url,
+            &rd_fact_writer_database_url,
+        )
+        .await?,
+    );
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -338,8 +344,8 @@ async fn run_develop_composer(
         match state.develop_composer.run().await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
-                StatusCode::ACCEPTED,
-                submitted_or_unknown_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
             ),
         }
     }
@@ -379,8 +385,8 @@ async fn resolve_develop_composer(
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
-                StatusCode::ACCEPTED,
-                submitted_or_unknown_response(&request_identity),
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request_identity),
             ),
         }
     }
@@ -1560,6 +1566,9 @@ mod tests {
     #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
     async fn runtime_storage_connectors_start_without_migration_authority() {
         let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        let rd_fact_writer_url =
+            std::env::var("RD_FACT_WRITER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
         let qualification_url =
             std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL").unwrap();
         let edge_url = std::env::var("PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL").unwrap();
@@ -1584,6 +1593,10 @@ mod tests {
         )
         .await
         .expect("Artifact existing custody");
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        SealedDevelopComposerAcceptanceV2::connect_with_writer(&rd_url, &rd_fact_writer_url)
+            .await
+            .expect("Composer read and mutation custody");
     }
 
     #[tokio::test]
@@ -1862,14 +1875,46 @@ mod tests {
             _market_data_research_pit: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer: Arc::new(
-                SealedDevelopComposerAcceptanceV2::connect(
+                SealedDevelopComposerAcceptanceV2::connect_with_writer(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
                 .await
                 .unwrap(),
             ),
         };
         let headers = bearer_headers(token);
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        {
+            let run_response =
+                run_develop_composer(State(state.clone()), headers.clone(), Bytes::new()).await;
+            assert_eq!(run_response.status(), StatusCode::OK);
+            let run_bytes = axum::body::to_bytes(run_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            let run: DevelopComposerOperationResponseV2 =
+                serde_json::from_slice(&run_bytes).unwrap();
+            assert_eq!(
+                run.disposition,
+                DevelopComposerOperationDispositionV2::Success
+            );
+            assert!(run.receipt_identity.is_some());
+            assert!(run.artifact.is_some());
+
+            let resolve_response = resolve_develop_composer(
+                State(state.clone()),
+                Path(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2.to_owned()),
+                headers.clone(),
+                Bytes::new(),
+            )
+            .await;
+            assert_eq!(resolve_response.status(), StatusCode::OK);
+            let resolve_bytes = axum::body::to_bytes(resolve_response.into_body(), usize::MAX)
+                .await
+                .unwrap();
+            assert_eq!(resolve_bytes, run_bytes);
+        }
+
         let research_request_identity = format!("rd-api-retry-research-{suffix}");
         let research = ProductEdgeOperationRequestV2 {
             request_identity: research_request_identity.clone(),

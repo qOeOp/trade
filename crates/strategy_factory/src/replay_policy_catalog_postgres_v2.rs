@@ -1026,6 +1026,36 @@ mod postgres_tests {
         transaction.rollback().await.unwrap();
         assert_eq!(family_row_counts(pool).await, before);
 
+        // Leave the shared disposable harness on an authenticated, unrevoked canonical head.
+        let mut transaction = pool.begin().await.unwrap();
+        let third = ReplayPolicyCatalogAdministrationPortV2::append_version(
+            &mut transaction,
+            &admin,
+            "catalog-command-append-v2-3",
+            second.catalog_record_id(),
+            "catalog-policy-record-v2-3",
+            &replay_policy(3),
+            1_007,
+        )
+        .await
+        .unwrap();
+        ReplayPolicyCatalogAdministrationPortV2::advance_current_head(
+            &mut transaction,
+            &admin,
+            "catalog-command-head-v2-3",
+            Some(second.catalog_record_id()),
+            third.catalog_record_id(),
+            1_008,
+        )
+        .await
+        .unwrap();
+        let current =
+            resolve_current_for_trial_family_formation(&mut transaction, &family_policy())
+                .await
+                .unwrap();
+        assert_eq!(current, third);
+        transaction.commit().await.unwrap();
+
         let audit_count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
         )
@@ -1036,9 +1066,8 @@ mod postgres_tests {
             .fetch_one(pool)
             .await
             .unwrap();
-        assert_eq!(audit_count, 6);
-        assert_eq!(outbox_count, 6);
-        cleanup_catalog_for_disposable_test_only(topology_admin_pool, pool).await;
+        assert_eq!(audit_count, 8);
+        assert_eq!(outbox_count, 8);
     }
 
     async fn assert_zero_family_write_on_cross_splice(pool: &PgPool) {
@@ -1132,34 +1161,6 @@ mod postgres_tests {
             );
             transaction.rollback().await.unwrap();
         }
-    }
-
-    /// Opens the poison capability only inside this disposable PostgreSQL test module. This is not
-    /// an administration port and is absent from non-test builds.
-    async fn cleanup_catalog_for_disposable_test_only(
-        topology_admin_pool: &PgPool,
-        rd_pool: &PgPool,
-    ) {
-        let mut transaction = topology_admin_pool.begin().await.unwrap();
-
-        for statement in [
-            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2",
-            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2",
-            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
-            "DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
-        ] {
-            sqlx::query(statement)
-                .execute(&mut *transaction)
-                .await
-                .unwrap();
-        }
-        transaction.commit().await.unwrap();
-        sqlx::query(
-            "DELETE FROM rd_owner_outbox_v1 WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2'",
-        )
-        .execute(rd_pool)
-        .await
-        .unwrap();
     }
 
     async fn family_row_counts(pool: &PgPool) -> (i64, i64, i64, i64) {

@@ -348,7 +348,7 @@ where
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .pool
+            .read_pool
             .begin()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
@@ -492,9 +492,26 @@ pub struct SealedDevelopComposerAcceptanceReadPortV2 {
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 impl SealedDevelopComposerAcceptanceReadPortV2 {
+    #[doc(hidden)]
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect(database_url).await?;
-        let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
+        let rd_owner_database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")?;
+        Self::connect_with_writer(&rd_owner_database_url, database_url).await
+    }
+
+    pub async fn connect_with_writer(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> anyhow::Result<Self> {
+        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect_with_writer(
+            rd_owner_database_url,
+            rd_fact_writer_database_url,
+        )
+        .await?;
+        let store = PostgresDevelopComposerStoreV2::connect(
+            rd_owner_database_url,
+            rd_fact_writer_database_url,
+        )
+        .await?;
         Ok(Self { owner, store })
     }
 }
@@ -511,7 +528,7 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .pool
+            .read_pool
             .begin()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
@@ -966,19 +983,73 @@ fn sealed_bytes_column(
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
 }
 
+async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx::Error> {
+    let role_is_exact: bool = sqlx::query_scalar("SELECT SESSION_USER=$1 AND CURRENT_USER=$1")
+        .bind(expected_role)
+        .fetch_one(pool)
+        .await?;
+
+    if role_is_exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(format!(
+            "Composer {expected_role} connection role is unavailable"
+        )))
+    }
+}
+
+async fn verify_same_database(
+    read_pool: &PgPool,
+    mutation_pool: &PgPool,
+) -> Result<(), sqlx::Error> {
+    let identity_query = "SELECT current_database()||'@'||COALESCE(inet_server_addr()::text,'local')||':'||COALESCE(inet_server_port()::text,'local')";
+    let read_identity: String = sqlx::query_scalar(identity_query)
+        .fetch_one(read_pool)
+        .await?;
+    let mutation_identity: String = sqlx::query_scalar(identity_query)
+        .fetch_one(mutation_pool)
+        .await?;
+
+    if read_identity == mutation_identity {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer read and mutation connections target different databases".to_owned(),
+        ))
+    }
+}
+
 #[derive(Clone)]
 pub struct PostgresDevelopComposerStoreV2 {
-    pool: PgPool,
+    read_pool: PgPool,
+    mutation_pool: PgPool,
 }
 
 impl PostgresDevelopComposerStoreV2 {
-    pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
-        let pool = sqlx::postgres::PgPoolOptions::new()
+    pub async fn connect(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> Result<Self, sqlx::Error> {
+        let read_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(database_url)
+            .connect(rd_owner_database_url)
             .await?;
-        Self::migrate(&pool).await?;
-        Ok(Self { pool })
+        Self::migrate(&read_pool).await?;
+        verify_pool_role(&read_pool, "rd_owner").await?;
+
+        let mutation_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(rd_fact_writer_database_url)
+            .await?;
+        let mut transaction = mutation_pool.begin().await?;
+        verify_composer_commit_authority_in_transaction(&mut transaction).await?;
+        transaction.rollback().await?;
+        verify_same_database(&read_pool, &mutation_pool).await?;
+
+        Ok(Self {
+            read_pool,
+            mutation_pool,
+        })
     }
 
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
@@ -1007,7 +1078,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(&self.pool, request_identity).await {
+        let record = match load_record(&self.read_pool, request_identity).await {
             Ok(Some(record)) => record,
             Ok(None) => {
                 return Ok(unavailable_response(
@@ -1049,7 +1120,7 @@ impl PostgresDevelopComposerStoreV2 {
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
+        let mut transaction = self.mutation_pool.begin().await?;
         acquire_advisory_locks(
             &mut transaction,
             &[request_lock_key(&request.request_identity)],
