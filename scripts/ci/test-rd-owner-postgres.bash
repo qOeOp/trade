@@ -304,6 +304,10 @@ check_migration_authority_boundary() {
     ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "SELECT NOT pg_catalog.pg_is_in_recovery()" "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "CREATE ROLE rd_fact_writer LOGIN INHERIT" "$authority_migration" ||
+    ! rg -Fq "ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$authority_migration" ||
+    ! rg -Fq "role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit" "$authority_migration" ||
+    ! rg -Fq 'ALTER ROLE rd_fact_writer NOINHERIT;' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'Source Intake/legacy drain topology is partial' "$authority_migration" ||
     ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
     ! rg -Fq "tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1','rd_exploratory_replay_requests_v1')" "$authority_migration" ||
@@ -760,6 +764,31 @@ SELECT pg_catalog.count(*) FROM public.rd_source_candidates_v1;
 SQL
 }
 run_authority_migration
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+ALTER ROLE rd_fact_writer NOINHERIT;
+SQL
+run_authority_migration
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DO $rd_fact_writer_role_readback$
+DECLARE exact boolean;
+BEGIN
+  SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
+           role.rolcanlogin AND role.rolinherit
+           AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
+           AND NOT role.rolreplication AND NOT role.rolbypassrls
+         )
+    INTO exact
+    FROM pg_catalog.pg_roles role
+   WHERE role.rolname='rd_fact_writer';
+  IF exact IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'R&D fact writer role normalization mismatch';
+  END IF;
+END
+$rd_fact_writer_role_readback$;
+SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'

@@ -17,7 +17,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'replay_policy_catalog_owner') THEN CREATE ROLE replay_policy_catalog_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'composer_owner') THEN CREATE ROLE composer_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_owner') THEN CREATE ROLE rd_owner LOGIN; END IF;
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_fact_writer') THEN CREATE ROLE rd_fact_writer LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_fact_writer') THEN CREATE ROLE rd_fact_writer LOGIN INHERIT; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'operator_authorization_owner') THEN CREATE ROLE operator_authorization_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'operator_authorization_writer') THEN CREATE ROLE operator_authorization_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'qualification_owner') THEN CREATE ROLE qualification_owner NOLOGIN; END IF;
@@ -33,7 +33,7 @@ ALTER ROLE product_edge_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NO
 ALTER ROLE replay_policy_catalog_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE composer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'rd_password';
-ALTER ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE operator_authorization_owner NOLOGIN;
 ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;
@@ -2903,6 +2903,7 @@ BEGIN
   SELECT pg_catalog.pg_get_userbyid(database.datdba)='rd_database_owner'
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname IN ('rd_database_owner','replay_policy_catalog_owner','composer_owner') AND (role.rolcanlogin OR role.rolsuper OR role.rolcreatedb OR role.rolcreaterole OR role.rolreplication OR role.rolbypassrls))
     AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+    AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
     AND NOT pg_catalog.pg_has_role('rd_owner','replay_policy_catalog_owner','MEMBER')
     AND NOT pg_catalog.pg_has_role('rd_owner','composer_owner','MEMBER')
     AND NOT pg_catalog.pg_has_role('replay_policy_catalog_owner','rd_owner','MEMBER')
