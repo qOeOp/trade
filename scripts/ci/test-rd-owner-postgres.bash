@@ -376,6 +376,67 @@ if body.count("REVOKE rd_owner FROM vibe_test_owner_topology_admin") != 1:
 PY
 }
 
+check_product_edge_fresh_migration_lease() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+function_match = re.search(
+    r"provision_owner_schemas\(\) \{(.*?)\n\}",
+    script,
+    re.DOTALL,
+)
+if function_match is None:
+    raise SystemExit("ERROR: Product Edge fresh migration boundary is unavailable")
+body = function_match.group(1)
+ordered_contract = (
+    "BEGIN;\n"
+    "GRANT product_edge_custodian TO vibe_test_owner_topology_admin\n"
+    "  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;",
+    "WHERE granted.rolname='product_edge_custodian'",
+    "AND member.rolname='vibe_test_owner_topology_admin'",
+    "AND grantor.rolname='postgres' AND NOT membership.admin_option",
+    "AND membership.inherit_option AND membership.set_option",
+    "$product_edge_migration_lease$;\nCOMMIT;",
+    "local product_edge_test_status=0",
+    'PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url"',
+    'product_edge_test_status="$?"',
+    "BEGIN;\nREVOKE product_edge_custodian FROM vibe_test_owner_topology_admin;",
+    "WHERE granted.rolname='product_edge_custodian'\n"
+    "      OR member.rolname='product_edge_custodian'",
+    "Product Edge custodian membership cleanup failed",
+    "$product_edge_migration_cleanup$;\nCOMMIT;",
+    'if [[ "$product_edge_test_status" -ne 0 ]]; then',
+    'return "$product_edge_test_status"',
+)
+position = -1
+for required in ordered_contract:
+    next_position = body.find(required, position + 1)
+    if next_position < 0:
+        raise SystemExit(
+            f"ERROR: Product Edge fresh migration lease contract is missing or reordered: {required}"
+        )
+    position = next_position
+if body.count("GRANT product_edge_custodian TO vibe_test_owner_topology_admin") != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration lease grant is not unique")
+if body.count("REVOKE product_edge_custodian FROM vibe_test_owner_topology_admin") != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration lease cleanup is not unique")
+if body.count('PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url"') != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration test is not unique")
+if body.count('product_edge_test_status="$?"') != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration status capture is not unique")
+if body.count(
+    "WHERE granted.rolname='product_edge_custodian'\n"
+    "     AND member.rolname='vibe_test_owner_topology_admin'"
+) != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration lease readback is not unique")
+if body.count("Product Edge custodian membership cleanup failed") != 1:
+    raise SystemExit("ERROR: Product Edge fresh migration zero-edge proof is not unique")
+PY
+}
+
 check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
@@ -383,6 +444,7 @@ check_replay_policy_catalog_fault_function_bodies
 check_legacy_migration_lease_function_bodies
 check_migration_authority_boundary
 check_rd_owner_fresh_migration_lease
+check_product_edge_fresh_migration_lease
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -2097,13 +2159,77 @@ provision_owner_schemas() {
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 SQL
 
-  if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url" \
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+BEGIN;
+GRANT product_edge_custodian TO vibe_test_owner_topology_admin
+  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+DO $product_edge_migration_lease$
+DECLARE exact_edge_count bigint;
+BEGIN
+  SELECT pg_catalog.count(*) INTO exact_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE granted.rolname='product_edge_custodian'
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  IF exact_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+    WHERE (granted.rolname='product_edge_custodian'
+        OR member.rolname='product_edge_custodian')
+      AND NOT (granted.rolname='product_edge_custodian'
+           AND member.rolname='vibe_test_owner_topology_admin'
+           AND grantor.rolname='postgres' AND NOT membership.admin_option
+           AND membership.inherit_option AND membership.set_option)
+  ) THEN
+    RAISE EXCEPTION 'Product Edge fresh migration lease membership mismatch';
+  END IF;
+END
+$product_edge_migration_lease$;
+COMMIT;
+SQL
+
+  local product_edge_test_status=0
+  if env PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url" \
     cargo nextest run \
     --archive-file "$nextest_archive_file" \
     --profile "$nextest_profile" \
     "${nextest_execution_args[@]}" \
     -E "$product_edge_filter"; then
-    return 1
+    :
+  else
+    product_edge_test_status="$?"
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+BEGIN;
+REVOKE product_edge_custodian FROM vibe_test_owner_topology_admin;
+DO $product_edge_migration_cleanup$
+DECLARE protected_edge_count bigint;
+BEGIN
+  SELECT pg_catalog.count(*) INTO protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE granted.rolname='product_edge_custodian'
+      OR member.rolname='product_edge_custodian';
+  IF protected_edge_count<>0 THEN
+    RAISE EXCEPTION 'Product Edge custodian membership cleanup failed';
+  END IF;
+END
+$product_edge_migration_cleanup$;
+COMMIT;
+SQL
+
+  if [[ "$product_edge_test_status" -ne 0 ]]; then
+    return "$product_edge_test_status"
   fi
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
