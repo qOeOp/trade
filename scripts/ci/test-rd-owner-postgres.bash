@@ -487,6 +487,14 @@ run_authority_migration_for_database() {
 run_authority_migration() {
   run_authority_migration_for_database "$test_database"
 }
+restore_disposable_topology_admin() {
+  local fixture_database="$1"
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres --set=fixture_database="$fixture_database" << 'SQL'
+GRANT replay_policy_catalog_owner, composer_owner, rd_custodian, product_edge_custodian TO vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
+SQL
+}
 run_authority_migration
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -599,6 +607,22 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
 ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 DROP CONSTRAINT catalog_version_manifest_test;
 ALTER TABLE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 ADD CONSTRAINT catalog_version_manifest_restored CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615);
+SQL
+run_authority_migration
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE FUNCTION public.forbidden_qualification_trigger_v1() RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RETURN NEW; END $function$;
+CREATE TRIGGER forbidden_qualification_trigger_v1 BEFORE INSERT ON public.qualification_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION public.forbidden_qualification_trigger_v1();
+SQL
+if run_authority_migration; then
+  echo "ERROR: authority migration blessed an unexpected Qualification trigger dependency" >&2
+  exit 1
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+DROP TRIGGER forbidden_qualification_trigger_v1 ON public.qualification_owner_outbox_v1;
+DROP FUNCTION public.forbidden_qualification_trigger_v1();
 SQL
 run_authority_migration
 
@@ -1113,6 +1137,11 @@ env \
     "${nextest_execution_args[@]}" \
     -E "$runtime_startup_filter"
 
+# Production runtime startup above proves the final migration with no disposable
+# authority. Restore only the isolated test administrator needed by later fault probes.
+restore_disposable_topology_admin "$test_database"
+restore_disposable_topology_admin "$origin_current_database"
+
 # The first two filters exercise explicit legacy/origin migration under separate,
 # test-bounded schema authority. The final filters deliberately poison Owner state
 # and therefore stay after every positive consumer, with the malformed OA/PE schema probe last.
@@ -1162,6 +1191,7 @@ SQL
   if [[ -n "$migration_database" ]]; then
     run_authority_migration_for_database "$migration_database"
     revoke_runtime_schema_create "$migration_database"
+    restore_disposable_topology_admin "$migration_database"
   fi
   if [[ "$test_passed" != true ]]; then
     exit 1

@@ -49,7 +49,7 @@ REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization
 DO $isolate_rd_authority_roles$
 DECLARE authority_role text; membership record;
 BEGIN
-  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','rd_custodian','product_edge_custodian','replay_policy_catalog_owner','composer_owner','rd_fact_writer','rd_owner'] LOOP
+  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','rd_custodian','product_edge_custodian','replay_policy_catalog_owner','composer_owner','rd_fact_writer','rd_owner','qualification_owner','qualification_writer'] LOOP
     FOR membership IN
       SELECT granted.rolname AS granted_role, member.rolname AS member_role
       FROM pg_catalog.pg_auth_members edge
@@ -238,6 +238,45 @@ $function$;
 ALTER FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) OWNER TO qualification_owner;
 REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) TO rd_owner, qualification_writer;
+DO $qualification_closed_manifest$
+DECLARE relation_fact record; relation_seal text; grantee_fact record;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM (VALUES
+      ('qualification_protected_feedback_projections_v1',ARRAY['projection_identity','basis_identity','principal','request_scope_json','resolution_state','source_sequence','source_cut','projection_digest','projection_json','receipt_json','committed_at_epoch_ms','valid_through_epoch_ms']::text[],2::bigint,1::bigint),
+      ('qualification_protected_feedback_heads_v1',ARRAY['principal_scope_key','principal','request_scope_json','frontier_identity','frontier_digest','source_sequence','source_cut','committed_at_epoch_ms']::text[],2::bigint,3::bigint),
+      ('qualification_owner_outbox_v1',ARRAY['event_identity','aggregate_identity','event_kind','payload_digest','payload_json','committed_at_epoch_ms']::text[],2::bigint,2::bigint)
+    ) expected(name,columns,index_count,constraint_count)
+    LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||expected.name)
+    WHERE relation.oid IS NULL OR relation.relkind<>'r' OR relation.relpersistence<>'p'
+       OR (SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)<>expected.columns
+       OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid=relation.oid)<>expected.index_count
+       OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid)<>expected.constraint_count
+       OR relation.relrowsecurity OR relation.relforcerowsecurity
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+       OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+  ) THEN RAISE EXCEPTION 'Qualification closed relation manifest mismatch'; END IF;
+  REVOKE ALL ON SCHEMA qualification_api FROM PUBLIC;
+  FOR grantee_fact IN SELECT DISTINCT role.rolname FROM pg_catalog.pg_namespace namespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE namespace.nspname='qualification_api' AND acl.grantee<>namespace.nspowner
+  LOOP EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA qualification_api FROM %I',grantee_fact.rolname); END LOOP;
+  GRANT USAGE ON SCHEMA qualification_api TO rd_owner, qualification_writer;
+  FOR relation_fact IN SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname IN ('qualification_protected_feedback_projections_v1','qualification_protected_feedback_heads_v1','qualification_owner_outbox_v1')
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM PUBLIC',relation_fact.relname);
+    FOR grantee_fact IN SELECT DISTINCT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT relacl FROM pg_catalog.pg_class WHERE oid=relation_fact.oid),pg_catalog.acldefault('r',(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_fact.oid)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_fact.oid)
+    LOOP EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM %I',relation_fact.relname,grantee_fact.rolname); END LOOP;
+    EXECUTE pg_catalog.format('GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.%I TO qualification_writer',relation_fact.relname);
+    SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation_fact.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation_fact.oid),'indexes',(SELECT pg_catalog.jsonb_agg(pg_catalog.pg_get_indexdef(index_fact.indexrelid) ORDER BY pg_catalog.pg_get_indexdef(index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid=relation_fact.oid))::text) INTO relation_seal;
+    EXECUTE pg_catalog.format('COMMENT ON TABLE public.%I IS %L',relation_fact.relname,relation_seal);
+  END LOOP;
+  REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM PUBLIC;
+  FOR grantee_fact IN SELECT DISTINCT role.rolname FROM pg_catalog.pg_proc procedure CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE procedure.oid=pg_catalog.to_regprocedure('qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text)') AND acl.grantee<>procedure.proowner
+  LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM %I',grantee_fact.rolname); END LOOP;
+  GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) TO rd_owner, qualification_writer;
+  EXECUTE pg_catalog.format('COMMENT ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) IS %L','vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text)'))));
+END
+$qualification_closed_manifest$;
 
 DO $move$
 DECLARE name text;
@@ -1158,6 +1197,18 @@ $catalog_composer_function_acl_cutover$;
 DO $runtime_custody_cutover$
 DECLARE object record; relation_seal text;
 BEGIN
+  IF EXISTS (
+    WITH admitted(name) AS (SELECT * FROM pg_catalog.unnest(ARRAY[
+      'rd_research_request_receipts_v1','rd_independence_bases_v1','rd_independence_basis_admissions_v1','rd_independence_basis_heads_v1','rd_trial_families_v1','rd_trial_family_members_v1','rd_trial_family_heads_v1','rd_trial_family_attempt_cuts_v2','rd_artifact_trial_family_bindings_v1','rd_owner_outbox_v1','rd_sealed_exploratory_replay_requests_v1','rd_complex_strategy_develop_evaluations_v1','rd_complex_strategy_develop_evaluation_heads_v1','rd_artifact_build_attempts_v1','rd_strategy_artifacts_v1',
+      'product_edge_operation_manifests_v1','product_edge_deployment_bindings_v1','product_edge_deployment_supersessions_v1','product_edge_binding_manifests_v1','product_edge_deployment_heads_v1','product_edge_request_admissions_v1','product_edge_effect_invocation_admissions_v1','product_edge_effect_invocation_claims_v1','product_edge_effect_invocation_states_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1','product_edge_expired_manifest_recoveries_v1'
+    ]::text[]))
+    SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\') AND relation.relname NOT IN (SELECT name FROM admitted)
+  ) OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\')
+      AND (relation.relrowsecurity OR relation.relforcerowsecurity OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal AND ((trigger_fact.tgname,trigger_fact.tgfoid) NOT IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))) OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n'))))
+  ) THEN RAISE EXCEPTION 'R&D/Product Edge closed relation or programmable dependency manifest mismatch'; END IF;
   FOR object IN
     SELECT relation.oid, namespace.nspname AS schema_name, relation.relname
     FROM pg_catalog.pg_class relation
@@ -1167,7 +1218,7 @@ BEGIN
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
-    SELECT 'vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+    SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
       'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
       'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
     )::text) INTO relation_seal;
@@ -1182,11 +1233,19 @@ BEGIN
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO product_edge_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner',object.schema_name,object.relname);
-    SELECT 'vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+    SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
       'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
       'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
     )::text) INTO relation_seal;
     EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
+  END LOOP;
+  FOR object IN SELECT procedure.oid::pg_catalog.regprocedure AS signature FROM pg_catalog.pg_proc procedure WHERE procedure.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))
+  LOOP
+    EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO product_edge_custodian',object.signature);
+    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',object.signature);
+    FOR relation_seal IN SELECT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE role.rolname<>'product_edge_custodian'
+    LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal); END LOOP;
+    EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L',object.signature,'vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)));
   END LOOP;
   FOR object IN
     SELECT procedure.oid::pg_catalog.regprocedure AS signature, namespace.nspname,
