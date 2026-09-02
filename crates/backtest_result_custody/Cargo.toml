@@ -1,9 +1,9 @@
 [package]
-name = "vibe-backtest-owner"
+name = "vibe-backtest-result-custody"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Caller-unforgeable Backtest Replay V2 owner carriers"
+description = "Dependency-neutral locked read custody for Backtest Replay V2 results"
 repository.workspace = true
 publish = false
 
@@ -11,17 +11,10 @@ publish = false
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 blake3 = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
-vibe-backtest-result-custody = { workspace = true }
-vibe-strategy-factory = { workspace = true }
-
-[dev-dependencies]
-rstest = { workspace = true }
-tokio = { workspace = true }
-trybuild = { workspace = true }
-vibe-testkit = { workspace = true, features = ["postgres"] }

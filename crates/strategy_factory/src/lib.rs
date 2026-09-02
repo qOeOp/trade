@@ -94,6 +94,10 @@ mod program_runtime;
 pub mod program_runtime_v2;
 mod program_session;
 mod rd_owner_postgres_custody;
+pub use rd_owner_postgres_custody::{
+    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
+    LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+};
 pub mod receipt;
 pub mod replay_execution_policy_v2;
 mod replay_policy_catalog_postgres_v2;

@@ -1,12 +1,13 @@
 //! Atomic PostgreSQL persistence for Backtest-owned Replay V2 results.
 //!
-//! This module assumes an independently admitted, pre-existing topology. It performs no DDL and
-//! does not install or validate the future R&D `SECURITY DEFINER` read facade.
+//! This module assumes an independently provisioned topology. It performs no DDL and validates the
+//! exact append-only tables and R&D `SECURITY DEFINER` facade before use.
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayResultDtoV2;
+use vibe_backtest_result_custody::validate_backtest_result_writer_topology_v2;
 
 use crate::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayTerminalV2, SealedReplayResultV2,
@@ -20,7 +21,7 @@ const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 
-const READ_AGGREGATE: &str = r#"
+const READ_AGGREGATE: &str = "
 SELECT result.result_identity,result.result_digest,result.request_identity,
        result.request_meaning_digest,result.attempt_identity,result.terminal,
        result.canonical_bytes,result.canonical_bytes_blake3,
@@ -41,7 +42,7 @@ SELECT result.result_identity,result.result_digest,result.request_identity,
 FROM public.backtest_replay_results_v2 result
 LEFT JOIN public.backtest_replay_result_receipts_v1 receipt USING(result_identity)
 LEFT JOIN public.backtest_replay_result_outbox_v1 outbox USING(result_identity)
-"#;
+";
 
 /// A complete, integrity-checked Result/receipt/outbox aggregate read by Backtest Owner.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,8 +103,8 @@ pub struct PostgresReplayResultOwnerV2 {
 impl PostgresReplayResultOwnerV2 {
     /// Adopts a pre-existing admitted pool after verifying its exact session principal.
     ///
-    /// This does not admit table shape, ACLs, or the future R&D read function. Those remain a
-    /// separate topology acceptance concern and this constructor performs no repair or DDL.
+    /// It also validates the fixed table/function ownership and exact append-only ACL topology.
+    /// This constructor performs no repair or DDL.
     ///
     /// # Errors
     ///
@@ -112,6 +113,17 @@ impl PostgresReplayResultOwnerV2 {
         pool: PgPool,
     ) -> Result<Self, PostgresReplayResultOwnerErrorV2> {
         validate_pool_principal(&pool).await?;
+        let mut transaction = pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        validate_backtest_result_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         Ok(Self { pool })
     }
 
@@ -141,6 +153,9 @@ impl PostgresReplayResultOwnerV2 {
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_transaction_principal(&mut transaction).await?;
+        validate_backtest_result_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         lock_attempt(&mut transaction, &result_dto).await?;
 
         let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
@@ -248,6 +263,9 @@ impl PostgresReplayResultOwnerV2 {
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_transaction_principal(&mut transaction).await?;
+        validate_backtest_result_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
         let query = format!("{READ_AGGREGATE} WHERE result.result_identity=$1");
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
             .bind(result_identity.as_str())

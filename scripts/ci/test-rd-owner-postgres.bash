@@ -7,11 +7,13 @@ readonly guarded_roots=(
   crates/product_edge
   crates/rd_source_intake_invocation_custody
   crates/qualification
+  crates/backtest_owner
+  crates/backtest_result_custody
   crates/strategy_factory
   crates/strategy_factory_rd_owner_api
 )
 
-# Build the three Owner test packages into one nextest archive. The ordered
+# Build the Owner test packages into one nextest archive. The ordered
 # package/binary/test filters below then run from that immutable build while
 # the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
@@ -28,6 +30,11 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_cross_spliced_aggregate'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
@@ -36,6 +43,7 @@ readonly nextest_graph_args=(
   --package vibe-strategy-factory
   --package vibe-strategy-factory-rd-owner-api
   --package vibe-product-edge
+  --package vibe-backtest-owner
   --lib
   --tests
 )
@@ -49,8 +57,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 15 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 20 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -58,12 +66,17 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
     [[ "${rd_owner_postgres_tests[12]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[13]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_cross_spliced_aggregate' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
-  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
+  if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
@@ -151,8 +164,35 @@ if failures:
 PY
 }
 
+check_backtest_result_function_source() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - \
+    "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
+    "$repository_root/crates/backtest_result_custody/src/lib.rs" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+migration = Path(sys.argv[1]).read_text(encoding="utf-8")
+rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_exploratory_replay_result_v2\("
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+rust_match = re.search(r'const FUNCTION_SOURCE: &str = "([^"]*)";', rust)
+if sql_match is None or rust_match is None:
+    raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
+if sql_match.group(1) != rust_match.group(1):
+    raise SystemExit("ERROR: Backtest Result locked-read source identity mismatch")
+PY
+}
+
 check_static_isolation
 check_nextest_graph_contract
+check_backtest_result_function_source
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -790,12 +830,99 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
+inject_backtest_result_fault() {
+  local fault="$1"
+  case "$fault" in
+    source)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)
+RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS 'SELECT NULL::jsonb';
+SQL
+      ;;
+    acl)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+GRANT SELECT ON TABLE public.backtest_replay_results_v2 TO rd_owner;
+SQL
+      ;;
+    splice)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+CREATE TABLE vibe_test_admin.backtest_result_receipt_backup_v1 AS
+SELECT result_identity,canonical_bytes FROM public.backtest_replay_result_receipts_v1
+WHERE request_identity='request' AND result_identity LIKE 'backtest-replay-result-v2-%';
+UPDATE public.backtest_replay_result_receipts_v1 receipt
+SET canonical_bytes=outbox.canonical_bytes
+FROM public.backtest_replay_result_outbox_v1 outbox
+WHERE receipt.result_identity=outbox.result_identity AND receipt.request_identity='request';
+SQL
+      ;;
+    rollback)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+CREATE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1()
+RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RAISE EXCEPTION 'injected Backtest outbox failure'; END $function$;
+CREATE TRIGGER reject_backtest_result_outbox_v1 BEFORE INSERT ON public.backtest_replay_result_outbox_v1
+FOR EACH ROW EXECUTE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
+SQL
+      ;;
+  esac
+}
+
+restore_backtest_result_fault() {
+  local fault="$1"
+  if [[ "$fault" == splice ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+UPDATE public.backtest_replay_result_receipts_v1 receipt
+SET canonical_bytes=backup.canonical_bytes
+FROM vibe_test_admin.backtest_result_receipt_backup_v1 backup
+WHERE receipt.result_identity=backup.result_identity;
+DROP TABLE vibe_test_admin.backtest_result_receipt_backup_v1;
+SQL
+  elif [[ "$fault" == rollback ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+DROP TRIGGER reject_backtest_result_outbox_v1 ON public.backtest_replay_result_outbox_v1;
+DROP FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
+SQL
+  fi
+  docker exec --interactive \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env "POSTGRES_DATABASE=${test_database}" \
+    --env "POSTGRES_PASSWORD=${test_password}" \
+    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+    --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+    --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
+    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+SQL
+}
+
 # The first two filters make the first application connection to their separate
 # fresh databases. The final filters deliberately poison Owner state and therefore
 # stay after every positive consumer, with the malformed OA/PE schema probe last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
+  backtest_result_fault=''
+  case "$test_name" in
+    postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
+    postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
+    postgres_result_rd_read_rejects_cross_spliced_aggregate) backtest_result_fault=splice ;;
+    postgres_result_mid_commit_failure_rolls_back_every_aggregate_row) backtest_result_fault=rollback ;;
+  esac
+  if [[ -n "$backtest_result_fault" ]]; then
+    inject_backtest_result_fault "$backtest_result_fault"
+  fi
   if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
@@ -815,6 +942,9 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$test_filter"
+  fi
+  if [[ -n "$backtest_result_fault" ]]; then
+    restore_backtest_result_fault "$backtest_result_fault"
   fi
 done
 
