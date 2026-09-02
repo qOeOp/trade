@@ -858,22 +858,22 @@ fn verify_existing(
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_MANIFEST_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("6eb061e68e31eda0488fa76b57cc6992b0d80c7b08ea62c711e23aff3d2192ad");
+    hex_digest_v2("4cfc8b006fe172d687e3af56b3831147561b7ab903c973dba2aa3cbdff346cbe");
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_CAPSULE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("c8b25ba67ae8bc0542381ff6641fdf94f78862553578fc2e83ef5f374735a475");
+    hex_digest_v2("5dec04f405dd8f100b6d00b67615ec527ae532d664b90963b299d27eedc07dae");
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_SOURCE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("fe174c795cebae2bf218ec329026fad0dfebde0bf76210a00f1e477d4e82bc57");
+    hex_digest_v2("9302eb6b5bde6b794c407ceac062f34717dedf96fad990fc3185e3f9c2677cc0");
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_MODULE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("ece334467363f04a0308f1c312c5f2917124d2464c8abf93b0f35c340073c5ec");
+    hex_digest_v2("c2b632d80c3c2637fd1f7ba86bbfd95a17775a0ba42cadc2e4d960cd2ac79006");
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_RECEIPT_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("23d11565c257b0c9904fd1ec685434e966d7e286137d5e3de8cda6b41c838e97");
+    hex_digest_v2("dc6ce22cc9a1b8b06cd817f61b633afdb71a8677720e4d98beddfa9cd64050d6");
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_RECEIPT_BYTES_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("bd66d4b9266ec8578d0e0f90c7515f2df548e4104c193701bb7764060433b58e");
+    hex_digest_v2("cffd248b62fcb8865e9ad3d1c451d57acaacd2584596188caef249cc0fca0273");
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub(crate) fn sealed_corpus_verified_build_v2(

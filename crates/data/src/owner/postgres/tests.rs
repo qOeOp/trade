@@ -14,12 +14,24 @@ use crate::owner::{
         InstrumentMasterUniverseMembershipResolver, InstrumentMasterUniverseMembershipV1,
         InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1, membership_seal,
     },
+    market_semantics::{
+        MarketSemanticsConsumerV1, MarketSemanticsPriceAdjustmentV1,
+        MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
+        UntrustedMarketSemanticsProposalV1, authority as market_semantics_authority,
+    },
     pit_snapshot::{
         PitSnapshotOwnerResolver, UntrustedCorrectionPublicationTime, UntrustedEventEffectiveTime,
+        UntrustedPitObservation, UntrustedPitObservationBatchProposal,
         UntrustedPitSnapshotEvidence, UntrustedPitSnapshotProposal, UntrustedPitSnapshotRequest,
         UntrustedPitSnapshotTimeEvidence, UntrustedProviderAvailableTime, UntrustedRetrievalTime,
         UntrustedSnapshotDecisionCut,
-        authority::{TestOnlyCanonicalBasisResolver, refresh_request_claims},
+        authority::{
+            TestOnlyCanonicalBasisResolver, derive_observation_batch_digest,
+            refresh_request_claims, verify_observation_batch,
+        },
+    },
+    reference_fact_coordinates::r0::{
+        UntrustedReferenceFactR0RequestV1, request_meaning_digest_v1 as r0_request_meaning_digest,
     },
     research_pit_terminal::{
         ResearchPitDisposition, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
@@ -44,6 +56,16 @@ use crate::owner::{
         authority::{
             OwnerSourceBindingDecision, SourceBindingCommit, derive_binding_id,
             derive_time_evidence_identity,
+        },
+    },
+    strategy_input_binding::{
+        MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+    },
+    universe_selection::{
+        UntrustedUniverseSelectionRequestV1,
+        authority::{
+            CanonicalUniverseSelectionRuleEvaluatorV1, HistoricalMembershipFactProposalV1,
         },
     },
 };
@@ -411,6 +433,74 @@ async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
     sqlx::query("GRANT EXECUTE ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) TO vibe_test_role_market_data_reader").execute(admin).await.unwrap();
+}
+
+async fn observation_census_schema_oracle(reader_url: &str, admin: &PgPool) {
+    for table in [
+        "observation_census_records_v1",
+        "observation_census_dependencies_v1",
+        "observation_census_outbox_v1",
+        "observation_census_state_v1",
+    ] {
+        let exists: bool =
+            sqlx::query_scalar("SELECT to_regclass('market_data_private.' || $1) IS NOT NULL")
+                .bind(table)
+                .fetch_one(admin)
+                .await
+                .unwrap();
+        assert!(exists);
+        for role in [READER_ROLE, "public"] {
+            for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE"] {
+                let admitted: bool = sqlx::query_scalar(
+                    "SELECT has_table_privilege($1,'market_data_private.' || $2,$3)",
+                )
+                .bind(role)
+                .bind(table)
+                .bind(privilege)
+                .fetch_one(admin)
+                .await
+                .unwrap();
+                assert!(!admitted, "{role} unexpectedly has {privilege} on {table}");
+            }
+        }
+    }
+    let reader = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(reader_url)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("SELECT * FROM market_data_private.observation_census_records_v1")
+            .fetch_all(&reader)
+            .await
+            .is_err()
+    );
+    reader.close().await;
+
+    for relation in [
+        "replay_market_facts_v2_facts",
+        "replay_market_facts_v2_cuts",
+        "replay_market_facts_v2_receipts",
+        "replay_market_facts_v2_outbox",
+    ] {
+        let absent: bool =
+            sqlx::query_scalar("SELECT to_regclass('market_data_private.' || $1) IS NULL")
+                .bind(relation)
+                .fetch_one(admin)
+                .await
+                .unwrap();
+        assert!(
+            absent,
+            "Replay V2 relation unexpectedly installed: {relation}"
+        );
+    }
+    let replay_resolver_absent: bool = sqlx::query_scalar(
+        "SELECT to_regprocedure('market_data_private.resolve_replay_market_facts_v2(bytea)') IS NULL",
+    )
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(replay_resolver_absent);
 }
 
 fn sample_digest(byte: u8) -> [u8; 32] {
@@ -1538,6 +1628,543 @@ fn instrument_request(
     }
 }
 
+async fn strategy_input_binding_registry_postgres_oracle(
+    owner: &MarketDataOwnerPostgres,
+    source: &SourceBindingCommit,
+    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    clock: &MarketDataClockAdmission,
+) {
+    let source_readback = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
+            .await
+            .unwrap()
+            .unwrap();
+        let readback = SourceBindingOwnerReadback::from_verified(&aggregate);
+        transaction.commit().await.unwrap();
+        readback
+    };
+
+    let membership_frontier = d(170);
+    let universe_request = UntrustedUniverseSelectionRequestV1::new(
+        d(171),
+        "RESEARCH_OWNER_V1",
+        d(172),
+        vec![0, 1, 1],
+        membership_frontier,
+        50,
+        99,
+        100,
+        source.fact().lineage_root(),
+        d(86),
+        d(173),
+    );
+    let universe = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::universe_selection::persist_historical_membership_frontier_v1(
+            &mut transaction,
+            membership_frontier,
+            vec![HistoricalMembershipFactProposalV1 {
+                member_key: b"AAPL".to_vec(),
+                instrument: b"AAPL".to_vec(),
+                predecessor_identity: None,
+                effective_from_ns: 1,
+                effective_until_ns: None,
+                provider_available_ns: 90,
+                retrieval_ns: 92,
+                correction_publication_ns: 91,
+                owner_observation_ns: 99,
+                decision_cut: 100,
+                source_binding_lineage_root: source.fact().lineage_root(),
+                correction_frontier_digest: d(86),
+            }],
+        )
+        .await
+        .unwrap();
+        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
+            &mut transaction,
+            &universe_request,
+            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+
+    let time_evidence = UntrustedPitSnapshotTimeEvidence {
+        event_effective: UntrustedEventEffectiveTime::from_untrusted(
+            50,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        provider_available: UntrustedProviderAvailableTime::from_untrusted(
+            90,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        retrieval: UntrustedRetrievalTime::from_untrusted(
+            92,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
+            91,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        )),
+        decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+            100,
+            &clock.clock_identity,
+            &clock.clock_epoch,
+        ),
+        monotonic_sequence: clock.monotonic_sequence,
+        restart_continuity_digest: clock.restart_continuity_digest,
+        skew_bound: clock.skew_bound,
+        uncertainty_bound: clock.uncertainty_bound,
+        observed_at: 100,
+        valid_through: 160,
+    };
+    let mut pit_proposal = UntrustedPitSnapshotProposal {
+        request: UntrustedPitSnapshotRequest {
+            claimed_request_identity: d(0),
+            claimed_request_digest: d(0),
+            correlation_identity: d(174),
+            requester_identity: d(175),
+            scope_digest: d(176),
+            source_binding: source.receipt().locator().clone(),
+            instrument_master_digest: instrument.digest(),
+            universe_selection_digest: universe.record().identity(),
+            market_semantics_identity: d(84),
+            time_evidence,
+        },
+        evidence: UntrustedPitSnapshotEvidence {
+            normalized_records_digest: d(0),
+            source_frontier: source.receipt().locator().source_frontier.clone(),
+            correction_frontier: source.receipt().locator().correction_frontier.clone(),
+            coverage_complete: true,
+            semantics_compatible: true,
+            source_available: true,
+        },
+    };
+    let observation = UntrustedPitObservationBatchProposal {
+        rows: vec![UntrustedPitObservation {
+            symbolic_key: "AAPL.CLOSE".into(),
+            member_key: "AAPL".into(),
+            instrument: "AAPL".into(),
+            channel: "MARKET".into(),
+            data_kind: "BAR".into(),
+            timeframe: "1M".into(),
+            field: "CLOSE".into(),
+            value_mantissa: 12_345,
+            value_scale: 2,
+            event_effective: 50,
+            provider_available: 90,
+            retrieval: 92,
+            correction_publication: 91,
+            source_binding_identity: source.fact().binding_id(),
+            source_frontier_digest: d(85),
+            instrument_master_digest: instrument.digest(),
+            universe_selection_digest: universe.record().identity(),
+            market_semantics_identity: d(84),
+            correction_stream_identity: source
+                .receipt()
+                .locator()
+                .correction_frontier
+                .stream_identity
+                .clone(),
+            correction_sequence: source.receipt().locator().correction_frontier.sequence,
+            correction_frontier_digest: d(86),
+        }],
+    };
+    pit_proposal.evidence.normalized_records_digest =
+        derive_observation_batch_digest(&observation).unwrap();
+    refresh_request_claims(&mut pit_proposal.request);
+    let pit_basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+        pit_proposal.request.clone(),
+        pit_proposal.evidence.clone(),
+        clock.clone(),
+    );
+    let pit = owner
+        .commit_pit_initial_with_observation_batch(pit_proposal, observation, &pit_basis, clock)
+        .await
+        .unwrap();
+    let batch = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let aggregate =
+            load_pit_for_update(&mut transaction, pit.fact().snapshot_identity(), false)
+                .await
+                .unwrap()
+                .unwrap();
+        let stored = load_pit_observation_batch_for_update(&mut transaction, &aggregate)
+            .await
+            .unwrap()
+            .unwrap();
+        let batch = verify_observation_batch(
+            &aggregate,
+            stored.source_binding_identity,
+            stored.source_binding_lineage_root,
+            stored.source_binding_lineage_version,
+            stored.digest,
+            &stored.bytes,
+            &stored.rows,
+        )
+        .unwrap();
+        transaction.commit().await.unwrap();
+        batch
+    };
+
+    let pit_locator_bytes = serde_json::to_vec(pit.receipt().locator())
+        .unwrap()
+        .into_boxed_slice();
+    let source_locator_bytes = serde_json::to_vec(source.receipt().locator())
+        .unwrap()
+        .into_boxed_slice();
+    let mut r0_request = UntrustedReferenceFactR0RequestV1 {
+        request_identity: d(183),
+        request_meaning_digest: d(0),
+        pit_locator_bytes: pit_locator_bytes.clone(),
+        source_binding_locator_bytes: source_locator_bytes.clone(),
+        replay_start_event_ns: 50,
+        replay_end_event_ns_exclusive: 51,
+        effective_from_ns: 50,
+        effective_until_ns: Some(51),
+        provider_available_ns: 90,
+        retrieval_ns: 92,
+        correction_publication_ns: 91,
+        owner_observation_ns: 100,
+        decision_cut: 100,
+        predecessor_identity: None,
+        stable_correlation: d(179),
+    };
+    r0_request.request_meaning_digest = r0_request_meaning_digest(&r0_request).unwrap();
+    let mut r0_splices = Vec::new();
+    macro_rules! r0_splice {
+        ($field:ident, $value:expr) => {{
+            let mut changed = r0_request.clone();
+            changed.request_identity = d(210 + r0_splices.len() as u8);
+            changed.$field = $value;
+            changed.request_meaning_digest = r0_request_meaning_digest(&changed).unwrap();
+            r0_splices.push(changed);
+        }};
+    }
+    r0_splice!(provider_available_ns, 89);
+    r0_splice!(retrieval_ns, 93);
+    r0_splice!(correction_publication_ns, 90);
+    r0_splice!(owner_observation_ns, 99);
+    r0_splice!(decision_cut, 99);
+    r0_splice!(effective_from_ns, 49);
+    r0_splice!(effective_until_ns, Some(52));
+    r0_splice!(replay_start_event_ns, 49);
+    r0_splice!(replay_end_event_ns_exclusive, 52);
+    for mutate in [0_u8, 1, 2, 3, 4, 5] {
+        let mut locator = source.receipt().locator().clone();
+        match mutate {
+            0 => locator.source_frontier.cut_identity.push('x'),
+            1 => locator.source_frontier.sequence += 1,
+            2 => locator.source_frontier.digest = d(230),
+            3 => locator.correction_frontier.cut_identity.push('x'),
+            4 => locator.correction_frontier.sequence += 1,
+            5 => locator.correction_frontier.digest = d(231),
+            _ => unreachable!(),
+        }
+        let mut changed = r0_request.clone();
+        changed.request_identity = d(220 + mutate);
+        changed.source_binding_locator_bytes = serde_json::to_vec(&locator).unwrap().into();
+        changed.request_meaning_digest = r0_request_meaning_digest(&changed).unwrap();
+        r0_splices.push(changed);
+    }
+    for changed in r0_splices {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        assert!(
+            super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
+                &mut transaction,
+                &changed,
+            )
+            .await
+            .is_err()
+        );
+    }
+    let r0_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM market_data_private.reference_fact_r0_records_v1")
+            .fetch_one(owner.pool())
+            .await
+            .unwrap();
+    assert_eq!(r0_count, 0);
+    let r0 = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let issued =
+            super::reference_fact_coordinates::resolve_reference_fact_r0_in_transaction_v1(
+                &mut transaction,
+                &r0_request,
+            )
+            .await
+            .unwrap();
+        let recovered =
+            super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
+                &mut transaction,
+                r0_request.locator(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(issued.canonical_bytes(), recovered.canonical_bytes());
+        transaction.commit().await.unwrap();
+        issued
+    };
+    let semantics_value = MarketSemanticsValueV1 {
+        normalization_identity: d(180),
+        price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
+        timestamp_basis: MarketSemanticsTimestampBasisV1::EventEffective,
+        price_unit_identity: d(181),
+        size_unit_identity: d(182),
+    };
+    let registry_key = market_semantics_authority::derive_registry_key_v1(
+        d(84),
+        &source_readback,
+        &batch,
+        instrument,
+        &r0,
+    )
+    .unwrap();
+    let registry =
+        market_semantics_authority::seal_registry_entry_v1(registry_key, semantics_value, d(187))
+            .unwrap();
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::market_semantics::register_market_semantics_registry_entry_v1(
+            &mut transaction,
+            &registry,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    }
+    let mut instrument_locator_bytes = Vec::with_capacity(64);
+    instrument_locator_bytes.extend_from_slice(instrument.request_identity.as_bytes());
+    instrument_locator_bytes.extend_from_slice(instrument.request_meaning_digest.as_bytes());
+    let mut r0_locator_bytes = Vec::with_capacity(64);
+    r0_locator_bytes.extend_from_slice(r0_request.request_identity.as_bytes());
+    r0_locator_bytes.extend_from_slice(r0_request.request_meaning_digest.as_bytes());
+    let mut semantics_proposal = UntrustedMarketSemanticsProposalV1 {
+        request_identity: d(188),
+        request_meaning_digest: d(0),
+        consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
+        compatibility_scope_identity: d(84),
+        predecessor_identity: None,
+        value: semantics_value,
+        effective_from_ns: 50,
+        effective_until_ns: Some(51),
+        effective_instant_ns: 50,
+        owner_observation_ns: 100,
+        decision_cut: 100,
+        pit_locator_bytes,
+        source_binding_locator_bytes: source_locator_bytes,
+        instrument_master_locator_bytes: instrument_locator_bytes.into_boxed_slice(),
+        r0_locator_bytes: r0_locator_bytes.into_boxed_slice(),
+        stable_correlation: d(179),
+    };
+    semantics_proposal.request_meaning_digest =
+        market_semantics_authority::request_meaning_digest_v1(&semantics_proposal).unwrap();
+    let before_semantics_sequence: Option<i64> = sqlx::query_scalar(
+        "SELECT append_sequence FROM market_data_private.market_semantics_state_v1 WHERE singleton",
+    )
+    .fetch_optional(owner.pool())
+    .await
+    .unwrap();
+    let mut tampered_semantics = semantics_proposal.clone();
+    tampered_semantics.request_identity = d(232);
+    tampered_semantics.r0_locator_bytes[63] ^= 1;
+    tampered_semantics.request_meaning_digest =
+        market_semantics_authority::request_meaning_digest_v1(&tampered_semantics).unwrap();
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        assert!(
+            super::market_semantics::resolve_market_semantics_in_transaction_v1(
+                &mut transaction,
+                &tampered_semantics,
+            )
+            .await
+            .is_err()
+        );
+    }
+    let after_semantics_sequence: Option<i64> = sqlx::query_scalar(
+        "SELECT append_sequence FROM market_data_private.market_semantics_state_v1 WHERE singleton",
+    )
+    .fetch_optional(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(before_semantics_sequence, after_semantics_sequence);
+    let semantics = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback = super::market_semantics::resolve_market_semantics_in_transaction_v1(
+            &mut transaction,
+            &semantics_proposal,
+        )
+        .await
+        .unwrap();
+        let recovered = super::market_semantics::recover_market_semantics_in_transaction_v1(
+            &mut transaction,
+            semantics_proposal.locator(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(readback.canonical_bytes(), recovered.canonical_bytes());
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let [semantics_fact] = semantics.facts() else {
+        panic!("one exact MarketSemantics fact");
+    };
+    let [instrument_fact] = instrument.facts() else {
+        panic!("one exact InstrumentMaster fact");
+    };
+    assert_eq!(
+        semantics_fact.instrument_master_readback_digest,
+        instrument.digest()
+    );
+    assert_eq!(
+        semantics_fact.instrument_master_fact_digest,
+        instrument_fact.digest()
+    );
+    assert_eq!(
+        semantics_fact.instrument_master_cut_digest,
+        instrument.cut().digest()
+    );
+    assert_ne!(instrument.digest(), instrument_fact.digest());
+    assert_ne!(instrument.digest(), instrument.cut().digest());
+    assert_ne!(instrument_fact.digest(), instrument.cut().digest());
+
+    let binding_request = UntrustedStrategyInputBindingRequest {
+        research_request_identity: d(190),
+        strategy_design_identity: d(191),
+        input_role_identity: d(192),
+        scope: UntrustedStrategyInputScope::ExactInstrument {
+            instrument: "AAPL".into(),
+        },
+        field_semantic: MarketDataFieldSemantic::BarClosePrice,
+        channel: StrategyInputChannel::Market,
+        timeframe: "1M".into(),
+        unit: StrategyInputUnit::Price,
+        scale: 2,
+        pit_request_identity: batch.request_identity(),
+        pit_request_digest: batch.request_digest(),
+        snapshot_identity: batch.snapshot_identity(),
+        snapshot_fact_digest: batch.fact_digest(),
+        observation_batch_digest: batch.digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        decision_cut: batch.time_evidence().decision_cut.value,
+    };
+    let registered = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback =
+            super::strategy_input_binding_registry::register_strategy_input_binding_declaration_v1(
+                &mut transaction,
+                &binding_request,
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    assert_eq!(registered.request(), &binding_request);
+    assert_eq!(
+        registered.binding().locator().input_role_identity(),
+        binding_request.input_role_identity,
+    );
+    let recovered = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback =
+            super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
+                &mut transaction,
+                binding_request.pit_request_identity,
+                binding_request.strategy_design_identity,
+                binding_request.input_role_identity,
+            )
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    assert_eq!(recovered.request(), registered.request());
+    assert_eq!(
+        recovered.request_meaning_digest(),
+        registered.request_meaning_digest(),
+    );
+    assert_eq!(recovered.binding(), registered.binding());
+
+    let receipt = sqlx::query("SELECT request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence FROM market_data_private.instrument_master_receipts_v1 WHERE request_identity=$1")
+        .bind(instrument.cut().request_identity.as_bytes().as_slice())
+        .fetch_one(owner.pool()).await.unwrap();
+    let outbox = sqlx::query("SELECT outbox_identity,receipt_bytes FROM market_data_private.instrument_master_outbox_v1 WHERE request_identity=$1")
+        .bind(instrument.cut().request_identity.as_bytes().as_slice())
+        .fetch_one(owner.pool()).await.unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.instrument_master_outbox_v1 WHERE request_identity=$1",
+    )
+    .bind(instrument.cut().request_identity.as_bytes().as_slice())
+    .execute(owner.pool())
+    .await
+    .unwrap();
+    sqlx::query(
+        "DELETE FROM market_data_private.instrument_master_receipts_v1 WHERE request_identity=$1",
+    )
+    .bind(instrument.cut().request_identity.as_bytes().as_slice())
+    .execute(owner.pool())
+    .await
+    .unwrap();
+    let mut absent = owner.pool().begin().await.unwrap();
+    assert!(matches!(
+        super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
+            &mut absent,
+            binding_request.pit_request_identity,
+            binding_request.strategy_design_identity,
+            binding_request.input_role_identity,
+        )
+        .await,
+        Err(super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+    ));
+    absent.rollback().await.unwrap();
+    sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
+        .bind(instrument.cut().request_identity.as_bytes().as_slice())
+        .bind(receipt.get::<Vec<u8>, _>("request_meaning_digest"))
+        .bind(receipt.get::<Vec<u8>, _>("cut_identity"))
+        .bind(receipt.get::<Vec<u8>, _>("receipt_identity"))
+        .bind(receipt.get::<Vec<u8>, _>("receipt_bytes"))
+        .bind(receipt.get::<i64, _>("append_sequence"))
+        .execute(owner.pool()).await.unwrap();
+    sqlx::query("INSERT INTO market_data_private.instrument_master_outbox_v1(outbox_identity,request_identity,receipt_bytes) VALUES($1,$2,$3)")
+        .bind(outbox.get::<Vec<u8>, _>("outbox_identity"))
+        .bind(instrument.cut().request_identity.as_bytes().as_slice())
+        .bind(outbox.get::<Vec<u8>, _>("receipt_bytes"))
+        .execute(owner.pool()).await.unwrap();
+    assert!(
+        sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")
+            .bind(d(250).as_bytes().as_slice())
+            .bind(receipt.get::<Vec<u8>, _>("request_meaning_digest"))
+            .bind(instrument.cut().digest().as_bytes().as_slice())
+            .bind(d(251).as_bytes().as_slice())
+            .bind(receipt.get::<Vec<u8>, _>("receipt_bytes"))
+            .bind(999_i64)
+            .execute(owner.pool()).await.is_err()
+    );
+    let mut restored = owner.pool().begin().await.unwrap();
+    let restored =
+        super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
+            &mut restored,
+            binding_request.pit_request_identity,
+            binding_request.strategy_design_identity,
+            binding_request.input_role_identity,
+        )
+        .await
+        .unwrap();
+    assert_eq!(restored.binding(), registered.binding());
+}
+
 async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, admin: &PgPool) {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
     grant_reader(admin).await;
@@ -1555,10 +2182,14 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     source_value.time_evidence.provider_available = 90;
     source_value.time_evidence.retrieval = 92;
     source_value.time_evidence.correction_publication = 91;
+    source_value.source_frontier.cut_identity = "instrument-source-cut-85".into();
+    source_value.source_frontier.digest = d(85);
+    source_value.correction_frontier.cut_identity = "instrument-correction-cut-86".into();
+    source_value.correction_frontier.digest = d(86);
     source_value.time_evidence.claimed_evidence_identity =
         derive_time_evidence_identity(&source_value.time_evidence);
     source_value.claimed_binding_id = derive_binding_id(&source_value);
-    owner
+    let source = owner
         .commit_source_initial(
             source_value,
             OwnerSourceBindingDecision {
@@ -1618,6 +2249,11 @@ async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, ad
     assert!(crate::owner::instrument_master::verify_instrument_master_readback(&readback));
     let joined = owner.resolve_instrument_master(&exact, None).await.unwrap();
     assert_eq!(joined.canonical_bytes(), readback.canonical_bytes());
+
+    Box::pin(strategy_input_binding_registry_postgres_oracle(
+        &owner, &source, &readback, &clock,
+    ))
+    .await;
     let after: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.instrument_master_cuts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_receipts_v1),(SELECT COUNT(*) FROM market_data_private.instrument_master_outbox_v1),(SELECT append_sequence FROM market_data_private.instrument_master_state_v1 WHERE singleton)").fetch_one(owner.pool()).await.unwrap();
     assert_eq!(
         (
@@ -2129,6 +2765,7 @@ async fn run_postgres_owner_scenario() {
     assert_legacy_sequence_five_migrates(&owner_url).await;
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
+    observation_census_schema_oracle(&reader_url, &admin).await;
     Box::pin(sample_custody_postgres_oracle(
         &owner_url,
         &reader_url,

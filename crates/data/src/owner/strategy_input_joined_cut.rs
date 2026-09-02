@@ -5,22 +5,18 @@
 //! non-deserializable, and has no public constructor; the Program Host can verify and consume it,
 //! but cannot select, substitute, or reorder component frames.
 
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 use super::strategy_input_binding::StrategyInputBindingReceipt;
 use super::{
     source_binding::BindingDigest, strategy_input_binding::StrategyInputEventFrameReceipt,
 };
 
 const JOIN_IDENTITY_DOMAIN: &[u8] = b"strategy.input-join.identity.v2\0";
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 const CENSUS_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-join.census.v1\0";
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 const FRONTIER_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-join.frontier.v1\0";
 const RECEIPT_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-joined-cut.receipt.v1\0";
 
@@ -187,7 +183,6 @@ pub fn derive_strategy_input_join_identity_v2(
 }
 
 /// One complete verified Owner census. It is crate-private and cannot cross into the Host.
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(crate) struct StrategyInputJoinCensusV1 {
     frames: Box<[StrategyInputEventFrameReceipt]>,
     digest: BindingDigest,
@@ -195,7 +190,6 @@ pub(crate) struct StrategyInputJoinCensusV1 {
 }
 
 /// Seals the complete census presented by the Owner's verified PIT/correction frontier adapter.
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(crate) fn seal_strategy_input_join_census_v1(
     frames: Vec<StrategyInputEventFrameReceipt>,
 ) -> Result<StrategyInputJoinCensusV1, StrategyInputJoinedCutUnavailable> {
@@ -251,7 +245,6 @@ pub(crate) fn seal_strategy_input_join_census_v1(
 }
 
 /// Performs complete-set latest-not-after selection and seals one joined cut.
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(crate) fn issue_strategy_input_joined_cut_v1(
     claim: &UntrustedStrategyInputJoinClaimV1,
     bindings: &[StrategyInputBindingReceipt],
@@ -382,7 +375,6 @@ pub(crate) fn issue_strategy_input_joined_cut_v1(
     Ok(receipt)
 }
 
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 fn validate_claim(
     claim: &UntrustedStrategyInputJoinClaimV1,
 ) -> Result<(), StrategyInputJoinedCutUnavailable> {
@@ -445,7 +437,6 @@ fn receipt_digest(receipt: &StrategyInputJoinedCutReceiptV1) -> BindingDigest {
     digest(RECEIPT_DOMAIN, &bytes)
 }
 
-#[cfg(feature = "sealed-strategy-input-acceptance")]
 fn component_frame_digest(frame: &StrategyInputEventFrameReceipt) -> BindingDigest {
     let mut bytes = Vec::new();
     bytes.extend(frame.trigger().digest().as_bytes());
