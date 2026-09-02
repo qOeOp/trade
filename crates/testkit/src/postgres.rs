@@ -26,7 +26,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 6] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 7] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -34,6 +34,10 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 6] = [
     ("PRODUCT_EDGE_TEST_DATABASE_URL", "product_edge_owner"),
     ("RD_OWNER_TEST_DATABASE_URL", "rd_owner"),
     ("RD_FACT_WRITER_TEST_DATABASE_URL", "rd_fact_writer"),
+    (
+        "MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL",
+        "market_data_reader",
+    ),
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
 ];
@@ -147,6 +151,7 @@ pub enum CanonicalOwnerTestRoleV1 {
     ProductEdgeOwner,
     RdOwner,
     RdFactWriter,
+    MarketDataReader,
     QualificationWriter,
     BacktestOwner,
 }
@@ -158,16 +163,17 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ProductEdgeOwner => 1,
             Self::RdOwner => 2,
             Self::RdFactWriter => 3,
-            Self::QualificationWriter => 4,
-            Self::BacktestOwner => 5,
+            Self::MarketDataReader => 4,
+            Self::QualificationWriter => 5,
+            Self::BacktestOwner => 6,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 6],
-    pools: [PgPool; 6],
+    database_urls: [String; 7],
+    pools: [PgPool; 7],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }

@@ -7,7 +7,16 @@ use std::{collections::BTreeSet, fmt::Display};
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1;
 use vibe_data::owner::source_binding::BindingDigest;
+use vibe_data::owner::strategy_design_role_set::{
+    StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetErrorV1,
+    StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::strategy_design_role_set::{
+    StrategyDesignRoleSetReadbackV1, StrategyDesignRoleSetResolverV1,
+};
 
 use crate::develop_composer_operation_v2::{
     DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
@@ -17,11 +26,16 @@ use crate::develop_composer_operation_v2::{
     build_positive_record_from_preflight_v2, conflict_response, preflight_develop_composer_v2,
     request_digest, resolve_positive_record_v2,
 };
+use crate::strategy_plan_v2::project_strategy_design_role_set_v1;
 
 const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
-const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)";
+const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
+const ROLE_SET_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
+const NATIVE_JOIN_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
+const ROLE_SET_READ_FUNCTION_SOURCE_V1: &str = "SELECT attestation.attestation_identity,attestation.attestation_digest,attestation.canonical_bytes FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 attestation WHERE attestation.request_identity=p_request_identity AND attestation.composer_schema_version=p_composer_schema_version AND attestation.operation_receipt_identity=p_operation_receipt_identity AND attestation.artifact_locator=p_artifact_locator AND attestation.artifact_identity=p_artifact_identity AND attestation.canonical_plan_digest=p_canonical_plan_digest AND attestation.design_digest=p_design_digest";
+const NATIVE_JOIN_READ_FUNCTION_SOURCE_V1: &str = "SELECT native_join.native_join_digest,native_join.projection_receipt_digest,native_join.joined_cut_digest,native_join.schedule_dependency_set_digest,native_join.canonical_bytes FROM composer_private.rd_develop_strategy_design_native_joins_v1 native_join JOIN composer_private.rd_develop_strategy_design_role_set_attestations_v1 attestation USING(request_identity) WHERE native_join.request_identity=p_request_identity AND attestation.composer_schema_version=p_composer_schema_version AND attestation.operation_receipt_identity=p_operation_receipt_identity AND attestation.artifact_locator=p_artifact_locator AND attestation.artifact_identity=p_artifact_identity AND attestation.canonical_plan_digest=p_canonical_plan_digest AND attestation.design_digest=p_design_digest";
 const COMMIT_FUNCTION_SOURCE_V2: &str = "DECLARE ordinal integer;
 BEGIN
   IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required' USING ERRCODE='42501'; END IF;
@@ -36,10 +50,14 @@ BEGIN
   INSERT INTO composer_private.rd_develop_composer_receipts_v2 VALUES (p_artifact_identity,p_composer_bytes);
   INSERT INTO composer_private.rd_develop_host_receipts_v2 VALUES (p_artifact_identity,p_host_bytes);
   INSERT INTO composer_private.rd_develop_operations_v2 VALUES (p_request_identity,p_request_digest,p_research_identity,p_intent_identity,p_artifact_identity,p_operation_bytes,p_response_bytes);
+  INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1 VALUES (p_request_identity,p_role_schema_version,p_role_operation_receipt_identity,p_role_artifact_locator,p_artifact_identity,p_plan_digest,p_role_design_digest,p_role_attestation_identity,p_role_attestation_digest,p_role_bytes);
+  IF octet_length(p_native_join_bytes)>0 THEN
+    INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (p_request_identity,p_native_join_digest,p_projection_receipt_digest,p_joined_cut_digest,p_schedule_dependency_set_digest,p_native_join_bytes);
+  END IF;
   INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
   RETURN true;
 END";
-const COMPOSER_TABLES_V2: [&str; 9] = [
+const COMPOSER_TABLES_V2: [&str; 11] = [
     "rd_develop_designs_v2",
     "rd_develop_plans_v2",
     "rd_develop_artifacts_v2",
@@ -48,6 +66,8 @@ const COMPOSER_TABLES_V2: [&str; 9] = [
     "rd_develop_composer_receipts_v2",
     "rd_develop_host_receipts_v2",
     "rd_develop_operations_v2",
+    "rd_develop_strategy_design_role_set_attestations_v1",
+    "rd_develop_strategy_design_native_joins_v1",
     "rd_develop_outbox_v2",
 ];
 macro_rules! composer_table {
@@ -119,6 +139,8 @@ const SEALED_READ_FUNCTION_SOURCE_V2: &str = "BEGIN
     composer_private.rd_develop_composer_receipts_v2,
     composer_private.rd_develop_host_receipts_v2,
     composer_private.rd_develop_operations_v2,
+    composer_private.rd_develop_strategy_design_role_set_attestations_v1,
+    composer_private.rd_develop_strategy_design_native_joins_v1,
     composer_private.rd_develop_outbox_v2
   IN SHARE MODE;
   RETURN QUERY
@@ -348,6 +370,33 @@ impl SealedDevelopComposerReadbackV2 {
     pub const fn host_receipt_bytes_digest(&self) -> BindingDigest {
         self.host_receipt_bytes_digest
     }
+}
+
+fn project_role_set_from_record(
+    record: &StoredDevelopComposerPositiveV2,
+    response: &DevelopComposerOperationResponseV2,
+) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
+    let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(response)
+        .map_err(|_| StrategyDesignRoleSetErrorV1::InvalidProjection)?;
+    project_strategy_design_role_set_v1(
+        &record.plan_bytes,
+        &record.design_bytes,
+        canonical_blob_digest(
+            b"rd.develop.design.canonical-bytes.v2\0",
+            &record.design_bytes,
+        ),
+        StrategyDesignRoleSetLocatorV1 {
+            schema_version: locator.schema_version,
+            request_identity: locator.request_identity,
+            operation_receipt_identity: locator.operation_receipt_identity,
+            artifact_locator: locator.artifact_locator,
+            artifact_identity: locator.artifact_identity,
+            canonical_plan_digest: locator.canonical_plan_digest,
+            design_digest: locator.design_digest,
+        },
+        record.research_request_identity,
+        record.intent_identity,
+    )
 }
 
 mod sealed_read_port {
@@ -586,6 +635,61 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     }
 }
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[async_trait]
+impl StrategyDesignRoleSetResolverV1 for SealedDevelopComposerAcceptanceReadPortV2 {
+    async fn resolve_strategy_design_role_set_v1(
+        &self,
+        locator: &StrategyDesignRoleSetLocatorV1,
+    ) -> Result<StrategyDesignRoleSetReadbackV1, StrategyDesignRoleSetErrorV1> {
+        if locator.schema_version != SEALED_READ_SCHEMA_V2
+            || locator.request_identity.is_empty()
+            || locator.artifact_locator.is_empty()
+        {
+            return Err(StrategyDesignRoleSetErrorV1::InvalidLocator);
+        }
+        let mut transaction = self
+            .store
+            .read_pool
+            .begin()
+            .await
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+        let row = sqlx::query(
+            "SELECT attestation_identity,attestation_digest,canonical_bytes
+               FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)",
+        )
+        .bind(&locator.request_identity)
+        .bind(i32::from(locator.schema_version))
+        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+        .bind(&locator.artifact_locator)
+        .bind(locator.artifact_identity.as_bytes().as_slice())
+        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+        .bind(locator.design_digest.as_bytes().as_slice())
+        .fetch_optional(&mut *transaction)
+        .await
+        .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?
+        .ok_or(StrategyDesignRoleSetErrorV1::Unavailable)?;
+        let attestation_identity = digest_column(&row, "attestation_identity")
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+        let attestation_digest = digest_column(&row, "attestation_digest")
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+        if attestation_identity != attestation_digest {
+            return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
+        }
+        let receipt = StrategyDesignRoleSetReceiptV1::from_durable_attestation(
+            locator,
+            &row.try_get::<Vec<u8>, _>("canonical_bytes")
+                .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?,
+            attestation_digest,
+        )?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+        StrategyDesignRoleSetReadbackV1::from_fixed_resolver(locator.clone(), receipt)
+    }
+}
+
 /// Resolves one accepted Composer fact using exactly the caller's transaction and Owner-locked
 /// evidence. This function opens no connection or transaction and performs no writes.
 pub(crate) async fn read_accepted_in_transaction(
@@ -692,7 +796,8 @@ async fn verify_composer_read_authority_in_transaction(
                   object_owner.rolbypassrls,
                   caller.oid AS caller_oid,
                   rd_owner.oid AS rd_owner_oid,
-                  fact_writer.oid AS fact_writer_oid
+                  fact_writer.oid AS fact_writer_oid,
+                  market_reader.oid AS market_reader_oid
              FROM pg_catalog.pg_proc procedure
              JOIN pg_catalog.pg_namespace namespace
                ON namespace.oid=procedure.pronamespace
@@ -701,6 +806,7 @@ async fn verify_composer_read_authority_in_transaction(
              JOIN pg_catalog.pg_roles object_owner ON object_owner.oid=procedure.proowner AND object_owner.rolname='composer_owner'
              LEFT JOIN pg_catalog.pg_roles rd_owner ON rd_owner.rolname='rd_owner'
              LEFT JOIN pg_catalog.pg_roles fact_writer ON fact_writer.rolname='rd_fact_writer'
+             LEFT JOIN pg_catalog.pg_roles market_reader ON market_reader.rolname='market_data_reader'
             WHERE procedure.oid=pg_catalog.to_regprocedure($1)
               AND procedure.proname='lock_accepted_develop_composer_v2'
          ), required(table_name) AS (
@@ -713,6 +819,8 @@ async fn verify_composer_read_authority_in_transaction(
              ('rd_develop_composer_receipts_v2'),
              ('rd_develop_host_receipts_v2'),
              ('rd_develop_operations_v2'),
+             ('rd_develop_strategy_design_role_set_attestations_v1'),
+             ('rd_develop_strategy_design_native_joins_v1'),
              ('rd_develop_outbox_v2')
          ), relations AS (
            SELECT relation.oid, relation.relowner, relation.relacl, relation.relpersistence, target.proowner
@@ -725,7 +833,7 @@ async fn verify_composer_read_authority_in_transaction(
               AND relation.relname=required.table_name
               AND relation.relkind IN ('r','p')
          )
-         SELECT count(*)=9
+         SELECT count(*)=11
             AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
             AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')
             AND (
@@ -775,10 +883,11 @@ async fn verify_composer_read_authority_in_transaction(
                             pg_catalog.acldefault('f',procedure.proowner)
                           )) acl
                  ))
-                FROM pg_catalog.pg_proc procedure
+               FROM pg_catalog.pg_proc procedure
                 JOIN pg_catalog.pg_namespace namespace
                   ON namespace.oid=procedure.pronamespace
                WHERE namespace.nspname='composer_owner_api'
+                 AND procedure.proname IN ('lock_accepted_develop_composer_v2','commit_develop_composer_v2')
             )
             AND bool_and(relpersistence='p' AND relowner=relations.proowner)
             AND NOT bool_or(EXISTS (
@@ -834,8 +943,10 @@ async fn verify_composer_read_authority_in_transaction(
                              pg_catalog.acldefault('n', nspowner)
                             )) acl
                       WHERE acl.privilege_type NOT IN ('USAGE','CREATE')
-                         OR acl.grantee NOT IN (nspowner, rd_owner_oid, fact_writer_oid)
-                         OR (acl.grantee IN (rd_owner_oid,fact_writer_oid)
+                         OR (acl.grantee NOT IN (nspowner, rd_owner_oid, fact_writer_oid)
+                             AND acl.grantee IS DISTINCT FROM market_reader_oid)
+                         OR ((acl.grantee IN (rd_owner_oid,fact_writer_oid)
+                              OR acl.grantee IS NOT DISTINCT FROM market_reader_oid)
                              AND (acl.privilege_type<>'USAGE' OR acl.is_grantable))
                    )
                  FROM target)
@@ -891,6 +1002,22 @@ async fn verify_composer_read_authority_in_transaction(
         "rd_develop_plans_v2:1:plan_digest:bytea:true:",
         "rd_develop_plans_v2:2:design_identity:bytea:true:",
         "rd_develop_plans_v2:3:canonical_bytes:bytea:true:",
+        "rd_develop_strategy_design_native_joins_v1:1:request_identity:text:true:",
+        "rd_develop_strategy_design_native_joins_v1:2:native_join_digest:bytea:true:",
+        "rd_develop_strategy_design_native_joins_v1:3:projection_receipt_digest:bytea:true:",
+        "rd_develop_strategy_design_native_joins_v1:4:joined_cut_digest:bytea:true:",
+        "rd_develop_strategy_design_native_joins_v1:5:schedule_dependency_set_digest:bytea:true:",
+        "rd_develop_strategy_design_native_joins_v1:6:canonical_bytes:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:1:request_identity:text:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:2:composer_schema_version:integer:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:3:operation_receipt_identity:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:4:artifact_locator:text:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:5:artifact_identity:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:6:canonical_plan_digest:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:7:design_digest:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:8:attestation_identity:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:9:attestation_digest:bytea:true:",
+        "rd_develop_strategy_design_role_set_attestations_v1:10:canonical_bytes:bytea:true:",
     ];
 
     if column_shape
@@ -900,7 +1027,7 @@ async fn verify_composer_read_authority_in_transaction(
     {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_build_receipts_v2','u','4 5'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_build_receipts_v2','4','rd_develop_artifacts_v2','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=27 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_build_receipts_v2','u','4 5'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_strategy_design_role_set_attestations_v1','p','1'),('rd_develop_strategy_design_role_set_attestations_v1','u','3'),('rd_develop_strategy_design_role_set_attestations_v1','u','5'),('rd_develop_strategy_design_role_set_attestations_v1','u','6'),('rd_develop_strategy_design_role_set_attestations_v1','u','8'),('rd_develop_strategy_design_role_set_attestations_v1','u','9'),('rd_develop_strategy_design_role_set_attestations_v1','u','1 2 3 4 5 6 7'),('rd_develop_strategy_design_native_joins_v1','p','1'),('rd_develop_strategy_design_native_joins_v1','u','2'),('rd_develop_strategy_design_native_joins_v1','u','3'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=10 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_build_receipts_v2','4','rd_develop_artifacts_v2','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_strategy_design_role_set_attestations_v1','1','rd_develop_operations_v2','1'),('rd_develop_strategy_design_native_joins_v1','1','rd_develop_operations_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=27 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
         .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !dependency_shape_is_exact {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
@@ -910,9 +1037,35 @@ async fn verify_composer_read_authority_in_transaction(
     if !constraint_options_are_exact {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
+    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=27 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
         .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !index_options_are_exact {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let locator_functions_are_exact: bool = sqlx::query_scalar(
+        "WITH required(signature,source) AS (VALUES ($1::text,$2::text),($3::text,$4::text)),
+         routines AS (
+           SELECT procedure.*,required.source
+           FROM required
+           JOIN pg_catalog.pg_proc procedure ON procedure.oid=pg_catalog.to_regprocedure(required.signature)
+         )
+         SELECT (SELECT count(*)=4 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+            AND count(*)=2
+            AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
+            AND bool_and(pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
+            AND bool_and(pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
+            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+         FROM routines",
+    )
+    .bind(ROLE_SET_READ_FUNCTION_V1)
+    .bind(ROLE_SET_READ_FUNCTION_SOURCE_V1)
+    .bind(NATIVE_JOIN_READ_FUNCTION_V1)
+    .bind(NATIVE_JOIN_READ_FUNCTION_SOURCE_V1)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !locator_functions_are_exact {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
     Ok(())
@@ -1152,6 +1305,50 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
+    pub(crate) async fn resolve_with_native_join(
+        &self,
+        request_identity: &str,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        read_cut_epoch_ms: u64,
+        native_join: &AuthenticatedComposerNativeJoinV1,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        let record = match load_record(&self.read_pool, request_identity).await {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "terminal is unavailable",
+                ));
+            }
+            Err(e) if is_record_integrity_error(&e) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "stored terminal custody is incomplete or malformed",
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        let response = resolve_loaded_record_with_evidence(&record, evidence, read_cut_epoch_ms);
+        if response.disposition != DevelopComposerOperationDispositionV2::Success {
+            return Ok(response);
+        }
+        let role_set = project_role_set_from_record(&record, &response)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+            role_set.composer_locator.clone(),
+            native_join,
+        )
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected).await?
+        {
+            return Ok(unavailable_response(
+                request_identity,
+                "stored native join custody is absent, mismatched, or malformed",
+            ));
+        }
+        Ok(response)
+    }
+
     pub(crate) async fn run(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1163,6 +1360,25 @@ impl PostgresDevelopComposerStoreV2 {
             .await
     }
 
+    pub(crate) async fn run_with_native_join(
+        &self,
+        builder: &mut impl DevelopComposerA0BuildPortV2,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        request: &DevelopComposerRunRequestV2,
+        read_cut_epoch_ms: u64,
+        native_join: &AuthenticatedComposerNativeJoinV1,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.run_inner(
+            builder,
+            evidence,
+            request,
+            read_cut_epoch_ms,
+            None,
+            Some(native_join),
+        )
+        .await
+    }
+
     async fn run_with_fault(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1170,6 +1386,26 @@ impl PostgresDevelopComposerStoreV2 {
         request: &DevelopComposerRunRequestV2,
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.run_inner(
+            builder,
+            evidence,
+            request,
+            read_cut_epoch_ms,
+            fail_after_boundary,
+            None,
+        )
+        .await
+    }
+
+    async fn run_inner(
+        &self,
+        builder: &mut impl DevelopComposerA0BuildPortV2,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        request: &DevelopComposerRunRequestV2,
+        read_cut_epoch_ms: u64,
+        fail_after_boundary: Option<usize>,
+        native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let mut transaction = self.pool.begin().await?;
         acquire_advisory_locks(
@@ -1201,7 +1437,7 @@ impl PostgresDevelopComposerStoreV2 {
             };
 
         if let Some(existing) = existing {
-            let response = if existing.request_digest == request_digest(request) {
+            let mut response = if existing.request_digest == request_digest(request) {
                 evidence
                     .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
                     .and_then(|current| resolve_positive_record_v2(&existing, current))
@@ -1219,6 +1455,29 @@ impl PostgresDevelopComposerStoreV2 {
                     ),
                 }
             };
+            if response.disposition == DevelopComposerOperationDispositionV2::Success
+                && let Some(native_join) = native_join
+            {
+                let role_set = project_role_set_from_record(&existing, &response)
+                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+                    role_set.composer_locator.clone(),
+                    native_join,
+                )
+                .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                if !native_join_matches_transaction(
+                    &mut transaction,
+                    &role_set.composer_locator,
+                    &expected,
+                )
+                .await?
+                {
+                    response = unavailable_response(
+                        &request.request_identity,
+                        "stored native join custody is absent, mismatched, or malformed",
+                    );
+                }
+            }
             transaction.rollback().await?;
             return Ok(response);
         }
@@ -1245,9 +1504,33 @@ impl PostgresDevelopComposerStoreV2 {
         };
         acquire_advisory_locks(&mut transaction, &postbuild_lock_keys(&record)).await?;
 
+        let response = match resolve_positive_record_v2(&record, current.clone()) {
+            Ok(response) => response,
+            Err(terminal) => {
+                transaction.rollback().await?;
+                return Err(sqlx::Error::Protocol(format!(
+                    "fresh Composer record failed readback: {}",
+                    terminal.reason
+                )));
+            }
+        };
+        let role_set = project_role_set_from_record(&record, &response)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let native_join = native_join
+            .map(|native_join| {
+                StrategyDesignNativeJoinReceiptV1::from_market_owner(
+                    role_set.composer_locator.clone(),
+                    native_join,
+                )
+            })
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+
         if let Err(e) = persist_record(
             &mut transaction,
             &record,
+            &role_set,
+            native_join.as_ref(),
             current.bindings.clone(),
             fail_after_boundary,
         )
@@ -1442,9 +1725,53 @@ fn terminal_response(
     }
 }
 
+async fn native_join_matches_pool(
+    pool: &PgPool,
+    locator: &StrategyDesignRoleSetLocatorV1,
+    expected: &StrategyDesignNativeJoinReceiptV1,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query("SELECT native_join_digest,canonical_bytes FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&locator.request_identity)
+        .bind(i32::from(locator.schema_version))
+        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+        .bind(&locator.artifact_locator)
+        .bind(locator.artifact_identity.as_bytes().as_slice())
+        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+        .bind(locator.design_digest.as_bytes().as_slice())
+        .fetch_optional(pool)
+        .await?;
+    Ok(row.is_some_and(|row| {
+        row.get::<Vec<u8>, _>("native_join_digest") == expected.receipt_digest().as_bytes()
+            && row.get::<Vec<u8>, _>("canonical_bytes") == expected.canonical_bytes()
+    }))
+}
+
+async fn native_join_matches_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &StrategyDesignRoleSetLocatorV1,
+    expected: &StrategyDesignNativeJoinReceiptV1,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query("SELECT native_join_digest,canonical_bytes FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&locator.request_identity)
+        .bind(i32::from(locator.schema_version))
+        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+        .bind(&locator.artifact_locator)
+        .bind(locator.artifact_identity.as_bytes().as_slice())
+        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+        .bind(locator.design_digest.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await?;
+    Ok(row.is_some_and(|row| {
+        row.get::<Vec<u8>, _>("native_join_digest") == expected.receipt_digest().as_bytes()
+            && row.get::<Vec<u8>, _>("canonical_bytes") == expected.canonical_bytes()
+    }))
+}
+
 async fn persist_record(
     transaction: &mut Transaction<'_, Postgres>,
     record: &StoredDevelopComposerPositiveV2,
+    role_set: &StrategyDesignRoleSetReceiptV1,
+    native_join: Option<&StrategyDesignNativeJoinReceiptV1>,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
@@ -1479,7 +1806,33 @@ async fn persist_record(
         .iter()
         .map(|value| value.as_bytes().to_vec())
         .collect::<Vec<_>>();
-    let committed: bool = sqlx::query_scalar("SELECT composer_owner_api.commit_develop_composer_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
+    let (
+        native_join_digest,
+        projection_receipt_digest,
+        joined_cut_digest,
+        schedule_digest,
+        native_bytes,
+    ) = native_join.map_or_else(
+        || {
+            (
+                vec![0; 32],
+                vec![0; 32],
+                vec![0; 32],
+                vec![0; 32],
+                Vec::new(),
+            )
+        },
+        |receipt| {
+            (
+                receipt.receipt_digest().as_bytes().to_vec(),
+                receipt.projection_receipt_digest().as_bytes().to_vec(),
+                receipt.joined_cut_digest().as_bytes().to_vec(),
+                receipt.schedule_dependency_set_digest().as_bytes().to_vec(),
+                receipt.canonical_bytes().to_vec(),
+            )
+        },
+    );
+    let committed: bool = sqlx::query_scalar("SELECT composer_owner_api.commit_develop_composer_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)")
         .bind(&record.request_identity)
         .bind(record.request_digest.as_bytes().as_slice())
         .bind(record.research_request_identity.as_bytes().as_slice())
@@ -1500,6 +1853,18 @@ async fn persist_record(
         .bind(&record.operation_receipt_bytes)
         .bind(&record.response_bytes)
         .bind(&record.outbox_bytes)
+        .bind(i32::from(role_set.composer_locator.schema_version))
+        .bind(role_set.operation_receipt_identity.as_bytes().as_slice())
+        .bind(&role_set.composer_locator.artifact_locator)
+        .bind(role_set.design_digest.as_bytes().as_slice())
+        .bind(role_set.receipt_identity().as_bytes().as_slice())
+        .bind(role_set.receipt_digest().as_bytes().as_slice())
+        .bind(role_set.canonical_bytes())
+        .bind(native_join_digest)
+        .bind(projection_receipt_digest)
+        .bind(joined_cut_digest)
+        .bind(schedule_digest)
+        .bind(native_bytes)
         .fetch_one(&mut **transaction)
         .await?;
 
@@ -1584,8 +1949,8 @@ mod tests {
 
     #[rstest]
     fn public_materializer_covers_the_complete_composer_family() {
-        assert_eq!(super::COMPOSER_TABLES_V2.len(), 9);
-        assert_eq!(super::COMPOSER_PUBLIC_TABLE_SPECS_V2.len(), 9);
+        assert_eq!(super::COMPOSER_TABLES_V2.len(), 11);
+        assert_eq!(super::COMPOSER_PUBLIC_TABLE_SPECS_V2.len(), 11);
         assert!(super::COMPOSER_TABLES_V2.iter().all(|name| {
             super::COMPOSER_PUBLIC_TABLE_SPECS_V2
                 .iter()
