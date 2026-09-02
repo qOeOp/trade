@@ -194,8 +194,10 @@ check_migration_authority_boundary() {
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'Source Intake/legacy drain topology is partial' "$authority_migration" ||
     ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
-    ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)','890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
-    ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()','7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
+    ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
+    ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',false,false,'v','u',NULL::text[],'7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
+    ! rg -Fq 'Source Intake routine ownership, seal, or ACL manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'product_edge_owner:EXECUTE:false' "$authority_migration" ||
     ! rg -Fq 'GRANT SELECT, INSERT ON TABLE %I.%I TO rd_owner' "$authority_migration" ||
     ! rg -Fq 'lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner' "$authority_migration"; then
     echo "ERROR: bounded admin migration/runtime startup topology changed." >&2
@@ -544,6 +546,68 @@ GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_ad
 GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
 SQL
 }
+source_intake_topology_fingerprint() {
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+WITH custody_fact AS (
+  SELECT 'routine:'||routine.oid::text||':'||pg_catalog.pg_get_userbyid(routine.proowner)||':'||
+         routine.proisstrict::text||':'||routine.prosecdef::text||':'||routine.provolatile::text||':'||
+         routine.proparallel::text||':'||COALESCE(routine.proconfig::text,'<NULL>')||':'||
+         COALESCE(routine.proacl::text,'<NULL>')||':'||COALESCE(pg_catalog.obj_description(routine.oid,'pg_proc'),'<NULL>')||':'||
+         pg_catalog.md5(routine.prosrc) AS fact
+  FROM pg_catalog.pg_proc routine
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+  WHERE namespace.nspname='rd_owner_api' AND routine.proname IN (
+    'derive_source_intake_identity_v1','canonical_source_intake_json_v1','derive_openalex_location_rights_v1',
+    'derive_source_acquisition_binding_digest_v1','derive_source_acquisition_binding_identity_v1',
+    'lock_source_acquisition_binding_v1','lock_source_invocation_reservation_v1',
+    'valid_source_intake_started_custody_v1','guard_source_intake_binding_v1',
+    'reject_source_intake_terminal_mutation_v1','read_source_intake_v1',
+    'valid_source_intake_binding_contract_v1','valid_source_intake_receipt_v1',
+    'canonical_source_intake_custody_v1','peek_source_intake_research_handoff_v1',
+    'lock_source_intake_research_handoff_v1'
+  )
+  UNION ALL
+  SELECT 'relation:'||relation.oid::text||':'||pg_catalog.pg_get_userbyid(relation.relowner)||':'||
+         COALESCE(relation.relacl::text,'<NULL>')||':'||COALESCE(pg_catalog.obj_description(relation.oid,'pg_class'),'<NULL>')
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+  WHERE namespace.nspname='public' AND relation.relname IN (
+    'rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1',
+    'rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1'
+  )
+)
+SELECT pg_catalog.md5(pg_catalog.string_agg(fact,E'\n' ORDER BY fact)) FROM custody_fact;
+SELECT pg_catalog.count(*) FROM public.rd_source_intake_bindings_v1;
+SELECT pg_catalog.count(*) FROM public.rd_source_intake_receipts_v1;
+SELECT pg_catalog.count(*) FROM public.rd_source_raw_payloads_v1;
+SELECT pg_catalog.count(*) FROM public.rd_source_raw_receipt_links_v1;
+SELECT pg_catalog.count(*) FROM public.rd_research_source_provenance_v1;
+SELECT pg_catalog.count(*) FROM public.rd_source_candidates_v1;
+SQL
+}
+run_authority_migration
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL RESTRICTED;
+SQL
+source_attribute_drift_fingerprint_before="$(source_intake_topology_fingerprint)"
+readonly source_attribute_drift_fingerprint_before
+if run_authority_migration; then
+  echo "ERROR: authority migration accepted same-source Source Intake routine attribute drift" >&2
+  exit 1
+fi
+source_attribute_drift_fingerprint_after="$(source_intake_topology_fingerprint)"
+readonly source_attribute_drift_fingerprint_after
+if [[ "$source_attribute_drift_fingerprint_after" != "$source_attribute_drift_fingerprint_before" ]]; then
+  echo "ERROR: failed Source Intake routine attribute cutover committed custody mutation" >&2
+  exit 1
+fi
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL UNSAFE;
+SQL
 run_authority_migration
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \

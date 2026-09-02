@@ -2677,26 +2677,27 @@ BEGIN
       )::text)
   ) THEN RAISE EXCEPTION 'sealed relation schema or ACL drift'; END IF;
 
-  WITH expected(signature,source_md5) AS (VALUES
-    ('rd_owner_api.derive_source_intake_identity_v1(text,text[])','a31c928f1c821659c9bb9cb1f0dd9733'),
-    ('rd_owner_api.canonical_source_intake_json_v1(jsonb)','7e121eff781358fb34b3eb1b4f3a3fba'),
-    ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)','72c39824378f217ccdc175193abc8712'),
-    ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)','6baf8724270241782bb0857f2c42fb70'),
-    ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)','2bcfa1235376adf3e3b28961ea4c3dbc'),
-    ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)','2549b3888d45e13c7a29f726ae0609ea'),
-    ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)','d7b3b51e2c41badfd1d7182d0f76845c'),
-    ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)','02a5b7abd00a313f33be896cc3cc6285'),
-    ('rd_owner_api.guard_source_intake_binding_v1()','aac9e3de9d005d89c2e99279314d3e2b'),
-    ('rd_owner_api.reject_source_intake_terminal_mutation_v1()','8879590a6d496c443091d0ee16857ab5'),
-    ('rd_owner_api.read_source_intake_v1(text)','6c2c8228eb2c1095667ced1401f6933b'),
-    ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)','8b71a854ce984aa594f7f32ea3bcfc20'),
-    ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)','8e226642cdbe2c88f762139e1b129e8f'),
-    ('rd_owner_api.canonical_source_intake_custody_v1(text)','2983efb78efd5ba30682ea80e64fd038'),
-    ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)','836e62db658d409dcd3ad1fd84b5a261'),
-    ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)','890e336826ddcdf96d948b012c5ba32d'),
-    ('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()','7e54a7158586a88841c26e8732a31e62')
+  WITH expected(signature,is_strict,is_security_definer,volatility,parallel_mode,configuration,source_md5) AS (VALUES
+    ('rd_owner_api.derive_source_intake_identity_v1(text,text[])',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],'a31c928f1c821659c9bb9cb1f0dd9733'),
+    ('rd_owner_api.canonical_source_intake_json_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],'7e121eff781358fb34b3eb1b4f3a3fba'),
+    ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],'72c39824378f217ccdc175193abc8712'),
+    ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],'6baf8724270241782bb0857f2c42fb70'),
+    ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],'2bcfa1235376adf3e3b28961ea4c3dbc'),
+    ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[],'2549b3888d45e13c7a29f726ae0609ea'),
+    ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[],'d7b3b51e2c41badfd1d7182d0f76845c'),
+    ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],'02a5b7abd00a313f33be896cc3cc6285'),
+    ('rd_owner_api.guard_source_intake_binding_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, public, pg_temp']::text[],'aac9e3de9d005d89c2e99279314d3e2b'),
+    ('rd_owner_api.reject_source_intake_terminal_mutation_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, pg_temp']::text[],'8879590a6d496c443091d0ee16857ab5'),
+    ('rd_owner_api.read_source_intake_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, rd_owner_api, pg_temp']::text[],'6c2c8228eb2c1095667ced1401f6933b'),
+    ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],'8b71a854ce984aa594f7f32ea3bcfc20'),
+    ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],'8e226642cdbe2c88f762139e1b129e8f'),
+    ('rd_owner_api.canonical_source_intake_custody_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, pg_temp']::text[],'2983efb78efd5ba30682ea80e64fd038'),
+    ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'836e62db658d409dcd3ad1fd84b5a261'),
+    ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'890e336826ddcdf96d948b012c5ba32d'),
+    ('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',false,false,'v','u',NULL::text[],'7e54a7158586a88841c26e8732a31e62')
   ), actual AS (
-    SELECT expected.signature,pg_catalog.md5(routine.prosrc) AS source_md5
+    SELECT expected.signature,routine.proisstrict,routine.prosecdef,routine.provolatile::text,
+           routine.proparallel::text,routine.proconfig,pg_catalog.md5(routine.prosrc)
     FROM expected LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(expected.signature)
   )
   SELECT NOT EXISTS((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) INTO exact;
@@ -2779,6 +2780,44 @@ END
 $runtime_custody_cutover$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rd_owner_api TO rd_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(text,text), rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner;
+DO $source_intake_routine_acl_readback$
+DECLARE exact boolean;
+BEGIN
+  WITH required(signature,product_edge_execute) AS (VALUES
+    ('rd_owner_api.derive_source_intake_identity_v1(text,text[])',false),
+    ('rd_owner_api.canonical_source_intake_json_v1(jsonb)',false),
+    ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)',false),
+    ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)',false),
+    ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)',false),
+    ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)',true),
+    ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)',true),
+    ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)',false),
+    ('rd_owner_api.guard_source_intake_binding_v1()',false),
+    ('rd_owner_api.reject_source_intake_terminal_mutation_v1()',false),
+    ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)',false),
+    ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)',false),
+    ('rd_owner_api.canonical_source_intake_custody_v1(text)',false),
+    ('rd_owner_api.read_source_intake_v1(text)',false),
+    ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)',false),
+    ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',false)
+  )
+  SELECT NOT EXISTS (
+    SELECT 1 FROM required
+    LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
+    WHERE routine.oid IS NULL
+       OR pg_catalog.pg_get_userbyid(routine.proowner)<>'rd_custodian'
+       OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+       OR (SELECT pg_catalog.array_agg(role.rolname||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY role.rolname,acl.privilege_type,acl.is_grantable)
+             FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+             JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM CASE WHEN required.product_edge_execute
+               THEN ARRAY['product_edge_owner:EXECUTE:false','rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[]
+               ELSE ARRAY['rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[] END
+  ) INTO exact;
+  IF exact IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Source Intake routine ownership, seal, or ACL manifest mismatch';
+  END IF;
+END
+$source_intake_routine_acl_readback$;
 REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 DO $grant_optional_rd_runtime_routines$
