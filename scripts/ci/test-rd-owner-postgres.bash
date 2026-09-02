@@ -1407,7 +1407,7 @@ BEGIN
     WHERE procedure.oid = pg_catalog.to_regprocedure(
       'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'
     )
-      AND role.rolname = 'rd_owner'
+      AND role.rolname = 'rd_custodian'
       AND procedure.prosecdef
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
@@ -1425,7 +1425,7 @@ BEGIN
     WHERE procedure.oid = pg_catalog.to_regprocedure(
       'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)'
     )
-      AND role.rolname = 'rd_owner'
+      AND role.rolname = 'rd_custodian'
       AND procedure.prosecdef
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
@@ -1449,7 +1449,7 @@ BEGIN
     WHERE procedure.oid = pg_catalog.to_regprocedure(
       'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
     )
-      AND role.rolname = 'rd_owner'
+      AND role.rolname = 'rd_custodian'
       AND procedure.prosecdef
       AND procedure.proisstrict
       AND procedure.provolatile = 'v'
@@ -1622,9 +1622,9 @@ BEGIN
     END IF;
   END LOOP;
 
-  IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_owner'
-     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_owner'
-     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_sealed_exploratory_replay_requests_v1') <> 'rd_owner'
+  IF (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_independence_bases_v1') <> 'rd_custodian'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_owner_outbox_v1') <> 'rd_custodian'
+     OR (SELECT tableowner FROM pg_catalog.pg_tables WHERE schemaname = 'public' AND tablename = 'rd_sealed_exploratory_replay_requests_v1') <> 'rd_custodian'
   THEN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
   END IF;
