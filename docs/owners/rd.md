@@ -139,6 +139,35 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
+**CURRENT/PARTIAL - authenticated Strategy Design role-set readback:** the fixed R&D Owner adapter can resolve one
+exact accepted Composer request locator against the existing durable Design/Plan/Composer custody and return the
+additive `StrategyDesignRoleSetReceiptV1`. It repeats schema/reserved, exact request and operation receipt,
+Research request and Intent, Design identity/digest, canonical-Design and Plan digests, Artifact identity, every
+role sorted by derived role identity with complete semantic coordinates, and every join sorted by derived join
+identity while preserving declared role order, alignment, trigger and maximum staleness. Its SHA-256 domain is
+`rd.strategy-design-role-set.receipt.v1\0`; the hash protects integrity only, while the fixed admitted R&D resolver
+supplies authority. **CURRENT/PARTIAL:** the fixed R&D API resolves this exact readback before Market Data binding
+issuance; callers cannot supply the receipt, roles, counts or resolver. The same Market transaction issues and
+stores unchanged Replay V2 facts, and exact binding-locator recovery returns byte-identical binding and Replay
+payloads. **TARGET:** admitted deployment and isolated PostgreSQL acceptance.
+**NOT_ADMITTED:** this projection is
+not a second Design store, does not transfer Design/role/join authority to Market Data, and claims no default
+deployment, Replay composition, Dashboard, production write, runtime, Backtest result or trading authority.
+
+The receipt canonical binary codec is fixed and has no JSON dependency. Integers are unsigned big-endian;
+digests are their raw 32 bytes; a string is its UTF-8 byte length as `u32BE` followed by those bytes; and a list is
+its item count as `u32BE` followed by its items. The bytes are, in order: receipt schema `u16BE`, reserved-zero
+`u16BE`; Composer locator schema `u16BE`, request identity string, operation-receipt digest, artifact-locator
+string, artifact digest, Plan digest and Design digest; repeated operation-receipt, Research-request, Intent,
+Design-identity, Design, canonical-Design, Plan and Artifact digests; role count, then each role's identity digest,
+semantic-id, fact-class, instrument, scope, field-semantic-id, channel, timeframe and unit strings, scale `u8`, and
+value-type string; join count, then each join's identity digest, semantic-id string, ordered-role count, each
+ordered role's semantic-id string and identity digest, alignment and trigger strings, and maximum staleness
+`u64BE`. No trailing bytes are admitted. `receipt_digest` is SHA-256 of the domain above followed by exactly these
+bytes; neither the canonical bytes nor the digest are themselves encoded into the canonical bytes. Exact-locator
+recovery reprojects existing Composer custody and must return byte-identical canonical bytes and digest. A
+self-consistent caller-created byte sequence or hash remains untrusted and cannot enter the fixed resolver path.
+
 **CURRENT/PARTIAL - local bounded-plugin build producer:** for exactly one current `PluginManifestV2`, R&D admits
 only one content-bounded `src/lib.rs` in the fixed `rust.no_std.fixed-abi-source.v2` language and rejects every
 other path, symlink, file, dependency, build script, toolchain, target, or command. It materializes two separate

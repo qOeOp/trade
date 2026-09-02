@@ -735,8 +735,16 @@ impl DecodedStrategyInputSampleProjectionComponentV3 {
         self.timeframe_projection_digest
     }
 
+    pub(super) const fn sample_identity(&self) -> Identity {
+        self.sample_identity
+    }
+
     pub(super) const fn sample_receipt_digest(&self) -> Identity {
         self.sample_receipt_digest
+    }
+
+    pub(super) const fn coordinate(&self) -> &[u8; COORDINATE_LEN] {
+        &self.coordinate
     }
 }
 

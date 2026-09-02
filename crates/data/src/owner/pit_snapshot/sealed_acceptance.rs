@@ -45,10 +45,11 @@ use crate::owner::{
         },
     },
     strategy_input_binding::{
-        MarketDataFieldSemantic, StrategyInputBindingUnavailable, StrategyInputChannel,
-        StrategyInputUnit, StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
-        UntrustedStrategyInputScope, bind_strategy_input_universe_frame,
-        derive_strategy_input_universe_selection_identity,
+        MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
+        StrategyInputChannel, StrategyInputEventFrameReceipt, StrategyInputUnit,
+        StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
+        UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
+        bind_strategy_input_universe_frame, derive_strategy_input_universe_selection_identity,
     },
 };
 
@@ -69,6 +70,37 @@ const OPEN_ROLE_IDENTITY: [u8; 32] = [
 const CLOSE_ROLE_IDENTITY: [u8; 32] = [
     104, 195, 30, 17, 126, 250, 168, 34, 91, 223, 251, 134, 191, 8, 138, 196, 0, 145, 143, 202,
     147, 146, 144, 96, 163, 22, 78, 125, 143, 96, 236, 90,
+];
+const EXACT_INSTRUMENT: &str = "AAPL.XNAS";
+const EXACT_STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
+    167, 124, 130, 79, 168, 117, 252, 196, 109, 127, 162, 160, 71, 168, 80, 76, 247, 22, 53, 148,
+    192, 131, 35, 155, 131, 163, 246, 151, 13, 47, 233, 209,
+];
+const EXACT_ROLE_IDENTITIES: [[u8; 32]; 6] = [
+    [
+        74, 208, 132, 35, 159, 29, 60, 59, 177, 88, 186, 249, 237, 112, 116, 203, 190, 135, 158,
+        41, 28, 189, 88, 154, 155, 37, 226, 194, 150, 198, 4, 232,
+    ],
+    [
+        125, 83, 94, 142, 184, 38, 200, 124, 97, 64, 73, 74, 156, 9, 82, 66, 64, 44, 103, 127, 64,
+        91, 64, 158, 232, 186, 252, 216, 253, 34, 174, 4,
+    ],
+    [
+        75, 63, 47, 210, 103, 203, 43, 42, 196, 2, 166, 207, 79, 212, 32, 96, 149, 100, 69, 203, 2,
+        154, 7, 235, 119, 16, 135, 127, 28, 113, 109, 194,
+    ],
+    [
+        189, 255, 230, 6, 166, 239, 190, 23, 35, 33, 96, 239, 132, 101, 42, 108, 23, 147, 161, 248,
+        227, 120, 131, 169, 113, 235, 89, 202, 90, 154, 46, 4,
+    ],
+    [
+        208, 176, 220, 155, 116, 219, 249, 232, 72, 32, 112, 207, 119, 18, 119, 17, 153, 120, 103,
+        199, 252, 169, 64, 8, 96, 119, 191, 147, 50, 249, 234, 27,
+    ],
+    [
+        54, 119, 114, 249, 14, 244, 84, 177, 6, 230, 171, 115, 72, 23, 166, 96, 156, 206, 221, 31,
+        206, 27, 22, 188, 163, 49, 70, 97, 80, 77, 172, 186,
+    ],
 ];
 
 /// Failure from the closed `SEALED_ACCEPTANCE` issuance path.
@@ -114,6 +146,28 @@ impl SealedAcceptanceStrategyInputRoleBinding {
 pub struct SealedAcceptanceStrategyInputUniverseFrame {
     frame: StrategyInputUniverseFrameReceipt,
     role_bindings: Box<[SealedAcceptanceStrategyInputRoleBinding]>,
+}
+
+/// Closed six-role exact-instrument acceptance authority plus its real Owner-sealed event frame.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SealedAcceptanceExactInstrumentBarFrame {
+    frame: StrategyInputEventFrameReceipt,
+    bindings: Box<[StrategyInputBindingReceipt]>,
+    role_bindings: Box<[SealedAcceptanceStrategyInputRoleBinding]>,
+}
+
+impl SealedAcceptanceExactInstrumentBarFrame {
+    pub const fn frame(&self) -> &StrategyInputEventFrameReceipt {
+        &self.frame
+    }
+
+    pub fn bindings(&self) -> &[StrategyInputBindingReceipt] {
+        &self.bindings
+    }
+
+    pub fn role_bindings(&self) -> &[SealedAcceptanceStrategyInputRoleBinding] {
+        &self.role_bindings
+    }
 }
 
 impl SealedAcceptanceStrategyInputUniverseFrame {
@@ -234,6 +288,86 @@ pub fn issue_strategy_input_universe_frame()
         .into_boxed_slice();
     Ok(SealedAcceptanceStrategyInputUniverseFrame {
         frame,
+        role_bindings,
+    })
+}
+
+/// Issues the one immutable AAPL exact-instrument six-BAR-role acceptance frame.
+///
+/// The no-argument fixture exercises the same Source Binding, PIT verification, role binding, and
+/// event-frame issuance paths as runtime Owner input while exposing no caller-selected fact.
+///
+/// # Errors
+///
+/// Fails closed if any fixed Source Binding, PIT, binding, or frame invariant is unavailable.
+pub fn issue_strategy_input_exact_instrument_bar_frame()
+-> Result<SealedAcceptanceExactInstrumentBarFrame, SealedAcceptanceError> {
+    let source_clock = clock();
+    let source_owner = TestOnlyInMemorySourceBindingOwner::default();
+    let source = source_owner.commit_initial(
+        source_proposal(),
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        &source_clock,
+    )?;
+
+    let mut snapshot = snapshot_proposal(source.receipt().locator());
+    let observations = exact_instrument_observation_proposal(&snapshot);
+    snapshot.evidence.normalized_records_digest = derive_observation_batch_digest(&observations)?;
+    let prepared = prepare_observation_batch(&snapshot, &observations)?;
+    let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+        snapshot.request.clone(),
+        snapshot.evidence.clone(),
+        source_clock.clone(),
+    );
+    let aggregate = TestOnlyPitSnapshotOwner::default().commit_initial(
+        snapshot,
+        &basis,
+        &source_owner,
+        &source_clock,
+    )?;
+    let native_rows = prepared.native_rows()?;
+    let verified = verify_observation_batch(
+        &aggregate,
+        aggregate.fact().source_binding_identity(),
+        aggregate.fact().source_binding_lineage_root(),
+        aggregate.fact().source_binding_lineage_version(),
+        prepared.digest(),
+        prepared.bytes(),
+        &native_rows,
+    )?;
+
+    let coordinates = [
+        (MarketDataFieldSemantic::BarClosePrice, "1M"),
+        (MarketDataFieldSemantic::BarOpenPrice, "1M"),
+        (MarketDataFieldSemantic::BarHighPrice, "1M"),
+        (MarketDataFieldSemantic::BarLowPrice, "1M"),
+        (MarketDataFieldSemantic::BarClosePrice, "1H"),
+        (MarketDataFieldSemantic::BarClosePrice, "1D"),
+    ];
+    let requests = coordinates
+        .into_iter()
+        .zip(EXACT_ROLE_IDENTITIES)
+        .map(|((field, timeframe), role)| exact_binding_request(&verified, role, field, timeframe))
+        .collect::<Vec<_>>();
+    let bindings = requests
+        .iter()
+        .map(|request| bind_strategy_input_role(request, &verified))
+        .collect::<Result<Vec<_>, _>>()?;
+    let frame = bind_strategy_input_event_frame(&bindings, &verified)?;
+    let role_bindings = requests
+        .iter()
+        .map(|request| SealedAcceptanceStrategyInputRoleBinding {
+            research_request: request.research_request_identity,
+            strategy_design: request.strategy_design_identity,
+            input_role: request.input_role_identity,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    Ok(SealedAcceptanceExactInstrumentBarFrame {
+        frame,
+        bindings: bindings.into_boxed_slice(),
         role_bindings,
     })
 }
@@ -434,6 +568,51 @@ fn observation_proposal(
     UntrustedPitObservationBatchProposal { rows }
 }
 
+fn exact_instrument_observation_proposal(
+    snapshot: &UntrustedPitSnapshotProposal,
+) -> UntrustedPitObservationBatchProposal {
+    let rows = [
+        ("AAPL.CLOSE.1H", "CLOSE", "1H", 18_701),
+        ("AAPL.CLOSE.1M", "CLOSE", "1M", 18_725),
+        ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 18_681),
+        ("AAPL.HIGH.1M", "HIGH", "1M", 18_761),
+        ("AAPL.LOW.1M", "LOW", "1M", 18_611),
+        ("AAPL.OPEN.1M", "OPEN", "1M", 18_641),
+    ]
+    .into_iter()
+    .map(
+        |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
+            symbolic_key: symbolic_key.into(),
+            member_key: "AAPL".into(),
+            instrument: EXACT_INSTRUMENT.into(),
+            channel: "MARKET".into(),
+            data_kind: "BAR".into(),
+            timeframe: timeframe.into(),
+            field: field.into(),
+            value_mantissa,
+            value_scale: SCALE,
+            event_effective: 10,
+            provider_available: 20,
+            retrieval: 30,
+            correction_publication: 25,
+            source_binding_identity: snapshot.request.source_binding.binding_id,
+            source_frontier_digest: snapshot.evidence.source_frontier.digest,
+            instrument_master_digest: snapshot.request.instrument_master_digest,
+            universe_selection_digest: snapshot.request.universe_selection_digest,
+            market_semantics_identity: snapshot.request.market_semantics_identity,
+            correction_stream_identity: snapshot
+                .evidence
+                .correction_frontier
+                .stream_identity
+                .clone(),
+            correction_sequence: snapshot.evidence.correction_frontier.sequence,
+            correction_frontier_digest: snapshot.evidence.correction_frontier.digest,
+        },
+    )
+    .collect();
+    UntrustedPitObservationBatchProposal { rows }
+}
+
 fn binding_request(
     batch: &super::VerifiedPitObservationBatch,
     selection_identity: BindingDigest,
@@ -462,5 +641,86 @@ fn binding_request(
         universe_selection_digest: batch.universe_selection_digest(),
         market_semantics_identity: batch.market_semantics_identity(),
         decision_cut: batch.time_evidence().decision_cut.value,
+    }
+}
+
+fn exact_binding_request(
+    batch: &super::VerifiedPitObservationBatch,
+    input_role_identity: [u8; 32],
+    field_semantic: MarketDataFieldSemantic,
+    timeframe: &str,
+) -> UntrustedStrategyInputBindingRequest {
+    UntrustedStrategyInputBindingRequest {
+        research_request_identity: BindingDigest::from_untrusted_bytes(RESEARCH_REQUEST_IDENTITY),
+        strategy_design_identity: BindingDigest::from_untrusted_bytes(
+            EXACT_STRATEGY_DESIGN_IDENTITY,
+        ),
+        input_role_identity: BindingDigest::from_untrusted_bytes(input_role_identity),
+        scope: UntrustedStrategyInputScope::ExactInstrument {
+            instrument: EXACT_INSTRUMENT.into(),
+        },
+        field_semantic,
+        channel: StrategyInputChannel::Market,
+        timeframe: timeframe.into(),
+        unit: StrategyInputUnit::Price,
+        scale: SCALE,
+        pit_request_identity: batch.request_identity(),
+        pit_request_digest: batch.request_digest(),
+        snapshot_identity: batch.snapshot_identity(),
+        snapshot_fact_digest: batch.fact_digest(),
+        observation_batch_digest: batch.digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        decision_cut: batch.time_evidence().decision_cut.value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_instrument_six_bar_frame_is_stable_and_complete() {
+        let first = issue_strategy_input_exact_instrument_bar_frame().expect("exact BAR frame");
+        let repeated = issue_strategy_input_exact_instrument_bar_frame().expect("stable replay");
+        assert_eq!(first, repeated);
+        assert_eq!(first.bindings().len(), 6);
+        assert_eq!(first.role_bindings().len(), 6);
+        assert_eq!(first.frame().values().len(), 6);
+        let coordinates = first
+            .bindings()
+            .iter()
+            .map(|binding| {
+                (
+                    binding.locator().instrument().to_owned(),
+                    binding.locator().field_semantic_identity().to_owned(),
+                    binding.locator().timeframe().to_owned(),
+                )
+            })
+            .collect::<BTreeSet<_>>();
+        assert_eq!(coordinates.len(), 6);
+        assert!(
+            coordinates
+                .iter()
+                .all(|coordinate| coordinate.0 == EXACT_INSTRUMENT)
+        );
+        for expected in [
+            ("MARKET_DATA.BAR.OPEN.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.HIGH.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.LOW.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1H"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1D"),
+        ] {
+            assert!(coordinates.contains(&(
+                EXACT_INSTRUMENT.to_owned(),
+                expected.0.to_owned(),
+                expected.1.to_owned(),
+            )));
+        }
     }
 }

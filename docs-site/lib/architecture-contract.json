@@ -8565,6 +8565,8 @@
       ],
       "invariants": [
         "R&D alone freezes or supersedes an R&D replay request",
+        "Market W3 positive issuance must accept only the pre-send-known exact locator of the immutable complete role-set attestation committed by R&D in the positive Develop Composer transaction; Market Data validates it through the DB-ACL exact-locator port, independently re-resolves registry census join sample R0 and Market Semantics facts, and atomically issues ReplayCompositionBindingV1 while caller receipts readbacks tokens StrategyPlan values raw R&D tables and a Market Data dependency on Strategy Factory are forbidden",
+        "Market W3 must consume only the additive StrategyInputSampleProjectionV4 JOINED_CUT whose subject is the exact unchanged V1 joined-cut digest and whose receipt identity binds the exact schedule-dependency-set digest; V2 EVENT and V3 BAR remain byte-and-semantic unchanged, every V4 component strictly equals its Owner-resolved V3 BAR FRAME source, and the six-role 1m-OHLC 1h-CLOSE exchange-session-1d-CLOSE corpus uses 1m CLOSE as trigger, one 1m slot and batch, and complete latest-closed not-after 1h and non-UTC-day 1d samples",
         "Every request binds the exact Strategy Artifact requested PIT scope PIT Market Snapshot Universe Selection Record snapshot and correction rule replay configuration Runtime kernel simulator and cost slippage and capacity model versions before Backtest accepts it",
         "Changing any artifact PIT snapshot universe selection correction configuration runtime simulator cost slippage or capacity binding creates a successor request identity",
         "EXPLORATION alone may enter the TrialFamily Census diagnosis iteration ranking or Selection path",

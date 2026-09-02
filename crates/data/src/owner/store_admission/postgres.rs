@@ -165,6 +165,45 @@ impl PostgresMeasurementSpec {
             .all(|required| self.acl_relations.iter().any(|value| value == required))
     }
 
+    /// Returns whether this admitted measurement covers the additive V4 BAR join snapshot.
+    pub(super) fn covers_sample_projection_floor_v4(&self) -> bool {
+        const FUNCTIONS: [&str; 8] = [
+            "market_data_private.resolve_strategy_input_sample_projection_v4(bytea)",
+            "market_data_private.resolve_strategy_input_sample_projection_dependencies_v4(bytea)",
+            "market_data_private.resolve_strategy_input_sample_projection_v3(bytea)",
+            "market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(bytea)",
+            "market_data_private.resolve_timeframe_projection_receipt_v1(bytea)",
+            "market_data_private.resolve_sample_receipt_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_history_v1(text)",
+        ];
+        const RELATIONS: [&str; 16] = [
+            "market_data_private.strategy_input_sample_projection_receipts_v4",
+            "market_data_private.strategy_input_sample_projection_dependencies_v4",
+            "market_data_private.strategy_input_sample_projection_readbacks_v4",
+            "market_data_private.strategy_input_sample_projection_outbox_v4",
+            "market_data_private.strategy_input_sample_projection_receipts_v3",
+            "market_data_private.strategy_input_sample_projection_schedule_dependencies_v3",
+            "market_data_private.timeframe_projection_receipts_v1",
+            "market_data_private.sample_facts_v1",
+            "market_data_private.sample_receipts_v1",
+            "market_data_private.sample_outbox_v1",
+            "market_data_private.bar_schedule_state_v1",
+            "market_data_private.bar_schedule_facts_v1",
+            "market_data_private.bar_schedule_heads_v1",
+            "market_data_private.bar_schedule_cuts_v1",
+            "market_data_private.bar_schedule_receipts_v1",
+            "market_data_private.bar_schedule_outbox_v1",
+        ];
+        FUNCTIONS.iter().all(|required| {
+            self.function_signatures
+                .iter()
+                .any(|value| value == required)
+        }) && RELATIONS
+            .iter()
+            .all(|required| self.acl_relations.iter().any(|value| value == required))
+    }
+
     /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
     pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
         const FUNCTIONS: [&str; 2] = [

@@ -4,16 +4,28 @@
 use std::sync::Arc;
 
 pub mod bar_schedule;
+pub mod calendar;
+pub(crate) mod corporate_action;
+pub(crate) mod correction_policy_projection;
 pub mod instrument_master;
+pub(crate) mod market_semantics;
+pub mod observation_census;
 pub mod pit_snapshot;
+pub(crate) mod reference_fact_coordinates;
+pub mod replay_market_facts_v2;
 pub mod research_pit_terminal;
 pub mod sample_fact;
 pub mod sample_projection;
+pub mod sample_projection_v4;
 pub mod sealed_replay_input;
+pub(crate) mod session;
 pub mod shared_time_evidence;
 pub mod source_binding;
+pub mod strategy_design_role_set;
 pub mod strategy_input_binding;
 pub mod strategy_input_joined_cut;
+pub(crate) mod time_zone;
+pub mod universe_selection;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;

@@ -13,7 +13,41 @@ use serde::{Deserialize, Serialize};
 use super::{
     pit_snapshot::{VerifiedPitObservation, VerifiedPitObservationBatch},
     source_binding::BindingDigest,
+    strategy_design_role_set::StrategyDesignRoleEntryV1,
 };
+
+/// Verifies that a legacy V1 request repeats one authenticated Design role without changing any
+/// Research-owned semantic coordinate. PIT/lineage coordinates remain Market Data-owned checks.
+pub(crate) fn request_matches_authenticated_role_v1(
+    request: &UntrustedStrategyInputBindingRequest,
+    role: &StrategyDesignRoleEntryV1,
+) -> bool {
+    let (scope, instrument) = match &request.scope {
+        UntrustedStrategyInputScope::ExactInstrument { instrument } => {
+            (r#"{"kind":"EXACT_INSTRUMENT"}"#, instrument.as_str())
+        }
+        UntrustedStrategyInputScope::UniverseSelection { .. } => {
+            (r#"{"kind":"UNIVERSE_MEMBERS"}"#, "")
+        }
+        UntrustedStrategyInputScope::InstrumentSet { .. } => return false,
+    };
+    role.role_identity == request.input_role_identity
+        && role.fact_class == "MARKET_DATA"
+        && role.instrument == instrument
+        && role.scope == scope
+        && role.field_semantic_id == request.field_semantic.identity()
+        && role.channel == request.channel.canonical()
+        && role.timeframe == request.timeframe
+        && role.unit == request.unit.canonical()
+        && role.scale == request.scale
+        && role.value_type == "I128"
+}
+
+pub(super) mod codec;
+
+#[cfg(test)]
+#[path = "strategy_input_binding/tests.rs"]
+mod registry_tests;
 
 /// The first-vertical scope proposed by Research.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

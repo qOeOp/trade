@@ -128,6 +128,33 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
+**CURRENT/PARTIAL - authenticated Strategy Design role-set readback：** 固定 R&D Owner adapter 可用一个
+准确的已接纳 Composer request locator 解析既有持久 Design/Plan/Composer custody，并返回 additive
+`StrategyDesignRoleSetReceiptV1`。它重复 schema/reserved、准确 request 与 operation receipt、Research request
+与 Intent、Design identity/digest、canonical-Design 与 Plan digest、Artifact identity，按派生 role identity
+严格排序并携带完整 semantic coordinate 的全部 role，以及按派生 join identity 严格排序、同时保留声明 role
+顺序、alignment、trigger 与最大 staleness 的全部 join。其 SHA-256 domain 为
+`rd.strategy-design-role-set.receipt.v1\0`；hash 只保护 integrity，authority 来自固定且已准入的 R&D resolver。
+**CURRENT/PARTIAL：** 固定 R&D API 在 Market Data binding issuance 前解析该准确 readback；caller 不能提供
+receipt、role、count 或 resolver。同一 Market transaction 签发并存储未改变的 Replay V2 facts；准确 binding
+locator recovery 返回 byte-identical binding 与 Replay payload。**TARGET：** admitted deployment 与隔离
+PostgreSQL acceptance。**NOT_ADMITTED：** 该 projection 不是第二个 Design store，不把
+Design/role/join authority 转给 Market Data，也不声称 default deployment、Replay composition、Dashboard、
+production write、runtime、Backtest result 或 trading authority。
+
+该 receipt canonical binary codec 已固定且不依赖 JSON。整数均为 unsigned big-endian；digest 是原始 32
+bytes；string 是 UTF-8 byte length `u32BE` 后接这些 bytes；list 是 item count `u32BE` 后接各 item。bytes
+准确顺序为：receipt schema `u16BE`、reserved-zero `u16BE`；Composer locator schema `u16BE`、request identity
+string、operation-receipt digest、artifact-locator string、Artifact digest、Plan digest、Design digest；再次编码
+operation-receipt、Research-request、Intent、Design-identity、Design、canonical-Design、Plan、Artifact digest；
+role count，随后每个 role 的 identity digest、semantic-id、fact-class、instrument、scope、field-semantic-id、
+channel、timeframe、unit string、scale `u8`、value-type string；join count，随后每个 join 的 identity digest、
+semantic-id string、ordered-role count、每个有序 role 的 semantic-id string 与 identity digest、alignment 与
+trigger string、maximum staleness `u64BE`。不得有 trailing bytes。`receipt_digest` 是以上 domain 后紧接这些
+准确 bytes 的 SHA-256；canonical bytes 与 digest 自身都不编码进 canonical bytes。准确 locator recovery 从
+既有 Composer custody 重新 projection，并且必须返回 byte-identical canonical bytes 与 digest。caller 自建
+的 bytes 或 hash 即使 self-consistent 仍不可信，不能进入固定 resolver path。
+
 **CURRENT/PARTIAL - 本地 bounded-plugin build producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
 固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
 dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；

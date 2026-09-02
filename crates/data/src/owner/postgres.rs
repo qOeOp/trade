@@ -9,6 +9,18 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
+mod calendar;
+mod corporate_action;
+mod market_semantics;
+mod observation_census;
+mod reference_fact_coordinates;
+mod replay_market_facts_v2;
+mod sample_projection_v4;
+mod session;
+mod strategy_input_binding_registry;
+mod time_zone;
+mod universe_selection;
+
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::research_pit_terminal::{
@@ -60,6 +72,12 @@ use super::{
             decode_receipt as decode_instrument_receipt, select_facts as select_instrument_facts,
             validate_fact_graph as validate_instrument_fact_graph,
         },
+    },
+    observation_census::{
+        ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
+        StrategyInputJoinedCutOwnerResolverV1, StrategyInputJoinedCutReadbackV1,
+        UntrustedObservationCensusLocatorV1, UntrustedObservationCensusRequestV1,
+        UntrustedStrategyInputJoinedCutLocatorV1,
     },
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
@@ -229,6 +247,14 @@ pub(crate) struct MarketDataReadPostgres {
     admitted_port: AdmittedMarketDataSnapshotPort,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ObservationCensusFaultV1 {
+    None,
+    RollbackBeforeCommit,
+    ResponseLoss,
+}
+
 /// Unforgeable proof that PostgreSQL custody and every native dependency were verified.
 ///
 /// Only this module can construct the proof. The projection contract may consume it, while other
@@ -287,6 +313,15 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+        for statement in super::replay_market_facts_v2::postgres::REPLAY_MARKET_FACTS_SCHEMA_V2 {
+            sqlx::query(statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
+        sample_projection_v4::install(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         let history_census_installed: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
         )
@@ -319,6 +354,23 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+        universe_selection::install_universe_selection_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        market_semantics::install_market_semantics_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        reference_fact_coordinates::install_reference_fact_r0_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        strategy_input_binding_registry::install_strategy_input_binding_registry_schema_v1(
+            &mut transaction,
+        )
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        observation_census::install_observation_census_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         sqlx::query(
             "INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1) ON CONFLICT (migration_id) DO NOTHING",
         )
@@ -2046,6 +2098,137 @@ impl InstrumentMasterResolver for MarketDataOwnerPostgres {
             .await
             .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
         Ok(readback)
+    }
+}
+
+impl MarketDataOwnerPostgres {
+    async fn resolve_observation_census_inner_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+        #[cfg(test)] fault: ObservationCensusFaultV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let (census, _) =
+            observation_census::resolve_and_commit_observation_census_v1(&mut transaction, request)
+                .await?;
+        #[cfg(test)]
+        if fault == ObservationCensusFaultV1::RollbackBeforeCommit {
+            return Err(ObservationCensusErrorV1::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        #[cfg(test)]
+        if fault == ObservationCensusFaultV1::ResponseLoss {
+            return Err(ObservationCensusErrorV1::ResponseLost);
+        }
+        Ok(census)
+    }
+
+    #[cfg(test)]
+    pub(super) async fn resolve_observation_census_with_fault_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+        fault: ObservationCensusFaultV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        self.resolve_observation_census_inner_v1(request, fault)
+            .await
+    }
+}
+
+impl super::observation_census::resolver_seal::Sealed for MarketDataOwnerPostgres {}
+
+#[async_trait::async_trait]
+impl ObservationCensusResolverV1 for MarketDataOwnerPostgres {
+    async fn resolve_observation_census_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        self.resolve_observation_census_inner_v1(
+            request,
+            #[cfg(test)]
+            ObservationCensusFaultV1::None,
+        )
+        .await
+    }
+
+    async fn recover_observation_census_v1(
+        &self,
+        locator: &UntrustedObservationCensusLocatorV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let request =
+            observation_census::load_observation_census_request_v1(&mut transaction, locator)
+                .await?
+                .ok_or(ObservationCensusErrorV1::UnknownIdentity)?;
+        let (census, _) = observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &request,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        Ok(census)
+    }
+}
+
+#[async_trait::async_trait]
+impl StrategyInputJoinedCutOwnerResolverV1 for MarketDataOwnerPostgres {
+    async fn resolve_strategy_input_joined_cut_v1(
+        &self,
+        locator: &UntrustedStrategyInputJoinedCutLocatorV1,
+    ) -> Result<StrategyInputJoinedCutReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let (request, custody_bytes, receipt_digest) =
+            observation_census::load_strategy_input_joined_cut_custody_v1(
+                &mut transaction,
+                locator,
+            )
+            .await?
+            .ok_or(ObservationCensusErrorV1::UnknownIdentity)?;
+        let (_, joined) = observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &request,
+        )
+        .await?;
+        if joined.record().identity() != locator.joined_cut_identity()
+            || joined.record().canonical_bytes() != custody_bytes.as_ref()
+            || joined.record().joined_cut_receipt().digest() != receipt_digest
+        {
+            return Err(ObservationCensusErrorV1::DigestMismatch);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        Ok(joined)
     }
 }
 
