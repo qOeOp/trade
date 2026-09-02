@@ -66,6 +66,13 @@ pub struct PostgresResearchGoalOwnerV1 {
     source_submission: Option<Arc<SourceBoundResearchSubmissionV1>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExistingRdStorageDiagnostic {
+    kind: String,
+    locator: String,
+    invariant: String,
+}
+
 impl Debug for PostgresResearchGoalOwnerV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -575,7 +582,19 @@ impl PostgresResearchGoalOwnerV1 {
     }
 
     async fn validate_existing_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
-        let available: bool = sqlx::query_scalar(
+        let diagnostics = Self::existing_rd_storage_diagnostics(pool)
+            .await
+            .map_err(|_| existing_rd_storage_unavailable())?;
+        if !diagnostics.is_empty() {
+            return Err(existing_rd_storage_unavailable());
+        }
+        Ok(())
+    }
+
+    async fn existing_rd_storage_diagnostics(
+        pool: &PgPool,
+    ) -> Result<Vec<ExistingRdStorageDiagnostic>, sqlx::Error> {
+        sqlx::query(
             "WITH required_relations(name) AS (
                SELECT * FROM pg_catalog.unnest(ARRAY[
                  'rd_research_request_receipts_v1',
@@ -604,21 +623,76 @@ impl PostgresResearchGoalOwnerV1 {
                  'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)',
                  'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
                ]::text[])
-             )
-             SELECT session_user='rd_owner'
-               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
-               AND pg_catalog.has_database_privilege(
-                 session_user,pg_catalog.current_database(),'CONNECT'
-               )
-               AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
-               AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
-               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-               AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
-               AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian'
-               AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
-               AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
-               AND (SELECT count(*)=6
+             ), relation_state AS (
+               SELECT required.name,relation.*,
+                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal) AS no_user_triggers,
+                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) AS no_rewrites,
+                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) AS no_policies,
+                      NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_attribute attribute
+                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                        WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+                          AND acl.grantee<>relation.relowner
+                      ) AS columns_owner_private,
+                      pg_catalog.obj_description(relation.oid,'pg_class') IS NOT DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text) AS closed_seal_current,
+                      CASE WHEN relation.oid IS NULL THEN false ELSE (SELECT count(*) = CASE required.name
+                                                 WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7
+                                                 WHEN 'rd_owner_outbox_v1' THEN 12
+                                                 ELSE 11
+                                               END
+                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
+                                     WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]
+                                     ELSE ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
+                                   END
+                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
+                                     WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]
+                                     ELSE NULL::text[]
+                                   END
+                          FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl) END AS acl_manifest_current
+                 FROM required_relations required
+                 LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.' || required.name)
+             ), routine_state AS (
+               SELECT required.signature,routine.*,
+                      pg_catalog.obj_description(routine.oid,'pg_proc') IS NOT DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AS source_seal_current,
+                      CASE required.signature
+                         WHEN 'rd_owner_api.derive_source_intake_identity_v1(text,text[])' THEN
+                           NOT routine.prosecdef AND routine.proisstrict AND routine.provolatile='i'
+                           AND routine.proparallel='s'
+                           AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[]
+                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN
+                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN
+                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN
+                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         ELSE routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                       END AS execution_manifest_current,
+                      (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
+                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+                          JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS NOT DISTINCT FROM
+                       CASE required.signature
+                         WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
+                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
+                         ELSE ARRAY['rd_custodian','rd_owner']::text[]
+                       END AS acl_manifest_current
+                 FROM required_routines required
+                 LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
+             ), diagnostics(kind,locator,invariant) AS (
+               SELECT 'role','role:rd_owner','session_identity_and_login_capabilities' WHERE NOT (
+                 session_user='rd_owner' AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls))
+               UNION ALL SELECT 'role','role:rd_owner','membership_isolation' WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+               UNION ALL SELECT 'database','database:'||pg_catalog.current_database(),'runtime_connect_without_create_or_temporary' WHERE NOT (pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CONNECT') AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY'))
+               UNION ALL SELECT 'schema','schema:public','runtime_create_denied' WHERE pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+               UNION ALL SELECT 'role','role:rd_custodian','nologin_custodian_capabilities' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               UNION ALL SELECT 'role','role:rd_owner->role:rd_custodian','membership_denied' WHERE pg_catalog.pg_has_role(session_user,pg_catalog.to_regrole('rd_custodian'),'MEMBER')
+               UNION ALL SELECT 'schema','schema:rd_owner_api','custodian_owner' WHERE pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api')) IS DISTINCT FROM 'rd_custodian'
+               UNION ALL SELECT 'schema','schema:rd_owner_api','runtime_usage_without_create' WHERE NOT (pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE') AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE'))
+               UNION ALL SELECT 'schema','schema:rd_owner_api','exact_acl_manifest' WHERE NOT (SELECT count(*)=6
                           AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
@@ -627,88 +701,31 @@ impl PostgresResearchGoalOwnerV1 {
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
                     WHERE namespace.nspname='rd_owner_api')
-               AND NOT EXISTS (
-                 SELECT 1 FROM required_relations required
-                 LEFT JOIN pg_catalog.pg_class relation
-                   ON relation.oid=pg_catalog.to_regclass('public.' || required.name)
-                 WHERE relation.oid IS NULL
-                    OR relation.relkind <> 'r'
-                    OR relation.relpersistence <> 'p'
-                    OR relation.relrowsecurity OR relation.relforcerowsecurity
-                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
-                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
-                    OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
-                    OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_custodian'
-                    OR (required.name='rd_sealed_exploratory_replay_requests_v1' AND EXISTS (
-                         SELECT 1 FROM pg_catalog.pg_attribute attribute
-                         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-                         WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
-                           AND acl.grantee<>relation.relowner
-                       ))
-                    OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
-                    OR (SELECT count(*) <> CASE required.name
-                                                 WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7
-                                                 WHEN 'rd_owner_outbox_v1' THEN 12
-                                                 ELSE 11
-                                               END
-                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
-                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS DISTINCT FROM CASE required.name
-                                     WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]
-                                     ELSE ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
-                                   END
-                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable) IS DISTINCT FROM CASE required.name
-                                     WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]
-                                     ELSE NULL::text[]
-                                   END
-                          FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
-               )
-               AND NOT EXISTS (
-                 SELECT 1 FROM required_routines required
-                 LEFT JOIN pg_catalog.pg_proc routine
-                   ON routine.oid=pg_catalog.to_regprocedure(required.signature)
-                 WHERE routine.oid IS NULL
-                    OR pg_catalog.pg_get_userbyid(routine.proowner) <> 'rd_custodian'
-                    OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
-                    OR CASE required.signature
-                         WHEN 'rd_owner_api.derive_source_intake_identity_v1(text,text[])' THEN
-                           routine.prosecdef OR NOT routine.proisstrict OR routine.provolatile<>'i'
-                           OR routine.proparallel<>'s'
-                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[]
-                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN
-                           routine.prosecdef
-                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN
-                           routine.prosecdef
-                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN
-                           routine.prosecdef
-                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         ELSE NOT routine.prosecdef
-                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                       END
-                    OR (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
-                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-                          JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
-                         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS DISTINCT FROM
-                       CASE required.signature
-                         WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                         ELSE ARRAY['rd_custodian','rd_owner']::text[]
-                       END
-               )",
+               UNION ALL SELECT 'relation','relation:public.'||name,'exists' FROM relation_state WHERE oid IS NULL
+               UNION ALL SELECT 'relation','relation:public.'||name,'ordinary_persistent_without_row_security_or_extensions' FROM relation_state WHERE oid IS NOT NULL AND NOT (relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND no_user_triggers AND no_rewrites AND no_policies)
+               UNION ALL SELECT 'relation','relation:public.'||name,'custodian_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM 'rd_custodian'
+               UNION ALL SELECT 'relation','relation:public.'||name,'sealed_columns_owner_private' FROM relation_state WHERE name='rd_sealed_exploratory_replay_requests_v1' AND oid IS NOT NULL AND NOT columns_owner_private
+               UNION ALL SELECT 'relation','relation:public.'||name,'closed_relation_seal' FROM relation_state WHERE oid IS NOT NULL AND NOT closed_seal_current
+               UNION ALL SELECT 'relation','relation:public.'||name,'exact_acl_manifest' FROM relation_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
+               UNION ALL SELECT 'routine','routine:'||signature,'exists' FROM routine_state WHERE oid IS NULL
+               UNION ALL SELECT 'routine','routine:'||signature,'custodian_owner' FROM routine_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(proowner) IS DISTINCT FROM 'rd_custodian'
+               UNION ALL SELECT 'routine','routine:'||signature,'source_seal' FROM routine_state WHERE oid IS NOT NULL AND NOT source_seal_current
+               UNION ALL SELECT 'routine','routine:'||signature,'execution_manifest' FROM routine_state WHERE oid IS NOT NULL AND NOT execution_manifest_current
+               UNION ALL SELECT 'routine','routine:'||signature,'exact_acl_manifest' FROM routine_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
+             )
+             SELECT kind,locator,invariant FROM diagnostics ORDER BY kind,locator,invariant",
         )
-        .fetch_one(pool)
+        .fetch_all(pool)
         .await
-        .map_err(|e| storage(&e))?;
-        if !available {
-            return Err(ResearchGoalOwnerError::Storage(
-                "existing R&D Owner custody or runtime authority is unavailable".into(),
-            ));
-        }
-        Ok(())
+        .map(|rows| {
+            rows.into_iter()
+                .map(|row| ExistingRdStorageDiagnostic {
+                    kind: row.get("kind"),
+                    locator: row.get("locator"),
+                    invariant: row.get("invariant"),
+                })
+                .collect()
+        })
     }
 
     async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
@@ -2619,6 +2636,12 @@ fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
 
+fn existing_rd_storage_unavailable() -> ResearchGoalOwnerError {
+    ResearchGoalOwnerError::Storage(
+        "existing R&D Owner custody or runtime authority is unavailable".into(),
+    )
+}
+
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
@@ -3183,6 +3206,50 @@ mod tests {
         let mut changed = custody.request;
         changed.goal.hypothesis.push_str(" changed");
         assert_ne!(semantic_digest_v2(&changed).unwrap(), digest);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
+    async fn runtime_diagnostic_manifest_is_empty_for_existing_custody() {
+        let rd_database_url =
+            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&rd_database_url)
+            .await
+            .expect("runtime rd_owner connection");
+
+        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
+            .await
+            .expect("read-only R&D storage diagnostics");
+        assert!(
+            diagnostics.is_empty(),
+            "existing R&D storage diagnostic manifest must be empty: {diagnostics:#?}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
+    async fn runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl() {
+        let rd_database_url =
+            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&rd_database_url)
+            .await
+            .expect("runtime rd_owner connection");
+
+        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
+            .await
+            .expect("read-only R&D storage diagnostics");
+        assert_eq!(
+            diagnostics,
+            vec![ExistingRdStorageDiagnostic {
+                kind: "relation".into(),
+                locator: "relation:public.rd_sealed_exploratory_replay_requests_v1".into(),
+                invariant: "sealed_columns_owner_private".into(),
+            }]
+        );
     }
 
     #[tokio::test]

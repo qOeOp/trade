@@ -230,11 +230,16 @@ check_migration_authority_boundary() {
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=product_edge_postgres::tests::runtime_diagnostic_manifest_is_empty_for_existing_custody)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'return "$negative_runtime_status"' "${BASH_SOURCE[0]}" ||
+    ! rg -Uq 'verify_runtime_startup\(\) \{(?s:.*?)-E "\$runtime_diagnostic_filter"(?s:.*?)-E "\$runtime_startup_filter"(?s:.*?)\n\}' "${BASH_SOURCE[0]}" ||
+    [[ "$(rg -Fc 'verify_runtime_startup "$test_database"' "${BASH_SOURCE[0]}")" -ne 3 ]] ||
+    ! rg -Uq 'verify_runtime_startup "\$test_database"\nnegative_runtime_status=0(?s:.*?)if verify_sealed_column_acl_fails_closed "\$test_database"(?s:.*?)if verify_runtime_startup "\$test_database"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "SELECT NOT pg_catalog.pg_is_in_recovery()" "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
@@ -1870,10 +1875,12 @@ revoke_runtime_schema_create "$test_database"
 revoke_runtime_schema_create "$origin_current_database"
 verify_sealed_column_acl_fails_closed() {
   local fixture_database="$1"
-  local negative_runtime_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl)'
+  local negative_runtime_filter='(package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl)) | (package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl))'
+  local injection_status=0
   local negative_runtime_status=0
+  local cleanup_status=0
 
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
 BEGIN;
 GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
@@ -1915,8 +1922,13 @@ END
 $sealed_column_acl_injection$;
 COMMIT;
 SQL
+  then
+    :
+  else
+    injection_status="$?"
+  fi
 
-  if env \
+  if [[ "$injection_status" -eq 0 ]] && env \
     RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
     QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
     cargo nextest run \
@@ -1929,7 +1941,7 @@ SQL
     negative_runtime_status="$?"
   fi
 
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
 REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
   FROM vibe_test_legacy_replay_fault_writer;
@@ -1958,22 +1970,69 @@ BEGIN
 END
 $sealed_column_acl_cleanup$;
 SQL
+  then
+    :
+  else
+    cleanup_status="$?"
+  fi
 
+  if [[ "$injection_status" -ne 0 ]]; then
+    return "$injection_status"
+  fi
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    return "$cleanup_status"
+  fi
   return "$negative_runtime_status"
 }
 
-verify_sealed_column_acl_fails_closed "$test_database"
+runtime_diagnostic_filter='package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_is_empty_for_existing_custody)'
 runtime_startup_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_storage_connectors_start_without_migration_authority)'
-env \
-  RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  RD_FACT_WRITER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  cargo nextest run \
-  --archive-file "$nextest_archive_file" \
-  --profile "$nextest_profile" \
-  "${nextest_execution_args[@]}" \
-  -E "$runtime_startup_filter"
+verify_runtime_startup() {
+  local fixture_database="$1"
+
+  if env \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    cargo nextest run \
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$runtime_diagnostic_filter"
+  then
+    :
+  else
+    return "$?"
+  fi
+  env \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    RD_FACT_WRITER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    cargo nextest run \
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$runtime_startup_filter"
+}
+
+verify_runtime_startup "$test_database"
+negative_runtime_status=0
+if verify_sealed_column_acl_fails_closed "$test_database"; then
+  :
+else
+  negative_runtime_status="$?"
+fi
+post_cleanup_runtime_status=0
+if verify_runtime_startup "$test_database"; then
+  :
+else
+  post_cleanup_runtime_status="$?"
+fi
+if [[ "$negative_runtime_status" -ne 0 ]]; then
+  exit "$negative_runtime_status"
+fi
+if [[ "$post_cleanup_runtime_status" -ne 0 ]]; then
+  exit "$post_cleanup_runtime_status"
+fi
 
 # Production runtime startup above proves the final migration with no disposable
 # authority. Restore only the isolated test administrator needed by later fault probes.
