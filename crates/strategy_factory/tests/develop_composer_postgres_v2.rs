@@ -215,6 +215,53 @@ async fn composer_writer_startup_rejects_composer_owner_membership() {
     }
 }
 
+#[tokio::test]
+#[ignore = "requires two admitted disposable PostgreSQL clusters with Unix-socket endpoints"]
+async fn composer_startup_rejects_same_named_database_on_a_distinct_cluster() {
+    let _admitted_database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let read_url = std::env::var("RD_OWNER_SOCKET_TEST_DATABASE_URL")
+        .expect("primary rd_owner Unix-socket URL");
+    let writer_url = std::env::var("RD_FACT_WRITER_SOCKET_TEST_DATABASE_URL")
+        .expect("primary rd_fact_writer Unix-socket URL");
+    let impersonator_url = std::env::var("RD_FACT_WRITER_IMPERSONATOR_TEST_DATABASE_URL")
+        .expect("secondary rd_fact_writer Unix-socket URL");
+
+    let primary_identity = database_identity(&read_url).await;
+    let secondary_identity = database_identity(&impersonator_url).await;
+    assert_eq!(primary_identity.1, secondary_identity.1);
+    assert_ne!(primary_identity.0, secondary_identity.0);
+    assert!(primary_identity.3 && secondary_identity.3);
+
+    PostgresDevelopComposerStoreV2::connect(&read_url, &writer_url)
+        .await
+        .expect("same physical database over distinct Unix-socket roles");
+
+    match PostgresDevelopComposerStoreV2::connect(&read_url, &impersonator_url).await {
+        Err(sqlx::Error::Protocol(message)) => assert_eq!(
+            message,
+            "Composer read and mutation connections target different databases"
+        ),
+        Err(e) => panic!("unexpected cross-cluster Composer error: {e}"),
+        Ok(_) => panic!("Composer accepted split custody across PostgreSQL clusters"),
+    }
+}
+
+async fn database_identity(database_url: &str) -> (String, String, i64, bool) {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(database_url)
+        .await
+        .expect("disposable database identity connection");
+    sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint, pg_catalog.inet_server_addr() IS NULL AND pg_catalog.inet_server_port() IS NULL FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("physical database identity")
+}
+
 async fn change_composer_owner_membership(
     topology_admin_pool: &sqlx::PgPool,
     statement: &'static str,

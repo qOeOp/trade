@@ -21,6 +21,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_freshness_tests::postgres_rd_owner_api_path|fresh_rd_owner_existing_custody_validates_after_migration'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
+  'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
@@ -49,17 +50,18 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 15 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered runtime and migration tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 16 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all sixteen ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[6]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -495,6 +497,8 @@ readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
+readonly primary_socket_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/vibe-rd-owner-primary-socket-${suffix}"
+readonly impersonator_socket_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/vibe-rd-owner-impersonator-socket-${suffix}"
 test_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 readonly test_password
 impersonator_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
@@ -503,6 +507,8 @@ volume_created=false
 impersonator_volume_created=false
 container_created=false
 impersonator_container_created=false
+primary_socket_dir_created=false
+impersonator_socket_dir_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
 
@@ -559,6 +565,16 @@ cleanup() {
   if [[ "$impersonator_volume_created" == true ]] &&
     ! remove_docker_object_for_cleanup volume "$impersonator_volume" 5; then
     cleanup_failed=true
+  fi
+  if [[ "$primary_socket_dir_created" == true ]]; then
+    rm -f -- "$primary_socket_dir/.s.PGSQL.5432" "$primary_socket_dir/.s.PGSQL.5432.lock" ||
+      cleanup_failed=true
+    rmdir -- "$primary_socket_dir" || cleanup_failed=true
+  fi
+  if [[ "$impersonator_socket_dir_created" == true ]]; then
+    rm -f -- "$impersonator_socket_dir/.s.PGSQL.5432" "$impersonator_socket_dir/.s.PGSQL.5432.lock" ||
+      cleanup_failed=true
+    rmdir -- "$impersonator_socket_dir" || cleanup_failed=true
   fi
 
   if [[ "$primary_status" -ne 0 ]]; then
@@ -621,6 +637,12 @@ select_reachable_postgres_endpoint() {
 if ! docker image inspect "$postgres_image" > /dev/null 2>&1; then
   bash scripts/ci/docker-pull-retry.sh "$postgres_image" 3
 fi
+mkdir -- "$primary_socket_dir"
+primary_socket_dir_created=true
+chmod 0777 "$primary_socket_dir"
+mkdir -- "$impersonator_socket_dir"
+impersonator_socket_dir_created=true
+chmod 0777 "$impersonator_socket_dir"
 docker volume create "$volume" > /dev/null
 volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
@@ -630,20 +652,22 @@ docker run \
   --name "$container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${volume},target=/var/lib/postgresql/data" \
+  --mount "type=bind,source=${primary_socket_dir},target=/vibe-postgres-socket" \
   --env POSTGRES_USER=postgres \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env POSTGRES_DB=postgres \
-  "$postgres_image" > /dev/null
+  "$postgres_image" -c unix_socket_directories=/var/run/postgresql,/vibe-postgres-socket > /dev/null
 container_created=true
 docker run \
   --detach \
   --name "$impersonator_container" \
   --publish 127.0.0.1::5432 \
   --mount "type=volume,source=${impersonator_volume},target=/var/lib/postgresql/data" \
+  --mount "type=bind,source=${impersonator_socket_dir},target=/vibe-postgres-socket" \
   --env POSTGRES_USER=postgres \
   --env "POSTGRES_PASSWORD=${impersonator_password}" \
   --env "POSTGRES_DB=${impersonator_database}" \
-  "$postgres_image" > /dev/null
+  "$postgres_image" -c unix_socket_directories=/var/run/postgresql,/vibe-postgres-socket > /dev/null
 impersonator_container_created=true
 
 attempt=1
@@ -670,9 +694,14 @@ done
 docker exec --interactive "$impersonator_container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$impersonator_database" \
   --set=impersonator_database="$impersonator_database" \
+  --set=test_database="$test_database" \
   --set=impersonator_password="$impersonator_password" << 'SQL'
 CREATE ROLE rd_owner NOLOGIN;
+CREATE ROLE rd_fact_writer LOGIN PASSWORD :'impersonator_password' NOSUPERUSER NOCREATEDB NOCREATEROLE INHERIT NOREPLICATION NOBYPASSRLS;
 CREATE ROLE backtest_owner LOGIN PASSWORD :'impersonator_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE DATABASE :"test_database" OWNER postgres;
+REVOKE CONNECT ON DATABASE :"test_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"test_database" TO rd_fact_writer;
 REVOKE CONNECT ON DATABASE :"impersonator_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"impersonator_database" TO backtest_owner;
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -2105,6 +2134,11 @@ export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner
 export VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL="postgresql://vibe_test_legacy_replay_fault_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
+primary_socket_host="${primary_socket_dir//\//%2F}"
+impersonator_socket_host="${impersonator_socket_dir//\//%2F}"
+export RD_OWNER_SOCKET_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@localhost/${test_database}?host=${primary_socket_host}"
+export RD_FACT_WRITER_SOCKET_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@localhost/${test_database}?host=${primary_socket_host}"
+export RD_FACT_WRITER_IMPERSONATOR_TEST_DATABASE_URL="postgresql://rd_fact_writer:${impersonator_password}@localhost/${test_database}?host=${impersonator_socket_host}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 

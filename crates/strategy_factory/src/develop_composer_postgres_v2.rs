@@ -1129,11 +1129,10 @@ async fn verify_same_database(
     read_pool: &PgPool,
     mutation_pool: &PgPool,
 ) -> Result<(), sqlx::Error> {
-    let identity_query = "SELECT current_database()||'@'||COALESCE(inet_server_addr()::text,'local')||':'||COALESCE(inet_server_port()::text,'local')";
-    let read_identity: String = sqlx::query_scalar(identity_query)
-        .fetch_one(read_pool)
-        .await?;
-    let mutation_identity: String = sqlx::query_scalar(identity_query)
+    let identity_query = "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()";
+    let read_identity: (String, String, i64) =
+        sqlx::query_as(identity_query).fetch_one(read_pool).await?;
+    let mutation_identity: (String, String, i64) = sqlx::query_as(identity_query)
         .fetch_one(mutation_pool)
         .await?;
 
@@ -1161,18 +1160,20 @@ impl PostgresDevelopComposerStoreV2 {
             .max_connections(8)
             .connect(rd_owner_database_url)
             .await?;
-        Self::migrate(&read_pool).await?;
         verify_pool_role(&read_pool, "rd_owner").await?;
 
         let mutation_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
             .connect(rd_fact_writer_database_url)
             .await?;
+        verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
+        verify_same_database(&read_pool, &mutation_pool).await?;
+
+        Self::migrate(&read_pool).await?;
         let mut transaction = mutation_pool.begin().await?;
         verify_composer_writer_authority_in_transaction(&mut transaction).await?;
         verify_composer_commit_authority_in_transaction(&mut transaction).await?;
         transaction.rollback().await?;
-        verify_same_database(&read_pool, &mutation_pool).await?;
 
         Ok(Self {
             read_pool,

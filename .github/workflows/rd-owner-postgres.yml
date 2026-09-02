@@ -65,7 +65,7 @@ jobs:
           minimum-free-space-gb: "110"
           rust-cache-enabled: "true"
           rust-cache-workspaces: ". -> target/rd-owner-postgres"
-          rust-cache-on-failure: "false"
+          rust-cache-on-failure: "true"
           rust-cache-key: >-
             rd-owner-postgres-v1-${{ hashFiles(
             'Cargo.lock',
