@@ -230,7 +230,11 @@ check_migration_authority_boundary() {
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'return "$negative_runtime_status"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "SELECT NOT pg_catalog.pg_is_in_recovery()" "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
@@ -1864,6 +1868,101 @@ run_authority_migration_for_database "$test_database"
 run_authority_migration_for_database "$origin_current_database"
 revoke_runtime_schema_create "$test_database"
 revoke_runtime_schema_create "$origin_current_database"
+verify_sealed_column_acl_fails_closed() {
+  local fixture_database="$1"
+  local negative_runtime_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl)'
+  local negative_runtime_status=0
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+BEGIN;
+GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
+  TO vibe_test_legacy_replay_fault_writer;
+DO $sealed_column_acl_injection$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+        relation.relacl,
+        pg_catalog.acldefault('r', relation.relowner)
+      )) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND acl.grantee<>relation.relowner
+  ) OR (SELECT count(*)
+          FROM pg_catalog.pg_class relation
+          JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+          CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+         WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+           AND attribute.attname='request_identity'
+           AND acl.grantee=pg_catalog.to_regrole('vibe_test_legacy_replay_fault_writer')::oid
+           AND acl.privilege_type='SELECT' AND NOT acl.is_grantable)<>1
+     OR EXISTS (
+       SELECT 1
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+        WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+          AND attribute.attnum>0 AND NOT attribute.attisdropped
+          AND acl.grantee<>relation.relowner
+          AND NOT (attribute.attname='request_identity'
+               AND acl.grantee=pg_catalog.to_regrole('vibe_test_legacy_replay_fault_writer')::oid
+               AND acl.privilege_type='SELECT' AND NOT acl.is_grantable)
+     ) THEN
+    RAISE EXCEPTION 'sealed column ACL fault injection mismatch';
+  END IF;
+END
+$sealed_column_acl_injection$;
+COMMIT;
+SQL
+
+  if env \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    cargo nextest run \
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$negative_runtime_filter"; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1
+  FROM vibe_test_legacy_replay_fault_writer;
+DO $sealed_column_acl_cleanup$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+        relation.relacl,
+        pg_catalog.acldefault('r', relation.relowner)
+      )) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND acl.grantee<>relation.relowner
+  ) OR EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND attribute.attnum>0 AND NOT attribute.attisdropped
+       AND acl.grantee<>relation.relowner
+  ) THEN
+    RAISE EXCEPTION 'sealed table or column ACL cleanup mismatch';
+  END IF;
+END
+$sealed_column_acl_cleanup$;
+SQL
+
+  return "$negative_runtime_status"
+}
+
+verify_sealed_column_acl_fails_closed "$test_database"
 runtime_startup_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_storage_connectors_start_without_migration_authority)'
 env \
   RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \

@@ -1564,6 +1564,24 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+    async fn runtime_rd_owner_rejects_nonowner_sealed_column_acl() {
+        let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+        let qualification_url =
+            std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+
+        let error = PostgresResearchGoalOwnerV1::connect_existing(&rd_url, &qualification_url)
+            .await
+            .expect_err("nonowner sealed column ACL must make R&D custody unavailable");
+        assert_eq!(
+            error,
+            ResearchGoalOwnerError::Storage(
+                "existing R&D Owner custody or runtime authority is unavailable".into()
+            )
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
     async fn runtime_storage_connectors_start_without_migration_authority() {
         let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
         #[cfg(feature = "sealed-develop-composer-acceptance")]
