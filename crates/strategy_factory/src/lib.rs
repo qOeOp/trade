@@ -82,10 +82,8 @@ mod program_host;
 mod program_host_backtest_target_set_v2;
 #[allow(dead_code)]
 mod program_host_backtest_v2;
-pub use program_host_backtest_v2::{
-    StatefulBacktestNativeReplayEvidenceV2, run_stateful_backtest_native_replay_v2,
-};
 pub mod program_host_v2;
+#[cfg(test)]
 mod program_host_v2_backtest_tests;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod program_host_v2_target_set_backtest_tests;

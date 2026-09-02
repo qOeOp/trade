@@ -3371,6 +3371,7 @@ pub(crate) fn compile_with_binding_projections_for_test(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn compile_with_binding_and_implementation_receipts_for_test(
     design: StrategyDesignV2,
     bindings: Vec<(InputRoleV2, BindingDigest)>,
@@ -3411,6 +3412,7 @@ pub(crate) fn verified_strategy_input_bindings_for_test(
     }
 }
 
+#[cfg(test)]
 fn test_binding_projections(
     canonical: &CanonicalDesignV2,
     design_identity: BindingDigest,
@@ -3443,6 +3445,7 @@ fn test_binding_projections(
         .collect()
 }
 
+#[cfg(test)]
 fn test_data_kind(field_semantic_id: &str) -> &'static str {
     match field_semantic_id {
         "MARKET_DATA.BAR.CLOSE.PRICE.V1" | "MARKET_DATA.BAR.OPEN.PRICE.V1" => "BAR",
@@ -3451,6 +3454,7 @@ fn test_data_kind(field_semantic_id: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn test_selection_identity(input: &InputRoleV2) -> BindingDigest {
     digest(
         b"strategy.plan.test-selection.v2\0",
@@ -3491,6 +3495,7 @@ pub(crate) fn plugin_implementation_receipts_for_test(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn issue_plugin_implementation_receipt_v2_for_test(
     plugin: &PluginManifestV2,
     implementation_capsule_digest: BindingDigest,
