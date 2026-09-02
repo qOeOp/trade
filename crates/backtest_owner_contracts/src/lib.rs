@@ -543,9 +543,8 @@ impl ReplayResultDtoV2 {
     ///
     /// Rejects malformed, unknown, duplicate, noncanonical, or internally inconsistent data.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ReplayContractErrorV2> {
-        let value: Self = serde_json::from_slice(bytes).map_err(|error| {
-            ReplayContractErrorV2::InvalidResultEncoding(error.to_string())
-        })?;
+        let value: Self = serde_json::from_slice(bytes)
+            .map_err(|error| ReplayContractErrorV2::InvalidResultEncoding(error.to_string()))?;
         value.validate()?;
         if value.encode_unchecked()? != bytes {
             return Err(ReplayContractErrorV2::NonCanonicalResultEncoding);
@@ -663,11 +662,17 @@ impl ReplayResultDtoV2 {
                     if identity == &atom.requested_meaning_identity
                         && digest == &atom.requested_meaning_digest
                         && locator.component == atom.component => {}
-                (ReconciliationStatusV2::Mismatched, (Some(identity), Some(digest), Some(locator)))
-                    if (identity != &atom.requested_meaning_identity
-                        || digest != &atom.requested_meaning_digest)
-                        && locator.component == atom.component => {}
-                _ => return Err(ReplayContractErrorV2::InvalidReconciliationAtom(atom.component)),
+                (
+                    ReconciliationStatusV2::Mismatched,
+                    (Some(identity), Some(digest), Some(locator)),
+                ) if (identity != &atom.requested_meaning_identity
+                    || digest != &atom.requested_meaning_digest)
+                    && locator.component == atom.component => {}
+                _ => {
+                    return Err(ReplayContractErrorV2::InvalidReconciliationAtom(
+                        atom.component,
+                    ));
+                }
             }
         }
 
@@ -750,8 +755,7 @@ impl ReplayResultDtoV2 {
         let singleton_only = self.diagnostic_census.iter().any(|diagnostic| {
             matches!(
                 diagnostic.category,
-                DiagnosticCategoryV2::NoExecutionDefect
-                    | DiagnosticCategoryV2::UnresolvedFailure
+                DiagnosticCategoryV2::NoExecutionDefect | DiagnosticCategoryV2::UnresolvedFailure
             )
         });
         if singleton_only && self.diagnostic_census.len() != 1 {
@@ -896,8 +900,7 @@ fn requested_component_meanings(
     }
     macro_rules! serialized {
         ($component:expr, $value:expr) => {{
-            let digest =
-                digest_contract_value("vibe.backtest.request-component.v2", $value)?;
+            let digest = digest_contract_value("vibe.backtest.request-component.v2", $value)?;
             let identity_digest = digest_contract_value(
                 "vibe.backtest.request-component-identity.v2",
                 &($component, &digest),
@@ -954,14 +957,8 @@ fn requested_component_meanings(
     );
     versioned!(ObservationComponentV2::Simulator, &dto.models.simulator);
     versioned!(ObservationComponentV2::CostModel, &dto.models.cost);
-    versioned!(
-        ObservationComponentV2::SlippageModel,
-        &dto.models.slippage
-    );
-    versioned!(
-        ObservationComponentV2::CapacityModel,
-        &dto.models.capacity
-    );
+    versioned!(ObservationComponentV2::SlippageModel, &dto.models.slippage);
+    versioned!(ObservationComponentV2::CapacityModel, &dto.models.capacity);
     versioned!(
         ObservationComponentV2::RunnerOperationalProfile,
         &dto.runner_operational_profile
@@ -1090,8 +1087,7 @@ mod tests {
             .enumerate()
             .map(|(index, component)| {
                 let component_digest = digest(
-                    char::from_digit((index % 10) as u32, 10)
-                        .expect("fixture digit must be valid"),
+                    char::from_digit((index % 10) as u32, 10).expect("fixture digit must be valid"),
                 );
                 let component_identity = identity(&format!("component-{index}"));
                 ReconciliationAtomDtoV2 {
@@ -1164,9 +1160,8 @@ mod tests {
     fn request_correlated_result(request: &ReplayRequestV2) -> ReplayResultDtoV2 {
         let mut result = result_dto();
         result.request_identity = request.request_identity().clone();
-        result.request_meaning_digest = request
-            .meaning_digest()
-            .expect("fixture request must hash");
+        result.request_meaning_digest =
+            request.meaning_digest().expect("fixture request must hash");
         result.namespace = request.namespace();
         result.replay_authority = request.as_dto().replay_authority.clone();
         for (atom, (component, identity, digest)) in result
@@ -1179,8 +1174,7 @@ mod tests {
             atom.requested_meaning_digest = digest.clone();
             atom.observed_meaning_identity = Some(identity);
             atom.observed_meaning_digest = Some(digest);
-            atom
-                .observation_locator
+            atom.observation_locator
                 .as_mut()
                 .expect("fixture observation must exist")
                 .component = component;
@@ -1451,8 +1445,8 @@ mod tests {
         let bytes = result
             .to_canonical_bytes()
             .expect("fixture result must encode");
-        let decoded = ReplayResultDtoV2::from_canonical_bytes(&bytes)
-            .expect("canonical fixture must decode");
+        let decoded =
+            ReplayResultDtoV2::from_canonical_bytes(&bytes).expect("canonical fixture must decode");
         assert_eq!(decoded, result);
         assert_eq!(
             decoded
