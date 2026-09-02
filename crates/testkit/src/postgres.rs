@@ -22,8 +22,9 @@ const REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &
     "029f93c5e3f7161af85001b543515f73e29510288e0fe9bcfa93a8d01f900836";
 const REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
     "8e7faf8d1a3cb98540b5f2eba0cb040ca560ec04b22b4494bd48ba2bf21cdb43";
-const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
+const PRODUCTION_DATABASE_URL_ENVS: [&str; 6] = [
     "RD_OWNER_DATABASE_URL",
+    "RD_FACT_WRITER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
     "PRODUCT_EDGE_DATABASE_URL",
     "OPERATOR_AUTHORIZATION_DATABASE_URL",
@@ -451,6 +452,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             marker_identity: self.marker_identity.clone(),
             lease_identity,
         };
+
         if let Err(source) = authority.acquire_readback().await {
             return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
                 capability: authority,
@@ -470,6 +472,7 @@ impl ReplayPolicyCatalogFaultAuthorityV1 {
         .bind(&self.lease_identity)
         .fetch_one(&self.pool)
         .await?;
+
         if returned_lease_identity != self.lease_identity {
             return Err(sqlx::Error::Protocol(
                 "Replay Policy Catalog fault authority acquire mismatch".into(),
@@ -528,6 +531,7 @@ impl ReplayPolicyCatalogFaultAuthorityV1 {
                 });
             }
         };
+
         if returned_lease_identity != self.lease_identity {
             return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
                 capability: self,
@@ -570,6 +574,7 @@ impl ReplayPolicyCatalogFaultAuthorityV1 {
                 });
             }
         };
+
         if phase != "READY" {
             return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
                 capability: self,
@@ -613,6 +618,7 @@ impl InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1 {
                 });
             }
         };
+
         if phase != "READY" {
             return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
                 capability: self,
@@ -852,8 +858,14 @@ async fn admit_owner_topology_admin(
         .connect(&url)
         .await
         .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
-    let role_is_exact: bool = sqlx::query_scalar(
-        "SELECT session_user='vibe_test_owner_topology_admin'
+    if !owner_topology_admin_authority_is_exact(&pool, expected_database, expected_marker).await? {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    Ok(pool)
+}
+
+const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
+    "SELECT session_user='vibe_test_owner_topology_admin'
            AND pg_catalog.current_database()=$1
            AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
            AND NOT rolreplication AND NOT rolbypassrls
@@ -1037,21 +1049,24 @@ async fn admit_owner_topology_admin(
                   JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
            )
           FROM pg_catalog.pg_roles administrator
-         WHERE administrator.rolname='vibe_test_owner_topology_admin' AND administrator.rolcanlogin",
-    )
-    .bind(expected_database)
-    .bind(expected_marker)
-    .bind(REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
-    .bind(REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1)
-    .bind(REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
-    .bind(REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
-    if !role_is_exact {
-        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
-    }
-    Ok(pool)
+         WHERE administrator.rolname='vibe_test_owner_topology_admin' AND administrator.rolcanlogin";
+
+async fn owner_topology_admin_authority_is_exact(
+    pool: &PgPool,
+    expected_database: &str,
+    expected_marker: &str,
+) -> Result<bool, DedicatedPostgresTestDatabaseError> {
+    let role_is_exact: bool = sqlx::query_scalar(OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY)
+        .bind(expected_database)
+        .bind(expected_marker)
+        .bind(REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
+        .bind(REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1)
+        .bind(REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
+        .bind(REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
+        .fetch_one(pool)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    Ok(role_is_exact)
 }
 
 /// Capability for role-specific mutation in an admitted canonical Owner test topology.
@@ -1449,6 +1464,19 @@ mod tests {
             )
         );
 
+        let mut fact_writer_exact_alias = values();
+        assert!(PRODUCTION_DATABASE_URL_ENVS.contains(&"RD_FACT_WRITER_DATABASE_URL"));
+        fact_writer_exact_alias.production_urls.push((
+            "RD_FACT_WRITER_DATABASE_URL",
+            fact_writer_exact_alias.test_urls[0].value.clone(),
+        ));
+        assert_eq!(
+            validate_environment(&fact_writer_exact_alias).unwrap_err(),
+            DedicatedPostgresTestDatabaseError::ProductionDatabaseForbidden(
+                "RD_FACT_WRITER_DATABASE_URL"
+            )
+        );
+
         let mut default_database = values();
         default_database.expected_database = "postgres".to_string();
         default_database.test_urls[0].value =
@@ -1604,6 +1632,7 @@ mod tests {
         ] {
             assert!(source.contains(required), "missing lease check: {required}");
         }
+
         for digest in [
             REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1,
             REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1,

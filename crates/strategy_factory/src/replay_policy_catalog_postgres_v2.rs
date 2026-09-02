@@ -968,6 +968,7 @@ mod postgres_tests {
             .await
             .unwrap();
         let mut seed_counts = Vec::new();
+
         for (table, query) in [
             (
                 "rd_replay_policy_catalog_records_v2",
@@ -993,6 +994,7 @@ mod postgres_tests {
             seed_counts.push((table, count));
         }
         lease.release().await.unwrap();
+
         for (table, count) in seed_counts {
             assert_eq!(count, 0, "migration must not seed {table}");
         }
