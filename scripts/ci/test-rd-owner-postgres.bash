@@ -1125,7 +1125,6 @@ provision_owner_schemas() {
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
-GRANT CREATE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
 SQL
 
   if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url" \
@@ -1136,6 +1135,11 @@ SQL
       -E "$product_edge_filter"; then
     return 1
   fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+GRANT CREATE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
+SQL
 
   if ! env \
     RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url" \
