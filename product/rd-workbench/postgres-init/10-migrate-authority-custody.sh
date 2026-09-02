@@ -434,13 +434,53 @@ CROSS JOIN LATERAL jsonb_array_elements_text(binding.binding_json->'manifest_ide
 JOIN public.product_edge_operation_manifests_v1 manifest ON manifest.manifest_identity=manifest_identity.value
 ON CONFLICT (binding_identity, manifest_identity) DO NOTHING;
 
+DO $legacy_exploratory_replay_admission$
+DECLARE legacy_oid oid := pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1');
+DECLARE exact boolean;
+BEGIN
+  IF legacy_oid IS NULL THEN RETURN; END IF;
+  SELECT relation.relkind='r' AND relation.relpersistence='p'
+     AND owner.rolname IN ('rd_owner','rd_custodian')
+     AND relation.relacl IS NULL
+     AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+     AND (SELECT pg_catalog.count(*)=13 AND pg_catalog.bool_and(CASE attribute.attname
+       WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'handoff_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+       WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'research_view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+       WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+       WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+       WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+       WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+       WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+       ELSE false END)
+       FROM pg_catalog.pg_attribute attribute
+       WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)
+     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
+     AND (SELECT pg_catalog.count(*)=2 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid)
+     AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid AND constraint_fact.contype='p' AND constraint_fact.conkey=ARRAY[(SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attname='replay_request_identity')]::smallint[])
+     AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid AND constraint_fact.contype='u' AND constraint_fact.conkey=ARRAY[(SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attname='run_attempt_identity')]::smallint[])
+     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+  INTO exact
+  FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+  WHERE relation.oid=legacy_oid;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'legacy exploratory Replay preservation topology mismatch'; END IF;
+END
+$legacy_exploratory_replay_admission$;
+
 DO $rd_ownership$
 DECLARE object record;
 BEGIN
   FOR object IN
     SELECT schemaname, tablename FROM pg_tables
     WHERE schemaname = 'public' AND tablename LIKE 'rd_%'
-      AND tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1')
+      AND tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1','rd_exploratory_replay_requests_v1')
   LOOP
     EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_custodian', object.schemaname, object.tablename);
     EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
@@ -2660,7 +2700,7 @@ BEGIN
       'product_edge_operation_manifests_v1','product_edge_deployment_bindings_v1','product_edge_deployment_supersessions_v1','product_edge_binding_manifests_v1','product_edge_deployment_heads_v1','product_edge_request_admissions_v1','product_edge_effect_invocation_admissions_v1','product_edge_effect_invocation_claims_v1','product_edge_effect_invocation_states_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1','product_edge_expired_manifest_recoveries_v1'
     ]::text[]))
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\') AND relation.relname NOT IN (SELECT name FROM admitted)
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\') AND relation.relname NOT IN (SELECT name FROM admitted) AND relation.relname<>'rd_exploratory_replay_requests_v1'
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\')
@@ -2738,9 +2778,12 @@ BEGIN
     RAISE EXCEPTION 'Product Edge trigger routine manifest mismatch';
   END IF;
 
+  IF pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NOT NULL THEN
+    ALTER TABLE public.rd_exploratory_replay_requests_v1 OWNER TO rd_custodian;
+  END IF;
   FOR object IN
     SELECT relation.oid,namespace.nspname AS schema_name,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'rd\_%' ESCAPE '\'
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'rd\_%' ESCAPE '\' AND relation.relname<>'rd_exploratory_replay_requests_v1'
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);

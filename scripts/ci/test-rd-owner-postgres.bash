@@ -194,7 +194,10 @@ check_migration_authority_boundary() {
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'Source Intake/legacy drain topology is partial' "$authority_migration" ||
     ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
-    ! rg -Fq "tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1')" "$authority_migration" ||
+    ! rg -Fq "tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1','rd_exploratory_replay_requests_v1')" "$authority_migration" ||
+    ! rg -Fq 'legacy exploratory Replay preservation topology mismatch' "$authority_migration" ||
+    ! rg -Fq 'trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal' "$authority_migration" ||
+    [[ "$(rg -Fc "relation.relname<>'rd_exploratory_replay_requests_v1'" "$authority_migration")" -ne 2 ]] ||
     ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
     ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',false,false,'v','u',NULL::text[],'7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
     ! rg -Fq 'Source Intake routine ownership, seal, or ACL manifest mismatch' "$authority_migration" ||
@@ -1023,6 +1026,8 @@ legacy_replay_fingerprint() {
 SELECT 'count=' || pg_catalog.count(*)::text
   FROM public.rd_exploratory_replay_requests_v1;
 
+SELECT 'oid=' || 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::text;
+
 SELECT 'data_bytes_md5=' || pg_catalog.md5(COALESCE(
   pg_catalog.string_agg(
     pg_catalog.encode(
@@ -1083,12 +1088,6 @@ SELECT 'catalog_md5=' || pg_catalog.md5(
   FROM pg_catalog.pg_class relation
  WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
 
-SELECT 'owner_acl_md5=' || pg_catalog.md5(
-  owner.rolname || ':' || COALESCE(relation.relacl::text, '<NULL>')
-)
-  FROM pg_catalog.pg_class relation
-  JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
- WHERE relation.oid='public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass;
 SQL
 }
 
