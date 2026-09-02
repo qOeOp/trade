@@ -2111,6 +2111,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
             "legacy PREPARED drain target database mismatch".into(),
         ));
     }
+
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_strategy_artifacts_v1 IN SHARE ROW EXCLUSIVE MODE",
@@ -2427,6 +2428,7 @@ mod postgres_freshness_tests {
             "drain topology must fail closed before transaction locks or writes"
         );
         assert!(!drain.contains("migrate_legacy_drain"));
+
         for ddl in [
             "CREATE ",
             "ALTER ",

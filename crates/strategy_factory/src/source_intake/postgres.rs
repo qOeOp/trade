@@ -131,6 +131,7 @@ pub async fn validate_existing_source_intake_topology(
     .fetch_one(pool)
     .await
     .map_err(source_storage)?;
+
     if !exact {
         return Err(SourceIntakeError::Serialization(
             "existing Source Intake custody or runtime authority is unavailable".into(),
