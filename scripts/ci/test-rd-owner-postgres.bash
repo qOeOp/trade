@@ -180,6 +180,48 @@ if actual != digest_match.group(1):
 PY
 }
 
+check_replay_policy_catalog_fault_function_bodies() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - "${BASH_SOURCE[0]}" "$repository_root/crates/testkit/src/postgres.rs" << 'PY'
+from hashlib import sha256
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+functions = {
+    "acquire_v1": "REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1",
+    "release_v1": "REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1",
+    "inject_third_party_owner_edge_v1":
+        "REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1",
+    "restore_third_party_owner_edge_v1":
+        "REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1",
+}
+for function_name, constant_name in functions.items():
+    body_match = re.search(
+        rf"CREATE FUNCTION vibe_test_replay_policy_catalog_fault\.{function_name}\("
+        r".*?AS \$function\$(.*?)\$function\$;",
+        script,
+        re.DOTALL,
+    )
+    digest_match = re.search(
+        rf'{constant_name}: &str =\s*"([0-9a-f]{{64}})";',
+        rust,
+    )
+    if body_match is None or digest_match is None:
+        raise SystemExit(
+            f"ERROR: Replay Policy Catalog fault source identity is unavailable: {function_name}"
+        )
+    actual = sha256(body_match.group(1).encode("utf-8")).hexdigest()
+    if actual != digest_match.group(1):
+        raise SystemExit(
+            f"ERROR: Replay Policy Catalog fault body changed without admission identity: {function_name}"
+        )
+PY
+}
+
 check_migration_authority_boundary() {
   local repository_root
   local authority_migration
@@ -214,6 +256,7 @@ check_migration_authority_boundary() {
 check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
+check_replay_policy_catalog_fault_function_bodies
 check_migration_authority_boundary
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
@@ -548,7 +591,7 @@ restore_disposable_topology_admin() {
   local fixture_database="$1"
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres --set=fixture_database="$fixture_database" << 'SQL'
-GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+GRANT composer_owner TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
 SQL
 }
@@ -754,7 +797,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
-GRANT replay_policy_catalog_owner, composer_owner, rd_custodian, product_edge_custodian, rd_owner TO vibe_test_owner_topology_admin;
+GRANT composer_owner, rd_custodian, product_edge_custodian TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
 GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
@@ -767,8 +810,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_legacy_replay_fault_writer;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_legacy_replay_fault_writer;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -778,10 +821,471 @@ FROM unnest(ARRAY[
   'rd_fact_writer',
   'qualification_writer',
   'backtest_owner',
+  'vibe_test_owner_topology_admin',
   'vibe_test_legacy_replay_fault_writer'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+
+CREATE SCHEMA vibe_test_replay_policy_catalog_fault AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_replay_policy_catalog_fault FROM PUBLIC;
+GRANT USAGE ON SCHEMA vibe_test_replay_policy_catalog_fault
+  TO vibe_test_owner_topology_admin;
+CREATE TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 (
+  singleton boolean DEFAULT true NOT NULL,
+  marker_identity text NOT NULL,
+  database_name name NOT NULL,
+  execution_boundary text NOT NULL,
+  phase text NOT NULL,
+  lease_identity text,
+  last_released_lease_identity text,
+  CONSTRAINT authority_state_v1_singleton_pk PRIMARY KEY (singleton),
+  CONSTRAINT authority_state_v1_singleton_check CHECK (singleton),
+  CONSTRAINT authority_state_v1_phase_check
+    CHECK (phase IN ('READY','LEASED','MEMBERSHIP_FAULT')),
+  CONSTRAINT authority_state_v1_lease_check CHECK (
+    (phase='READY' AND lease_identity IS NULL)
+    OR (phase IN ('LEASED','MEMBERSHIP_FAULT') AND lease_identity IS NOT NULL)
+  )
+);
+ALTER TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 FROM PUBLIC;
+INSERT INTO vibe_test_replay_policy_catalog_fault.authority_state_v1(
+  singleton,marker_identity,database_name,execution_boundary,phase,lease_identity,
+  last_released_lease_identity
+) VALUES (
+  true,:'test_marker',:'test_database',
+  'isolated-disposable-postgres-container:sequential-shell-loop:v1','READY',NULL,NULL
+);
+
+CREATE FUNCTION vibe_test_replay_policy_catalog_fault.acquire_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  exact_protected_edge_count bigint;
+  current_phase text;
+  current_lease_identity text;
+  last_released_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_owner_topology_admin';
+  IF exact_marker_count<>1 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity,state.last_released_lease_identity
+    INTO current_phase,current_lease_identity,last_released_lease_identity
+    FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+     AND state.execution_boundary=
+       'isolated-disposable-postgres-container:sequential-shell-loop:v1'
+   FOR UPDATE;
+  IF current_phase='LEASED'
+     AND current_lease_identity=expected_lease_identity THEN
+    SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+     WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+         OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+       AND granted.rolname='replay_policy_catalog_owner'
+       AND member.rolname='vibe_test_owner_topology_admin'
+       AND grantor.rolname='postgres' AND NOT membership.admin_option
+       AND membership.inherit_option AND membership.set_option;
+    IF exact_protected_edge_count=1 AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+          OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+        AND NOT (granted.rolname='replay_policy_catalog_owner'
+             AND member.rolname='vibe_test_owner_topology_admin')
+    ) THEN
+      RETURN expected_lease_identity;
+    END IF;
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority acquired outcome mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'READY' OR current_lease_identity IS NOT NULL
+     OR last_released_lease_identity=expected_lease_identity THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority phase mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+      OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+  IF exact_protected_edge_count<>0 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog protected membership is not clean' USING ERRCODE='55000';
+  END IF;
+  GRANT replay_policy_catalog_owner TO vibe_test_owner_topology_admin;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='replay_policy_catalog_owner'
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  IF exact_protected_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='replay_policy_catalog_owner'
+           AND member.rolname='vibe_test_owner_topology_admin')
+  ) THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority lease mismatch' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
+     SET phase='LEASED',lease_identity=expected_lease_identity
+   WHERE singleton AND phase='READY' AND lease_identity IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority phase advance failed' USING ERRCODE='55000';
+  END IF;
+  RETURN expected_lease_identity;
+END
+$function$;
+
+CREATE FUNCTION vibe_test_replay_policy_catalog_fault.release_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  exact_protected_edge_count bigint;
+  current_phase text;
+  current_lease_identity text;
+  last_released_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_owner_topology_admin';
+  IF exact_marker_count<>1 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity,state.last_released_lease_identity
+    INTO current_phase,current_lease_identity,last_released_lease_identity
+    FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+     AND state.execution_boundary=
+       'isolated-disposable-postgres-container:sequential-shell-loop:v1'
+   FOR UPDATE;
+  IF current_phase='READY' AND current_lease_identity IS NULL
+     AND last_released_lease_identity=expected_lease_identity THEN
+    SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+     WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+    IF exact_protected_edge_count=0 THEN
+      RETURN 'READY';
+    END IF;
+    RAISE EXCEPTION 'Replay Policy Catalog released authority graph mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'LEASED'
+     OR current_lease_identity IS DISTINCT FROM expected_lease_identity THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority phase mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='replay_policy_catalog_owner'
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  IF exact_protected_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='replay_policy_catalog_owner'
+           AND member.rolname='vibe_test_owner_topology_admin')
+  ) THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority lease mismatch' USING ERRCODE='55000';
+  END IF;
+  REVOKE replay_policy_catalog_owner FROM vibe_test_owner_topology_admin;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+      OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+  IF exact_protected_edge_count<>0 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog protected membership release failed' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
+     SET phase='READY',lease_identity=NULL,
+         last_released_lease_identity=expected_lease_identity
+   WHERE singleton AND phase='LEASED'
+     AND lease_identity=expected_lease_identity;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Replay Policy Catalog fault authority phase release failed' USING ERRCODE='55000';
+  END IF;
+  RETURN 'READY';
+END
+$function$;
+
+CREATE FUNCTION vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  exact_protected_edge_count bigint;
+  current_phase text;
+  current_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_owner_topology_admin';
+  IF exact_marker_count<>1 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity INTO current_phase,current_lease_identity
+    FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+     AND state.execution_boundary=
+       'isolated-disposable-postgres-container:sequential-shell-loop:v1'
+   FOR UPDATE;
+  IF current_phase='MEMBERSHIP_FAULT'
+     AND current_lease_identity=expected_lease_identity THEN
+    SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+     WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+         OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+       AND granted.rolname='replay_policy_catalog_owner'
+       AND member.rolname='qualification_writer'
+       AND grantor.rolname='postgres' AND NOT membership.admin_option
+       AND NOT membership.inherit_option AND NOT membership.set_option;
+    IF exact_protected_edge_count=1 AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+          OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+        AND NOT (granted.rolname='replay_policy_catalog_owner'
+             AND member.rolname='qualification_writer')
+    ) THEN
+      RETURN expected_lease_identity;
+    END IF;
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault outcome mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'LEASED'
+     OR current_lease_identity IS DISTINCT FROM expected_lease_identity THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault phase mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='replay_policy_catalog_owner'
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  IF exact_protected_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='replay_policy_catalog_owner'
+           AND member.rolname='vibe_test_owner_topology_admin')
+  ) THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault lease mismatch' USING ERRCODE='55000';
+  END IF;
+  GRANT replay_policy_catalog_owner TO qualification_writer
+    WITH ADMIN FALSE, INHERIT FALSE, SET FALSE;
+  REVOKE replay_policy_catalog_owner FROM vibe_test_owner_topology_admin;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='replay_policy_catalog_owner'
+     AND member.rolname='qualification_writer'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND NOT membership.inherit_option AND NOT membership.set_option;
+  IF exact_protected_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='replay_policy_catalog_owner'
+           AND member.rolname='qualification_writer')
+  ) THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault edge mismatch' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
+     SET phase='MEMBERSHIP_FAULT'
+   WHERE singleton AND phase='LEASED'
+     AND lease_identity=expected_lease_identity;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault phase advance failed' USING ERRCODE='55000';
+  END IF;
+  RETURN expected_lease_identity;
+END
+$function$;
+
+CREATE FUNCTION vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  exact_protected_edge_count bigint;
+  current_phase text;
+  current_lease_identity text;
+  last_released_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_owner_topology_admin';
+  IF exact_marker_count<>1 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity,state.last_released_lease_identity
+    INTO current_phase,current_lease_identity,last_released_lease_identity
+    FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+     AND state.execution_boundary=
+       'isolated-disposable-postgres-container:sequential-shell-loop:v1'
+   FOR UPDATE;
+  IF current_phase='READY' AND current_lease_identity IS NULL
+     AND last_released_lease_identity=expected_lease_identity THEN
+    SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+     WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+    IF exact_protected_edge_count=0 THEN
+      RETURN 'READY';
+    END IF;
+    RAISE EXCEPTION 'Replay Policy Catalog restored membership graph mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'MEMBERSHIP_FAULT'
+     OR current_lease_identity IS DISTINCT FROM expected_lease_identity THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault phase mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='replay_policy_catalog_owner'
+     AND member.rolname='qualification_writer'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND NOT membership.inherit_option AND NOT membership.set_option;
+  IF exact_protected_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='replay_policy_catalog_owner'
+           AND member.rolname='qualification_writer')
+  ) THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault edge mismatch' USING ERRCODE='55000';
+  END IF;
+  REVOKE replay_policy_catalog_owner FROM qualification_writer;
+  SELECT pg_catalog.count(*) INTO exact_protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+      OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+  IF exact_protected_edge_count<>0 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault restore failed' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
+     SET phase='READY',lease_identity=NULL,
+         last_released_lease_identity=expected_lease_identity
+   WHERE singleton AND phase='MEMBERSHIP_FAULT'
+     AND lease_identity=expected_lease_identity;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Replay Policy Catalog membership fault phase restore failed' USING ERRCODE='55000';
+  END IF;
+  RETURN 'READY';
+END
+$function$;
+
+ALTER FUNCTION vibe_test_replay_policy_catalog_fault.acquire_v1(text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_replay_policy_catalog_fault.release_v1(text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1(text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1(text,text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_replay_policy_catalog_fault.acquire_v1(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_replay_policy_catalog_fault.release_v1(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1(text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.acquire_v1(text,text) TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.release_v1(text,text) TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1(text,text) TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1(text,text) TO vibe_test_owner_topology_admin;
 
 CREATE SCHEMA vibe_test_legacy_replay_fault AUTHORIZATION postgres;
 REVOKE ALL ON SCHEMA vibe_test_legacy_replay_fault FROM PUBLIC;
@@ -905,6 +1409,8 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$origin_current_database" \
   --set=origin_current_database="$origin_current_database" << 'SQL'
 UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'origin_current_database';
+UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
    SET database_name=:'origin_current_database';
 SQL
 
@@ -1172,11 +1678,13 @@ revoke_runtime_schema_create() {
   local fixture_database="$1"
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
-REVOKE CREATE ON SCHEMA public FROM rd_owner, product_edge_owner;
+REVOKE CREATE ON SCHEMA public
+  FROM rd_owner, product_edge_owner, vibe_test_owner_topology_admin;
 DO $runtime_acl$
 BEGIN
   IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
      OR pg_catalog.has_schema_privilege('product_edge_owner','public','CREATE')
+     OR pg_catalog.has_schema_privilege('vibe_test_owner_topology_admin','public','CREATE')
      OR pg_catalog.has_database_privilege(
        'rd_owner',pg_catalog.current_database(),'CREATE,TEMPORARY'
      )
@@ -1401,7 +1909,8 @@ BEGIN
      OR NOT pg_catalog.has_database_privilege('backtest_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('qualification_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('operator_authorization_owner', pg_catalog.current_database(), 'CONNECT')
-     OR (SELECT count(*)<>2 OR count(*) FILTER (WHERE granted.rolname IN ('replay_policy_catalog_owner','composer_owner') AND membership.set_option)<>2 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles administrator ON administrator.oid=membership.member JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid WHERE administrator.rolname='vibe_test_owner_topology_admin')
+     OR (SELECT count(*)<>1 OR count(*) FILTER (WHERE granted.rolname='composer_owner' AND NOT membership.admin_option AND membership.inherit_option AND membership.set_option)<>1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles administrator ON administrator.oid=membership.member JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid WHERE administrator.rolname='vibe_test_owner_topology_admin')
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
      OR EXISTS (
        SELECT 1 FROM pg_catalog.unnest(ARRAY['rd_owner','rd_fact_writer','operator_authorization_writer','qualification_writer','product_edge_owner','backtest_owner']) runtime_role(role_name)
        WHERE pg_catalog.has_database_privilege(runtime_role.role_name,pg_catalog.current_database(),'CREATE')

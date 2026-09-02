@@ -3,6 +3,7 @@
 use std::{
     env,
     fmt::{Debug, Display},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -13,6 +14,14 @@ const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
 const LEGACY_REPLAY_FAULT_URL_ENV: &str = "VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL";
 const LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1: &str =
     "4d055aabd875b2181a4845b6021543319911dbe97c13db739c8efa6b16856346";
+const REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "7a3b86bcf89dcc6f45b6337123d6b21b2de9b2511976240425c51fac7e7f8b42";
+const REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "dc63b386e8797231a8a25111416c1efd424061ead05c2e652ba3c39aa015977a";
+const REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
+    "029f93c5e3f7161af85001b543515f73e29510288e0fe9bcfa93a8d01f900836";
+const REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
+    "8e7faf8d1a3cb98540b5f2eba0cb040ca560ec04b22b4494bd48ba2bf21cdb43";
 const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
@@ -187,6 +196,32 @@ pub struct UsedLegacyReplayDuplicateFaultV1 {
     marker_identity: String,
 }
 
+/// Linear lease of the disposable Replay Policy Catalog fault authority.
+pub struct ReplayPolicyCatalogFaultAuthorityV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+}
+
+/// Proof that the Replay Policy Catalog fault authority returned to READY.
+pub struct ReleasedReplayPolicyCatalogFaultAuthorityV1 {
+    _marker_identity: String,
+    _lease_identity: String,
+}
+
+/// Proof of the exact injected third-party Catalog owner edge.
+pub struct InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+}
+
+/// A failed lease transition that retains the capability needed for recovery.
+pub struct ReplayPolicyCatalogFaultTransitionErrorV1<T> {
+    capability: T,
+    source: sqlx::Error,
+}
+
 impl Debug for LegacyReplayDuplicateFaultV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -202,6 +237,59 @@ impl Debug for UsedLegacyReplayDuplicateFaultV1 {
             .debug_struct(stringify!(UsedLegacyReplayDuplicateFaultV1))
             .field("marker_identity", &"[REDACTED]")
             .finish_non_exhaustive()
+    }
+}
+
+impl Debug for ReplayPolicyCatalogFaultAuthorityV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(ReplayPolicyCatalogFaultAuthorityV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for ReleasedReplayPolicyCatalogFaultAuthorityV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(ReleasedReplayPolicyCatalogFaultAuthorityV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> Debug for ReplayPolicyCatalogFaultTransitionErrorV1<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(ReplayPolicyCatalogFaultTransitionErrorV1))
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> ReplayPolicyCatalogFaultTransitionErrorV1<T> {
+    /// Returns the retained linear capability for an explicit recovery attempt.
+    #[must_use]
+    pub fn into_capability(self) -> T {
+        self.capability
+    }
+
+    /// Returns the fail-closed PostgreSQL transition error.
+    #[must_use]
+    pub fn source(&self) -> &sqlx::Error {
+        &self.source
     }
 }
 
@@ -290,7 +378,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             pools.push(pool);
         }
         let owner_topology_admin_pool =
-            admit_owner_topology_admin(&expected_database, first).await?;
+            admit_owner_topology_admin(&expected_database, &expected_marker, first).await?;
 
         Ok(Self {
             database_urls: urls
@@ -334,6 +422,182 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
         let canonical_target =
             normalize_url(CANONICAL_OWNER_TEST_URLS[0].0, &self.database_urls[0])?;
         admit_legacy_replay_duplicate_fault(&canonical_target, &self.marker_identity).await
+    }
+
+    /// Acquires the exact disposable Replay Policy Catalog fault authority.
+    ///
+    /// This capability is unavailable outside the fixture's isolated PostgreSQL container and
+    /// sequential fail-fast shell loop; it is not a generally concurrency-safe test authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL error when the fixed-source lease transition fails closed.
+    pub async fn acquire_replay_policy_catalog_fault_authority(
+        &self,
+    ) -> Result<ReplayPolicyCatalogFaultAuthorityV1, sqlx::Error> {
+        let lease_identity = format!(
+            "replay-policy-catalog-fault-v1:{}:{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map_or(0, |duration| duration.as_nanos())
+        );
+        let acquire = || {
+            sqlx::query_scalar::<_, String>(
+                "SELECT vibe_test_replay_policy_catalog_fault.acquire_v1($1,$2)",
+            )
+            .bind(&self.marker_identity)
+            .bind(&lease_identity)
+            .fetch_one(&self.owner_topology_admin_pool)
+        };
+        let returned_lease_identity = match acquire().await {
+            Ok(value) => value,
+            Err(_) => acquire().await?,
+        };
+        if returned_lease_identity != lease_identity {
+            return Err(sqlx::Error::Protocol(
+                "Replay Policy Catalog fault authority acquire mismatch".into(),
+            ));
+        }
+        Ok(ReplayPolicyCatalogFaultAuthorityV1 {
+            pool: self.owner_topology_admin_pool.clone(),
+            marker_identity: self.marker_identity.clone(),
+            lease_identity,
+        })
+    }
+}
+
+impl ReplayPolicyCatalogFaultAuthorityV1 {
+    /// Returns the admitted lease pool for fixed test-only Catalog fault operations.
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Atomically replaces the lease edge with the fixed Qualification-writer fault edge.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL error when the fixed-source transition fails closed.
+    pub async fn inject_third_party_owner_edge(
+        self,
+    ) -> Result<
+        InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1,
+        ReplayPolicyCatalogFaultTransitionErrorV1<Self>,
+    > {
+        let transition = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+        let returned_lease_identity = match transition {
+            Ok(value) => value,
+            Err(source) => {
+                return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                    capability: self,
+                    source,
+                });
+            }
+        };
+        if returned_lease_identity != self.lease_identity {
+            return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "Replay Policy Catalog membership fault lease mismatch".into(),
+                ),
+            });
+        }
+        Ok(InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1 {
+            pool: self.pool,
+            marker_identity: self.marker_identity,
+            lease_identity: self.lease_identity,
+        })
+    }
+
+    /// Releases the exact fault authority and proves the fixture returned to READY.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL error when the fixed-source release fails closed.
+    pub async fn release(
+        self,
+    ) -> Result<
+        ReleasedReplayPolicyCatalogFaultAuthorityV1,
+        ReplayPolicyCatalogFaultTransitionErrorV1<Self>,
+    > {
+        let transition = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_replay_policy_catalog_fault.release_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+        let phase = match transition {
+            Ok(value) => value,
+            Err(source) => {
+                return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                    capability: self,
+                    source,
+                });
+            }
+        };
+        if phase != "READY" {
+            return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "Replay Policy Catalog fault authority release mismatch".into(),
+                ),
+            });
+        }
+        Ok(ReleasedReplayPolicyCatalogFaultAuthorityV1 {
+            _marker_identity: self.marker_identity,
+            _lease_identity: self.lease_identity,
+        })
+    }
+}
+
+impl InjectedReplayPolicyCatalogThirdPartyOwnerEdgeV1 {
+    /// Restores the fixed third-party owner edge and proves the fixture returned to READY.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL error when the fixed-source restore fails closed.
+    pub async fn restore(
+        self,
+    ) -> Result<
+        ReleasedReplayPolicyCatalogFaultAuthorityV1,
+        ReplayPolicyCatalogFaultTransitionErrorV1<Self>,
+    > {
+        let transition = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+        let phase = match transition {
+            Ok(value) => value,
+            Err(source) => {
+                return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                    capability: self,
+                    source,
+                });
+            }
+        };
+        if phase != "READY" {
+            return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "Replay Policy Catalog membership fault restore mismatch".into(),
+                ),
+            });
+        }
+        Ok(ReleasedReplayPolicyCatalogFaultAuthorityV1 {
+            _marker_identity: self.marker_identity,
+            _lease_identity: self.lease_identity,
+        })
     }
 }
 
@@ -543,6 +807,7 @@ async fn admit_legacy_replay_duplicate_fault(
 
 async fn admit_owner_topology_admin(
     expected_database: &str,
+    expected_marker: &str,
     canonical_target: &NormalizedDatabaseTarget,
 ) -> Result<PgPool, DedicatedPostgresTestDatabaseError> {
     const URL_ENV: &str = "VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL";
@@ -562,18 +827,197 @@ async fn admit_owner_topology_admin(
         .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
     let role_is_exact: bool = sqlx::query_scalar(
         "SELECT session_user='vibe_test_owner_topology_admin'
+           AND pg_catalog.current_database()=$1
            AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
            AND NOT rolreplication AND NOT rolbypassrls
-           AND (SELECT count(*)=2 FROM pg_catalog.pg_auth_members membership
+           AND NOT pg_catalog.has_database_privilege(
+             session_user,pg_catalog.current_database(),'CREATE,TEMPORARY'
+           )
+           AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+           AND EXISTS (
+             SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+              WHERE marker.marker_identity=$2 AND marker.database_name=$1
+                AND marker.test_role='vibe_test_owner_topology_admin'
+           )
+           AND (SELECT count(*)=1 AND bool_and(
+                  granted.rolname='composer_owner' AND NOT membership.admin_option
+                  AND membership.inherit_option AND membership.set_option
+                )
+                  FROM pg_catalog.pg_auth_members membership
                 JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
                 WHERE membership.member=administrator.oid
-                  AND granted.rolname IN ('replay_policy_catalog_owner','composer_owner')
-                  AND membership.set_option)
-           AND (SELECT count(*)=2 FROM pg_catalog.pg_auth_members membership
-                WHERE membership.member=administrator.oid)
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+             JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+             WHERE granted.rolname IN (
+                     'replay_policy_catalog_owner','rd_owner','rd_fact_writer'
+                   )
+                OR member.rolname IN (
+                     'replay_policy_catalog_owner','rd_owner','rd_fact_writer'
+                   )
+           )
+           AND EXISTS (
+             SELECT 1 FROM pg_catalog.pg_namespace namespace
+             JOIN pg_catalog.pg_roles owner ON owner.oid=namespace.nspowner
+             WHERE namespace.nspname='vibe_test_replay_policy_catalog_fault'
+               AND owner.rolname='postgres'
+               AND (SELECT count(*)=3
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=namespace.nspowner
+                          AND acl.privilege_type IN ('CREATE','USAGE')
+                          AND NOT acl.is_grantable
+                      )=2
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=administrator.oid
+                          AND acl.privilege_type='USAGE' AND NOT acl.is_grantable
+                      )=1
+                      AND count(*) FILTER (WHERE acl.grantee=0)=0
+                    FROM pg_catalog.aclexplode(namespace.nspacl) acl)
+           )
+           AND EXISTS (
+             SELECT 1 FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+             JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+             WHERE namespace.nspname='vibe_test_replay_policy_catalog_fault'
+               AND relation.relname='authority_state_v1' AND relation.relkind='r'
+               AND relation.relpersistence='p' AND owner.rolname='postgres'
+               AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+               AND relation.reloptions IS NULL
+               AND (SELECT count(*)=7 AND bool_and(
+                      acl.grantee=relation.relowner AND NOT acl.is_grantable
+                    ) FROM pg_catalog.aclexplode(
+                   COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))
+                 ) acl)
+               AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+                  WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact
+                  WHERE rewrite_fact.ev_class=relation.oid
+               )
+               AND NOT EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_publication_rel publication
+                  WHERE publication.prrelid=relation.oid
+               )
+               AND (SELECT array_agg(
+                      attribute.attname||':'||
+                      pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||
+                      attribute.attnotnull::text ORDER BY attribute.attnum
+                    )
+                      FROM pg_catalog.pg_attribute attribute
+                     WHERE attribute.attrelid=relation.oid AND attribute.attnum>0
+                       AND NOT attribute.attisdropped
+                   )=ARRAY[
+                     'singleton:boolean:true','marker_identity:text:true',
+                     'database_name:name:true','execution_boundary:text:true',
+                     'phase:text:true',
+                     'lease_identity:text:false',
+                     'last_released_lease_identity:text:false'
+                   ]::text[]
+               AND (SELECT count(*)=4 AND bool_and(
+                      CASE constraint_fact.conname
+                        WHEN 'authority_state_v1_singleton_pk' THEN
+                          constraint_fact.contype='p' AND constraint_fact.conkey::text='1'
+                        WHEN 'authority_state_v1_singleton_check' THEN
+                          constraint_fact.contype='c'
+                          AND pg_catalog.pg_get_expr(
+                            constraint_fact.conbin,constraint_fact.conrelid
+                          )='singleton'
+                        WHEN 'authority_state_v1_phase_check' THEN
+                          constraint_fact.contype='c'
+                          AND pg_catalog.pg_get_expr(
+                            constraint_fact.conbin,constraint_fact.conrelid
+                          )='(phase = ANY (ARRAY[''READY''::text, ''LEASED''::text, ''MEMBERSHIP_FAULT''::text]))'
+                        WHEN 'authority_state_v1_lease_check' THEN
+                          constraint_fact.contype='c'
+                          AND pg_catalog.pg_get_expr(
+                            constraint_fact.conbin,constraint_fact.conrelid
+                          )='(((phase = ''READY''::text) AND (lease_identity IS NULL)) OR ((phase = ANY (ARRAY[''LEASED''::text, ''MEMBERSHIP_FAULT''::text])) AND (lease_identity IS NOT NULL)))'
+                        ELSE false
+                      END
+                    ) FROM pg_catalog.pg_constraint constraint_fact
+                    WHERE constraint_fact.conrelid=relation.oid)
+               AND (SELECT count(*)=1 AND bool_and(
+                      index_fact.indisprimary AND index_fact.indisunique
+                      AND index_fact.indisvalid AND index_fact.indisready
+                      AND index_fact.indislive AND index_fact.indexprs IS NULL
+                      AND index_fact.indpred IS NULL AND index_relation.reloptions IS NULL
+                    ) FROM pg_catalog.pg_index index_fact
+                    JOIN pg_catalog.pg_class index_relation
+                      ON index_relation.oid=index_fact.indexrelid
+                    WHERE index_fact.indrelid=relation.oid)
+               AND (SELECT count(*)=1 AND bool_and(
+                      state.singleton AND state.marker_identity=$2
+                      AND state.database_name=$1
+                      AND state.execution_boundary=
+                        'isolated-disposable-postgres-container:sequential-shell-loop:v1'
+                      AND state.phase='READY'
+                      AND state.lease_identity IS NULL
+                    ) FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state)
+           )
+           AND (SELECT count(*)=2
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='vibe_test_replay_policy_catalog_fault'
+                   AND relation.relkind IN ('r','i'))
+           AND (SELECT count(*)=4
+                  FROM pg_catalog.pg_proc procedure
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid=procedure.pronamespace
+                 WHERE namespace.nspname='vibe_test_replay_policy_catalog_fault')
+           AND (SELECT count(*)=4 AND bool_and(
+                  owner.rolname='postgres' AND language.lanname='plpgsql'
+                  AND procedure.prokind='f' AND procedure.prorettype='text'::pg_catalog.regtype
+                  AND procedure.pronargs=expected.argument_count
+                  AND pg_catalog.pg_get_function_identity_arguments(procedure.oid)
+                      =expected.identity_arguments
+                  AND procedure.prosecdef AND procedure.proisstrict
+                  AND procedure.provolatile='v' AND procedure.proparallel='u'
+                  AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+                  AND pg_catalog.encode(pg_catalog.sha256(
+                        pg_catalog.convert_to(procedure.prosrc,'UTF8')
+                      ),'hex')=expected.source_digest
+                  AND (SELECT count(*)=2
+                        AND count(*) FILTER (
+                          WHERE acl.grantee=procedure.proowner
+                            AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+                        )=1
+                        AND count(*) FILTER (
+                          WHERE acl.grantee=administrator.oid
+                            AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+                        )=1
+                        AND count(*) FILTER (WHERE acl.grantee=0)=0
+                        AND count(*) FILTER (
+                          WHERE acl.privilege_type<>'EXECUTE' OR acl.is_grantable
+                        )=0
+                      FROM pg_catalog.aclexplode(procedure.proacl) acl)
+                )
+                  FROM (VALUES
+                    ('acquire_v1',2,'expected_marker_identity text, expected_lease_identity text',$3::text),
+                    ('release_v1',2,'expected_marker_identity text, expected_lease_identity text',$4::text),
+                    ('inject_third_party_owner_edge_v1',2,'expected_marker_identity text, expected_lease_identity text',$5::text),
+                    ('restore_third_party_owner_edge_v1',2,'expected_marker_identity text, expected_lease_identity text',$6::text)
+                  ) expected(procedure_name,argument_count,identity_arguments,source_digest)
+                  JOIN pg_catalog.pg_proc procedure ON procedure.proname=expected.procedure_name
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid=procedure.pronamespace
+                   AND namespace.nspname='vibe_test_replay_policy_catalog_fault'
+                  JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+           )
           FROM pg_catalog.pg_roles administrator
          WHERE administrator.rolname='vibe_test_owner_topology_admin' AND administrator.rolcanlogin",
     )
+    .bind(expected_database)
+    .bind(expected_marker)
+    .bind(REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
+    .bind(REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1)
+    .bind(REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
+    .bind(REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
     .fetch_one(&pool)
     .await
     .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
@@ -1107,5 +1551,37 @@ mod tests {
                 .bytes()
                 .all(|byte| byte.is_ascii_hexdigit())
         );
+    }
+
+    #[rstest]
+    fn replay_policy_catalog_fault_authority_binds_linear_fixed_source_lease() {
+        let source = include_str!("postgres.rs");
+
+        for required in [
+            "vibe_test_replay_policy_catalog_fault.acquire_v1($1,$2)",
+            "vibe_test_replay_policy_catalog_fault.release_v1($1,$2)",
+            "vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1($1,$2)",
+            "vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1($1,$2)",
+            "'singleton:boolean:true','marker_identity:text:true'",
+            "state.phase='READY'",
+            "last_released_lease_identity",
+            "isolated-disposable-postgres-container:sequential-shell-loop:v1",
+            "granted.rolname IN (\n                     'replay_policy_catalog_owner','rd_owner','rd_fact_writer'",
+            "procedure.prosecdef AND procedure.proisstrict",
+            "procedure.provolatile='v' AND procedure.proparallel='u'",
+            "procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']",
+            "count(*)=4 AND bool_and(",
+        ] {
+            assert!(source.contains(required), "missing lease check: {required}");
+        }
+        for digest in [
+            REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1,
+            REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1,
+            REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1,
+            REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1,
+        ] {
+            assert_eq!(digest.len(), 64);
+            assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        }
     }
 }
