@@ -2398,9 +2398,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 .await
             {
                 Ok(policy) => policy,
-                Err(_) => {
+                Err(e) => {
                     transaction.rollback().await.map_err(|e| storage(&e))?;
-                    return Ok(unresolved_result_v2(&request_identity));
+                    return Err(ResearchGoalOwnerError::Storage(format!(
+                        "Replay Policy Catalog unavailable before submission: {e}"
+                    )));
                 }
             };
         canonical_policy.replay_execution_policy_v2 = Some(replay_policy);
@@ -2728,6 +2730,24 @@ mod tests {
                 "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4"
             )
         );
+    }
+
+    #[rstest]
+    fn catalog_resolution_failure_is_unavailable_before_submission() {
+        let source = include_str!("product_edge_postgres.rs");
+        let catalog_resolution = source
+            .split("let replay_policy =")
+            .nth(1)
+            .expect("Replay Policy Catalog resolution")
+            .split("canonical_policy.replay_execution_policy_v2")
+            .next()
+            .expect("Replay Policy Catalog resolution boundary");
+
+        assert!(catalog_resolution.contains("transaction.rollback()"));
+        assert!(catalog_resolution.contains("return Err(ResearchGoalOwnerError::Storage"));
+        assert!(catalog_resolution.contains("unavailable before submission"));
+        assert!(!catalog_resolution.contains("unresolved_result_v2"));
+        assert!(!catalog_resolution.contains("decide_commit_v2"));
     }
 
     #[async_trait]
