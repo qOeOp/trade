@@ -664,6 +664,15 @@ impl PostgresResearchGoalOwnerV1 {
                            routine.prosecdef OR NOT routine.proisstrict OR routine.provolatile<>'i'
                            OR routine.proparallel<>'s'
                            OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[]
+                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN
+                           routine.prosecdef
+                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN
+                           routine.prosecdef
+                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN
+                           routine.prosecdef
+                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
                          ELSE NOT routine.prosecdef
                            OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
                        END
@@ -2743,6 +2752,15 @@ mod tests {
         assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]"));
         assert!(validation.contains("ELSE NULL::text[]"));
         assert!(validation.contains("'acl',COALESCE(relation.relacl::text,'<NULL>')"));
+        for invoker_signature in [
+            "WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN",
+            "WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN",
+            "WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN",
+        ] {
+            assert!(validation.contains(&format!(
+                "{invoker_signature}\n                           routine.prosecdef\n                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]"
+            )));
+        }
         assert!(
             !validation.contains(
                 "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4"
