@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Postgres, Row, Transaction, postgres::PgConnectOptions};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgConnectOptions};
 use std::fmt::Display;
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
@@ -114,35 +114,101 @@ struct DrainOutboxPayloadV1 {
     provider_disposition: String,
 }
 
-pub(crate) async fn migrate(
-    transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), ArtifactBuildError> {
-    sqlx::query("CREATE TABLE IF NOT EXISTS rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
-        .execute(&mut **transaction)
-        .await
-        .map_err(|e| storage(&e))?;
+pub(crate) async fn require_existing_topology(pool: &PgPool) -> Result<(), ArtifactBuildError> {
+    let topology_is_exact: bool = sqlx::query_scalar(
+        "WITH relation AS (
+           SELECT relation.*
+             FROM pg_catalog.pg_class relation
+            WHERE relation.oid=pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1')
+         ), routine AS (
+           SELECT procedure.*
+             FROM pg_catalog.pg_proc procedure
+            WHERE procedure.oid=pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')
+         ), trigger_fact AS (
+           SELECT trigger_fact.*
+             FROM pg_catalog.pg_trigger trigger_fact
+             JOIN relation ON relation.oid=trigger_fact.tgrelid
+            WHERE NOT trigger_fact.tgisinternal
+         )
+         SELECT session_user='rd_owner'
+           AND (SELECT count(*)=1
+                  AND bool_and(relation.relkind='r'
+                           AND relation.relpersistence='p'
+                           AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
+                           AND NOT relation.relrowsecurity
+                           AND NOT relation.relforcerowsecurity
+                           AND (SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attnum)
+                                  FROM pg_catalog.pg_attribute attribute
+                                 WHERE attribute.attrelid=relation.oid
+                                   AND attribute.attnum>0
+                                   AND NOT attribute.attisdropped)
+                               =ARRAY['receipt_identity','receipt_digest','build_request_identity','attempt_identity','receipt_json','committed_at_epoch_ms']::text[]
+                           AND (SELECT pg_catalog.array_agg(pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) ORDER BY attribute.attnum)
+                                  FROM pg_catalog.pg_attribute attribute
+                                 WHERE attribute.attrelid=relation.oid
+                                   AND attribute.attnum>0
+                                   AND NOT attribute.attisdropped)
+                               =ARRAY['text','text','text','text','jsonb','bigint']::text[]
+                           AND (SELECT bool_and(attribute.attnotnull)
+                                  FROM pg_catalog.pg_attribute attribute
+                                 WHERE attribute.attrelid=relation.oid
+                                   AND attribute.attnum>0
+                                   AND NOT attribute.attisdropped)
+                           AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true))
+                                  FROM pg_catalog.pg_constraint constraint_fact
+                                 WHERE constraint_fact.conrelid=relation.oid)
+                               =ARRAY['PRIMARY KEY (receipt_identity)','UNIQUE (attempt_identity)','UNIQUE (build_request_identity)']::text[]
+                           AND (SELECT count(*) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid=relation.oid)=3
+                           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+                           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+                           AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable)
+                                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
+                               =ARRAY['rd_custodian:DELETE:false','rd_custodian:INSERT:false','rd_custodian:REFERENCES:false','rd_custodian:SELECT:false','rd_custodian:TRIGGER:false','rd_custodian:TRUNCATE:false','rd_custodian:UPDATE:false','rd_owner:INSERT:false','rd_owner:SELECT:false']::text[])
+                  FROM relation)
+           AND (SELECT count(*)=1
+                  AND bool_and(pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
+                           AND routine.prokind='f'
+                           AND NOT routine.proretset
+                           AND routine.prorettype='pg_catalog.trigger'::pg_catalog.regtype
+                           AND routine.prolang=(SELECT language.oid FROM pg_catalog.pg_language language WHERE language.lanname='plpgsql')
+                           AND NOT routine.prosecdef
+                           AND NOT routine.proisstrict
+                           AND routine.provolatile='v'
+                           AND routine.proparallel='u'
+                           AND routine.proconfig IS NULL
+                           AND pg_catalog.md5(routine.prosrc)='7e54a7158586a88841c26e8732a31e62'
+                           AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable)
+                                  FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl)
+                               =ARRAY['rd_custodian:EXECUTE:false']::text[])
+                  FROM routine)
+           AND (SELECT count(*)=1
+                  AND bool_and(trigger_fact.tgname='rd_legacy_prepared_attempt_drain_immutable_v1'
+                           AND trigger_fact.tgenabled='O'
+                           AND trigger_fact.tgtype=27
+                           AND trigger_fact.tgfoid=(SELECT routine.oid FROM routine)
+                           AND trigger_fact.tgconstraint=0
+                           AND NOT trigger_fact.tgdeferrable
+                           AND NOT trigger_fact.tginitdeferred
+                           AND trigger_fact.tgnargs=0
+                           AND pg_catalog.octet_length(trigger_fact.tgargs)=0
+                           AND trigger_fact.tgqual IS NULL
+                           AND trigger_fact.tgoldtable IS NULL
+                           AND trigger_fact.tgnewtable IS NULL
+                           AND (SELECT count(*)=1
+                                  FROM pg_catalog.pg_depend dependency
+                                 WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass
+                                   AND dependency.objid=trigger_fact.oid
+                                   AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass
+                                   AND dependency.refobjid=trigger_fact.tgfoid
+                                   AND dependency.deptype='n'))
+                  FROM trigger_fact)",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(|e| storage(&e))?;
 
-    for statement in [
-        "ALTER TABLE rd_legacy_prepared_attempt_drain_receipts_v1 OWNER TO rd_owner",
-        "REVOKE ALL ON TABLE rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
-        "CREATE OR REPLACE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''legacy PREPARED drain receipts are immutable''; END'",
-        "ALTER FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() FROM PUBLIC",
-        "DROP TRIGGER IF EXISTS rd_legacy_prepared_attempt_drain_immutable_v1 ON rd_legacy_prepared_attempt_drain_receipts_v1",
-        "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 BEFORE UPDATE OR DELETE ON rd_legacy_prepared_attempt_drain_receipts_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
-    ] {
-        sqlx::query(statement)
-            .execute(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
-    }
-    let owner: String = sqlx::query_scalar("SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class WHERE oid='rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass")
-        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
-    let leaked: bool = sqlx::query_scalar("SELECT pg_catalog.has_table_privilege('public','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('product_edge_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('backtest_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")
-        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
-
-    if owner != "rd_owner" || leaked {
-        return Err(unavailable("legacy PREPARED drain receipt ACL mismatch"));
+    if !topology_is_exact {
+        return Err(unavailable("legacy PREPARED drain topology is unavailable"));
     }
     Ok(())
 }
@@ -713,6 +779,35 @@ pub(crate) mod tests {
             11,
         )
         .unwrap()
+    }
+
+    #[rstest]
+    fn runtime_topology_validation_is_read_only_and_fail_closed() {
+        let source = include_str!("legacy_prepared_attempt_drain.rs");
+        let validator = source
+            .split("pub(crate) async fn require_existing_topology")
+            .nth(1)
+            .expect("legacy drain topology validator")
+            .split("pub(crate) fn attempt_json_digest")
+            .next()
+            .expect("legacy drain topology validator boundary");
+
+        for ddl in [
+            "CREATE ", "ALTER ", "DROP ", "TRIGGER ", "REVOKE ", "GRANT ",
+        ] {
+            assert!(!validator.contains(ddl), "runtime validator contains {ddl}");
+        }
+        assert!(validator.contains("count(*)=1"));
+        assert!(validator.contains("pg_get_userbyid(relation.relowner)='rd_custodian'"));
+        assert!(validator.contains("'rd_owner:INSERT:false','rd_owner:SELECT:false'"));
+        assert!(
+            validator.contains("pg_catalog.md5(routine.prosrc)='7e54a7158586a88841c26e8732a31e62'")
+        );
+        assert!(validator.contains("=ARRAY['rd_custodian:EXECUTE:false']::text[]"));
+        assert!(validator.contains("trigger_fact.tgtype=27"));
+        assert!(validator.contains("dependency.refobjid=trigger_fact.tgfoid"));
+        assert!(validator.contains("if !topology_is_exact"));
+        assert!(validator.contains("legacy PREPARED drain topology is unavailable"));
     }
 
     #[rstest]

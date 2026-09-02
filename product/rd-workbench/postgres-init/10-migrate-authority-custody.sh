@@ -1257,12 +1257,1402 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
+DO $source_legacy_topology_admission$
+DECLARE
+  present_relations bigint;
+  present_routines bigint;
+  present_triggers bigint;
+BEGIN
+  SELECT pg_catalog.count(*) INTO present_relations
+  FROM pg_catalog.pg_class relation
+  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+  WHERE namespace.nspname='public' AND relation.relkind IN ('r','p')
+    AND relation.relname IN (
+      'rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1',
+      'rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1',
+      'rd_legacy_prepared_attempt_drain_receipts_v1'
+    );
+  SELECT pg_catalog.count(*) INTO present_routines
+  FROM pg_catalog.pg_proc routine
+  WHERE routine.oid IN (
+    pg_catalog.to_regprocedure('rd_owner_api.derive_source_intake_identity_v1(text,text[])'),
+    pg_catalog.to_regprocedure('rd_owner_api.canonical_source_intake_json_v1(jsonb)'),
+    pg_catalog.to_regprocedure('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)'),
+    pg_catalog.to_regprocedure('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)'),
+    pg_catalog.to_regprocedure('rd_owner_api.lock_source_acquisition_binding_v1(text,text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)'),
+    pg_catalog.to_regprocedure('rd_owner_api.guard_source_intake_binding_v1()'),
+    pg_catalog.to_regprocedure('rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    pg_catalog.to_regprocedure('rd_owner_api.read_source_intake_v1(text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)'),
+    pg_catalog.to_regprocedure('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)'),
+    pg_catalog.to_regprocedure('rd_owner_api.canonical_source_intake_custody_v1(text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)'),
+    pg_catalog.to_regprocedure('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)'),
+    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')
+  );
+  SELECT pg_catalog.count(*) INTO present_triggers
+  FROM pg_catalog.pg_trigger trigger_fact
+  WHERE NOT trigger_fact.tgisinternal AND trigger_fact.tgname IN (
+    'rd_source_intake_binding_guard_v1','rd_source_intake_receipt_immutable_v1',
+    'rd_source_raw_payload_immutable_v1','rd_source_raw_receipt_link_immutable_v1',
+    'rd_research_source_provenance_immutable_v1','rd_source_candidate_immutable_v1',
+    'rd_legacy_prepared_attempt_drain_immutable_v1'
+  );
+  IF (present_relations,present_routines,present_triggers) NOT IN ((0,0,0),(7,17,7)) THEN
+    RAISE EXCEPTION 'Source Intake/legacy drain topology is partial';
+  END IF;
+END
+$source_legacy_topology_admission$;
+SELECT (
+  pg_catalog.to_regclass('public.rd_source_intake_bindings_v1') IS NULL
+  AND pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL
+) AS provision_source_legacy_topology \gset
+\if :provision_source_legacy_topology
+CREATE OR REPLACE FUNCTION rd_owner_api.derive_source_intake_identity_v1(domain text, parts text[])
+      RETURNS text LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+        SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+          pg_catalog.array_to_string(pg_catalog.array_prepend(domain, parts), pg_catalog.chr(31)),
+          'UTF8'
+        )), 'hex')
+      $function$;
+ALTER FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.derive_source_intake_identity_v1(text,text[]) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.canonical_source_intake_json_v1(value jsonb)
+      RETURNS text LANGUAGE plpgsql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog
+      AS $function$
+      DECLARE result text;
+      DECLARE entry record;
+      DECLARE first_entry boolean := true;
+      BEGIN
+        CASE pg_catalog.jsonb_typeof(value)
+          WHEN 'object' THEN
+            result := '{';
+            FOR entry IN SELECT key, child FROM pg_catalog.jsonb_each(value) item(key, child) ORDER BY key LOOP
+              IF NOT first_entry THEN result := result || ','; END IF;
+              result := result || pg_catalog.to_json(entry.key)::text || ':' ||
+                rd_owner_api.canonical_source_intake_json_v1(entry.child);
+              first_entry := false;
+            END LOOP;
+            RETURN result || '}';
+          WHEN 'array' THEN
+            result := '[';
+            FOR entry IN SELECT child FROM pg_catalog.jsonb_array_elements(value) WITH ORDINALITY item(child, ordinality) ORDER BY ordinality LOOP
+              IF NOT first_entry THEN result := result || ','; END IF;
+              result := result || rd_owner_api.canonical_source_intake_json_v1(entry.child);
+              first_entry := false;
+            END LOOP;
+            RETURN result || ']';
+          ELSE RETURN value::text;
+        END CASE;
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.canonical_source_intake_json_v1(jsonb) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.canonical_source_intake_json_v1(jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.derive_openalex_location_rights_v1(body jsonb, normalized_doi text)
+      RETURNS jsonb LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+        WITH locations AS (
+          SELECT value AS location, ordinality - 1 AS location_index
+          FROM pg_catalog.jsonb_array_elements(COALESCE(body->'locations', '[]'::jsonb))
+               WITH ORDINALITY AS source(value, ordinality)
+        ), locators AS (
+          SELECT location, location_index,
+            CASE WHEN location->>'landing_page_url' IS NULL THEN NULL ELSE
+              'sha256:' || pg_catalog.encode(pg_catalog.sha256(
+                pg_catalog.int8send(pg_catalog.octet_length('rd.source-intake.location.landing-page.v1')) ||
+                pg_catalog.convert_to('rd.source-intake.location.landing-page.v1', 'UTF8') ||
+                pg_catalog.int8send(pg_catalog.octet_length(location->>'landing_page_url')) ||
+                pg_catalog.convert_to(location->>'landing_page_url', 'UTF8')
+              ), 'hex') END AS landing_digest,
+            CASE WHEN location->>'pdf_url' IS NULL THEN NULL ELSE
+              'sha256:' || pg_catalog.encode(pg_catalog.sha256(
+                pg_catalog.int8send(pg_catalog.octet_length('rd.source-intake.location.pdf.v1')) ||
+                pg_catalog.convert_to('rd.source-intake.location.pdf.v1', 'UTF8') ||
+                pg_catalog.int8send(pg_catalog.octet_length(location->>'pdf_url')) ||
+                pg_catalog.convert_to(location->>'pdf_url', 'UTF8')
+              ), 'hex') END AS pdf_digest
+          FROM locations
+        ), rights AS (
+          SELECT location_index, pg_catalog.jsonb_build_object(
+            'location_identity', rd_owner_api.derive_source_intake_identity_v1(
+              'rd.source-intake.location-rights.v1', ARRAY[
+                normalized_doi, location_index::text, COALESCE(landing_digest, 'ABSENT'),
+                COALESCE(pdf_digest, 'ABSENT'), COALESCE(location->>'license', 'UNREPORTED')
+              ]::text[]
+            ),
+            'is_open_access_metadata', location->'is_oa',
+            'reported_license', location->'license',
+            'landing_page_locator_digest', pg_catalog.to_jsonb(landing_digest),
+            'pdf_locator_digest', pg_catalog.to_jsonb(pdf_digest),
+            'posture', 'MUTABLE_METADATA_NOT_REUSE_GRANT'
+          ) AS value
+          FROM locators
+        )
+        SELECT COALESCE(pg_catalog.jsonb_agg(value ORDER BY location_index), '[]'::jsonb)
+        FROM rights
+      $function$;
+ALTER FUNCTION rd_owner_api.derive_openalex_location_rights_v1(jsonb,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.derive_openalex_location_rights_v1(jsonb,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.derive_source_acquisition_binding_digest_v1(binding jsonb)
+      RETURNS text LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog
+      AS $function$
+        SELECT 'sha256:' || pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(
+          rd_owner_api.canonical_source_intake_json_v1(binding - 'binding_identity' - 'binding_digest'),
+          'UTF8')), 'hex')
+      $function$;
+ALTER FUNCTION rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.derive_source_acquisition_binding_identity_v1(binding jsonb)
+      RETURNS text LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog
+      AS $function$
+        SELECT rd_owner_api.derive_source_intake_identity_v1(
+          'rd.source-acquisition-binding-identity.v1',
+          ARRAY[rd_owner_api.derive_source_acquisition_binding_digest_v1(binding)]::text[])
+      $function$;
+ALTER FUNCTION rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE TABLE public.rd_source_intake_bindings_v1 (
+        request_identity text PRIMARY KEY,
+        binding_identity text NOT NULL UNIQUE,
+        binding_commit_identity text NOT NULL UNIQUE,
+        binding_json jsonb NOT NULL,
+        state text NOT NULL CHECK (state IN ('BINDING_CLOSED','PREPARED','INVOCATION_RESERVED','TERMINAL')),
+        binding_committed_at_epoch_ms bigint NOT NULL CHECK (binding_committed_at_epoch_ms >= 0),
+        product_edge_started_receipt_identity text,
+        product_edge_started_json jsonb,
+        invocation_identity text UNIQUE,
+        terminal_receipt_identity text UNIQUE,
+        CHECK (
+          (state = 'BINDING_CLOSED' AND product_edge_started_receipt_identity IS NULL AND product_edge_started_json IS NULL AND invocation_identity IS NULL AND terminal_receipt_identity IS NULL)
+          OR (state = 'PREPARED' AND product_edge_started_receipt_identity IS NOT NULL AND product_edge_started_json IS NOT NULL AND invocation_identity IS NULL AND terminal_receipt_identity IS NULL)
+          OR (state = 'INVOCATION_RESERVED' AND product_edge_started_receipt_identity IS NOT NULL AND product_edge_started_json IS NOT NULL AND invocation_identity IS NOT NULL AND terminal_receipt_identity IS NULL)
+          OR (state = 'TERMINAL' AND product_edge_started_receipt_identity IS NOT NULL AND product_edge_started_json IS NOT NULL AND terminal_receipt_identity IS NOT NULL)
+        )
+      );
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(
+        requested_request_identity text,
+        requested_binding_identity text
+      ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+      SET search_path = pg_catalog
+      AS $function$
+      DECLARE locked record;
+      BEGIN
+        IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+        SELECT request_identity, binding_identity, binding_commit_identity, binding_json,
+               state, binding_committed_at_epoch_ms
+          INTO locked
+          FROM public.rd_source_intake_bindings_v1
+         WHERE request_identity = requested_request_identity
+           AND binding_identity = requested_binding_identity
+         FOR SHARE;
+        IF NOT FOUND
+           OR locked.binding_json->>'request_identity' <> locked.request_identity
+           OR locked.binding_json->>'binding_identity' <> locked.binding_identity
+           OR rd_owner_api.valid_source_intake_binding_contract_v1(locked.binding_json) IS NOT TRUE
+           OR locked.binding_json->>'gateway' <> 'WINDMILL_PRODUCT_EDGE'
+           OR locked.binding_json#>>'{product_edge_admission,request_identity}' <> locked.request_identity
+           OR locked.binding_json#>>'{product_edge_admission,admission_identity}' IS NULL
+           OR locked.binding_json#>>'{product_edge_admission,admission_digest}' IS NULL
+           OR locked.binding_json->>'operation_manifest_identity' IS NULL
+           OR locked.binding_json->>'operation_manifest_digest' IS NULL
+           OR locked.binding_json->>'policy_evidence_identity' IS NULL
+           OR locked.binding_json->>'policy_evidence_digest' IS NULL
+           OR locked.binding_json->>'normalized_doi' IS NULL
+           OR locked.binding_json->>'admission' <> 'ADMITTED'
+           OR locked.binding_json->>'connector_version' <> 'v1'
+           OR locked.binding_json->>'tls_stack_identity' <> 'rustls-only-v1'
+           OR locked.binding_json->>'method' <> 'GET'
+           OR locked.binding_json->>'endpoint_path' <> '/works/doi:' || (locked.binding_json->>'normalized_doi')
+           OR locked.binding_json->>'media_type' <> 'application/json'
+           OR (locked.binding_json->>'retry_budget')::smallint <> 0
+           OR (locked.binding_json->>'redirect_hop_limit')::smallint <> 0
+           OR locked.binding_identity <> rd_owner_api.derive_source_acquisition_binding_identity_v1(locked.binding_json)
+        THEN RETURN NULL; END IF;
+        RETURN pg_catalog.jsonb_build_object(
+          'schema_version', 1,
+          'request_identity', locked.request_identity,
+          'binding_identity', locked.binding_identity,
+          'binding_digest', locked.binding_json->>'binding_digest',
+          'admission_identity', locked.binding_json#>>'{product_edge_admission,admission_identity}',
+          'admission_digest', locked.binding_json#>>'{product_edge_admission,admission_digest}',
+          'operation_manifest_identity', locked.binding_json->>'operation_manifest_identity',
+          'operation_manifest_digest', locked.binding_json->>'operation_manifest_digest',
+          'normalized_doi', locked.binding_json->>'normalized_doi',
+          'binding_commit_identity', locked.binding_commit_identity
+        );
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(text,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(text,text) TO product_edge_owner;
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(
+        requested_request_identity text,
+        requested_attempt_identity text,
+        requested_claim_identity text,
+        requested_reservation_identity text,
+        requested_reservation_digest text
+      ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+      SET search_path = pg_catalog
+      AS $function$
+      DECLARE locked record;
+      DECLARE reservation jsonb;
+      BEGIN
+        IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+        SELECT request_identity, binding_identity, binding_commit_identity, binding_json,
+               product_edge_started_receipt_identity, product_edge_started_json
+          INTO locked
+          FROM public.rd_source_intake_bindings_v1
+         WHERE request_identity = requested_request_identity
+           AND binding_identity = requested_attempt_identity
+           AND state = 'PREPARED'
+         FOR SHARE;
+        IF NOT FOUND THEN RETURN NULL; END IF;
+        reservation := locked.product_edge_started_json;
+        IF reservation->>'schema_version' <> '1'
+           OR reservation->>'request_identity' <> locked.request_identity
+           OR reservation->>'binding_identity' <> locked.binding_identity
+           OR reservation->>'binding_commit_identity' <> locked.binding_commit_identity
+           OR reservation->>'admission_identity' <>
+              locked.binding_json#>>'{product_edge_admission,admission_identity}'
+           OR reservation->>'attempt_identity' <> locked.binding_identity
+           OR reservation->>'claim_identity' <> requested_claim_identity
+           OR reservation->>'reservation_identity' <> requested_reservation_identity
+           OR reservation->>'reservation_digest' <> requested_reservation_digest
+           OR locked.product_edge_started_receipt_identity <> requested_reservation_identity
+           OR reservation->>'reserved_at_epoch_ms' IS NULL
+           OR pg_catalog.jsonb_typeof(reservation->'interpretation') <> 'object'
+        THEN RETURN NULL; END IF;
+        RETURN pg_catalog.jsonb_build_object(
+          'schema_version', 1,
+          'request_identity', reservation->>'request_identity',
+          'binding_identity', reservation->>'binding_identity',
+          'binding_commit_identity', reservation->>'binding_commit_identity',
+          'admission_identity', reservation->>'admission_identity',
+          'attempt_identity', reservation->>'attempt_identity',
+          'claim_identity', reservation->>'claim_identity',
+          'claim_digest', reservation->>'claim_digest',
+          'invocation_admission_receipt_identity', reservation->>'invocation_admission_receipt_identity',
+          'invocation_admission_receipt_digest', reservation->>'invocation_admission_receipt_digest',
+          'claimed_state_digest', reservation->>'claimed_state_digest',
+          'reservation_identity', reservation->>'reservation_identity',
+          'reservation_digest', reservation->>'reservation_digest',
+          'reserved_at_epoch_ms', (reservation->>'reserved_at_epoch_ms')::bigint
+        );
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner;
+CREATE OR REPLACE FUNCTION rd_owner_api.valid_source_intake_started_custody_v1(
+        p_request_identity text,
+        p_admission_identity text,
+        p_started_receipt_identity text,
+        p_started jsonb
+      ) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+        SELECT pg_catalog.jsonb_typeof(p_started) = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(p_started) AS keys(key)) IN (
+                 ARRAY['admission_identity','attempt_identity','authority','binding_commit_identity','binding_identity',
+                       'claim_digest','claim_identity','claimed_state_digest','interpretation',
+                       'invocation_admission_receipt_digest','invocation_admission_receipt_identity',
+                       'request_identity','reservation_digest','reservation_identity',
+                       'reserved_at_epoch_ms','schema_version']::text[],
+                 ARRAY['admission_identity','attempt_identity','authority','binding_commit_identity','binding_identity',
+                       'claim_digest','claim_identity','claimed_state_digest','interpretation',
+                       'invocation_admission_receipt_digest','invocation_admission_receipt_identity',
+                       'policy_decision_digest','policy_decision_identity','policy_time',
+                       'request_identity','reservation_digest','reservation_identity',
+                       'reserved_at_epoch_ms','schema_version','started_at_epoch_ms',
+                       'started_state_digest']::text[]
+               )
+          AND pg_catalog.jsonb_typeof(p_started->'request_identity') = 'string'
+          AND pg_catalog.jsonb_typeof(p_started->'admission_identity') = 'string'
+          AND p_started->>'request_identity' = p_request_identity
+          AND p_started->>'admission_identity' = p_admission_identity
+          AND p_started->>'schema_version' = '1'
+          AND p_started->>'attempt_identity' = p_started->>'binding_identity'
+          AND p_started->>'claim_identity' IS NOT NULL
+          AND p_started->>'claim_digest' IS NOT NULL
+          AND p_started->>'claimed_state_digest' IS NOT NULL
+          AND p_started->>'invocation_admission_receipt_identity' IS NOT NULL
+          AND p_started->>'invocation_admission_receipt_digest' IS NOT NULL
+          AND p_started->>'reservation_identity' IS NOT NULL
+          AND p_started->>'reservation_digest' IS NOT NULL
+          AND p_started->>'reserved_at_epoch_ms' IS NOT NULL
+          AND pg_catalog.jsonb_typeof(p_started->'authority') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(p_started->'authority') AS keys(key)) = ARRAY[
+                 'authority_class','environment_identity','fixture_corpus_digest','provider_profile_digest'
+               ]::text[]
+          AND p_started#>>'{authority,authority_class}' IN ('LIVE_EXTERNAL','SEALED_ACCEPTANCE')
+          AND p_started#>>'{authority,environment_identity}' <> ''
+          AND p_started#>>'{authority,provider_profile_digest}' ~ '^sha256:[0-9a-f]{64}$'
+          AND (
+            p_started->>'started_state_digest' IS NULL
+            OR (p_started->>'policy_decision_identity' IS NOT NULL
+                AND p_started->>'policy_decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+                AND pg_catalog.jsonb_typeof(p_started->'policy_time') = 'object')
+          )
+          AND p_started_receipt_identity = COALESCE(
+                p_started->>'started_state_digest', p_started->>'reservation_identity'
+              )
+          AND pg_catalog.octet_length(p_started_receipt_identity) BETWEEN 1 AND 256
+          AND p_started_receipt_identity !~ '[[:cntrl:]]'
+          AND pg_catalog.jsonb_typeof(p_started->'interpretation') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(p_started->'interpretation') AS keys(key)) = ARRAY[
+                 'bounded_explanation','differentiating_prediction','falsifier','plausible_alternatives'
+               ]::text[]
+          AND pg_catalog.jsonb_typeof(p_started#>'{interpretation,bounded_explanation}') = 'string'
+          AND pg_catalog.jsonb_typeof(p_started#>'{interpretation,differentiating_prediction}') = 'string'
+          AND pg_catalog.jsonb_typeof(p_started#>'{interpretation,falsifier}') = 'string'
+          AND pg_catalog.btrim(p_started#>>'{interpretation,bounded_explanation}') <> ''
+          AND pg_catalog.btrim(p_started#>>'{interpretation,differentiating_prediction}') <> ''
+          AND pg_catalog.btrim(p_started#>>'{interpretation,falsifier}') <> ''
+          AND pg_catalog.octet_length(p_started#>>'{interpretation,bounded_explanation}') <= 8192
+          AND pg_catalog.octet_length(p_started#>>'{interpretation,differentiating_prediction}') <= 8192
+          AND pg_catalog.octet_length(p_started#>>'{interpretation,falsifier}') <= 8192
+          AND (p_started#>>'{interpretation,bounded_explanation}') !~ '[[:cntrl:]]'
+          AND (p_started#>>'{interpretation,differentiating_prediction}') !~ '[[:cntrl:]]'
+          AND (p_started#>>'{interpretation,falsifier}') !~ '[[:cntrl:]]'
+          AND pg_catalog.jsonb_typeof(p_started#>'{interpretation,plausible_alternatives}') = 'array'
+          AND pg_catalog.jsonb_array_length(p_started#>'{interpretation,plausible_alternatives}') BETWEEN 1 AND 16
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_catalog.jsonb_array_elements(
+              p_started#>'{interpretation,plausible_alternatives}'
+            ) AS alternative(value)
+            WHERE pg_catalog.jsonb_typeof(value) <> 'string'
+               OR pg_catalog.btrim(value#>>'{}') = ''
+               OR pg_catalog.octet_length(value#>>'{}') > 8192
+               OR (value#>>'{}') ~ '[[:cntrl:]]'
+          )
+          AND (SELECT pg_catalog.count(*) = pg_catalog.count(DISTINCT value)
+               FROM pg_catalog.jsonb_array_elements_text(
+                 p_started#>'{interpretation,plausible_alternatives}'
+               ) AS alternative(value))
+      $function$;
+ALTER FUNCTION rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.guard_source_intake_binding_v1()
+      RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+      SET search_path = pg_catalog, public, pg_temp
+      AS $function$
+      BEGIN
+        IF OLD.request_identity IS DISTINCT FROM NEW.request_identity
+           OR OLD.binding_identity IS DISTINCT FROM NEW.binding_identity
+           OR OLD.binding_commit_identity IS DISTINCT FROM NEW.binding_commit_identity
+           OR OLD.binding_json IS DISTINCT FROM NEW.binding_json
+           OR OLD.binding_committed_at_epoch_ms IS DISTINCT FROM NEW.binding_committed_at_epoch_ms THEN
+          RAISE EXCEPTION 'immutable Source Intake binding changed';
+        END IF;
+        IF OLD.state IN ('INVOCATION_RESERVED','TERMINAL')
+           AND (OLD.product_edge_started_receipt_identity IS DISTINCT FROM NEW.product_edge_started_receipt_identity
+                OR OLD.product_edge_started_json IS DISTINCT FROM NEW.product_edge_started_json) THEN
+          RAISE EXCEPTION 'committed Product Edge started custody changed';
+        END IF;
+        IF OLD.state = 'BINDING_CLOSED'
+           AND NEW.state = 'PREPARED'
+           AND rd_owner_api.valid_source_intake_started_custody_v1(
+             NEW.request_identity,
+             NEW.binding_json#>>'{product_edge_admission,admission_identity}',
+             NEW.product_edge_started_receipt_identity,
+             NEW.product_edge_started_json
+           ) IS DISTINCT FROM true THEN
+          RAISE EXCEPTION 'invalid Product Edge started custody';
+        END IF;
+        IF OLD.state = 'PREPARED'
+           AND NEW.state = 'INVOCATION_RESERVED'
+           AND (
+             rd_owner_api.valid_source_intake_started_custody_v1(
+               NEW.request_identity,
+               NEW.binding_json#>>'{product_edge_admission,admission_identity}',
+               NEW.product_edge_started_receipt_identity,
+               NEW.product_edge_started_json
+             ) IS DISTINCT FROM true
+             OR NEW.product_edge_started_json->>'started_state_digest' IS NULL
+             OR OLD.product_edge_started_json - 'interpretation'
+                IS DISTINCT FROM NEW.product_edge_started_json - 'interpretation'
+                                                       - 'started_state_digest'
+                                                       - 'started_at_epoch_ms'
+                                                       - 'policy_decision_identity'
+                                                       - 'policy_decision_digest'
+                                                       - 'policy_time'
+             OR OLD.product_edge_started_json->'interpretation'
+                IS DISTINCT FROM NEW.product_edge_started_json->'interpretation'
+           ) THEN
+          RAISE EXCEPTION 'invalid Product Edge started transition custody';
+        END IF;
+        IF NOT ((OLD.state = 'BINDING_CLOSED' AND NEW.state = 'PREPARED')
+                OR (OLD.state = 'PREPARED' AND NEW.state = 'INVOCATION_RESERVED'
+                    AND OLD.invocation_identity IS NULL AND NEW.invocation_identity IS NOT NULL)
+                OR (OLD.state = 'PREPARED' AND NEW.state = 'TERMINAL'
+                    AND OLD.invocation_identity IS NULL AND NEW.invocation_identity IS NULL)
+                OR (OLD.state = 'INVOCATION_RESERVED' AND NEW.state = 'TERMINAL'
+                    AND OLD.invocation_identity = NEW.invocation_identity)) THEN
+          RAISE EXCEPTION 'invalid Source Intake lifecycle transition';
+        END IF;
+        RETURN NEW;
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.guard_source_intake_binding_v1() OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.guard_source_intake_binding_v1() FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE TRIGGER rd_source_intake_binding_guard_v1 BEFORE UPDATE ON public.rd_source_intake_bindings_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_source_intake_binding_v1();
+CREATE TABLE public.rd_source_intake_receipts_v1 (
+        receipt_identity text PRIMARY KEY,
+        request_identity text NOT NULL UNIQUE REFERENCES public.rd_source_intake_bindings_v1(request_identity),
+        terminal text NOT NULL CHECK (terminal IN ('RETRIEVED','NOT_FOUND','AUTH_REQUIRED','ACCESS_DENIED','RATE_LIMITED','TERMS_OR_LICENSE_BLOCKED','MALFORMED','UNAVAILABLE')),
+        response_status smallint,
+        response_header_digest text,
+        content_digest text,
+        receipt_json jsonb NOT NULL,
+        attempt_identity text GENERATED ALWAYS AS (receipt_json->>'attempt_identity') STORED,
+        terminal_evidence_identity text GENERATED ALWAYS AS (receipt_json->>'terminal_evidence_identity') STORED,
+        terminal_evidence_digest text GENERATED ALWAYS AS (receipt_json->>'terminal_evidence_digest') STORED,
+        connected_address inet GENERATED ALWAYS AS ((receipt_json->>'connected_address')::inet) STORED,
+        response_media_type text GENERATED ALWAYS AS (receipt_json->>'response_media_type') STORED,
+        response_size_bytes bigint GENERATED ALWAYS AS ((receipt_json->>'response_size_bytes')::bigint) STORED,
+        shared_time_head_digest text GENERATED ALWAYS AS (receipt_json#>>'{retrieval_time,head_digest}') STORED,
+        committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms >= 0),
+        CHECK (
+          (terminal = 'RETRIEVED' AND response_status = 200 AND response_header_digest IS NOT NULL AND content_digest IS NOT NULL)
+          OR (terminal <> 'RETRIEVED' AND content_digest IS NULL)
+        ),
+        UNIQUE (receipt_identity, terminal)
+      );
+CREATE TABLE public.rd_source_raw_payloads_v1 (
+        content_digest text PRIMARY KEY,
+        raw_payload bytea NOT NULL CHECK (octet_length(raw_payload) BETWEEN 1 AND 1048576)
+      );
+CREATE TABLE public.rd_source_raw_receipt_links_v1 (
+        receipt_identity text PRIMARY KEY,
+        terminal text NOT NULL DEFAULT 'RETRIEVED' CHECK (terminal = 'RETRIEVED'),
+        content_digest text NOT NULL REFERENCES public.rd_source_raw_payloads_v1(content_digest),
+        UNIQUE (receipt_identity, content_digest),
+        FOREIGN KEY (receipt_identity, terminal)
+          REFERENCES public.rd_source_intake_receipts_v1(receipt_identity, terminal)
+      );
+CREATE TABLE public.rd_research_source_provenance_v1 (
+        provenance_identity text PRIMARY KEY,
+        receipt_identity text NOT NULL UNIQUE,
+        content_digest text NOT NULL,
+        provenance_json jsonb NOT NULL,
+        predecessor_provenance_identity text GENERATED ALWAYS AS (provenance_json->>'predecessor_provenance_identity') STORED,
+        canonical_source_origin text GENERATED ALWAYS AS (provenance_json->>'canonical_source_origin') STORED,
+        source_class text GENERATED ALWAYS AS (provenance_json->>'source_class') STORED,
+        author_or_originating_system text GENERATED ALWAYS AS (provenance_json->>'author_or_originating_system') STORED,
+        publication_time_epoch_ms bigint GENERATED ALWAYS AS ((provenance_json->>'publication_time_epoch_ms')::bigint) STORED,
+        revision_identity text GENERATED ALWAYS AS (provenance_json->>'revision_identity') STORED,
+        raw_content_digest text GENERATED ALWAYS AS (provenance_json->>'raw_content_digest') STORED,
+        retrieval_time_head_digest text GENERATED ALWAYS AS (provenance_json#>>'{retrieval_time,head_digest}') STORED,
+        rights_policy_version text GENERATED ALWAYS AS (provenance_json->>'rights_policy_version') STORED,
+        retention_policy_version text GENERATED ALWAYS AS (provenance_json->>'retention_policy_version') STORED,
+        interpretation_status text GENERATED ALWAYS AS (provenance_json->>'interpretation_status') STORED,
+        FOREIGN KEY (receipt_identity, content_digest)
+          REFERENCES public.rd_source_raw_receipt_links_v1(receipt_identity, content_digest)
+      );
+CREATE TABLE public.rd_source_candidates_v1 (
+        candidate_identity text PRIMARY KEY,
+        provenance_identity text NOT NULL UNIQUE REFERENCES public.rd_research_source_provenance_v1(provenance_identity),
+        candidate_json jsonb NOT NULL
+      );
+ALTER TABLE public.rd_source_intake_bindings_v1
+       ADD CONSTRAINT rd_source_intake_terminal_receipt_v1
+       FOREIGN KEY (terminal_receipt_identity)
+       REFERENCES public.rd_source_intake_receipts_v1(receipt_identity);
+ALTER TABLE public.rd_source_intake_bindings_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_source_intake_receipts_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_source_raw_payloads_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_source_raw_receipt_links_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_research_source_provenance_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_source_candidates_v1 OWNER TO rd_owner;
+CREATE OR REPLACE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()
+      RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+      BEGIN
+        RAISE EXCEPTION 'immutable Source Intake terminal custody changed';
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1() OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1() FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE TRIGGER rd_source_intake_receipt_immutable_v1 BEFORE UPDATE OR DELETE OR TRUNCATE ON public.rd_source_intake_receipts_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1();
+CREATE TRIGGER rd_source_raw_payload_immutable_v1 BEFORE UPDATE OR DELETE OR TRUNCATE ON public.rd_source_raw_payloads_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1();
+CREATE TRIGGER rd_source_raw_receipt_link_immutable_v1 BEFORE UPDATE OR DELETE OR TRUNCATE ON public.rd_source_raw_receipt_links_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1();
+CREATE TRIGGER rd_research_source_provenance_immutable_v1 BEFORE UPDATE OR DELETE OR TRUNCATE ON public.rd_research_source_provenance_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1();
+CREATE TRIGGER rd_source_candidate_immutable_v1 BEFORE UPDATE OR DELETE OR TRUNCATE ON public.rd_source_candidates_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1();
+REVOKE ALL ON public.rd_source_intake_bindings_v1, public.rd_source_intake_receipts_v1, public.rd_source_raw_payloads_v1, public.rd_source_raw_receipt_links_v1, public.rd_research_source_provenance_v1, public.rd_source_candidates_v1 FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+GRANT SELECT, INSERT, UPDATE ON public.rd_source_intake_bindings_v1 TO rd_owner;
+GRANT SELECT, INSERT, UPDATE, REFERENCES ON public.rd_source_intake_receipts_v1, public.rd_source_raw_payloads_v1, public.rd_source_raw_receipt_links_v1, public.rd_research_source_provenance_v1, public.rd_source_candidates_v1 TO rd_owner;
+CREATE OR REPLACE FUNCTION rd_owner_api.read_source_intake_v1(p_request_identity text)
+      RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+      SET search_path = pg_catalog, public, pg_temp
+      AS $function$
+        WITH observed AS (
+          SELECT binding.*,
+                 receipt.receipt_identity, receipt.request_identity AS receipt_request_identity,
+                 receipt.terminal, receipt.response_status, receipt.response_header_digest,
+                 receipt.content_digest AS receipt_content_digest, receipt.receipt_json,
+                 receipt.committed_at_epoch_ms,
+                 raw_link.receipt_identity AS raw_link_receipt_identity,
+                 raw_link.content_digest AS raw_link_content_digest,
+                 raw.content_digest AS raw_content_digest, raw.raw_payload,
+                 'sha256:' || pg_catalog.encode(pg_catalog.sha256(raw.raw_payload), 'hex') AS observed_content_digest,
+                 provenance.provenance_identity, provenance.receipt_identity AS provenance_receipt_identity,
+                 provenance.content_digest AS provenance_content_digest, provenance.provenance_json,
+                 candidate.candidate_identity, candidate.provenance_identity AS candidate_provenance_identity,
+                 candidate.candidate_json,
+                 outbox.event_identity, outbox.aggregate_identity, outbox.event_kind,
+                 outbox.payload_digest, outbox.payload_json,
+                 outbox.committed_at_epoch_ms AS outbox_committed_at_epoch_ms
+          FROM public.rd_source_intake_bindings_v1 binding
+          LEFT JOIN public.rd_source_intake_receipts_v1 receipt
+            ON receipt.request_identity = binding.request_identity
+          LEFT JOIN public.rd_source_raw_receipt_links_v1 raw_link
+            ON raw_link.receipt_identity = receipt.receipt_identity
+          LEFT JOIN public.rd_source_raw_payloads_v1 raw
+            ON raw.content_digest = raw_link.content_digest
+          LEFT JOIN public.rd_research_source_provenance_v1 provenance
+            ON provenance.receipt_identity = raw_link.receipt_identity
+           AND provenance.content_digest = raw_link.content_digest
+          LEFT JOIN public.rd_source_candidates_v1 candidate
+            ON candidate.provenance_identity = provenance.provenance_identity
+          LEFT JOIN public.rd_owner_outbox_v1 outbox
+            ON outbox.aggregate_identity = binding.request_identity
+           AND outbox.event_kind = 'SOURCE_INTAKE_TERMINATED_V1'
+          WHERE binding.request_identity = p_request_identity
+        ), interpreted AS (
+          SELECT observed.*,
+                 rd_owner_api.derive_source_intake_identity_v1(
+                   'rd.source-intake.interpretation.v1', ARRAY[
+                     observed.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                     (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                        FROM pg_catalog.jsonb_array_elements_text(
+                          observed.product_edge_started_json#>'{interpretation,plausible_alternatives}'
+                        ) WITH ORDINALITY AS alternative(value, ordinality)),
+                     observed.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                     observed.product_edge_started_json#>>'{interpretation,falsifier}'
+                   ]::text[]
+                 ) AS observed_interpretation_digest
+          FROM observed
+        ), derived AS (
+          SELECT interpreted.*,
+                 rd_owner_api.derive_source_intake_identity_v1(
+                   'rd.source-interpretation.v1',
+                   ARRAY[interpreted.observed_interpretation_digest]::text[]
+                 ) AS observed_interpretation_identity
+          FROM interpreted
+        )
+        SELECT pg_catalog.jsonb_build_object(
+          'request_identity', binding.request_identity,
+          'binding_identity', binding.binding_identity,
+          'authority', binding.binding_json->'authority',
+          'state', binding.state,
+          'terminal', binding.terminal,
+          'receipt', CASE WHEN binding.receipt_identity IS NULL THEN NULL ELSE pg_catalog.jsonb_build_object(
+            'receipt_identity', binding.receipt_identity,
+            'request_identity', binding.receipt_request_identity,
+            'binding_identity', binding.binding_identity,
+            'invocation_identity', binding.invocation_identity,
+            'terminal', binding.terminal,
+            'response_status', binding.response_status,
+            'response_header_digest', binding.response_header_digest,
+            'content_digest', binding.receipt_content_digest,
+            'committed_at_epoch_ms', binding.committed_at_epoch_ms
+          ) END,
+          'content_locator', CASE WHEN binding.raw_content_digest IS NULL THEN NULL ELSE 'rd-owner://source-payload/sha256/' || binding.raw_content_digest END,
+          'content_digest', binding.raw_content_digest,
+          'provenance_identity', binding.provenance_identity,
+          'source_candidate_identity', binding.candidate_identity,
+          'outbox_event_identity', binding.event_identity
+        )
+        FROM derived binding
+        WHERE binding.state = 'TERMINAL'
+          AND binding.terminal_receipt_identity = binding.receipt_identity
+          AND NOT EXISTS (
+            SELECT 1
+            FROM (VALUES
+              ('binding_identity'), ('request_identity'), ('channel'), ('admission_identity'),
+              ('operation_manifest_identity'), ('normalized_doi'), ('connector_identity'),
+              ('connector_version'), ('tls_stack_identity'), ('method'), ('https_origin'),
+              ('endpoint_path'), ('absent_body_digest'), ('allowed_header_digest'), ('media_type'),
+              ('rights_basis_identity'), ('retention_policy_identity'), ('time_evidence_identity'),
+              ('admission')
+            ) AS field(key)
+            WHERE pg_catalog.jsonb_typeof(binding.binding_json->field.key)
+                  IS DISTINCT FROM 'string'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM (VALUES
+              ('byte_limit'), ('timeout_ms'), ('retry_budget'), ('redirect_hop_limit'),
+              ('observed_at_epoch_ms')
+            ) AS field(key)
+            WHERE pg_catalog.jsonb_typeof(binding.binding_json->field.key)
+                  IS DISTINCT FROM 'number'
+          )
+          AND pg_catalog.jsonb_typeof(binding.binding_json->'resolved_addresses') = 'array'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_catalog.jsonb_array_elements(binding.binding_json->'resolved_addresses') AS address(value)
+            WHERE pg_catalog.jsonb_typeof(value) <> 'string'
+          )
+          AND binding.binding_json = pg_catalog.jsonb_build_object(
+            'binding_identity', binding.binding_identity,
+            'request_identity', binding.request_identity,
+            'channel', binding.binding_json->>'channel',
+            'admission_identity', binding.binding_json->>'admission_identity',
+            'operation_manifest_identity', binding.binding_json->>'operation_manifest_identity',
+            'normalized_doi', binding.binding_json->>'normalized_doi',
+            'connector_identity', 'rd.openalex-work-by-doi',
+            'connector_version', 'v1',
+            'tls_stack_identity', 'rustls-only-v1',
+            'method', 'GET',
+            'https_origin', 'https://api.openalex.org',
+            'endpoint_path', ('/works/doi:' || (binding.binding_json->>'normalized_doi')),
+            'resolved_addresses', CASE
+              WHEN pg_catalog.jsonb_typeof(binding.binding_json->'resolved_addresses') = 'array'
+               AND NOT EXISTS (
+                 SELECT 1
+                 FROM pg_catalog.jsonb_array_elements(binding.binding_json->'resolved_addresses') AS address(value)
+                 WHERE pg_catalog.jsonb_typeof(value) <> 'string'
+               )
+              THEN binding.binding_json->'resolved_addresses'
+              ELSE NULL
+            END,
+            'absent_body_digest', binding.binding_json->>'absent_body_digest',
+            'allowed_header_digest', binding.binding_json->>'allowed_header_digest',
+            'media_type', 'application/json',
+            'byte_limit', CASE
+              WHEN pg_catalog.jsonb_typeof(binding.binding_json->'byte_limit') = 'number'
+              THEN binding.binding_json->'byte_limit' ELSE NULL
+            END,
+            'timeout_ms', CASE
+              WHEN pg_catalog.jsonb_typeof(binding.binding_json->'timeout_ms') = 'number'
+              THEN binding.binding_json->'timeout_ms' ELSE NULL
+            END,
+            'retry_budget', 0,
+            'redirect_hop_limit', 0,
+            'rights_basis_identity', binding.binding_json->>'rights_basis_identity',
+            'retention_policy_identity', binding.binding_json->>'retention_policy_identity',
+            'time_evidence_identity', binding.binding_json->>'time_evidence_identity',
+            'observed_at_epoch_ms', CASE
+              WHEN pg_catalog.jsonb_typeof(binding.binding_json->'observed_at_epoch_ms') = 'number'
+              THEN binding.binding_json->'observed_at_epoch_ms' ELSE NULL
+            END,
+            'admission', binding.binding_json->>'admission'
+          )
+          AND binding.binding_identity = rd_owner_api.derive_source_acquisition_binding_identity_v1(binding.binding_json)
+          AND rd_owner_api.valid_source_intake_started_custody_v1(
+            binding.request_identity,
+            binding.binding_json->>'admission_identity',
+            binding.product_edge_started_receipt_identity,
+            binding.product_edge_started_json
+          )
+          AND (
+            binding.invocation_identity IS NULL
+            OR binding.invocation_identity = rd_owner_api.derive_source_intake_identity_v1(
+              'rd.source-intake.openalex.invocation.v1', ARRAY[
+                binding.request_identity, binding.binding_identity,
+                binding.binding_commit_identity,
+                binding.product_edge_started_receipt_identity
+              ]::text[]
+            )
+          )
+          AND binding.receipt_request_identity = binding.request_identity
+          AND binding.receipt_identity = rd_owner_api.derive_source_intake_identity_v1(
+            'rd.source-intake.receipt.v1', ARRAY[
+              binding.request_identity, binding.binding_identity,
+              COALESCE(binding.invocation_identity, rd_owner_api.derive_source_intake_identity_v1(
+                'rd.source-intake.pre-invocation.v1', ARRAY[
+                  binding.request_identity, binding.binding_identity,
+                  binding.binding_commit_identity,
+                  binding.product_edge_started_receipt_identity
+                ]::text[]
+              )), binding.terminal,
+              COALESCE(binding.receipt_content_digest, 'ABSENT'),
+              COALESCE(binding.response_status::text, 'ABSENT'),
+              COALESCE(binding.response_header_digest, 'ABSENT'),
+              binding.committed_at_epoch_ms::text
+            ]::text[]
+          )
+          AND binding.receipt_json = pg_catalog.jsonb_build_object(
+            'receipt_identity', binding.receipt_identity,
+            'request_identity', binding.request_identity,
+            'binding_identity', binding.binding_identity,
+            'invocation_identity', binding.invocation_identity,
+            'terminal', binding.terminal,
+            'response_status', binding.response_status,
+            'response_header_digest', binding.response_header_digest,
+            'content_digest', binding.receipt_content_digest,
+            'committed_at_epoch_ms', binding.committed_at_epoch_ms
+          )
+          AND binding.aggregate_identity = binding.request_identity
+          AND binding.event_kind = 'SOURCE_INTAKE_TERMINATED_V1'
+          AND binding.event_identity = rd_owner_api.derive_source_intake_identity_v1(
+            'rd.owner-outbox.source-intake-terminated.v1',
+            ARRAY[binding.request_identity, binding.receipt_identity]::text[]
+          )
+          AND binding.payload_digest = rd_owner_api.derive_source_intake_identity_v1(
+            'rd.owner-outbox.payload.v1', ARRAY[
+              binding.request_identity, binding.receipt_identity,
+              COALESCE(binding.provenance_identity, 'ABSENT'),
+              COALESCE(binding.candidate_identity, 'ABSENT')
+            ]::text[]
+          )
+          AND binding.payload_json = pg_catalog.jsonb_build_object(
+            'event_identity', binding.event_identity,
+            'aggregate_identity', binding.aggregate_identity,
+            'event_kind', binding.event_kind,
+            'payload_digest', binding.payload_digest
+          )
+          AND binding.outbox_committed_at_epoch_ms = binding.committed_at_epoch_ms
+          AND (
+            binding.terminal <> 'RETRIEVED'
+            OR (
+             binding.invocation_identity IS NOT NULL
+             AND binding.raw_link_receipt_identity = binding.receipt_identity
+             AND binding.raw_link_content_digest = binding.receipt_content_digest
+             AND binding.raw_content_digest = binding.observed_content_digest
+             AND binding.raw_content_digest = binding.receipt_content_digest
+             AND binding.provenance_receipt_identity = binding.receipt_identity
+             AND binding.provenance_content_digest = binding.observed_content_digest
+             AND binding.provenance_json = pg_catalog.jsonb_build_object(
+               'provenance_identity', binding.provenance_identity,
+               'canonical_source_identity',
+                 ('doi:' || (binding.binding_json->>'normalized_doi')),
+               'content_digest', binding.observed_content_digest,
+               'connector_identity', 'rd.openalex-work-by-doi',
+               'connector_version', 'v1',
+               'acquisition_receipt_identity', binding.receipt_identity,
+               'time_evidence_identity', binding.binding_json->>'time_evidence_identity',
+               'rights_basis_identity', binding.binding_json->>'rights_basis_identity',
+               'retention_policy_identity', binding.binding_json->>'retention_policy_identity',
+               'bounded_interpretation_identity',
+                 binding.observed_interpretation_identity,
+               'bounded_interpretation_digest',
+                 binding.observed_interpretation_digest,
+               'interpretation', binding.product_edge_started_json->'interpretation',
+               'trust_class', 'UNTRUSTED_EXTERNAL_DATA',
+               'location_rights', rd_owner_api.derive_openalex_location_rights_v1(
+                 pg_catalog.convert_from(binding.raw_payload, 'UTF8')::jsonb,
+                 binding.binding_json->>'normalized_doi'
+               )
+             )
+             AND binding.provenance_identity = rd_owner_api.derive_source_intake_identity_v1(
+               'rd.research-source-provenance.v1', ARRAY[
+                 binding.binding_json->>'normalized_doi', binding.observed_content_digest,
+                 binding.receipt_identity, binding.binding_json->>'time_evidence_identity',
+                 binding.observed_interpretation_identity,
+                 binding.observed_interpretation_digest
+               ]::text[]
+             )
+             AND binding.candidate_provenance_identity = binding.provenance_identity
+             AND binding.candidate_json = pg_catalog.jsonb_build_object(
+               'candidate_identity', binding.candidate_identity,
+               'provenance_identity', binding.provenance_identity,
+               'interpretation_digest', binding.observed_interpretation_digest,
+               'trust_class', 'UNTRUSTED_EXTERNAL_DATA'
+             )
+             AND binding.candidate_identity = rd_owner_api.derive_source_intake_identity_v1(
+               'rd.source-candidate.v1', ARRAY[
+                 binding.provenance_identity,
+                 binding.observed_interpretation_digest
+               ]::text[]
+             )
+            )
+          )
+      $function$;
+ALTER FUNCTION rd_owner_api.read_source_intake_v1(text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.read_source_intake_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.valid_source_intake_binding_contract_v1(binding jsonb)
+      RETURNS boolean LANGUAGE sql STRICT IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+        SELECT pg_catalog.jsonb_typeof(binding) = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(binding) keys(key)) = ARRAY[
+            'absent_body_digest','acquisition_scope','admission','allowed_header_digest','authority',
+            'binding_digest','binding_identity','body_media_type','body_size_bytes','byte_limit',
+            'connector_identity','connector_policy_identity','connector_policy_version','connector_version',
+            'credential_audience','credential_handle_identity','credential_placement',
+            'credential_policy_identity','credential_scope','dns_observation_digest',
+            'dns_observation_identity','dns_policy_identity','dns_policy_version',
+            'egress_policy_identity','egress_policy_version','endpoint_path','endpoint_query',
+            'gateway','header_byte_limit','header_count_limit','host','https_origin','media_type',
+            'method','network_policy_identity','network_policy_version','normalized_doi',
+            'operation_manifest_digest','operation_manifest_identity','policy_evidence_digest',
+            'policy_evidence_identity','predecessor_binding_identity','product_edge_admission',
+            'redirect_hop_index','redirect_hop_limit','redirect_policy_identity',
+            'redirect_policy_version','redirect_predecessor_binding_identity','request_identity',
+            'resolved_addresses',
+            'retention_effective_at_epoch_ms','retention_policy_identity','retention_policy_version',
+            'retention_scope','retention_valid_through_epoch_ms','retry_budget','rights_basis_identity',
+            'rights_effective_at_epoch_ms','rights_policy_version','rights_valid_through_epoch_ms',
+            'schema_version','scheme','shared_time','timeout_ms','tls_policy_identity','tls_policy_version',
+            'tls_stack_identity'
+          ]::text[]
+          AND binding->>'schema_version' = '1'
+          AND binding->>'gateway' = 'WINDMILL_PRODUCT_EDGE'
+          AND binding->>'predecessor_binding_identity' IS NULL
+          AND pg_catalog.jsonb_typeof(binding->'authority') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(binding->'authority') keys(key)) = ARRAY[
+            'authority_class','environment_identity','fixture_corpus_digest','provider_profile_digest'
+          ]::text[]
+          AND binding#>>'{authority,authority_class}' IN ('LIVE_EXTERNAL','SEALED_ACCEPTANCE')
+          AND binding#>>'{authority,environment_identity}' <> ''
+          AND binding#>>'{authority,provider_profile_digest}' ~ '^sha256:[0-9a-f]{64}$'
+          AND (
+            (binding#>>'{authority,authority_class}' = 'LIVE_EXTERNAL'
+             AND binding#>>'{authority,environment_identity}' = 'PRODUCTION_LIVE_EXTERNAL'
+             AND binding#>>'{authority,provider_profile_digest}' = 'sha256:18e4411c991be0a92514bc8ff238ef0429f379d7aa0fd17c1169c7a4c0f45c6b'
+             AND binding#>>'{authority,fixture_corpus_digest}' IS NULL)
+            OR
+            (binding#>>'{authority,authority_class}' = 'SEALED_ACCEPTANCE'
+             AND binding#>>'{authority,environment_identity}' = 'source-intake-sealed-acceptance-environment-v1'
+             AND binding#>>'{authority,provider_profile_digest}' = 'sha256:20e4901e7b97516edbaa744c0e866b0c509595386357c1b973e48beac1657f15'
+             AND binding#>>'{authority,fixture_corpus_digest}' = 'sha256:b8cf806629fbb7baa2e38707b4d246a17e44d9841509701530cbd97558ddad18')
+          )
+          AND pg_catalog.jsonb_typeof(binding->'product_edge_admission') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(binding->'product_edge_admission') keys(key))
+              = ARRAY['admission_digest','admission_identity','request_identity']::text[]
+          AND binding#>>'{product_edge_admission,request_identity}' = binding->>'request_identity'
+          AND binding#>>'{product_edge_admission,admission_digest}' ~ '^sha256:[0-9a-f]{64}$'
+          AND binding->>'operation_manifest_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND binding->>'policy_evidence_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND binding->>'connector_policy_identity' <> ''
+          AND binding->>'connector_policy_version' <> ''
+          AND binding->>'network_policy_identity' <> ''
+          AND binding->>'network_policy_version' <> ''
+          AND binding->>'dns_policy_identity' <> ''
+          AND binding->>'dns_policy_version' <> ''
+          AND binding->>'dns_observation_identity' <> ''
+          AND binding->>'dns_observation_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND binding->>'redirect_policy_identity' <> ''
+          AND binding->>'redirect_policy_version' <> ''
+          AND binding->>'credential_policy_identity' <> ''
+          AND binding->>'credential_handle_identity' <> ''
+          AND binding->>'credential_audience' <> ''
+          AND binding->>'credential_scope' <> ''
+          AND binding->>'egress_policy_identity' <> ''
+          AND binding->>'egress_policy_version' <> ''
+          AND binding->>'connector_version' = 'v1'
+          AND binding->>'tls_stack_identity' = 'rustls-only-v1'
+          AND binding->>'method' = 'GET'
+          AND (
+            (binding#>>'{authority,authority_class}' = 'LIVE_EXTERNAL'
+             AND binding->>'connector_identity' = 'rd.openalex-work-by-doi'
+             AND binding->>'scheme' = 'https'
+             AND binding->>'host' = 'api.openalex.org'
+             AND binding->>'https_origin' = 'https://api.openalex.org')
+            OR
+            (binding#>>'{authority,authority_class}' = 'SEALED_ACCEPTANCE'
+             AND binding->>'connector_identity' = 'rd.openalex-work-by-doi.sealed-acceptance'
+             AND binding->>'scheme' = 'sealed-acceptance'
+             AND binding->>'host' = 'openalex-fixture.source-intake.invalid'
+             AND binding->>'https_origin' = 'sealed-acceptance://openalex-fixture.source-intake.invalid'
+             AND binding->>'credential_handle_identity' = 'NO_CREDENTIAL_CAPABILITY'
+             AND binding->>'egress_policy_identity' = 'NO_EXTERNAL_NETWORK')
+          )
+          AND binding->>'endpoint_path' = '/works/doi:' || (binding->>'normalized_doi')
+          AND binding->>'endpoint_query' = ''
+          AND binding->>'redirect_predecessor_binding_identity' IS NULL
+          AND binding->>'redirect_hop_index' = '0'
+          AND binding->>'redirect_hop_limit' = '0'
+          AND binding->>'retry_budget' = '0'
+          AND binding->>'body_media_type' IS NULL
+          AND binding->>'body_size_bytes' = '0'
+          AND binding->>'credential_placement' = 'ABSENT_BODY_AND_HEADERS'
+          AND binding->>'media_type' = 'application/json'
+          AND pg_catalog.jsonb_typeof(binding->'resolved_addresses') = 'array'
+          AND pg_catalog.jsonb_array_length(binding->'resolved_addresses') BETWEEN 1 AND 8
+          AND pg_catalog.jsonb_typeof(binding->'shared_time') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(binding->'shared_time') keys(key)) = ARRAY[
+            'clock_epoch','clock_identity','comparison_rule','decision_cut_epoch_ms',
+            'epoch_successor_proof_identity','head_digest','head_identity','monotonic_sequence',
+            'predecessor_head_digest','restart_continuity_digest','skew_bound_ms',
+            'successor_proof_commit_cut_epoch_ms','uncertainty_bound_ms','valid_through_epoch_ms',
+            'wall_observed_epoch_ms'
+          ]::text[]
+          AND binding#>>'{shared_time,comparison_rule}' = 'EXCLUSIVE_VALID_THROUGH'
+          AND (binding#>>'{shared_time,monotonic_sequence}')::bigint > 0
+          AND (binding#>>'{shared_time,decision_cut_epoch_ms}')::bigint
+                < (binding#>>'{shared_time,valid_through_epoch_ms}')::bigint
+          AND (binding->>'rights_effective_at_epoch_ms')::bigint
+                <= (binding#>>'{shared_time,decision_cut_epoch_ms}')::bigint
+          AND (binding#>>'{shared_time,decision_cut_epoch_ms}')::bigint
+                < (binding->>'rights_valid_through_epoch_ms')::bigint
+          AND (binding->>'retention_effective_at_epoch_ms')::bigint
+                <= (binding#>>'{shared_time,decision_cut_epoch_ms}')::bigint
+          AND (binding#>>'{shared_time,decision_cut_epoch_ms}')::bigint
+                < (binding->>'retention_valid_through_epoch_ms')::bigint
+          AND binding->>'admission' IN ('ADMITTED','REJECTED','POLICY_UNAVAILABLE')
+          AND (binding->>'header_count_limit')::bigint = 64
+          AND (binding->>'header_byte_limit')::bigint = 32768
+          AND (binding->>'byte_limit')::bigint BETWEEN 1 AND 1048576
+          AND (binding->>'timeout_ms')::bigint BETWEEN 1 AND 5000
+          AND binding->>'binding_digest'
+                = rd_owner_api.derive_source_acquisition_binding_digest_v1(binding)
+          AND binding->>'binding_identity'
+                = rd_owner_api.derive_source_acquisition_binding_identity_v1(binding)
+      $function$;
+ALTER FUNCTION rd_owner_api.valid_source_intake_binding_contract_v1(jsonb) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.valid_source_intake_binding_contract_v1(jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.valid_source_intake_receipt_v1(
+        receipt jsonb, row_receipt_identity text, row_request_identity text, row_binding_identity text,
+        row_invocation_identity text, row_terminal text, row_response_status smallint,
+        row_response_header_digest text, row_content_digest text, row_committed_at_epoch_ms bigint
+      ) RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE
+      SET search_path = pg_catalog, pg_temp
+      AS $function$
+        SELECT pg_catalog.jsonb_typeof(receipt) = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(receipt) keys(key)) = ARRAY[
+            'attempt_identity','binding_identity','committed_at_epoch_ms','connected_address',
+            'content_digest','invocation_identity','policy_decision_digest','policy_decision_identity',
+            'policy_decision_time','receipt_identity','request_identity','response_header_digest',
+            'response_media_type','response_size_bytes','response_status','retrieval_time',
+            'retrieval_time_evidence_digest','retrieval_time_evidence_identity','schema_version',
+            'terminal','terminal_evidence_digest','terminal_evidence_identity'
+          ]::text[]
+          AND receipt->>'schema_version' = '1'
+          AND receipt->>'receipt_identity' = row_receipt_identity
+          AND receipt->>'request_identity' = row_request_identity
+          AND receipt->>'binding_identity' = row_binding_identity
+          AND receipt->>'attempt_identity' = row_binding_identity
+          AND receipt->>'invocation_identity' IS NOT DISTINCT FROM row_invocation_identity
+          AND receipt->>'terminal' = row_terminal
+          AND (receipt->>'response_status')::smallint IS NOT DISTINCT FROM row_response_status
+          AND receipt->>'response_header_digest' IS NOT DISTINCT FROM row_response_header_digest
+          AND receipt->>'content_digest' IS NOT DISTINCT FROM row_content_digest
+          AND (receipt->>'committed_at_epoch_ms')::bigint = row_committed_at_epoch_ms
+          AND receipt->>'terminal_evidence_identity' ~ '^sha256:[0-9a-f]{64}$'
+          AND receipt->>'terminal_evidence_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND receipt->>'policy_decision_identity' <> ''
+          AND receipt->>'policy_decision_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND receipt->>'retrieval_time_evidence_identity' <> ''
+          AND receipt->>'retrieval_time_evidence_digest' ~ '^sha256:[0-9a-f]{64}$'
+          AND pg_catalog.jsonb_typeof(receipt->'policy_decision_time') = 'object'
+          AND pg_catalog.jsonb_typeof(receipt->'retrieval_time') = 'object'
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(receipt->'policy_decision_time') keys(key)) = ARRAY[
+            'clock_epoch','clock_identity','comparison_rule','decision_cut_epoch_ms',
+            'epoch_successor_proof_identity','head_digest','head_identity','monotonic_sequence',
+            'predecessor_head_digest','restart_continuity_digest','skew_bound_ms',
+            'successor_proof_commit_cut_epoch_ms','uncertainty_bound_ms','valid_through_epoch_ms',
+            'wall_observed_epoch_ms'
+          ]::text[]
+          AND (SELECT pg_catalog.array_agg(key ORDER BY key)
+               FROM pg_catalog.jsonb_object_keys(receipt->'retrieval_time') keys(key)) = ARRAY[
+            'clock_epoch','clock_identity','comparison_rule','decision_cut_epoch_ms',
+            'epoch_successor_proof_identity','head_digest','head_identity','monotonic_sequence',
+            'predecessor_head_digest','restart_continuity_digest','skew_bound_ms',
+            'successor_proof_commit_cut_epoch_ms','uncertainty_bound_ms','valid_through_epoch_ms',
+            'wall_observed_epoch_ms'
+          ]::text[]
+          AND (receipt#>>'{policy_decision_time,decision_cut_epoch_ms}')::bigint
+                <= (receipt#>>'{retrieval_time,decision_cut_epoch_ms}')::bigint
+          AND (receipt#>>'{retrieval_time,decision_cut_epoch_ms}')::bigint
+                < (receipt#>>'{retrieval_time,valid_through_epoch_ms}')::bigint
+      $function$;
+ALTER FUNCTION rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.canonical_source_intake_custody_v1(p_request_identity text)
+      RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+      SET search_path = pg_catalog, public, pg_temp
+      AS $function$
+        SELECT pg_catalog.jsonb_build_object(
+          'request_identity', binding.request_identity,
+          'binding_identity', binding.binding_identity,
+          'authority', binding.binding_json->'authority',
+          'state', binding.state,
+          'terminal', receipt.terminal,
+          'receipt', receipt.receipt_json,
+          'content_locator', CASE WHEN receipt.terminal = 'RETRIEVED'
+            THEN 'rd-owner://source-payload/sha256/' || receipt.content_digest ELSE NULL END,
+          'content_digest', receipt.content_digest,
+          'provenance_identity', provenance.provenance_identity,
+          'source_candidate_identity', candidate.candidate_identity,
+          'outbox_event_identity', outbox.event_identity
+        )
+        FROM public.rd_source_intake_bindings_v1 binding
+        JOIN public.rd_source_intake_receipts_v1 receipt
+          ON receipt.request_identity = binding.request_identity
+         AND receipt.receipt_identity = binding.terminal_receipt_identity
+        JOIN public.rd_owner_outbox_v1 outbox
+          ON outbox.aggregate_identity = binding.request_identity
+         AND outbox.event_kind = 'SOURCE_INTAKE_TERMINATED_V1'
+        LEFT JOIN public.rd_research_source_provenance_v1 provenance
+          ON provenance.receipt_identity = receipt.receipt_identity
+         AND provenance.content_digest = receipt.content_digest
+        LEFT JOIN public.rd_source_candidates_v1 candidate
+          ON candidate.provenance_identity = provenance.provenance_identity
+        WHERE binding.request_identity = p_request_identity
+          AND binding.state = 'TERMINAL'
+          AND rd_owner_api.valid_source_intake_binding_contract_v1(binding.binding_json) IS TRUE
+          AND binding.binding_json->>'request_identity' = binding.request_identity
+          AND binding.binding_json->>'binding_identity' = binding.binding_identity
+          AND binding.binding_json->>'admission' = 'ADMITTED'
+          AND rd_owner_api.valid_source_intake_receipt_v1(
+                receipt.receipt_json, receipt.receipt_identity, receipt.request_identity,
+                binding.binding_identity, binding.invocation_identity, receipt.terminal,
+                receipt.response_status, receipt.response_header_digest, receipt.content_digest,
+                receipt.committed_at_epoch_ms
+              ) IS TRUE
+          AND (
+            binding.invocation_identity IS NULL
+            OR binding.invocation_identity = rd_owner_api.derive_source_intake_identity_v1(
+              'rd.source-intake.openalex.invocation.v1', ARRAY[
+                binding.request_identity, binding.binding_identity, binding.binding_commit_identity,
+                binding.product_edge_started_receipt_identity,
+                binding.product_edge_started_json->>'policy_decision_identity',
+                binding.product_edge_started_json->>'policy_decision_digest',
+                binding.product_edge_started_json#>>'{policy_time,head_digest}',
+                binding.binding_json#>>'{authority,authority_class}',
+                binding.binding_json#>>'{authority,environment_identity}',
+                binding.binding_json#>>'{authority,provider_profile_digest}',
+                COALESCE(binding.binding_json#>>'{authority,fixture_corpus_digest}', 'ABSENT')
+              ]::text[])
+          )
+          AND receipt.receipt_identity = rd_owner_api.derive_source_intake_identity_v1(
+            'rd.source-intake.receipt.v1', ARRAY[
+              binding.request_identity, binding.binding_identity,
+              COALESCE(binding.invocation_identity,
+                rd_owner_api.derive_source_intake_identity_v1(
+                  'rd.source-intake.pre-invocation.v1', ARRAY[
+                    binding.request_identity, binding.binding_identity,
+                    binding.binding_commit_identity, binding.product_edge_started_receipt_identity
+                  ]::text[])),
+              receipt.terminal, COALESCE(receipt.content_digest, 'ABSENT'),
+              COALESCE(receipt.response_status::text, 'ABSENT'),
+              COALESCE(receipt.response_header_digest, 'ABSENT'),
+              COALESCE(receipt.receipt_json->>'connected_address', 'ABSENT'),
+              COALESCE(receipt.receipt_json->>'response_media_type', 'ABSENT'),
+              COALESCE(receipt.receipt_json->>'response_size_bytes', 'ABSENT'),
+              receipt.receipt_json->>'policy_decision_identity',
+              receipt.receipt_json->>'policy_decision_digest',
+              receipt.receipt_json->>'retrieval_time_evidence_identity',
+              receipt.receipt_json->>'retrieval_time_evidence_digest',
+              receipt.receipt_json#>>'{retrieval_time,head_digest}',
+              receipt.committed_at_epoch_ms::text
+            ]::text[])
+          AND receipt.receipt_json->>'terminal_evidence_digest' =
+            rd_owner_api.derive_source_intake_identity_v1(
+              'rd.source-intake.terminal-evidence.v1', ARRAY[
+                binding.binding_identity,
+                COALESCE(binding.invocation_identity,
+                  rd_owner_api.derive_source_intake_identity_v1(
+                    'rd.source-intake.pre-invocation.v1', ARRAY[
+                      binding.request_identity, binding.binding_identity,
+                      binding.binding_commit_identity, binding.product_edge_started_receipt_identity
+                    ]::text[])),
+                receipt.terminal, COALESCE(receipt.response_header_digest, 'ABSENT'),
+                COALESCE(receipt.content_digest, 'ABSENT'),
+                receipt.receipt_json->>'policy_decision_identity',
+                receipt.receipt_json->>'policy_decision_digest',
+                receipt.receipt_json->>'retrieval_time_evidence_identity',
+                receipt.receipt_json->>'retrieval_time_evidence_digest',
+                receipt.receipt_json#>>'{retrieval_time,head_digest}'
+              ]::text[])
+          AND receipt.receipt_json->>'terminal_evidence_identity' =
+            rd_owner_api.derive_source_intake_identity_v1(
+              'rd.source-intake.terminal-evidence-identity.v1',
+              ARRAY[receipt.receipt_json->>'terminal_evidence_digest']::text[])
+          AND (SELECT pg_catalog.count(*) FROM public.rd_source_intake_receipts_v1 singleton
+               WHERE singleton.request_identity = binding.request_identity) = 1
+          AND (SELECT pg_catalog.count(*) FROM public.rd_owner_outbox_v1 singleton
+               WHERE singleton.aggregate_identity = binding.request_identity
+                 AND singleton.event_kind = 'SOURCE_INTAKE_TERMINATED_V1') = 1
+          AND outbox.event_identity = rd_owner_api.derive_source_intake_identity_v1(
+                'rd.owner-outbox.source-intake-terminated.v1',
+                ARRAY[binding.request_identity, receipt.receipt_identity]::text[])
+          AND outbox.payload_digest = rd_owner_api.derive_source_intake_identity_v1(
+                'rd.owner-outbox.payload.v1', ARRAY[binding.request_identity,
+                  receipt.receipt_identity, COALESCE(provenance.provenance_identity, 'ABSENT'),
+                  COALESCE(candidate.candidate_identity, 'ABSENT')]::text[])
+          AND outbox.payload_json = pg_catalog.jsonb_build_object(
+            'event_identity', outbox.event_identity,
+            'aggregate_identity', outbox.aggregate_identity,
+            'event_kind', outbox.event_kind,
+            'payload_digest', outbox.payload_digest
+          )
+          AND outbox.committed_at_epoch_ms = receipt.committed_at_epoch_ms
+          AND (
+            (receipt.terminal = 'RETRIEVED'
+             AND receipt.content_digest IS NOT NULL
+             AND provenance.provenance_identity IS NOT NULL
+             AND candidate.candidate_identity IS NOT NULL
+             AND provenance.provenance_identity = rd_owner_api.derive_source_intake_identity_v1(
+               'rd.research-source-provenance.v1', ARRAY[
+                 binding.binding_json->>'normalized_doi', receipt.content_digest,
+                 receipt.receipt_identity, receipt.receipt_json#>>'{retrieval_time,head_digest}',
+                 rd_owner_api.derive_source_intake_identity_v1(
+                   'rd.source-interpretation.v1', ARRAY[
+                     rd_owner_api.derive_source_intake_identity_v1(
+                       'rd.source-intake.interpretation.v1', ARRAY[
+                         binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                         (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                            FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                                 WITH ORDINALITY AS alternative(value, ordinality)),
+                         binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                         binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                       ]::text[])
+                   ]::text[]),
+                 rd_owner_api.derive_source_intake_identity_v1(
+                   'rd.source-intake.interpretation.v1', ARRAY[
+                     binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                     (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                        FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                             WITH ORDINALITY AS alternative(value, ordinality)),
+                     binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                     binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                   ]::text[])
+               ]::text[])
+             AND provenance.provenance_json = pg_catalog.jsonb_build_object(
+               'schema_version', 1,
+               'provenance_identity', provenance.provenance_identity,
+               'predecessor_provenance_identity', NULL,
+               'canonical_source_identity', 'doi:' || (binding.binding_json->>'normalized_doi'),
+               'canonical_source_origin', binding.binding_json->>'https_origin',
+               'source_class', 'ACADEMIC_IDENTITY_AND_CITATION_GRAPH',
+               'author_or_originating_system', 'OPENALEX',
+               'publication_time_epoch_ms', NULL,
+               'revision_identity', NULL,
+               'linked_reference_identities', pg_catalog.jsonb_build_array(),
+               'content_digest', receipt.content_digest,
+               'raw_content_digest', receipt.content_digest,
+               'connector_identity', binding.binding_json->>'connector_identity',
+               'connector_version', binding.binding_json->>'connector_version',
+               'acquisition_receipt_identity', receipt.receipt_identity,
+               'retrieval_time', receipt.receipt_json->'retrieval_time',
+               'valid_through_epoch_ms', (receipt.receipt_json#>>'{retrieval_time,valid_through_epoch_ms}')::bigint,
+               'rights_basis_identity', binding.binding_json->>'rights_basis_identity',
+               'rights_policy_version', binding.binding_json->>'rights_policy_version',
+               'license_basis', binding.binding_json->>'rights_basis_identity',
+               'attribution_basis', 'OPENALEX_METADATA_ATTRIBUTION',
+               'acquisition_scope', binding.binding_json->>'acquisition_scope',
+               'retention_policy_identity', binding.binding_json->>'retention_policy_identity',
+               'retention_policy_version', binding.binding_json->>'retention_policy_version',
+               'retention_scope', binding.binding_json->>'retention_scope',
+               'location_rights', rd_owner_api.derive_openalex_location_rights_v1(
+                 pg_catalog.convert_from((SELECT raw_value.raw_payload
+                   FROM public.rd_source_raw_payloads_v1 raw_value
+                   WHERE raw_value.content_digest = receipt.content_digest), 'UTF8')::jsonb,
+                 binding.binding_json->>'normalized_doi'),
+               'bounded_interpretation_identity', rd_owner_api.derive_source_intake_identity_v1(
+                 'rd.source-interpretation.v1', ARRAY[
+                   rd_owner_api.derive_source_intake_identity_v1(
+                     'rd.source-intake.interpretation.v1', ARRAY[
+                       binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                       (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                          FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                               WITH ORDINALITY AS alternative(value, ordinality)),
+                       binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                       binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                     ]::text[])
+                 ]::text[]),
+               'bounded_interpretation_digest', rd_owner_api.derive_source_intake_identity_v1(
+                 'rd.source-intake.interpretation.v1', ARRAY[
+                   binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                   (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                      FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                           WITH ORDINALITY AS alternative(value, ordinality)),
+                   binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                   binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                 ]::text[]),
+               'interpretation', binding.product_edge_started_json->'interpretation',
+               'interpretation_status', 'BOUNDED_RESEARCH_INTERPRETATION',
+               'trust_class', 'UNTRUSTED_EXTERNAL_DATA'
+             )
+             AND candidate.candidate_identity = rd_owner_api.derive_source_intake_identity_v1(
+               'rd.source-candidate.v1', ARRAY[
+                 provenance.provenance_identity,
+                 rd_owner_api.derive_source_intake_identity_v1(
+                   'rd.source-intake.interpretation.v1', ARRAY[
+                     binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                     (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                        FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                             WITH ORDINALITY AS alternative(value, ordinality)),
+                     binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                     binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                   ]::text[])
+               ]::text[])
+             AND candidate.candidate_json = pg_catalog.jsonb_build_object(
+               'candidate_identity', candidate.candidate_identity,
+               'provenance_identity', provenance.provenance_identity,
+               'interpretation_digest', rd_owner_api.derive_source_intake_identity_v1(
+                 'rd.source-intake.interpretation.v1', ARRAY[
+                   binding.product_edge_started_json#>>'{interpretation,bounded_explanation}',
+                   (SELECT pg_catalog.string_agg(value, pg_catalog.chr(30) ORDER BY ordinality)
+                      FROM pg_catalog.jsonb_array_elements_text(binding.product_edge_started_json#>'{interpretation,plausible_alternatives}')
+                           WITH ORDINALITY AS alternative(value, ordinality)),
+                   binding.product_edge_started_json#>>'{interpretation,differentiating_prediction}',
+                   binding.product_edge_started_json#>>'{interpretation,falsifier}'
+                 ]::text[]),
+               'trust_class', 'UNTRUSTED_EXTERNAL_DATA'
+             ))
+             AND EXISTS (
+               SELECT 1 FROM public.rd_source_raw_payloads_v1 raw
+               JOIN public.rd_source_raw_receipt_links_v1 raw_link
+                 ON raw_link.receipt_identity = receipt.receipt_identity
+                AND raw_link.terminal = 'RETRIEVED'
+                AND raw_link.content_digest = raw.content_digest
+               WHERE raw.content_digest = receipt.content_digest
+                 AND raw.content_digest = 'sha256:' || pg_catalog.encode(pg_catalog.sha256(raw.raw_payload), 'hex')
+             )
+            OR
+            (receipt.terminal <> 'RETRIEVED'
+             AND receipt.content_digest IS NULL
+             AND provenance.provenance_identity IS NULL
+             AND candidate.candidate_identity IS NULL)
+          )
+      $function$;
+ALTER FUNCTION rd_owner_api.canonical_source_intake_custody_v1(text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.canonical_source_intake_custody_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.read_source_intake_v1(p_request_identity text)
+      RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+      SET search_path = pg_catalog, rd_owner_api, pg_temp
+      AS $function$
+        SELECT rd_owner_api.canonical_source_intake_custody_v1(p_request_identity)
+      $function$;
+ALTER FUNCTION rd_owner_api.read_source_intake_v1(text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.read_source_intake_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.peek_source_intake_research_handoff_v1(
+        p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text
+      ) RETURNS jsonb LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+      SET search_path = pg_catalog, public, rd_owner_api, pg_temp
+      AS $function$
+        WITH canonical AS (
+          SELECT rd_owner_api.canonical_source_intake_custody_v1(p_request_identity) AS readback
+        )
+        SELECT pg_catalog.jsonb_build_object(
+          'request_identity', binding.request_identity,
+          'attempt_identity', binding.binding_identity,
+          'terminal_receipt_identity', receipt.receipt_identity,
+          'binding', binding.binding_json,
+          'receipt', receipt.receipt_json,
+          'provenance', provenance.provenance_json,
+          'candidate', candidate.candidate_json,
+          'transition', outbox.payload_json
+        )
+        FROM canonical
+        JOIN public.rd_source_intake_bindings_v1 binding
+          ON binding.request_identity = canonical.readback->>'request_identity'
+         AND binding.binding_identity = canonical.readback->>'binding_identity'
+        JOIN public.rd_source_intake_receipts_v1 receipt
+          ON receipt.request_identity = binding.request_identity
+         AND receipt.receipt_identity = canonical.readback#>>'{receipt,receipt_identity}'
+        JOIN public.rd_source_raw_receipt_links_v1 raw_link
+          ON raw_link.receipt_identity = receipt.receipt_identity
+         AND raw_link.terminal = 'RETRIEVED'
+         AND raw_link.content_digest = canonical.readback->>'content_digest'
+        JOIN public.rd_source_raw_payloads_v1 raw
+          ON raw.content_digest = raw_link.content_digest
+        JOIN public.rd_research_source_provenance_v1 provenance
+          ON provenance.receipt_identity = receipt.receipt_identity
+         AND provenance.content_digest = raw.content_digest
+         AND provenance.provenance_identity = canonical.readback->>'provenance_identity'
+        JOIN public.rd_source_candidates_v1 candidate
+          ON candidate.provenance_identity = provenance.provenance_identity
+         AND candidate.candidate_identity = canonical.readback->>'source_candidate_identity'
+        JOIN public.rd_owner_outbox_v1 outbox
+          ON outbox.aggregate_identity = binding.request_identity
+         AND outbox.event_kind = 'SOURCE_INTAKE_TERMINATED_V1'
+         AND outbox.event_identity = canonical.readback->>'outbox_event_identity'
+        WHERE canonical.readback->>'terminal' = 'RETRIEVED'
+          AND binding.request_identity = p_request_identity
+          AND binding.binding_identity = p_attempt_identity
+          AND receipt.receipt_identity = p_terminal_receipt_identity
+          AND raw.content_digest = 'sha256:' || pg_catalog.encode(pg_catalog.sha256(raw.raw_payload), 'hex')
+      $function$;
+ALTER FUNCTION rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(
+        p_request_identity text, p_attempt_identity text, p_terminal_receipt_identity text
+      ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+      SET search_path = pg_catalog, public, rd_owner_api, pg_temp
+      AS $function$
+      DECLARE locked_count bigint; sealed jsonb;
+      BEGIN
+        IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+        SELECT pg_catalog.count(*) INTO locked_count FROM (
+          SELECT 1
+          FROM public.rd_source_intake_bindings_v1 binding
+          JOIN public.rd_source_intake_receipts_v1 receipt
+            ON receipt.request_identity = binding.request_identity
+           AND receipt.receipt_identity = binding.terminal_receipt_identity
+          JOIN public.rd_source_raw_receipt_links_v1 raw_link
+            ON raw_link.receipt_identity = receipt.receipt_identity
+           AND raw_link.terminal = 'RETRIEVED'
+           AND raw_link.content_digest = receipt.content_digest
+          JOIN public.rd_source_raw_payloads_v1 raw
+            ON raw.content_digest = raw_link.content_digest
+          JOIN public.rd_research_source_provenance_v1 provenance
+            ON provenance.receipt_identity = receipt.receipt_identity
+           AND provenance.content_digest = raw.content_digest
+          JOIN public.rd_source_candidates_v1 candidate
+            ON candidate.provenance_identity = provenance.provenance_identity
+          JOIN public.rd_owner_outbox_v1 outbox
+            ON outbox.aggregate_identity = binding.request_identity
+           AND outbox.event_kind = 'SOURCE_INTAKE_TERMINATED_V1'
+          WHERE binding.request_identity = p_request_identity
+            AND binding.binding_identity = p_attempt_identity
+            AND receipt.receipt_identity = p_terminal_receipt_identity
+          FOR SHARE OF binding, receipt, raw_link, raw, provenance, candidate, outbox
+        ) locked;
+        IF locked_count <> 1 THEN RETURN NULL; END IF;
+        SELECT rd_owner_api.peek_source_intake_research_handoff_v1(
+          p_request_identity, p_attempt_identity, p_terminal_receipt_identity
+        ) INTO sealed;
+        RETURN sealed;
+      END
+      $function$;
+ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer;
+REVOKE ALL ON public.rd_source_raw_payloads_v1, public.rd_source_raw_receipt_links_v1 FROM product_edge_owner;
+CREATE TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 (
+  receipt_identity text PRIMARY KEY,
+  receipt_digest text NOT NULL,
+  build_request_identity text NOT NULL UNIQUE,
+  attempt_identity text NOT NULL UNIQUE,
+  receipt_json jsonb NOT NULL,
+  committed_at_epoch_ms bigint NOT NULL
+);
+CREATE OR REPLACE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()
+RETURNS trigger LANGUAGE plpgsql
+AS 'BEGIN RAISE EXCEPTION ''legacy PREPARED drain receipts are immutable''; END';
+ALTER FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() OWNER TO rd_owner;
+REVOKE ALL ON FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() FROM PUBLIC;
+CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1
+BEFORE UPDATE OR DELETE ON public.rd_legacy_prepared_attempt_drain_receipts_v1
+FOR EACH ROW EXECUTE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1();
+ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 OWNER TO rd_owner;
+REVOKE ALL ON TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1
+FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer,
+     qualification_owner, qualification_writer, backtest_owner;
+GRANT SELECT, INSERT ON TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 TO rd_owner;
+\endif
 DO $runtime_custody_cutover$
-DECLARE object record; relation_seal text;
+DECLARE object record; relation_seal text; exact boolean;
 BEGIN
   IF EXISTS (
     WITH admitted(name) AS (SELECT * FROM pg_catalog.unnest(ARRAY[
       'rd_research_request_receipts_v1','rd_independence_bases_v1','rd_independence_basis_admissions_v1','rd_independence_basis_heads_v1','rd_trial_families_v1','rd_trial_family_members_v1','rd_trial_family_heads_v1','rd_trial_family_attempt_cuts_v2','rd_artifact_trial_family_bindings_v1','rd_owner_outbox_v1','rd_sealed_exploratory_replay_requests_v1','rd_complex_strategy_develop_evaluations_v1','rd_complex_strategy_develop_evaluation_heads_v1','rd_artifact_build_attempts_v1','rd_strategy_artifacts_v1',
+      'rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1',
       'product_edge_operation_manifests_v1','product_edge_deployment_bindings_v1','product_edge_deployment_supersessions_v1','product_edge_binding_manifests_v1','product_edge_deployment_heads_v1','product_edge_request_admissions_v1','product_edge_effect_invocation_admissions_v1','product_edge_effect_invocation_claims_v1','product_edge_effect_invocation_states_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1','product_edge_expired_manifest_recoveries_v1'
     ]::text[]))
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -1270,75 +2660,125 @@ BEGIN
   ) OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\')
-      AND (relation.relrowsecurity OR relation.relforcerowsecurity OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal AND ((trigger_fact.tgname,trigger_fact.tgfoid,trigger_fact.tgrelid) NOT IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_owner_outbox_v1')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_admission_events_v1'))) OR trigger_fact.tgtype<>27 OR trigger_fact.tgenabled<>'O' OR trigger_fact.tgnargs<>0 OR trigger_fact.tgargs<>''::bytea OR trigger_fact.tgqual IS NOT NULL OR pg_catalog.pg_get_triggerdef(trigger_fact.oid,true)<>CASE trigger_fact.tgname WHEN 'product_edge_admission_event_immutable_v1' THEN 'CREATE TRIGGER product_edge_admission_event_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_event_mutation_v1()' ELSE 'CREATE TRIGGER product_edge_admission_assignment_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_admission_events_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_assignment_mutation_v1()' END OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n'))))
-  ) OR EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.proname IN ('product_edge_reject_admission_event_mutation_v1','product_edge_reject_admission_assignment_mutation_v1') AND routine.oid IS DISTINCT FROM pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()') AND routine.oid IS DISTINCT FROM pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))
-    OR EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE NOT trigger_fact.tgisinternal AND (trigger_fact.tgname IN ('product_edge_admission_event_immutable_v1','product_edge_admission_assignment_immutable_v1') OR trigger_fact.tgfoid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))) AND (trigger_fact.tgname,trigger_fact.tgfoid,trigger_fact.tgrelid) NOT IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_owner_outbox_v1')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_admission_events_v1'))))
-    OR (SELECT count(*)=2 AND bool_and(routine.prorettype=pg_catalog.to_regtype('trigger') AND routine.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql') AND routine.pronargs=0 AND NOT routine.proisstrict AND NOT routine.prosecdef AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig IS NULL AND pg_catalog.md5(routine.prosrc)=CASE routine.proname WHEN 'product_edge_reject_admission_event_mutation_v1' THEN '014d48cfd5b330c37330996eef7e211e' ELSE '143548e90171aa95dc9ae403d7ca6ee1' END) FROM pg_catalog.pg_proc routine WHERE routine.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))) IS DISTINCT FROM true
-    OR (SELECT count(*)=2 AND bool_and(trigger_fact.tgtype=27 AND trigger_fact.tgenabled='O' AND trigger_fact.tgnargs=0 AND trigger_fact.tgargs=''::bytea AND trigger_fact.tgqual IS NULL AND pg_catalog.pg_get_triggerdef(trigger_fact.oid,true)=CASE trigger_fact.tgname WHEN 'product_edge_admission_event_immutable_v1' THEN 'CREATE TRIGGER product_edge_admission_event_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_event_mutation_v1()' ELSE 'CREATE TRIGGER product_edge_admission_assignment_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_admission_events_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_assignment_mutation_v1()' END AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n')) FROM pg_catalog.pg_trigger trigger_fact WHERE NOT trigger_fact.tgisinternal AND (trigger_fact.tgname,trigger_fact.tgfoid,trigger_fact.tgrelid) IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_owner_outbox_v1')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_admission_events_v1')))) IS DISTINCT FROM true THEN RAISE EXCEPTION 'R&D/Product Edge closed relation or programmable dependency manifest mismatch'; END IF;
-  FOR object IN
-    SELECT relation.oid, namespace.nspname AS schema_name, relation.relname
+      AND (relation.relrowsecurity OR relation.relforcerowsecurity OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid))
+  ) THEN RAISE EXCEPTION 'R&D/Product Edge closed relation manifest mismatch'; END IF;
+
+  IF EXISTS (
+    SELECT 1
     FROM pg_catalog.pg_class relation
     JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p')
+      AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\')
+      AND pg_catalog.obj_description(relation.oid,'pg_class') LIKE 'vibe-closed-relation-v2:%'
+      AND pg_catalog.obj_description(relation.oid,'pg_class') <> 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+        'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+        'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),
+        'acl',COALESCE(relation.relacl::text,'<NULL>')
+      )::text)
+  ) THEN RAISE EXCEPTION 'sealed relation schema or ACL drift'; END IF;
+
+  WITH expected(signature,source_md5) AS (VALUES
+    ('rd_owner_api.derive_source_intake_identity_v1(text,text[])','a31c928f1c821659c9bb9cb1f0dd9733'),
+    ('rd_owner_api.canonical_source_intake_json_v1(jsonb)','7e121eff781358fb34b3eb1b4f3a3fba'),
+    ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)','72c39824378f217ccdc175193abc8712'),
+    ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)','6baf8724270241782bb0857f2c42fb70'),
+    ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)','2bcfa1235376adf3e3b28961ea4c3dbc'),
+    ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)','2549b3888d45e13c7a29f726ae0609ea'),
+    ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)','d7b3b51e2c41badfd1d7182d0f76845c'),
+    ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)','02a5b7abd00a313f33be896cc3cc6285'),
+    ('rd_owner_api.guard_source_intake_binding_v1()','aac9e3de9d005d89c2e99279314d3e2b'),
+    ('rd_owner_api.reject_source_intake_terminal_mutation_v1()','8879590a6d496c443091d0ee16857ab5'),
+    ('rd_owner_api.read_source_intake_v1(text)','6c2c8228eb2c1095667ced1401f6933b'),
+    ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)','8b71a854ce984aa594f7f32ea3bcfc20'),
+    ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)','8e226642cdbe2c88f762139e1b129e8f'),
+    ('rd_owner_api.canonical_source_intake_custody_v1(text)','2983efb78efd5ba30682ea80e64fd038'),
+    ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)','836e62db658d409dcd3ad1fd84b5a261'),
+    ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)','890e336826ddcdf96d948b012c5ba32d'),
+    ('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()','7e54a7158586a88841c26e8732a31e62')
+  ), actual AS (
+    SELECT expected.signature,pg_catalog.md5(routine.prosrc) AS source_md5
+    FROM expected LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(expected.signature)
+  )
+  SELECT NOT EXISTS((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) INTO exact;
+  IF exact IS DISTINCT FROM true OR EXISTS (
+    WITH expected(signature) AS (VALUES
+      ('rd_owner_api.derive_source_intake_identity_v1(text,text[])'),('rd_owner_api.canonical_source_intake_json_v1(jsonb)'),('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)'),('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)'),('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)'),('rd_owner_api.lock_source_acquisition_binding_v1(text,text)'),('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)'),('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)'),('rd_owner_api.guard_source_intake_binding_v1()'),('rd_owner_api.reject_source_intake_terminal_mutation_v1()'),('rd_owner_api.read_source_intake_v1(text)'),('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)'),('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)'),('rd_owner_api.canonical_source_intake_custody_v1(text)'),('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)'),('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)'),('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')
+    )
+    SELECT 1 FROM pg_catalog.pg_proc routine
+    WHERE routine.proname IN ('derive_source_intake_identity_v1','canonical_source_intake_json_v1','derive_openalex_location_rights_v1','derive_source_acquisition_binding_digest_v1','derive_source_acquisition_binding_identity_v1','lock_source_acquisition_binding_v1','lock_source_invocation_reservation_v1','valid_source_intake_started_custody_v1','guard_source_intake_binding_v1','reject_source_intake_terminal_mutation_v1','read_source_intake_v1','valid_source_intake_binding_contract_v1','valid_source_intake_receipt_v1','canonical_source_intake_custody_v1','peek_source_intake_research_handoff_v1','lock_source_intake_research_handoff_v1','rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1')
+      AND routine.oid NOT IN (SELECT pg_catalog.to_regprocedure(signature) FROM expected)
+  ) THEN RAISE EXCEPTION 'Source Intake/legacy drain routine manifest mismatch'; END IF;
+
+  WITH expected(trigger_name,relation_name,routine_signature,trigger_type,definition) AS (VALUES
+    ('rd_source_intake_binding_guard_v1','rd_source_intake_bindings_v1','rd_owner_api.guard_source_intake_binding_v1()',19::smallint,'CREATE TRIGGER rd_source_intake_binding_guard_v1 BEFORE UPDATE ON rd_source_intake_bindings_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_source_intake_binding_v1()'),
+    ('rd_source_intake_receipt_immutable_v1','rd_source_intake_receipts_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_intake_receipt_immutable_v1 BEFORE DELETE OR TRUNCATE OR UPDATE ON rd_source_intake_receipts_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    ('rd_source_raw_payload_immutable_v1','rd_source_raw_payloads_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_raw_payload_immutable_v1 BEFORE DELETE OR TRUNCATE OR UPDATE ON rd_source_raw_payloads_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    ('rd_source_raw_receipt_link_immutable_v1','rd_source_raw_receipt_links_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_raw_receipt_link_immutable_v1 BEFORE DELETE OR TRUNCATE OR UPDATE ON rd_source_raw_receipt_links_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    ('rd_research_source_provenance_immutable_v1','rd_research_source_provenance_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_research_source_provenance_immutable_v1 BEFORE DELETE OR TRUNCATE OR UPDATE ON rd_research_source_provenance_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    ('rd_source_candidate_immutable_v1','rd_source_candidates_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_candidate_immutable_v1 BEFORE DELETE OR TRUNCATE OR UPDATE ON rd_source_candidates_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+    ('rd_legacy_prepared_attempt_drain_immutable_v1','rd_legacy_prepared_attempt_drain_receipts_v1','public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',27::smallint,'CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 BEFORE DELETE OR UPDATE ON rd_legacy_prepared_attempt_drain_receipts_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'),
+    ('product_edge_admission_event_immutable_v1','product_edge_owner_outbox_v1','public.product_edge_reject_admission_event_mutation_v1()',27::smallint,'CREATE TRIGGER product_edge_admission_event_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_owner_outbox_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_event_mutation_v1()'),
+    ('product_edge_admission_assignment_immutable_v1','product_edge_admission_events_v1','public.product_edge_reject_admission_assignment_mutation_v1()',27::smallint,'CREATE TRIGGER product_edge_admission_assignment_immutable_v1 BEFORE DELETE OR UPDATE ON product_edge_admission_events_v1 FOR EACH ROW EXECUTE FUNCTION product_edge_reject_admission_assignment_mutation_v1()')
+  ), actual AS (
+    SELECT trigger_fact.tgname,relation.relname,pg_catalog.format('%I.%I(%s)',routine_namespace.nspname,routine.proname,pg_catalog.replace(pg_catalog.pg_get_function_identity_arguments(routine.oid),', ',',')),trigger_fact.tgtype,pg_catalog.pg_get_triggerdef(trigger_fact.oid,true)
+    FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_proc routine ON routine.oid=trigger_fact.tgfoid JOIN pg_catalog.pg_namespace routine_namespace ON routine_namespace.oid=routine.pronamespace
+    WHERE NOT trigger_fact.tgisinternal AND (trigger_fact.tgname IN (SELECT trigger_name FROM expected) OR trigger_fact.tgfoid IN (SELECT pg_catalog.to_regprocedure(routine_signature) FROM expected))
+      AND trigger_fact.tgenabled='O' AND trigger_fact.tgnargs=0 AND trigger_fact.tgargs=''::bytea AND trigger_fact.tgqual IS NULL
+      AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n')
+  )
+  SELECT NOT EXISTS((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'R&D/Product Edge trigger dependency manifest mismatch'; END IF;
+
+  IF (SELECT count(*)=2 AND bool_and(routine.prorettype=pg_catalog.to_regtype('trigger') AND routine.prolang=(SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql') AND routine.pronargs=0 AND NOT routine.proisstrict AND NOT routine.prosecdef AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig IS NULL AND pg_catalog.md5(routine.prosrc)=CASE routine.proname WHEN 'product_edge_reject_admission_event_mutation_v1' THEN '014d48cfd5b330c37330996eef7e211e' ELSE '143548e90171aa95dc9ae403d7ca6ee1' END) FROM pg_catalog.pg_proc routine WHERE routine.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))) IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Product Edge trigger routine manifest mismatch';
+  END IF;
+
+  FOR object IN
+    SELECT relation.oid,namespace.nspname AS schema_name,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'rd\_%' ESCAPE '\'
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
-    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
-    EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    IF object.relname='rd_source_intake_bindings_v1' THEN
+      EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    ELSIF object.relname IN ('rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1') THEN
+      EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, REFERENCES ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    ELSIF object.relname='rd_legacy_prepared_attempt_drain_receipts_v1' THEN
+      EXECUTE pg_catalog.format('GRANT SELECT, INSERT ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    ELSE
+      EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    END IF;
     SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
       'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
-      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
+      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid),
+      'acl',COALESCE((SELECT relation.relacl::text FROM pg_catalog.pg_class relation WHERE relation.oid=object.oid),'<NULL>')
     )::text) INTO relation_seal;
     EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
   END LOOP;
   FOR object IN
-    SELECT relation.oid, namespace.nspname AS schema_name, relation.relname
-    FROM pg_catalog.pg_class relation
-    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    SELECT relation.oid,namespace.nspname AS schema_name,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'product\_edge\_%' ESCAPE '\'
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO product_edge_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner',object.schema_name,object.relname);
-    SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
-      'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
-      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
-    )::text) INTO relation_seal;
+    SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid),'acl',COALESCE((SELECT relation.relacl::text FROM pg_catalog.pg_class relation WHERE relation.oid=object.oid),'<NULL>'))::text) INTO relation_seal;
     EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
   END LOOP;
-  FOR object IN SELECT procedure.oid::pg_catalog.regprocedure AS signature FROM pg_catalog.pg_proc procedure WHERE procedure.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'))
-  LOOP
-    EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO product_edge_custodian',object.signature);
-    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',object.signature);
-    FOR relation_seal IN SELECT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE role.rolname<>'product_edge_custodian'
-    LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal); END LOOP;
-    EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L',object.signature,'vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)));
-  END LOOP;
   FOR object IN
-    SELECT procedure.oid::pg_catalog.regprocedure AS signature, namespace.nspname,
-           procedure.proowner,
-           'vibe-source-md5:'||pg_catalog.md5(procedure.prosrc) AS source_seal
-    FROM pg_catalog.pg_proc procedure
-    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
-    WHERE namespace.nspname IN ('rd_owner_api','product_edge_api')
+    SELECT procedure.oid::pg_catalog.regprocedure AS signature,CASE WHEN namespace.nspname='rd_owner_api' OR procedure.oid=pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') THEN 'rd_custodian' ELSE 'product_edge_custodian' END AS custodian,'vibe-source-md5:'||pg_catalog.md5(procedure.prosrc) AS source_seal
+    FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+    WHERE namespace.nspname IN ('rd_owner_api','product_edge_api') OR procedure.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'))
   LOOP
-    EXECUTE pg_catalog.format(
-      'ALTER FUNCTION %s OWNER TO %I',object.signature,
-      CASE object.nspname WHEN 'rd_owner_api' THEN 'rd_custodian' ELSE 'product_edge_custodian' END
-    );
-    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',object.signature);
-    FOR relation_seal IN
-      SELECT role.rolname
-      FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl
-      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
-      WHERE role.rolname<>CASE object.nspname WHEN 'rd_owner_api' THEN 'rd_custodian' ELSE 'product_edge_custodian' END
-    LOOP
-      EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal);
-    END LOOP;
+    EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',object.signature,object.custodian);
+    FOR relation_seal IN SELECT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE role.rolname<>object.custodian
+    LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal); END LOOP;
     EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L',object.signature,object.source_seal);
   END LOOP;
 END
 $runtime_custody_cutover$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rd_owner_api TO rd_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(text,text), rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner;
 REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 DO $grant_optional_rd_runtime_routines$

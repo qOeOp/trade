@@ -181,13 +181,23 @@ PY
 }
 
 check_migration_authority_boundary() {
+  local repository_root
+  local authority_migration
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  authority_migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "SELECT NOT pg_catalog.pg_is_in_recovery()" "${BASH_SOURCE[0]}" ||
-    ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}"; then
+    ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'Source Intake/legacy drain topology is partial' "$authority_migration" ||
+    ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
+    ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)','890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
+    ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()','7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
+    ! rg -Fq 'GRANT SELECT, INSERT ON TABLE %I.%I TO rd_owner' "$authority_migration" ||
+    ! rg -Fq 'lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner' "$authority_migration"; then
     echo "ERROR: bounded admin migration/runtime startup topology changed." >&2
     return 1
   fi

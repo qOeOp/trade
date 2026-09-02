@@ -25,8 +25,8 @@ use crate::{
     },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
-        attempt_json_digest, form_receipt, migrate as migrate_legacy_drain,
-        verify_drain_in_transaction, verify_live_predicates_in_transaction,
+        attempt_json_digest, form_receipt, require_existing_topology, verify_drain_in_transaction,
+        verify_live_predicates_in_transaction,
     },
     product_edge::{
         FrozenResearchGoalIntent, ResearchNextLegalAction, ResearchViewAvailability,
@@ -239,6 +239,7 @@ impl PostgresArtifactBuildOwnerV1 {
                 "existing Artifact custody or runtime authority is unavailable".into(),
             ));
         }
+        require_existing_topology(&pool).await?;
         let owner = Self {
             pool,
             database_endpoint_resource_fingerprint,
@@ -2094,6 +2095,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
         .connect(database_url)
         .await
         .map_err(storage)?;
+    require_existing_topology(&pool).await?;
     let mut transaction = pool.begin().await.map_err(storage)?;
     crate::legacy_prepared_attempt_drain::lock_product_edge_effects_for_drain_in_transaction(
         &mut transaction,
@@ -2109,8 +2111,6 @@ pub async fn drain_legacy_prepared_attempts_v1(
             "legacy PREPARED drain target database mismatch".into(),
         ));
     }
-    migrate_legacy_drain(&mut transaction).await?;
-
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
         "LOCK TABLE rd_strategy_artifacts_v1 IN SHARE ROW EXCLUSIVE MODE",
@@ -2404,6 +2404,42 @@ mod postgres_freshness_tests {
     }
 
     #[rstest]
+    fn runtime_entrypoints_validate_legacy_drain_topology_before_state_access() {
+        let source = include_str!("artifact_build_postgres.rs");
+        let connect_existing = source
+            .split("pub async fn connect_existing")
+            .nth(1)
+            .expect("existing Artifact connection")
+            .split("async fn migrate")
+            .next()
+            .expect("existing Artifact connection boundary");
+        let drain = source
+            .split("pub async fn drain_legacy_prepared_attempts_v1")
+            .nth(1)
+            .expect("legacy drain entrypoint")
+            .split("fn is_sha256_digest")
+            .next()
+            .expect("legacy drain entrypoint boundary");
+
+        assert!(connect_existing.contains("require_existing_topology(&pool).await?"));
+        assert!(
+            drain.find("require_existing_topology(&pool).await?") < drain.find("pool.begin()"),
+            "drain topology must fail closed before transaction locks or writes"
+        );
+        assert!(!drain.contains("migrate_legacy_drain"));
+        for ddl in [
+            "CREATE ",
+            "ALTER ",
+            "DROP ",
+            "CREATE TRIGGER",
+            "REVOKE ",
+            "GRANT ",
+        ] {
+            assert!(!drain.contains(ddl), "drain runtime contains {ddl}");
+        }
+    }
+
+    #[rstest]
     fn artifact_migration_reserves_trial_family_authority_for_rd_owner_session() {
         let source = include_str!("artifact_build_postgres.rs");
         let migration = source
@@ -2427,6 +2463,123 @@ mod postgres_freshness_tests {
         PostgresArtifactBuildOwnerV1::connect(&database_url, "/tmp/unused-sandbox.sock", 600_000)
             .await
             .expect("canonical Artifact schema migration");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the admitted disposable Owner topology"]
+    async fn legacy_drain_topology_faults_fail_before_receipt_or_outbox_mutation() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let _mutation = database.mutation();
+        let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+        let rd_pool = PgPool::connect(database_url).await.unwrap();
+        let admin_pool = database.owner_topology_admin_pool();
+        require_existing_topology(&rd_pool).await.unwrap();
+        let target_database_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                database_url,
+            )
+            .unwrap();
+        let state_before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
+                    (SELECT count(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1
+             RENAME TO rd_legacy_prepared_attempt_drain_receipts_v1_missing_fault",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        let missing = drain_legacy_prepared_attempts_v1(
+            database_url,
+            &target_database_resource_fingerprint,
+            &format!("sha256:{}", "1".repeat(64)),
+            1,
+            &format!("sha256:{}", "2".repeat(64)),
+            None,
+        )
+        .await;
+        sqlx::query(
+            "ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1_missing_fault
+             RENAME TO rd_legacy_prepared_attempt_drain_receipts_v1",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        assert!(
+            matches!(missing, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
+        );
+
+        sqlx::query(
+            "DROP TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1
+             ON public.rd_legacy_prepared_attempt_drain_receipts_v1",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        let partial = drain_legacy_prepared_attempts_v1(
+            database_url,
+            &target_database_resource_fingerprint,
+            &format!("sha256:{}", "1".repeat(64)),
+            1,
+            &format!("sha256:{}", "2".repeat(64)),
+            None,
+        )
+        .await;
+        sqlx::query(
+            "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1
+             BEFORE UPDATE OR DELETE ON public.rd_legacy_prepared_attempt_drain_receipts_v1
+             FOR EACH ROW EXECUTE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        assert!(
+            matches!(partial, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
+        );
+
+        sqlx::query(
+            "GRANT SELECT ON public.rd_legacy_prepared_attempt_drain_receipts_v1 TO PUBLIC",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        let drifted = drain_legacy_prepared_attempts_v1(
+            database_url,
+            &target_database_resource_fingerprint,
+            &format!("sha256:{}", "1".repeat(64)),
+            1,
+            &format!("sha256:{}", "2".repeat(64)),
+            None,
+        )
+        .await;
+        sqlx::query(
+            "REVOKE SELECT ON public.rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC",
+        )
+        .execute(admin_pool)
+        .await
+        .unwrap();
+        assert!(
+            matches!(drifted, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
+        );
+
+        require_existing_topology(&rd_pool).await.unwrap();
+        let state_after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
+                    (SELECT count(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&rd_pool)
+        .await
+        .unwrap();
+        assert_eq!(state_before, state_after);
     }
 
     #[tokio::test]
@@ -2783,19 +2936,14 @@ mod postgres_freshness_tests {
         Err(ArtifactBuildError::Storage(message))
             if message == "legacy PREPARED drain target database resource mismatch"
         ));
-        let rejected_database_catalog: (bool, bool, i64, i64, i64) = sqlx::query_as(
-            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
-                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
-                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
-                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
-                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'),
-                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
-        )
-        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        assert_eq!(rejected_database_catalog, (true, true, 0, 0, 0));
+        require_existing_topology(&owner.pool).await.unwrap();
+        let rejected_outbox_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1")
+                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+        assert_eq!(rejected_outbox_count, 0);
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -2820,17 +2968,7 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        let rolled_back_catalog: (bool, bool, i64, i64) = sqlx::query_as(
-            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
-                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
-                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
-                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
-                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1')",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        assert_eq!(rolled_back_catalog, (true, true, 0, 0));
+        require_existing_topology(&owner.pool).await.unwrap();
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -2843,9 +2981,14 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        let counts: (bool, i64) = sqlx::query_as("SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
-            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND).fetch_one(&owner.pool).await.unwrap();
-        assert_eq!(counts, (true, 0));
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1")
+                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+                .fetch_one(&owner.pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 0);
+        require_existing_topology(&owner.pool).await.unwrap();
         let first = drain_legacy_prepared_attempts_v1(
             &database_url,
             &target_database_resource_fingerprint,

@@ -3269,3 +3269,30 @@ fn postgres_design_reuses_owner_lock_acl_outbox_and_keeps_raw_private() {
         .unwrap();
     assert!(!handoff_projection.contains("'raw_payload'"));
 }
+
+#[rstest]
+fn existing_source_intake_topology_validator_is_exact_and_read_only() {
+    let source = include_str!("../src/source_intake/postgres.rs");
+    let validator = source
+        .split_once("pub async fn validate_existing_source_intake_topology")
+        .expect("Source Intake topology validator")
+        .1
+        .split_once("#[derive(Debug)]")
+        .expect("validator boundary")
+        .0;
+
+    assert!(validator.contains("session_user='rd_owner'"));
+    assert!(validator.contains("pg_catalog.pg_get_userbyid(relation.relowner)<>'rd_custodian'"));
+    assert!(validator.contains("pg_catalog.pg_get_userbyid(routine.proowner)<>'rd_custodian'"));
+    assert!(validator.contains("vibe-closed-relation-v2:"));
+    assert!(validator.contains("vibe-source-md5:"));
+    assert!(validator.contains("required_triggers"));
+    assert!(validator.contains("'rd_owner:DELETE:false'"));
+    assert!(!validator.contains("product_edge_owner:SELECT"));
+    assert!(!validator.contains("SOURCE_INTAKE_MIGRATION_SQL_V1"));
+    assert!(!validator.contains("sqlx::query("));
+    assert!(!validator.contains(".execute("));
+    assert!(!validator.contains("CREATE TABLE"));
+    assert!(!validator.contains("ALTER TABLE"));
+    assert!(!validator.contains("DROP "));
+}

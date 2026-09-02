@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use serde::Deserialize;
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeSourceInvocationStartRequestV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
@@ -35,6 +35,102 @@ use super::{
     validate_current_policy, validate_retrieval_time,
 };
 use super::{OpenAlexWorkByDoiRequestV1, SourceIntakePolicyEvidenceV1};
+
+/// Validates the deployment-installed Source Intake custody without acquiring
+/// topology administration authority. This query is intentionally catalog-only.
+pub async fn validate_existing_source_intake_topology(
+    pool: &PgPool,
+) -> Result<(), SourceIntakeError> {
+    let exact: bool = sqlx::query_scalar(
+        "WITH required_relations(name) AS (
+           SELECT * FROM pg_catalog.unnest(ARRAY[
+             'rd_source_intake_bindings_v1','rd_source_intake_receipts_v1',
+             'rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1',
+             'rd_research_source_provenance_v1','rd_source_candidates_v1'
+           ]::text[])
+         ), required_routines(signature,is_strict,is_security_definer,volatility,parallel_mode,configuration) AS (
+           VALUES
+             ('rd_owner_api.derive_source_intake_identity_v1(text,text[])',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.canonical_source_intake_json_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[]),
+             ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[]),
+             ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[]),
+             ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[]),
+             ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[]),
+             ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.guard_source_intake_binding_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, public, pg_temp']::text[]),
+             ('rd_owner_api.reject_source_intake_terminal_mutation_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[]),
+             ('rd_owner_api.canonical_source_intake_custody_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, pg_temp']::text[]),
+             ('rd_owner_api.read_source_intake_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, rd_owner_api, pg_temp']::text[]),
+             ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[]),
+             ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[])
+         ), required_triggers(name,relation_name,routine_signature) AS (
+           VALUES
+             ('rd_source_intake_binding_guard_v1','rd_source_intake_bindings_v1','rd_owner_api.guard_source_intake_binding_v1()'),
+             ('rd_source_intake_receipt_immutable_v1','rd_source_intake_receipts_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+             ('rd_source_raw_payload_immutable_v1','rd_source_raw_payloads_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+             ('rd_source_raw_receipt_link_immutable_v1','rd_source_raw_receipt_links_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+             ('rd_research_source_provenance_immutable_v1','rd_research_source_provenance_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
+             ('rd_source_candidate_immutable_v1','rd_source_candidates_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()')
+         )
+         SELECT session_user='rd_owner'
+           AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname=session_user AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+           AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+           AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+           AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
+           AND pg_catalog.pg_get_userbyid((SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='rd_owner_api'))='rd_custodian'
+           AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
+           AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+           AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
+           AND NOT EXISTS (
+             SELECT 1 FROM required_relations required
+             LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||required.name)
+             WHERE relation.oid IS NULL OR relation.relkind<>'r' OR relation.relpersistence<>'p'
+                OR relation.relrowsecurity OR relation.relforcerowsecurity
+                OR pg_catalog.pg_get_userbyid(relation.relowner)<>'rd_custodian'
+                OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+                OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+                OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text)
+                OR (SELECT pg_catalog.array_agg(role.rolname||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY role.rolname,acl.privilege_type,acl.is_grantable)
+                      FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+                      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM ARRAY[
+                        'rd_custodian:DELETE:true','rd_custodian:INSERT:true','rd_custodian:REFERENCES:true','rd_custodian:SELECT:true','rd_custodian:TRIGGER:true','rd_custodian:TRUNCATE:true','rd_custodian:UPDATE:true',
+                        'rd_owner:DELETE:false','rd_owner:INSERT:false','rd_owner:SELECT:false','rd_owner:UPDATE:false'
+                      ]::text[]
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM required_routines required
+             LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
+             WHERE routine.oid IS NULL OR pg_catalog.pg_get_userbyid(routine.proowner)<>'rd_custodian'
+                OR routine.proisstrict<>required.is_strict OR routine.prosecdef<>required.is_security_definer
+                OR routine.provolatile::text<>required.volatility OR routine.proparallel::text<>required.parallel_mode
+                OR routine.proconfig IS DISTINCT FROM required.configuration
+                OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+                OR (SELECT pg_catalog.array_agg(role.rolname||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY role.rolname,acl.privilege_type,acl.is_grantable)
+                      FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+                      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM ARRAY['rd_custodian:EXECUTE:true','rd_owner:EXECUTE:false']::text[]
+           )
+           AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(
+                  trigger_fact.tgenabled='O' AND trigger_fact.tgnargs=0 AND trigger_fact.tgargs=''::bytea
+                  AND trigger_fact.tgqual IS NULL AND trigger_fact.tgfoid=pg_catalog.to_regprocedure(required.routine_signature)
+                  AND trigger_fact.tgrelid=pg_catalog.to_regclass('public.'||required.relation_name)
+                  AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n')
+                ) FROM required_triggers required JOIN pg_catalog.pg_trigger trigger_fact ON trigger_fact.tgname=required.name AND NOT trigger_fact.tgisinternal)
+           AND (SELECT pg_catalog.count(*)=6 FROM pg_catalog.pg_trigger trigger_fact WHERE NOT trigger_fact.tgisinternal AND trigger_fact.tgrelid IN (SELECT pg_catalog.to_regclass('public.'||required.name) FROM required_relations required))",
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(source_storage)?;
+    if !exact {
+        return Err(SourceIntakeError::Serialization(
+            "existing Source Intake custody or runtime authority is unavailable".into(),
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Debug)]
 pub struct SourceIntakeTermsBlockedCommitV1<'a> {

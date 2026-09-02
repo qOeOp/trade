@@ -62,6 +62,7 @@ pub use postgres::{
     commit_source_intake_success_terminal_in_transaction,
     commit_source_intake_terms_blocked_in_transaction, prepare_source_invocation_in_transaction,
     read_source_intake_terminal_in_transaction, reserve_started_source_invocation_in_transaction,
+    validate_existing_source_intake_topology,
 };
 
 #[cfg(test)]

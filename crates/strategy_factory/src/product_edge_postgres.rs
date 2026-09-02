@@ -54,6 +54,7 @@ use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
     SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
+    validate_existing_source_intake_topology,
 };
 
 #[derive(Clone)]
@@ -522,6 +523,9 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| storage(&e))?;
         Self::validate_existing_rd_storage(&pool).await?;
+        validate_existing_source_intake_topology(&pool)
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let qualification =
             PostgresQualificationOwnerV1::connect_existing(qualification_database_url)
                 .await
@@ -2695,6 +2699,7 @@ mod tests {
             .next()
             .expect("existing connection boundary");
         assert!(!existing.contains("migrate_rd_storage"));
+        assert!(existing.contains("validate_existing_source_intake_topology(&pool)"));
         assert!(!existing.contains("CREATE "));
         assert!(!existing.contains("ALTER "));
         assert!(!existing.contains("DROP "));
