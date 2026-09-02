@@ -323,6 +323,11 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     }
 
     /// Admits the exact one-shot legacy Replay duplicate fixture.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the fixture URL, database identity, role authority, or executable
+    /// definition does not match the admitted canonical test topology.
     pub async fn admit_legacy_replay_duplicate_fault(
         &self,
     ) -> Result<LegacyReplayDuplicateFaultV1, DedicatedPostgresTestDatabaseError> {
@@ -334,6 +339,10 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
 
 impl LegacyReplayDuplicateFaultV1 {
     /// Creates the exact duplicate current Replay candidate and consumes the fixture.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL error when the one-shot fixture invocation fails.
     pub async fn create_duplicate(self) -> Result<UsedLegacyReplayDuplicateFaultV1, sqlx::Error> {
         sqlx::query(
             "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
@@ -348,6 +357,10 @@ impl LegacyReplayDuplicateFaultV1 {
     }
 
     /// Calls the fixed-source fixture with a wrong marker to prove zero mutation.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL denial raised for the supplied marker.
     pub async fn try_wrong_marker(&self, wrong_marker: &str) -> Result<(), sqlx::Error> {
         sqlx::query(
             "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
@@ -361,6 +374,10 @@ impl LegacyReplayDuplicateFaultV1 {
 
 impl UsedLegacyReplayDuplicateFaultV1 {
     /// Replays the consumed fixture call so tests can prove server-side one-shot denial.
+    ///
+    /// # Errors
+    ///
+    /// Returns the PostgreSQL denial raised after the fixture has been consumed.
     pub async fn retry(&self) -> Result<(), sqlx::Error> {
         sqlx::query(
             "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
@@ -372,26 +389,8 @@ impl UsedLegacyReplayDuplicateFaultV1 {
     }
 }
 
-async fn admit_legacy_replay_duplicate_fault(
-    canonical_target: &NormalizedDatabaseTarget,
-    expected_marker: &str,
-) -> Result<LegacyReplayDuplicateFaultV1, DedicatedPostgresTestDatabaseError> {
-    let url = env::var(LEGACY_REPLAY_FAULT_URL_ENV).map_err(|_| {
-        DedicatedPostgresTestDatabaseError::MissingEnvironment(LEGACY_REPLAY_FAULT_URL_ENV)
-    })?;
-    let target = normalize_url(LEGACY_REPLAY_FAULT_URL_ENV, &url)?;
-    if target.role != "vibe_test_legacy_replay_fault_writer"
-        || !target.same_database(canonical_target)
-    {
-        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
-    }
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
-    let fixture_is_exact: bool = sqlx::query_scalar(
-        "SELECT session_user='vibe_test_legacy_replay_fault_writer'
+const LEGACY_REPLAY_DUPLICATE_ADMISSION_SQL_V1: &str =
+    "SELECT session_user='vibe_test_legacy_replay_fault_writer'
            AND pg_catalog.current_database()=$1
            AND EXISTS (
              SELECT 1
@@ -506,14 +505,33 @@ async fn admit_legacy_replay_duplicate_fault(
            ) IS NULL
            AND pg_catalog.to_regclass(
              'public.rd_sealed_exploratory_replay_requests_v1'
-           ) IS NOT NULL",
-    )
-    .bind(&target.database)
-    .bind(expected_marker)
-    .bind(LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+           ) IS NOT NULL";
+
+async fn admit_legacy_replay_duplicate_fault(
+    canonical_target: &NormalizedDatabaseTarget,
+    expected_marker: &str,
+) -> Result<LegacyReplayDuplicateFaultV1, DedicatedPostgresTestDatabaseError> {
+    let url = env::var(LEGACY_REPLAY_FAULT_URL_ENV).map_err(|_| {
+        DedicatedPostgresTestDatabaseError::MissingEnvironment(LEGACY_REPLAY_FAULT_URL_ENV)
+    })?;
+    let target = normalize_url(LEGACY_REPLAY_FAULT_URL_ENV, &url)?;
+    if target.role != "vibe_test_legacy_replay_fault_writer"
+        || !target.same_database(canonical_target)
+    {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    let fixture_is_exact: bool = sqlx::query_scalar(LEGACY_REPLAY_DUPLICATE_ADMISSION_SQL_V1)
+        .bind(&target.database)
+        .bind(expected_marker)
+        .bind(LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1)
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
     if !fixture_is_exact {
         return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
     }
@@ -1064,9 +1082,10 @@ mod tests {
         assert!(!rendered.contains("postgres://"));
     }
 
-    #[test]
+    #[rstest]
     fn legacy_replay_duplicate_admission_binds_the_executable_definition() {
         let source = include_str!("postgres.rs");
+
         for required in [
             "procedure.prosrc",
             "language.lanname='plpgsql'",

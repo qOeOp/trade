@@ -233,6 +233,7 @@ impl PostgresArtifactBuildOwnerV1 {
         .fetch_one(&pool)
         .await
         .map_err(storage)?;
+
         if !topology_is_exact {
             return Err(ArtifactBuildError::Storage(
                 "existing Artifact custody or runtime authority is unavailable".into(),

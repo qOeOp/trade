@@ -380,11 +380,10 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .await
     .expect_err("runtime R&D Owner must not create public relations");
     assert_eq!(
-        direct_ddl_denied
-            .as_database_error()
-            .and_then(|error| error.code()),
+        direct_ddl_denied.as_database_error().and_then(|e| e.code()),
         Some(std::borrow::Cow::Borrowed("42501"))
     );
+
     for denied_pool in [
         rd_pool,
         mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
@@ -400,7 +399,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         assert_eq!(
             direct_fixture_denied
                 .as_database_error()
-                .and_then(|error| error.code()),
+                .and_then(|e| e.code()),
             Some(std::borrow::Cow::Borrowed("42501"))
         );
     }
@@ -417,7 +416,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     assert_eq!(
         wrong_marker_denied
             .as_database_error()
-            .and_then(|error| error.code()),
+            .and_then(|e| e.code()),
         Some(std::borrow::Cow::Borrowed("55000"))
     );
     assert!(
@@ -439,9 +438,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .await
         .expect_err("legacy Replay fault must self-revoke");
     assert_eq!(
-        second_use_denied
-            .as_database_error()
-            .and_then(|error| error.code()),
+        second_use_denied.as_database_error().and_then(|e| e.code()),
         Some(std::borrow::Cow::Borrowed("42501"))
     );
     let duplicate_authority_is_exact: bool = sqlx::query_scalar(
@@ -1977,9 +1974,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     .await
     .expect_err("runtime Product Edge role must not create public relations");
     assert_eq!(
-        forbidden_ddl
-            .as_database_error()
-            .and_then(|error| error.code()),
+        forbidden_ddl.as_database_error().and_then(|e| e.code()),
         Some(std::borrow::Cow::Borrowed("42501"))
     );
     let forbidden_temporary = sqlx::query(
@@ -1992,7 +1987,7 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     assert_eq!(
         forbidden_temporary
             .as_database_error()
-            .and_then(|error| error.code()),
+            .and_then(|e| e.code()),
         Some(std::borrow::Cow::Borrowed("42501"))
     );
     let suffix = format!("expiry-{}", unique_suffix());

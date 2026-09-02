@@ -1307,6 +1307,7 @@ impl ProductEdgePostgresOwnerV1 {
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
+
         if !runtime_authority_is_exact {
             return Err(ProductEdgeError::Unavailable);
         }
@@ -1351,6 +1352,7 @@ impl ProductEdgePostgresOwnerV1 {
         .fetch_one(&mut *transaction)
         .await
         .map_err(storage)?;
+
         if !custody_manifest_is_exact {
             return Err(ProductEdgeError::Unavailable);
         }

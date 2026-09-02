@@ -2663,7 +2663,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn existing_connection_path_contains_no_migration_or_ddl() {
         let source = include_str!("product_edge_postgres.rs");
         let existing = source

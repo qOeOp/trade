@@ -1129,10 +1129,10 @@ SQL
 
   if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url" \
     cargo nextest run \
-      --archive-file "$nextest_archive_file" \
-      --profile "$nextest_profile" \
-      "${nextest_execution_args[@]}" \
-      -E "$product_edge_filter"; then
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$product_edge_filter"; then
     return 1
   fi
 
@@ -1145,19 +1145,19 @@ SQL
     RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url" \
     QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
     cargo nextest run \
-      --archive-file "$nextest_archive_file" \
-      --profile "$nextest_profile" \
-      "${nextest_execution_args[@]}" \
-      -E "$rd_owner_filter"; then
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$rd_owner_filter"; then
     return 1
   fi
 
   if ! env RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url" \
     cargo nextest run \
-      --archive-file "$nextest_archive_file" \
-      --profile "$nextest_profile" \
-      "${nextest_execution_args[@]}" \
-      -E "$artifact_filter"; then
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$artifact_filter"; then
     return 1
   fi
 
@@ -1175,10 +1175,10 @@ env \
   QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   cargo nextest run \
-    --archive-file "$nextest_archive_file" \
-    --profile "$nextest_profile" \
-    "${nextest_execution_args[@]}" \
-    -E "$runtime_startup_filter"
+  --archive-file "$nextest_archive_file" \
+  --profile "$nextest_profile" \
+  "${nextest_execution_args[@]}" \
+  -E "$runtime_startup_filter"
 
 # Production runtime startup above proves the final migration with no disposable
 # authority. Restore only the isolated test administrator needed by later fault probes.
