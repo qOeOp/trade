@@ -14,6 +14,7 @@ use vibe_backtest_owner_contracts::{
 
 const RESOLVE_FUNCTION: &str =
     "backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)";
+const TOPOLOGY_FENCE: &str = "vibe.backtest.result-topology.v2";
 const FUNCTION_SOURCE: &str = "DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.encode(locked_result.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END";
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
 const RECEIPT_STORAGE_DOMAIN: &str = "vibe.backtest.result-receipt-storage.v1";
@@ -84,6 +85,7 @@ pub async fn resolve_exploratory_replay_result_v2(
     {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
+    acquire_topology_fence(transaction).await?;
     validate_topology(transaction, "rd_owner").await?;
     let envelope: Option<serde_json::Value> = sqlx::query_scalar(
         "SELECT backtest_owner_api.resolve_exploratory_replay_result_v2($1,$2,$3)",
@@ -103,6 +105,7 @@ pub async fn resolve_exploratory_replay_result_v2(
 pub async fn validate_backtest_result_writer_topology_v2(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), BacktestResultCustodyErrorV2> {
+    acquire_topology_fence(transaction).await?;
     sqlx::query(
         "LOCK TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 IN ROW EXCLUSIVE MODE",
     )
@@ -110,6 +113,19 @@ pub async fn validate_backtest_result_writer_topology_v2(
     .await
     .map_err(|error| storage(&error))?;
     validate_topology(transaction, "backtest_owner").await?;
+    Ok(())
+}
+
+async fn acquire_topology_fence(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), BacktestResultCustodyErrorV2> {
+    sqlx::query(
+        "SELECT pg_catalog.pg_advisory_xact_lock_shared(pg_catalog.hashtextextended($1,0))",
+    )
+    .bind(TOPOLOGY_FENCE)
+    .execute(&mut **transaction)
+    .await
+    .map_err(|error| storage(&error))?;
     Ok(())
 }
 
@@ -128,6 +144,8 @@ async fn validate_topology(
                FROM pg_catalog.pg_proc procedure WHERE procedure.oid=pg_catalog.to_regprocedure($2))
         AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
         AND (SELECT NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_custodian')
+        AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_owner')
+        AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner')
         AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(role.rolname='rd_owner' AND acl.privilege_type='USAGE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
                FROM pg_catalog.pg_namespace namespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
               WHERE namespace.nspname='backtest_owner_api' AND acl.grantee<>namespace.nspowner)
