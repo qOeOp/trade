@@ -501,6 +501,7 @@ BEGIN
     SELECT schemaname, tablename
     FROM pg_tables
     WHERE schemaname = 'public' AND tablename LIKE 'rd_%'
+      AND tablename <> 'rd_exploratory_replay_requests_v1'
   LOOP
     EXECUTE pg_catalog.format(
       'REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM qualification_owner, qualification_writer',

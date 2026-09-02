@@ -308,6 +308,8 @@ check_migration_authority_boundary() {
     ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
     ! rg -Fq "tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1','rd_exploratory_replay_requests_v1')" "$authority_migration" ||
     ! rg -Fq 'legacy exploratory Replay preservation topology mismatch' "$authority_migration" ||
+    ! rg -Fq 'AND relation.relacl IS NULL' "$authority_migration" ||
+    [[ "$(rg -Fc "AND tablename <> 'rd_exploratory_replay_requests_v1'" "$authority_migration")" -ne 1 ]] ||
     ! rg -Fq 'trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal' "$authority_migration" ||
     [[ "$(rg -Fc "relation.relname<>'rd_exploratory_replay_requests_v1'" "$authority_migration")" -ne 2 ]] ||
     ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
@@ -710,7 +712,10 @@ restore_disposable_topology_admin() {
   local fixture_database="$1"
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres --set=fixture_database="$fixture_database" << 'SQL'
-GRANT composer_owner TO vibe_test_owner_topology_admin;
+REVOKE rd_custodian, product_edge_custodian
+  FROM vibe_test_owner_topology_admin;
+GRANT composer_owner TO vibe_test_owner_topology_admin
+  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
 SQL
 }
@@ -917,7 +922,8 @@ CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUP
 CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE vibe_test_legacy_migration_caller LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
-GRANT composer_owner, rd_custodian, product_edge_custodian TO vibe_test_owner_topology_admin;
+GRANT composer_owner TO vibe_test_owner_topology_admin
+  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
 GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
@@ -933,6 +939,25 @@ REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
 GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer, vibe_test_legacy_migration_caller;
 GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer, vibe_test_legacy_migration_caller;
+DO $owner_topology_admin_membership$
+DECLARE exact boolean;
+BEGIN
+  SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
+           granted.rolname='composer_owner'
+           AND NOT membership.admin_option
+           AND membership.inherit_option
+           AND membership.set_option
+         )
+    INTO exact
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE member.rolname='vibe_test_owner_topology_admin';
+  IF exact IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'Owner topology administrator membership mismatch';
+  END IF;
+END
+$owner_topology_admin_membership$;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
