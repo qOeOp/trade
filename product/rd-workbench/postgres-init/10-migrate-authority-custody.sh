@@ -55,7 +55,7 @@ REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization
 DO $isolate_rd_authority_roles$
 DECLARE authority_role text; membership record;
 BEGIN
-  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','backtest_custodian','rd_fact_writer','market_data_reader'] LOOP
+  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','backtest_custodian','backtest_owner','rd_fact_writer','market_data_reader'] LOOP
     FOR membership IN
       SELECT granted.rolname AS granted_role, member.rolname AS member_role
       FROM pg_catalog.pg_auth_members edge
@@ -177,15 +177,20 @@ BEGIN
     AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND relation.relkind='r' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
            FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
           WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
-    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian') OR membership.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
+    AND pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','USAGE')
+    AND NOT pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','CREATE')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('backtest_owner','backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)','EXECUTE')
-    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','SELECT,INSERT')
-    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT')
-    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','SELECT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','INSERT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','SELECT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','INSERT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','SELECT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','INSERT')
     AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')

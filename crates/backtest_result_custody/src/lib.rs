@@ -103,13 +103,13 @@ pub async fn resolve_exploratory_replay_result_v2(
 pub async fn validate_backtest_result_writer_topology_v2(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), BacktestResultCustodyErrorV2> {
-    validate_topology(transaction, "backtest_owner").await?;
     sqlx::query(
         "LOCK TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 IN ROW EXCLUSIVE MODE",
     )
     .execute(&mut **transaction)
     .await
     .map_err(|error| storage(&error))?;
+    validate_topology(transaction, "backtest_owner").await?;
     Ok(())
 }
 
@@ -126,7 +126,7 @@ async fn validate_topology(
               WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
         AND (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='backtest_custodian' AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc=$1
                FROM pg_catalog.pg_proc procedure WHERE procedure.oid=pg_catalog.to_regprocedure($2))
-        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian') OR membership.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian'))
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
         AND (SELECT NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_custodian')
         AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(role.rolname='rd_owner' AND acl.privilege_type='USAGE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
                FROM pg_catalog.pg_namespace namespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
@@ -137,6 +137,22 @@ async fn validate_topology(
         AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
                FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
               WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1') AND acl.grantee<>relation.relowner)
+        AND pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','USAGE')
+        AND NOT pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','CREATE')
+        AND pg_catalog.has_function_privilege('rd_owner',$2,'EXECUTE')
+        AND NOT pg_catalog.has_function_privilege('backtest_owner',$2,'EXECUTE')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','SELECT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','INSERT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','SELECT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','INSERT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','SELECT')
+        AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','INSERT')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
         AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid IN ('public.backtest_replay_results_v2'::pg_catalog.regclass,'public.backtest_replay_result_receipts_v1'::pg_catalog.regclass,'public.backtest_replay_result_outbox_v1'::pg_catalog.regclass) AND attribute.attnum>0 AND NOT attribute.attisdropped)",
     )
     .bind(FUNCTION_SOURCE)
@@ -430,4 +446,309 @@ fn digest_value<T: Serialize>(
 
 fn storage(error: &sqlx::Error) -> BacktestResultCustodyErrorV2 {
     BacktestResultCustodyErrorV2::Storage(error.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::Serialize;
+    use vibe_backtest_owner_contracts::{
+        ComponentObservationLocatorV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2,
+        ObservationComponentV2, ReconciliationAtomDtoV2, ReconciliationStatusV2,
+        ReplayAuthorityClaimV2,
+    };
+
+    use super::*;
+
+    fn identity(value: impl Into<String>) -> OpaqueIdentityV2 {
+        OpaqueIdentityV2::try_from(value.into()).expect("fixture identity")
+    }
+
+    fn digest(byte: char) -> CanonicalDigestV2 {
+        CanonicalDigestV2::try_from(format!("sha256:{}", byte.to_string().repeat(64)))
+            .expect("fixture digest")
+    }
+
+    fn result_fixture(label: &str, byte: char) -> (ReplayResultDtoV2, Vec<u8>) {
+        let request_identity = identity(format!("request-{label}"));
+        let request_meaning_digest = digest(byte);
+        let attempt_identity = identity(format!("attempt-{label}"));
+        let reconciliation = ObservationComponentV2::REQUESTED_MEANING
+            .into_iter()
+            .map(|component| {
+                let meaning_identity = identity(format!("meaning-{label}-{component:?}"));
+                let meaning_digest = digest(byte);
+                ReconciliationAtomDtoV2 {
+                    component,
+                    requested_meaning_identity: meaning_identity.clone(),
+                    requested_meaning_digest: meaning_digest.clone(),
+                    observed_meaning_identity: Some(meaning_identity),
+                    observed_meaning_digest: Some(meaning_digest),
+                    observation_locator: Some(ComponentObservationLocatorV2 {
+                        component,
+                        reference: identity(format!("observation-{label}-{component:?}")),
+                        digest: digest(byte),
+                    }),
+                    status: ReconciliationStatusV2::Exact,
+                }
+            })
+            .collect::<Vec<_>>();
+        let diagnostic_census = vec![DiagnosticEvidenceDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            category: DiagnosticCategoryV2::UnresolvedFailure,
+            decisive_evidence: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity(format!("diagnostic-{label}")),
+                digest: digest(byte),
+            },
+        }];
+        let mut result = ReplayResultDtoV2 {
+            schema_version: 2,
+            result_identity: identity("placeholder-result"),
+            result_digest: digest('0'),
+            request_identity,
+            request_meaning_digest,
+            namespace: ReplayNamespaceV2::Exploratory,
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            attempt_identity,
+            terminal: ReplayTerminalV2::InvalidReplayEvidence,
+            reconciliation,
+            semantic_trace: None,
+            diagnostic_census,
+        };
+
+        #[derive(Serialize)]
+        struct ResultDigestPreimageV2<'a> {
+            schema_version: u16,
+            request_identity: &'a OpaqueIdentityV2,
+            request_meaning_digest: &'a CanonicalDigestV2,
+            namespace: ReplayNamespaceV2,
+            replay_authority: &'a ReplayAuthorityClaimV2,
+            attempt_identity: &'a OpaqueIdentityV2,
+            terminal: ReplayTerminalV2,
+            reconciliation: &'a [ReconciliationAtomDtoV2],
+            semantic_trace:
+                Option<&'a vibe_backtest_owner_contracts::ConsumedComponentObservationDtoV2>,
+            diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
+        }
+        let preimage = ResultDigestPreimageV2 {
+            schema_version: result.schema_version,
+            request_identity: &result.request_identity,
+            request_meaning_digest: &result.request_meaning_digest,
+            namespace: result.namespace,
+            replay_authority: &result.replay_authority,
+            attempt_identity: &result.attempt_identity,
+            terminal: result.terminal,
+            reconciliation: &result.reconciliation,
+            semantic_trace: result.semantic_trace.as_ref(),
+            diagnostic_census: &result.diagnostic_census,
+        };
+        result.result_digest =
+            digest_value("vibe.backtest.replay-result.v2", &preimage).expect("result digest");
+        result.result_identity = identity(format!(
+            "backtest-replay-result-v2-{}",
+            result
+                .result_digest
+                .as_str()
+                .strip_prefix("blake3:")
+                .expect("blake3 result digest")
+        ));
+        let bytes = result.to_canonical_bytes().expect("canonical result wire");
+        (result, bytes)
+    }
+
+    fn custody_fixture(
+        result: &ReplayResultDtoV2,
+        epoch: u64,
+    ) -> (ResultReceiptV1, Vec<u8>, ResultOutboxV1, Vec<u8>) {
+        let suffix = result
+            .result_digest
+            .as_str()
+            .strip_prefix("blake3:")
+            .expect("blake3 result digest");
+        let receipt_identity = identity(format!("backtest-result-receipt-v1-{suffix}"));
+        let event_identity = identity(format!("backtest-result-outbox-v1-{suffix}"));
+        let placeholder = digest('0');
+        let mut receipt = ResultReceiptV1 {
+            schema_version: 1,
+            receipt_identity: receipt_identity.clone(),
+            receipt_digest: placeholder.clone(),
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            namespace: ReplayNamespaceV2::Exploratory,
+            outbox_event_identity: event_identity.clone(),
+            committed_at_epoch_ms: epoch,
+        };
+        receipt.receipt_digest = digest_value(
+            RECEIPT_DIGEST_DOMAIN,
+            &ResultReceiptPreimageV1 {
+                schema_version: receipt.schema_version,
+                receipt_identity: &receipt.receipt_identity,
+                request_identity: &receipt.request_identity,
+                request_meaning_digest: &receipt.request_meaning_digest,
+                result_identity: &receipt.result_identity,
+                result_digest: &receipt.result_digest,
+                namespace: receipt.namespace,
+                outbox_event_identity: &receipt.outbox_event_identity,
+                committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+            },
+        )
+        .expect("receipt digest");
+        let payload = ResultOutboxPayloadV1 {
+            schema_version: 1,
+            receipt_identity,
+            receipt_digest: receipt.receipt_digest.clone(),
+            request_identity: result.request_identity.clone(),
+            request_meaning_digest: result.request_meaning_digest.clone(),
+            result_identity: result.result_identity.clone(),
+            result_digest: result.result_digest.clone(),
+            namespace: ReplayNamespaceV2::Exploratory,
+            committed_at_epoch_ms: epoch,
+        };
+        let mut outbox = ResultOutboxV1 {
+            schema_version: 1,
+            event_identity,
+            event_digest: placeholder.clone(),
+            aggregate_identity: result.result_identity.clone(),
+            event_kind: identity(EVENT_KIND),
+            payload_digest: placeholder,
+            payload,
+            committed_at_epoch_ms: epoch,
+        };
+        outbox.payload_digest =
+            digest_value(OUTBOX_PAYLOAD_DIGEST_DOMAIN, &outbox.payload).expect("payload digest");
+        outbox.event_digest = digest_value(
+            OUTBOX_EVENT_DIGEST_DOMAIN,
+            &ResultOutboxPreimageV1 {
+                schema_version: outbox.schema_version,
+                event_identity: &outbox.event_identity,
+                aggregate_identity: &outbox.aggregate_identity,
+                event_kind: &outbox.event_kind,
+                payload_digest: &outbox.payload_digest,
+                payload: &outbox.payload,
+                committed_at_epoch_ms: outbox.committed_at_epoch_ms,
+            },
+        )
+        .expect("event digest");
+        let receipt_bytes = serde_json::to_vec(&receipt).expect("canonical receipt wire");
+        let outbox_bytes = serde_json::to_vec(&outbox).expect("canonical outbox wire");
+        (receipt, receipt_bytes, outbox, outbox_bytes)
+    }
+
+    fn envelope(
+        result: &ReplayResultDtoV2,
+        result_bytes: &[u8],
+        receipt: &ResultReceiptV1,
+        receipt_bytes: &[u8],
+        outbox: &ResultOutboxV1,
+        outbox_bytes: &[u8],
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "schema_version": 2,
+            "result": {
+                "result_identity": result.result_identity.as_str(),
+                "result_digest": result.result_digest.as_str(),
+                "request_identity": result.request_identity.as_str(),
+                "request_meaning_digest": result.request_meaning_digest.as_str(),
+                "attempt_identity": result.attempt_identity.as_str(),
+                "terminal": terminal_text(result.terminal),
+                "canonical_bytes_base64": BASE64.encode(result_bytes),
+                "canonical_bytes_blake3": storage_digest(RESULT_STORAGE_DOMAIN, result_bytes),
+            },
+            "receipt": {
+                "result_identity": receipt.result_identity.as_str(),
+                "receipt_identity": receipt.receipt_identity.as_str(),
+                "receipt_digest": receipt.receipt_digest.as_str(),
+                "request_identity": receipt.request_identity.as_str(),
+                "request_meaning_digest": receipt.request_meaning_digest.as_str(),
+                "result_digest": receipt.result_digest.as_str(),
+                "namespace": "EXPLORATORY",
+                "outbox_event_identity": receipt.outbox_event_identity.as_str(),
+                "committed_at_epoch_ms": receipt.committed_at_epoch_ms,
+                "canonical_bytes_base64": BASE64.encode(receipt_bytes),
+                "canonical_bytes_blake3": storage_digest(RECEIPT_STORAGE_DOMAIN, receipt_bytes),
+            },
+            "outbox": {
+                "result_identity": outbox.aggregate_identity.as_str(),
+                "event_identity": outbox.event_identity.as_str(),
+                "event_digest": outbox.event_digest.as_str(),
+                "receipt_identity": outbox.payload.receipt_identity.as_str(),
+                "request_identity": outbox.payload.request_identity.as_str(),
+                "request_meaning_digest": outbox.payload.request_meaning_digest.as_str(),
+                "result_digest": outbox.payload.result_digest.as_str(),
+                "namespace": "EXPLORATORY",
+                "payload_digest": outbox.payload_digest.as_str(),
+                "committed_at_epoch_ms": outbox.committed_at_epoch_ms,
+                "canonical_bytes_base64": BASE64.encode(outbox_bytes),
+                "canonical_bytes_blake3": storage_digest(OUTBOX_STORAGE_DOMAIN, outbox_bytes),
+            },
+        })
+    }
+
+    #[test]
+    fn valid_canonical_aggregates_cannot_be_cross_spliced() {
+        let (result_a, result_bytes_a) = result_fixture("a", 'a');
+        let (receipt_a, receipt_bytes_a, outbox_a, outbox_bytes_a) = custody_fixture(&result_a, 1);
+        let (result_b, result_bytes_b) = result_fixture("b", 'b');
+        let (receipt_b, receipt_bytes_b, outbox_b, outbox_bytes_b) = custody_fixture(&result_b, 2);
+
+        for (result, result_bytes, receipt, receipt_bytes, outbox, outbox_bytes) in [
+            (
+                &result_a,
+                &result_bytes_a,
+                &receipt_a,
+                &receipt_bytes_a,
+                &outbox_a,
+                &outbox_bytes_a,
+            ),
+            (
+                &result_b,
+                &result_bytes_b,
+                &receipt_b,
+                &receipt_bytes_b,
+                &outbox_b,
+                &outbox_bytes_b,
+            ),
+        ] {
+            validate_envelope(
+                envelope(
+                    result,
+                    result_bytes,
+                    receipt,
+                    receipt_bytes,
+                    outbox,
+                    outbox_bytes,
+                ),
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result.result_identity.as_str(),
+                    request_identity: result.request_identity.as_str(),
+                    attempt_identity: result.attempt_identity.as_str(),
+                },
+            )
+            .expect("independently valid canonical aggregate");
+        }
+
+        let cross_spliced = envelope(
+            &result_a,
+            &result_bytes_a,
+            &receipt_b,
+            &receipt_bytes_b,
+            &outbox_b,
+            &outbox_bytes_b,
+        );
+        assert!(matches!(
+            validate_envelope(
+                cross_spliced,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result_a.result_identity.as_str(),
+                    request_identity: result_a.request_identity.as_str(),
+                    attempt_identity: result_a.attempt_identity.as_str(),
+                },
+            ),
+            Err(BacktestResultCustodyErrorV2::Unavailable)
+        ));
+    }
 }
