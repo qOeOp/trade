@@ -9,8 +9,7 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayResultDtoV2;
 
 use crate::{
-    CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayTerminalV2,
-    SealedReplayResultV2,
+    CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayTerminalV2, SealedReplayResultV2,
 };
 
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
@@ -265,9 +264,7 @@ impl PostgresReplayResultOwnerV2 {
     }
 }
 
-async fn validate_pool_principal(
-    pool: &PgPool,
-) -> Result<(), PostgresReplayResultOwnerErrorV2> {
+async fn validate_pool_principal(pool: &PgPool) -> Result<(), PostgresReplayResultOwnerErrorV2> {
     let principals: (String, String) = sqlx::query_as("SELECT session_user,current_user")
         .fetch_one(pool)
         .await
@@ -398,9 +395,7 @@ struct ResultReceiptPreimageV1<'a> {
 }
 
 impl ResultReceiptV1 {
-    fn expected_digest(
-        &self,
-    ) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+    fn expected_digest(&self) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
         digest_value(
             RECEIPT_DIGEST_DOMAIN,
             &ResultReceiptPreimageV1 {
@@ -463,9 +458,7 @@ impl ResultOutboxV1 {
         digest_value(OUTBOX_PAYLOAD_DIGEST_DOMAIN, &self.payload)
     }
 
-    fn expected_event_digest(
-        &self,
-    ) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+    fn expected_event_digest(&self) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
         digest_value(
             OUTBOX_EVENT_DIGEST_DOMAIN,
             &ResultOutboxPreimageV1 {
@@ -484,10 +477,7 @@ impl ResultOutboxV1 {
 fn build_custody_wires(
     result: &ReplayResultDtoV2,
     committed_at_epoch_ms: u64,
-) -> Result<
-    (ResultReceiptV1, Vec<u8>, ResultOutboxV1, Vec<u8>),
-    PostgresReplayResultOwnerErrorV2,
-> {
+) -> Result<(ResultReceiptV1, Vec<u8>, ResultOutboxV1, Vec<u8>), PostgresReplayResultOwnerErrorV2> {
     let suffix = result
         .result_digest
         .as_str()
@@ -561,16 +551,14 @@ fn decode_aggregate(
             != required::<String>(row, "canonical_bytes_blake3")?
         || receipt.receipt_identity.as_str() != required::<String>(row, "receipt_identity")?
         || receipt.receipt_digest.as_str() != required::<String>(row, "receipt_digest")?
-        || receipt.request_identity.as_str()
-            != required::<String>(row, "receipt_request_identity")?
+        || receipt.request_identity.as_str() != required::<String>(row, "receipt_request_identity")?
         || receipt.request_meaning_digest.as_str()
             != required::<String>(row, "receipt_request_meaning_digest")?
         || receipt.result_digest.as_str() != required::<String>(row, "receipt_result_digest")?
         || namespace_text(receipt.namespace) != required::<String>(row, "receipt_namespace")?
         || receipt.outbox_event_identity.as_str()
             != required::<String>(row, "outbox_event_identity")?
-        || receipt.committed_at_epoch_ms
-            != required_epoch(row, "receipt_committed_at_epoch_ms")?
+        || receipt.committed_at_epoch_ms != required_epoch(row, "receipt_committed_at_epoch_ms")?
         || storage_digest(RECEIPT_STORAGE_DOMAIN, &receipt_bytes)
             != required::<String>(row, "receipt_canonical_bytes_blake3")?
         || outbox.event_identity.as_str() != required::<String>(row, "event_identity")?
@@ -581,10 +569,8 @@ fn decode_aggregate(
             != required::<String>(row, "outbox_request_identity")?
         || outbox.payload.request_meaning_digest.as_str()
             != required::<String>(row, "outbox_request_meaning_digest")?
-        || outbox.payload.result_digest.as_str()
-            != required::<String>(row, "outbox_result_digest")?
-        || namespace_text(outbox.payload.namespace)
-            != required::<String>(row, "outbox_namespace")?
+        || outbox.payload.result_digest.as_str() != required::<String>(row, "outbox_result_digest")?
+        || namespace_text(outbox.payload.namespace) != required::<String>(row, "outbox_namespace")?
         || outbox.payload_digest.as_str() != required::<String>(row, "payload_digest")?
         || outbox.committed_at_epoch_ms != required_epoch(row, "outbox_committed_at_epoch_ms")?
         || storage_digest(OUTBOX_STORAGE_DOMAIN, &outbox_bytes)
@@ -630,8 +616,7 @@ where
 {
     let value: T = serde_json::from_slice(bytes)
         .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
-    if serde_json::to_vec(&value)
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?
+    if serde_json::to_vec(&value).map_err(|_| PostgresReplayResultOwnerErrorV2::CorruptReadback)?
         != bytes
     {
         return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
@@ -691,16 +676,12 @@ fn digest_value<T: Serialize>(
     typed_digest(storage_digest(domain, &bytes))
 }
 
-fn typed_identity(
-    value: String,
-) -> Result<OpaqueIdentityV2, PostgresReplayResultOwnerErrorV2> {
+fn typed_identity(value: String) -> Result<OpaqueIdentityV2, PostgresReplayResultOwnerErrorV2> {
     OpaqueIdentityV2::try_from(value)
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
 }
 
-fn typed_digest(
-    value: String,
-) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
+fn typed_digest(value: String) -> Result<CanonicalDigestV2, PostgresReplayResultOwnerErrorV2> {
     CanonicalDigestV2::try_from(value)
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
 }
