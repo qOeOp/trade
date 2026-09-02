@@ -4,6 +4,7 @@ import test from "node:test"
 import { main } from "./develop_composer_v2.ts"
 
 const requestIdentity = "composer-request-1"
+const maxOwnerResponseBytes = 2 * 1024 * 1024
 const pluginManifest = {
   semantic_id: "plugin-1",
   abi_version: 2,
@@ -125,6 +126,24 @@ function withTransport(handler, run) {
     if (originalToken === undefined) delete process.env.RD_OWNER_API_TOKEN
     else process.env.RD_OWNER_API_TOKEN = originalToken
   })
+}
+
+function chunkedResponse(totalBytes, status, onCancel) {
+  let emitted = 0
+  return new Response(new ReadableStream({
+    pull(controller) {
+      const size = Math.min(64 * 1024, totalBytes - emitted)
+      if (size === 0) {
+        controller.close()
+        return
+      }
+      emitted += size
+      controller.enqueue(new Uint8Array(size).fill(32))
+    },
+    cancel(reason) {
+      onCancel(reason)
+    },
+  }), { status })
 }
 
 test("RUN posts the unchanged typed request and passes default UNAVAILABLE through", { concurrency: false }, async () => {
@@ -258,6 +277,47 @@ test("HTTP status and disposition mismatches fail closed, including 503 SUCCESS"
       assert.equal(result.artifact, null)
     })
   }
+})
+
+test("chunked response without Content-Length cancels immediately beyond the byte bound", {
+  concurrency: false,
+}, async () => {
+  let cancelReason = null
+  await withTransport(
+    async () => chunkedResponse(
+      Number.POSITIVE_INFINITY,
+      503,
+      (reason) => { cancelReason = reason },
+    ),
+    async () => {
+      const result = await main("RUN", requestIdentity, request)
+      assert.equal(result.disposition, "UNAVAILABLE")
+      assert.equal(result.coordinate, "transport.owner")
+      assert.equal(result.receipt_identity, null)
+      assert.equal(result.artifact, null)
+    },
+  )
+  assert.equal(cancelReason, "OWNER_RESPONSE_BOUND")
+})
+
+test("an exact-bound chunked response remains readable", { concurrency: false }, async () => {
+  const prefix = new TextEncoder().encode(JSON.stringify(ownerUnavailable))
+  const exactBody = new Uint8Array(maxOwnerResponseBytes).fill(32)
+  exactBody.set(prefix)
+  let offset = 0
+  await withTransport(async () => new Response(new ReadableStream({
+    pull(controller) {
+      if (offset === exactBody.byteLength) {
+        controller.close()
+        return
+      }
+      const end = Math.min(offset + 64 * 1024, exactBody.byteLength)
+      controller.enqueue(exactBody.slice(offset, end))
+      offset = end
+    },
+  }), { status: 503 }), async () => {
+    assert.deepEqual(await main("RUN", requestIdentity, request), ownerUnavailable)
+  })
 })
 
 test("mismatched or positive-looking malformed Owner responses fail closed", { concurrency: false }, async () => {

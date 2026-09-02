@@ -371,6 +371,55 @@ function validResponse(value: unknown, requestIdentity: string): value is Develo
   return value.receipt_identity === null && value.artifact === null
 }
 
+async function boundedResponseText(response: Response): Promise<string> {
+  const contentLength = response.headers.get("content-length")
+  if (contentLength !== null && /^[0-9]+$/.test(contentLength)
+    && BigInt(contentLength) > BigInt(MAX_OWNER_RESPONSE_BYTES)) {
+    try {
+      await response.body?.cancel("OWNER_RESPONSE_BOUND")
+    } catch {
+      // The size violation remains authoritative even if stream cancellation fails.
+    }
+    throw new Error("OWNER_RESPONSE_BOUND")
+  }
+
+  if (response.body === null) throw new Error("OWNER_RESPONSE_EMPTY")
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let accumulated = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!(value instanceof Uint8Array)) throw new Error("OWNER_RESPONSE_CHUNK")
+      const admitted = Math.min(value.byteLength, MAX_OWNER_RESPONSE_BYTES + 1 - accumulated)
+      if (admitted > 0) {
+        chunks.push(value.slice(0, admitted))
+        accumulated += admitted
+      }
+      if (accumulated > MAX_OWNER_RESPONSE_BYTES || admitted < value.byteLength) {
+        try {
+          await reader.cancel("OWNER_RESPONSE_BOUND")
+        } catch {
+          // The size violation remains authoritative even if stream cancellation fails.
+        }
+        throw new Error("OWNER_RESPONSE_BOUND")
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  if (accumulated === 0) throw new Error("OWNER_RESPONSE_EMPTY")
+  const bytes = new Uint8Array(accumulated)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes)
+}
+
 async function ownerPost(
   path: string,
   token: string,
@@ -383,10 +432,7 @@ async function ownerPost(
     ...(body === undefined ? {} : { body }),
     signal: AbortSignal.timeout(120_000),
   })
-  const text = await response.text()
-  if (!text || new TextEncoder().encode(text).length > MAX_OWNER_RESPONSE_BYTES) {
-    throw new Error("OWNER_RESPONSE_BOUND")
-  }
+  const text = await boundedResponseText(response)
   const result: unknown = JSON.parse(text)
   if (!validResponse(result, requestIdentity)
     || !validStatusDisposition(response.status, result.disposition)) throw new Error("OWNER_RESPONSE_INVALID")
