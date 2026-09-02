@@ -184,7 +184,10 @@ check_migration_authority_boundary() {
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
-    ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}"; then
+    ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "SELECT NOT pg_catalog.pg_is_in_recovery()" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}"; then
     echo "ERROR: bounded admin migration/runtime startup topology changed." >&2
     return 1
   fi
@@ -471,9 +474,36 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"test_database" OWNER postgres;
 SQL
 
+wait_for_primary_after_failed_authority_migration() {
+  local migration_database="$1"
+  local attempt=1
+  local primary_probe
+
+  while [[ "$attempt" -le 30 ]]; do
+    if primary_probe="$(timeout 3 docker exec \
+      --env "PGPASSWORD=${test_password}" \
+      "$container" psql --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+      --host 127.0.0.1 --username postgres --dbname "$migration_database" \
+      --command 'BEGIN; CREATE TEMP TABLE vibe_primary_readiness_probe_v1(value integer) ON COMMIT DROP; INSERT INTO vibe_primary_readiness_probe_v1 VALUES (1); SELECT NOT pg_catalog.pg_is_in_recovery(); ROLLBACK;' \
+      2> /dev/null)" && [[ "$primary_probe" == "t" ]]; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 30 ]]; then
+      sleep 1
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "ERROR: PostgreSQL did not return to writable primary state after failed authority migration." >&2
+  docker logs --tail 80 "$container" >&2 || true
+  return 1
+}
+
 run_authority_migration_for_database() {
   local migration_database="$1"
-  docker exec --interactive \
+  local migration_status
+
+  if docker exec --interactive \
     --env POSTGRES_HOST=127.0.0.1 \
     --env "POSTGRES_DATABASE=${migration_database}" \
     --env "POSTGRES_PASSWORD=${test_password}" \
@@ -482,7 +512,16 @@ run_authority_migration_for_database() {
     --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
     --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
     --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
-    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh; then
+    return 0
+  else
+    migration_status="$?"
+  fi
+
+  if ! wait_for_primary_after_failed_authority_migration "$migration_database"; then
+    exit 1
+  fi
+  return "$migration_status"
 }
 run_authority_migration() {
   run_authority_migration_for_database "$test_database"
