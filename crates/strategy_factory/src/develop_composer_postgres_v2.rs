@@ -348,8 +348,7 @@ where
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .read_pool
-            .begin()
+            .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let record = load_record_via_sealed_routine_in_transaction(
@@ -528,8 +527,7 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .read_pool
-            .begin()
+            .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let readback = self
@@ -1125,19 +1123,59 @@ async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx
     }
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ComposerDatabaseFingerprintV2 {
+    system_identifier: String,
+    database_name: String,
+    database_oid: i64,
+}
+
+async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
+    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(ComposerDatabaseFingerprintV2 {
+        system_identifier,
+        database_name,
+        database_oid,
+    })
+}
+
+async fn verify_transaction_database(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected: &ComposerDatabaseFingerprintV2,
+) -> Result<(), sqlx::Error> {
+    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    let actual = ComposerDatabaseFingerprintV2 {
+        system_identifier,
+        database_name,
+        database_oid,
+    };
+
+    if actual == *expected {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer connection physical database changed after startup".to_owned(),
+        ))
+    }
+}
+
 async fn verify_same_database(
     read_pool: &PgPool,
     mutation_pool: &PgPool,
-) -> Result<(), sqlx::Error> {
-    let identity_query = "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()";
-    let read_identity: (String, String, i64) =
-        sqlx::query_as(identity_query).fetch_one(read_pool).await?;
-    let mutation_identity: (String, String, i64) = sqlx::query_as(identity_query)
-        .fetch_one(mutation_pool)
-        .await?;
+) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
+    let read_identity = database_fingerprint(read_pool).await?;
+    let mutation_identity = database_fingerprint(mutation_pool).await?;
 
     if read_identity == mutation_identity {
-        Ok(())
+        Ok(read_identity)
     } else {
         Err(sqlx::Error::Protocol(
             "Composer read and mutation connections target different databases".to_owned(),
@@ -1149,6 +1187,7 @@ async fn verify_same_database(
 pub struct PostgresDevelopComposerStoreV2 {
     read_pool: PgPool,
     mutation_pool: PgPool,
+    database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
 impl PostgresDevelopComposerStoreV2 {
@@ -1167,10 +1206,11 @@ impl PostgresDevelopComposerStoreV2 {
             .connect(rd_fact_writer_database_url)
             .await?;
         verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
-        verify_same_database(&read_pool, &mutation_pool).await?;
+        let database_fingerprint = verify_same_database(&read_pool, &mutation_pool).await?;
 
         Self::migrate(&read_pool).await?;
         let mut transaction = mutation_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
         verify_composer_writer_authority_in_transaction(&mut transaction).await?;
         verify_composer_commit_authority_in_transaction(&mut transaction).await?;
         transaction.rollback().await?;
@@ -1178,11 +1218,40 @@ impl PostgresDevelopComposerStoreV2 {
         Ok(Self {
             read_pool,
             mutation_pool,
+            database_fingerprint,
         })
     }
 
+    async fn begin_read_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+        let mut transaction = self.read_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
+        Ok(transaction)
+    }
+
+    async fn begin_mutation_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+        let mut transaction = self.mutation_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
+        Ok(transaction)
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[doc(hidden)]
+    pub async fn reconnect_mutation_pool_for_acceptance(
+        &mut self,
+        database_url: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.mutation_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await?;
+        let transaction = self.begin_mutation_transaction().await?;
+        transaction.rollback().await
+    }
+
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
+        let database_fingerprint = database_fingerprint(pool).await?;
         let mut transaction = pool.begin().await?;
+        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
         verify_composer_read_authority_in_transaction(&mut transaction)
             .await
             .map_err(|_| {
@@ -1207,7 +1276,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(&self.read_pool, request_identity).await {
+        let record = match load_record(self, request_identity).await {
             Ok(Some(record)) => record,
             Ok(None) => {
                 return Ok(unavailable_response(
@@ -1249,7 +1318,7 @@ impl PostgresDevelopComposerStoreV2 {
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let mut transaction = self.mutation_pool.begin().await?;
+        let mut transaction = self.begin_mutation_transaction().await?;
         acquire_advisory_locks(
             &mut transaction,
             &[request_lock_key(&request.request_identity)],
@@ -1325,6 +1394,7 @@ impl PostgresDevelopComposerStoreV2 {
 
         if let Err(e) = persist_record(
             &mut transaction,
+            &self.database_fingerprint,
             &record,
             current.bindings.clone(),
             fail_after_boundary,
@@ -1522,10 +1592,12 @@ fn terminal_response(
 
 async fn persist_record(
     transaction: &mut Transaction<'_, Postgres>,
+    database_fingerprint: &ComposerDatabaseFingerprintV2,
     record: &StoredDevelopComposerPositiveV2,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
+    verify_transaction_database(transaction, database_fingerprint).await?;
     verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
@@ -1592,10 +1664,10 @@ async fn persist_record(
 }
 
 async fn load_record(
-    pool: &PgPool,
+    store: &PostgresDevelopComposerStoreV2,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, sqlx::Error> {
-    let mut transaction = pool.begin().await?;
+    let mut transaction = store.begin_read_transaction().await?;
     let record = load_record_in_transaction(&mut transaction, request_identity).await?;
     transaction.commit().await?;
     Ok(record)

@@ -22,6 +22,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|postgres_freshness_tests::postgres_rd_owner_api_path|fresh_rd_owner_existing_custody_validates_after_migration'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
+  'vibe-strategy-factory|develop_composer_postgres_v2|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
@@ -50,18 +51,19 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 16 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all sixteen ordered runtime and migration tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 17 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all seventeen ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[6]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
-    [[ "${rd_owner_postgres_tests[10]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[7]}" != *'|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write' ]] ||
+    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -503,14 +505,32 @@ test_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 readonly test_password
 impersonator_password="$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')"
 readonly impersonator_password
-volume_created=false
-impersonator_volume_created=false
-container_created=false
-impersonator_container_created=false
 primary_socket_dir_created=false
 impersonator_socket_dir_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
+readonly cleanup_docker_timeout_seconds=10
+
+verify_docker_object_absent() {
+  local object_type="$1"
+  local object_name="$2"
+  local listed_objects
+  local -a list_command=(docker volume ls --format '{{.Name}}')
+  if [[ "$object_type" == container ]]; then
+    list_command=(docker container ls --all --format '{{.Names}}')
+  fi
+
+  if ! listed_objects="$(timeout -s KILL "$cleanup_docker_timeout_seconds" "${list_command[@]}")"; then
+    echo "ERROR: cleanup could not verify ${object_type} ${object_name} absence." >&2
+    return 1
+  fi
+  while IFS= read -r listed_object; do
+    if [[ "$listed_object" == "$object_name" ]]; then
+      echo "ERROR: cleanup left ${object_type} ${object_name} present." >&2
+      return 1
+    fi
+  done <<< "$listed_objects"
+}
 
 remove_docker_object_for_cleanup() {
   local object_type="$1"
@@ -523,7 +543,10 @@ remove_docker_object_for_cleanup() {
   fi
 
   while [[ "$attempt" -le "$max_attempts" ]]; do
-    if "${remove_command[@]}" > /dev/null 2>&1; then
+    if timeout -s KILL "$cleanup_docker_timeout_seconds" "${remove_command[@]}" > /dev/null 2>&1; then
+      break
+    fi
+    if verify_docker_object_absent "$object_type" "$object_name"; then
       return 0
     fi
     if [[ "$attempt" -lt "$max_attempts" ]]; then
@@ -531,14 +554,17 @@ remove_docker_object_for_cleanup() {
     fi
     attempt=$((attempt + 1))
   done
-  echo "ERROR: cleanup could not remove ${object_type} ${object_name}." >&2
-  return 1
+  if ! verify_docker_object_absent "$object_type" "$object_name"; then
+    echo "ERROR: cleanup could not remove ${object_type} ${object_name}." >&2
+    return 1
+  fi
 }
 
 cleanup() {
-  local primary_status="$?"
+  local primary_status="${1:-$?}"
   local cleanup_failed=false
   trap - EXIT
+  trap '' HUP INT TERM
   set +e
 
   if [[ -n "$nextest_archive_file" ]] &&
@@ -550,31 +576,32 @@ cleanup() {
     cleanup_failed=true
   fi
 
-  if [[ "$container_created" == true ]] &&
-    ! remove_docker_object_for_cleanup container "$container" 3; then
+  if ! remove_docker_object_for_cleanup container "$container" 3; then
     cleanup_failed=true
   fi
-  if [[ "$impersonator_container_created" == true ]] &&
-    ! remove_docker_object_for_cleanup container "$impersonator_container" 3; then
+  if ! remove_docker_object_for_cleanup container "$impersonator_container" 3; then
     cleanup_failed=true
   fi
-  if [[ "$volume_created" == true ]] &&
-    ! remove_docker_object_for_cleanup volume "$volume" 5; then
+  if ! remove_docker_object_for_cleanup volume "$volume" 5; then
     cleanup_failed=true
   fi
-  if [[ "$impersonator_volume_created" == true ]] &&
-    ! remove_docker_object_for_cleanup volume "$impersonator_volume" 5; then
+  if ! remove_docker_object_for_cleanup volume "$impersonator_volume" 5; then
     cleanup_failed=true
   fi
-  if [[ "$primary_socket_dir_created" == true ]]; then
+  if [[ "$primary_socket_dir_created" == true || -d "$primary_socket_dir" ]]; then
     rm -f -- "$primary_socket_dir/.s.PGSQL.5432" "$primary_socket_dir/.s.PGSQL.5432.lock" ||
       cleanup_failed=true
     rmdir -- "$primary_socket_dir" || cleanup_failed=true
   fi
-  if [[ "$impersonator_socket_dir_created" == true ]]; then
+  if [[ "$impersonator_socket_dir_created" == true || -d "$impersonator_socket_dir" ]]; then
     rm -f -- "$impersonator_socket_dir/.s.PGSQL.5432" "$impersonator_socket_dir/.s.PGSQL.5432.lock" ||
       cleanup_failed=true
     rmdir -- "$impersonator_socket_dir" || cleanup_failed=true
+  fi
+  if [[ -e "$primary_socket_dir" || -L "$primary_socket_dir" ||
+    -e "$impersonator_socket_dir" || -L "$impersonator_socket_dir" ]]; then
+    echo "ERROR: cleanup left an exact PostgreSQL socket artifact present." >&2
+    cleanup_failed=true
   fi
 
   if [[ "$primary_status" -ne 0 ]]; then
@@ -586,6 +613,9 @@ cleanup() {
   exit 0
 }
 trap cleanup EXIT
+trap 'cleanup 129' HUP
+trap 'cleanup 130' INT
+trap 'cleanup 143' TERM
 
 probe_tcp_endpoint() {
   local host="$1"
@@ -644,9 +674,7 @@ mkdir -- "$impersonator_socket_dir"
 impersonator_socket_dir_created=true
 chmod 0777 "$impersonator_socket_dir"
 docker volume create "$volume" > /dev/null
-volume_created=true
 docker volume create "$impersonator_volume" > /dev/null
-impersonator_volume_created=true
 docker run \
   --detach \
   --name "$container" \
@@ -657,7 +685,6 @@ docker run \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env POSTGRES_DB=postgres \
   "$postgres_image" -c unix_socket_directories=/var/run/postgresql,/vibe-postgres-socket > /dev/null
-container_created=true
 docker run \
   --detach \
   --name "$impersonator_container" \
@@ -668,7 +695,6 @@ docker run \
   --env "POSTGRES_PASSWORD=${impersonator_password}" \
   --env "POSTGRES_DB=${impersonator_database}" \
   "$postgres_image" -c unix_socket_directories=/var/run/postgresql,/vibe-postgres-socket > /dev/null
-impersonator_container_created=true
 
 attempt=1
 until docker exec "$container" pg_isready --username postgres --dbname postgres > /dev/null 2>&1; do

@@ -94,6 +94,23 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         3,
         "writer authority must be checked at startup and before every commit",
     );
+    assert!(source.contains("database_fingerprint: ComposerDatabaseFingerprintV2"));
+    assert!(source.contains("system_identifier: String"));
+    assert!(source.contains("database_name: String"));
+    assert!(source.contains("database_oid: i64"));
+    assert!(source.contains("begin_read_transaction()"));
+    assert!(source.contains("begin_mutation_transaction()"));
+    let persist = source
+        .split("async fn persist_record")
+        .nth(1)
+        .expect("Composer persistence boundary")
+        .split("let committed: bool")
+        .next()
+        .expect("bounded pre-write gate");
+    assert!(
+        persist.find("verify_transaction_database")
+            < persist.find("verify_composer_writer_authority_in_transaction")
+    );
     let pinned_source = source
         .split("const SEALED_READ_FUNCTION_SOURCE_V2: &str = \"")
         .nth(1)
@@ -234,9 +251,17 @@ async fn composer_startup_rejects_same_named_database_on_a_distinct_cluster() {
     assert_ne!(primary_identity.0, secondary_identity.0);
     assert!(primary_identity.3 && secondary_identity.3);
 
-    PostgresDevelopComposerStoreV2::connect(&read_url, &writer_url)
+    let _store = PostgresDevelopComposerStoreV2::connect(&read_url, &writer_url)
         .await
         .expect("same physical database over distinct Unix-socket roles");
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let mut store = _store;
+        store
+            .reconnect_mutation_pool_for_acceptance(&writer_url)
+            .await
+            .expect("same physical database remains valid after writer reconnect");
+    }
 
     match PostgresDevelopComposerStoreV2::connect(&read_url, &impersonator_url).await {
         Err(sqlx::Error::Protocol(message)) => assert_eq!(
@@ -246,6 +271,55 @@ async fn composer_startup_rejects_same_named_database_on_a_distinct_cluster() {
         Err(e) => panic!("unexpected cross-cluster Composer error: {e}"),
         Ok(_) => panic!("Composer accepted split custody across PostgreSQL clusters"),
     }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[tokio::test]
+#[ignore = "requires two admitted disposable PostgreSQL clusters with same-named databases"]
+async fn composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write() {
+    let _admitted_database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let read_url = std::env::var("RD_OWNER_SOCKET_TEST_DATABASE_URL")
+        .expect("primary rd_owner Unix-socket URL");
+    let writer_url = std::env::var("RD_FACT_WRITER_SOCKET_TEST_DATABASE_URL")
+        .expect("primary rd_fact_writer Unix-socket URL");
+    let switched_writer_url = std::env::var("RD_FACT_WRITER_IMPERSONATOR_TEST_DATABASE_URL")
+        .expect("secondary rd_fact_writer Unix-socket URL");
+    let mut store = PostgresDevelopComposerStoreV2::connect(&read_url, &writer_url)
+        .await
+        .expect("Composer startup on primary physical database");
+    let secondary_pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&switched_writer_url)
+        .await
+        .expect("secondary cluster observation");
+    let writes_before: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(n_tup_ins), 0)::bigint FROM pg_catalog.pg_stat_all_tables WHERE schemaname='composer_private'",
+    )
+    .fetch_one(&secondary_pool)
+    .await
+    .expect("secondary write count before reconnect");
+
+    match store
+        .reconnect_mutation_pool_for_acceptance(&switched_writer_url)
+        .await
+    {
+        Err(sqlx::Error::Protocol(message)) => assert_eq!(
+            message,
+            "Composer connection physical database changed after startup"
+        ),
+        Err(e) => panic!("unexpected post-start Composer reconnect error: {e}"),
+        Ok(()) => panic!("Composer accepted a post-start switch to another physical database"),
+    }
+
+    let writes_after: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(sum(n_tup_ins), 0)::bigint FROM pg_catalog.pg_stat_all_tables WHERE schemaname='composer_private'",
+    )
+    .fetch_one(&secondary_pool)
+    .await
+    .expect("secondary write count after rejected reconnect");
+    assert_eq!(writes_after, writes_before, "rejected reconnect wrote rows");
 }
 
 async fn database_identity(database_url: &str) -> (String, String, i64, bool) {
