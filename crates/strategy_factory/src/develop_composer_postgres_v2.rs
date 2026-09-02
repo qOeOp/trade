@@ -933,6 +933,142 @@ async fn verify_composer_commit_authority_in_transaction(
     }
 }
 
+async fn verify_composer_writer_authority_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "WITH writer AS (
+           SELECT role.oid,
+                  role.rolcanlogin,
+                  role.rolinherit,
+                  role.rolsuper,
+                  role.rolcreatedb,
+                  role.rolcreaterole,
+                  role.rolreplication,
+                  role.rolbypassrls
+             FROM pg_catalog.pg_roles role
+            WHERE role.rolname='rd_fact_writer'
+         ), private_relations AS (
+           SELECT relation.oid
+             FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace namespace
+               ON namespace.oid=relation.relnamespace
+              AND namespace.nspname='composer_private'
+            WHERE relation.relname=ANY($1)
+              AND relation.relkind IN ('r','p')
+         ), private_columns AS (
+           SELECT relation.oid AS relation_oid, attribute.attnum
+             FROM private_relations relation
+             JOIN pg_catalog.pg_attribute attribute
+               ON attribute.attrelid=relation.oid
+              AND attribute.attnum>0
+              AND NOT attribute.attisdropped
+         )
+         SELECT SESSION_USER='rd_fact_writer'
+            AND CURRENT_USER='rd_fact_writer'
+            AND (SELECT rolcanlogin AND rolinherit
+                        AND NOT rolsuper
+                        AND NOT rolcreatedb
+                        AND NOT rolcreaterole
+                        AND NOT rolreplication
+                        AND NOT rolbypassrls
+                   FROM writer)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                JOIN pg_catalog.pg_roles unsafe_role
+                  ON unsafe_role.oid<>writer.oid
+                 AND (
+                   unsafe_role.rolname='composer_owner'
+                   OR unsafe_role.rolsuper
+                   OR unsafe_role.rolcreatedb
+                   OR unsafe_role.rolcreaterole
+                   OR unsafe_role.rolreplication
+                   OR unsafe_role.rolbypassrls
+                 )
+               WHERE pg_catalog.pg_has_role(writer.oid,unsafe_role.oid,'MEMBER')
+                  OR pg_catalog.pg_has_role(unsafe_role.oid,writer.oid,'MEMBER')
+            )
+            AND (SELECT count(*)=9 FROM private_relations)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                CROSS JOIN private_relations relation
+               WHERE pg_catalog.has_table_privilege(
+                 writer.oid,
+                 relation.oid,
+                 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+               )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                CROSS JOIN private_columns column_fact
+               WHERE pg_catalog.has_column_privilege(
+                 writer.oid,
+                 column_fact.relation_oid,
+                 column_fact.attnum,
+                 'SELECT,INSERT,UPDATE,REFERENCES'
+               )
+            )
+            AND (SELECT pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          private_namespace.oid,
+                          'USAGE'
+                        ) IS FALSE
+                        AND pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          private_namespace.oid,
+                          'CREATE'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_namespace private_namespace
+                     ON private_namespace.nspname='composer_private')
+            AND (SELECT pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          api_namespace.oid,
+                          'USAGE'
+                        )
+                        AND pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          api_namespace.oid,
+                          'CREATE'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_namespace api_namespace
+                     ON api_namespace.nspname='composer_owner_api')
+            AND (SELECT pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'CONNECT'
+                        )
+                        AND pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'CREATE'
+                        ) IS FALSE
+                        AND pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'TEMPORARY'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_database database
+                     ON database.datname=pg_catalog.current_database())",
+    )
+    .bind(COMPOSER_TABLES_V2.as_slice())
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer writer authority is unavailable".to_owned(),
+        ))
+    }
+}
+
 fn exact_ordinal_array(
     ordinals: &[i32],
     values_len: usize,
@@ -1042,6 +1178,7 @@ impl PostgresDevelopComposerStoreV2 {
             .connect(rd_fact_writer_database_url)
             .await?;
         let mut transaction = mutation_pool.begin().await?;
+        verify_composer_writer_authority_in_transaction(&mut transaction).await?;
         verify_composer_commit_authority_in_transaction(&mut transaction).await?;
         transaction.rollback().await?;
         verify_same_database(&read_pool, &mutation_pool).await?;
@@ -1397,6 +1534,7 @@ async fn persist_record(
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
+    verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,

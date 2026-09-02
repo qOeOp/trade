@@ -64,6 +64,39 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(source.contains("acl.grantee NOT IN (proowner, rd_owner_oid, fact_writer_oid)"));
     assert!(source.contains("SESSION_USER='rd_fact_writer'"));
     assert!(source.contains("pg_catalog.has_table_privilege"));
+    let writer_authority = source
+        .split("async fn verify_composer_writer_authority_in_transaction")
+        .nth(1)
+        .expect("Composer writer authority gate")
+        .split("fn exact_ordinal_array")
+        .next()
+        .expect("bounded Composer writer authority gate");
+    assert!(writer_authority.contains("SELECT rolcanlogin AND rolinherit"));
+    assert!(writer_authority.contains("AND NOT rolsuper"));
+    assert!(writer_authority.contains("AND NOT rolcreatedb"));
+    assert!(writer_authority.contains("AND NOT rolcreaterole"));
+    assert!(writer_authority.contains("AND NOT rolreplication"));
+    assert!(writer_authority.contains("AND NOT rolbypassrls"));
+    assert!(writer_authority.contains("unsafe_role.rolname='composer_owner'"));
+    assert!(
+        writer_authority.contains("pg_catalog.pg_has_role(writer.oid,unsafe_role.oid,'MEMBER')")
+    );
+    assert!(
+        writer_authority.contains("pg_catalog.pg_has_role(unsafe_role.oid,writer.oid,'MEMBER')")
+    );
+    assert!(writer_authority.contains("pg_catalog.has_table_privilege"));
+    assert!(writer_authority.contains("pg_catalog.has_column_privilege"));
+    assert!(writer_authority.contains("private_namespace.nspname='composer_private'"));
+    assert!(writer_authority.contains("api_namespace.nspname='composer_owner_api'"));
+    assert!(writer_authority.contains("'TEMPORARY'"));
+    assert!(writer_authority.contains("Composer writer authority is unavailable"));
+    assert_eq!(
+        source
+            .matches("verify_composer_writer_authority_in_transaction")
+            .count(),
+        3,
+        "writer authority must be checked at startup and before every commit",
+    );
     let pinned_source = source
         .split("const SEALED_READ_FUNCTION_SOURCE_V2: &str = \"")
         .nth(1)
@@ -127,6 +160,53 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     ] {
         assert!(source.contains(table));
     }
+}
+
+#[tokio::test]
+#[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+async fn composer_writer_startup_rejects_composer_owner_membership() {
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let topology_admin_pool = database.owner_topology_admin_pool();
+
+    change_composer_owner_membership(
+        topology_admin_pool,
+        "GRANT composer_owner TO rd_fact_writer",
+    )
+    .await
+    .expect("inject Composer owner membership");
+    let connection = PostgresDevelopComposerStoreV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await;
+    let restore = change_composer_owner_membership(
+        topology_admin_pool,
+        "REVOKE composer_owner FROM rd_fact_writer",
+    )
+    .await;
+    restore.expect("restore Composer owner membership");
+
+    match connection {
+        Err(sqlx::Error::Protocol(message)) => {
+            assert_eq!(message, "Composer writer authority is unavailable");
+        }
+        Err(e) => panic!("unexpected Composer startup error: {e}"),
+        Ok(_) => panic!("Composer writer startup accepted inherited owner authority"),
+    }
+}
+
+async fn change_composer_owner_membership(
+    topology_admin_pool: &sqlx::PgPool,
+    statement: &'static str,
+) -> Result<(), sqlx::Error> {
+    let mut transaction = topology_admin_pool.begin().await?;
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(statement).execute(&mut *transaction).await?;
+    transaction.commit().await
 }
 
 #[tokio::test]
