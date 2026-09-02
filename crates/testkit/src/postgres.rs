@@ -567,6 +567,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             marker_identity: self.marker_identity.clone(),
             lease_identity,
         };
+
         if authority.lease_identity.is_empty() {
             return Err(LegacyReplayMigrationTransitionErrorV1 {
                 capability: authority,
@@ -575,12 +576,14 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 ),
             });
         }
+
         if let Err(source) = authority.preflight_readback().await {
             return Err(LegacyReplayMigrationTransitionErrorV1 {
                 capability: authority,
                 source,
             });
         }
+
         if let Err(source) = authority.acquire_readback().await {
             return Err(LegacyReplayMigrationTransitionErrorV1 {
                 capability: authority,
@@ -643,6 +646,7 @@ impl LegacyReplayMigrationAuthorityV1 {
         .bind(LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1)
         .fetch_one(&self.pool)
         .await?;
+
         if exact {
             Ok(())
         } else {
@@ -660,6 +664,7 @@ impl LegacyReplayMigrationAuthorityV1 {
         .bind(&self.lease_identity)
         .fetch_one(&self.pool)
         .await?;
+
         if returned == self.lease_identity {
             Ok(())
         } else {
@@ -670,12 +675,20 @@ impl LegacyReplayMigrationAuthorityV1 {
     }
 
     /// Repeats the exact preflight and same identity-bound acquire without creating another lease.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the exact preflight or identity-bound acquire readback fails closed.
     pub async fn retry_acquire(&self) -> Result<(), sqlx::Error> {
         self.preflight_readback().await?;
         self.acquire_readback().await
     }
 
     /// Proves a different lease identity cannot replace the active linear lease.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the wrong-identity acquire cannot be evaluated.
     pub async fn try_wrong_lease(&self, wrong_lease_identity: &str) -> Result<String, sqlx::Error> {
         sqlx::query_scalar("SELECT vibe_test_legacy_migration_lease.acquire_v1($1,$2)")
             .bind(&self.marker_identity)
@@ -685,6 +698,10 @@ impl LegacyReplayMigrationAuthorityV1 {
     }
 
     /// Releases the exact lease and proves both temporary authorities are absent and state is READY.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining the capability when release or its readback fails.
     pub async fn release(
         self,
     ) -> Result<
@@ -698,6 +715,7 @@ impl LegacyReplayMigrationAuthorityV1 {
         .bind(&self.lease_identity)
         .fetch_one(&self.pool)
         .await;
+
         match result {
             Ok(phase) if phase == "READY" => Ok(ReleasedLegacyReplayMigrationAuthorityV1 {
                 pool: self.pool.clone(),
@@ -720,6 +738,10 @@ impl LegacyReplayMigrationAuthorityV1 {
 
 impl ReleasedLegacyReplayMigrationAuthorityV1 {
     /// Repeats the exact release readback and proves cleanup remains idempotent.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the release readback is unavailable or does not report `READY`.
     pub async fn confirm_ready(&self) -> Result<(), sqlx::Error> {
         let phase: String =
             sqlx::query_scalar("SELECT vibe_test_legacy_migration_lease.release_v1($1,$2)")
@@ -727,6 +749,7 @@ impl ReleasedLegacyReplayMigrationAuthorityV1 {
                 .bind(&self.lease_identity)
                 .fetch_one(&self.pool)
                 .await?;
+
         if phase == "READY" {
             Ok(())
         } else {
@@ -1998,6 +2021,7 @@ mod tests {
         assert!(!caller_identity_admission.contains(".connect("));
         assert!(!caller_identity_admission.contains(".fetch_one("));
         assert!(acquire.contains("connect_lazy_with"));
+
         for exact_preflight in [
             "session_user='vibe_test_legacy_migration_caller'",
             "marker.marker_identity=$2 AND marker.database_name=$1",
@@ -2039,6 +2063,7 @@ mod tests {
                 .count(),
             2
         );
+
         for required in [
             "pub async fn retry_acquire(&self)",
             "pub async fn try_wrong_lease(&self",
@@ -2054,6 +2079,7 @@ mod tests {
         }
         assert!(!test_loop.contains("GRANT CREATE ON SCHEMA public TO rd_owner;"));
         assert!(!test_loop.contains("GRANT rd_custodian TO rd_owner;"));
+
         for digest in [
             LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1,
             LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1,
