@@ -63,12 +63,25 @@ jobs:
           free-disk-space: "true"
           free-disk-space-max-build: "true"
           minimum-free-space-gb: "110"
-          rust-cache-enabled: "false"
+          rust-cache-enabled: "true"
+          rust-cache-workspaces: ". -> target/rd-owner-postgres"
+          rust-cache-on-failure: "false"
+          rust-cache-key: >-
+            rd-owner-postgres-v1-${{ hashFiles(
+            'Cargo.lock',
+            'rust-toolchain.toml',
+            'Cargo.toml',
+            'crates/**/Cargo.toml',
+            '.cargo/config.toml',
+            '.config/nextest.toml',
+            'Makefile') }}
           uv-cache-enabled: "false"
           prek-cache-enabled: "false"
           capnp-cache-enabled: "false"
-          rust-cache-save-if: "false"
-          rust-cache-workspace-crates: "false"
+          rust-cache-save-if: >-
+            ${{ github.repository == 'qOeOp/trade'
+            && github.event_name == 'push' }}
+          rust-cache-workspace-crates: "true"
 
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
