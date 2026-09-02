@@ -662,7 +662,7 @@ impl PostgresResearchGoalOwnerV1 {
                          ELSE NOT routine.prosecdef
                            OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
                        END
-                    OR (SELECT pg_catalog.array_agg(role.rolname ORDER BY role.rolname)
+                    OR (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
                           FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
                           JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
                          WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS DISTINCT FROM
@@ -977,9 +977,15 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        migrate_trial_family(pool)
+        let session_is_rd_owner: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner'")
+            .fetch_one(pool)
             .await
-            .map_err(|e| trial_family_storage(&e))?;
+            .map_err(|e| storage(&e))?;
+        if session_is_rd_owner {
+            migrate_trial_family(pool)
+                .await
+                .map_err(|e| trial_family_storage(&e))?;
+        }
         crate::exploratory_replay::postgres::migrate(pool)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
@@ -2670,6 +2676,9 @@ mod tests {
                     .find("rd_owner_api.derive_source_intake_identity_v1(")
                     .expect("dependent research SQL")
         );
+        assert!(migration.contains("SELECT SESSION_USER='rd_owner'"));
+        assert!(migration.contains("if session_is_rd_owner"));
+        assert!(source.contains("array_agg(role.rolname::text ORDER BY role.rolname)"));
     }
 
     #[rstest]

@@ -1139,6 +1139,8 @@ SQL
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
 GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
+GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;
+GRANT CREATE ON SCHEMA public TO rd_owner;
 SQL
 
   if ! env \
