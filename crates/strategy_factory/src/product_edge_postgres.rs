@@ -54,7 +54,7 @@ use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
     SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
-    validate_existing_source_intake_topology,
+    validate_existing_source_intake_object_topology, validate_existing_source_intake_topology,
 };
 
 #[derive(Clone)]
@@ -503,6 +503,36 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
+
+        let rd_objects_current = Self::existing_rd_storage_object_diagnostics(&pool)
+            .await
+            .map_err(|_| existing_rd_storage_unavailable())?
+            .is_empty();
+        let source_objects_current = validate_existing_source_intake_object_topology(&pool)
+            .await
+            .is_ok();
+
+        if rd_objects_current && source_objects_current {
+            let qualification =
+                PostgresQualificationOwnerV1::connect_existing(qualification_database_url)
+                    .await
+                    .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+            return Ok(Self {
+                pool,
+                qualification,
+                backtest: None,
+                source_policy: None,
+                source_submission: None,
+            });
+        }
+
+        if Self::sealed_rd_storage_is_present(&pool)
+            .await
+            .map_err(|_| existing_rd_storage_unavailable())?
+        {
+            return Err(existing_rd_storage_unavailable());
+        }
+
         Self::migrate_rd_storage(&pool).await?;
         let qualification = PostgresQualificationOwnerV1::connect(qualification_database_url)
             .await
@@ -725,7 +755,49 @@ impl PostgresResearchGoalOwnerV1 {
                     invariant: row.get("invariant"),
                 })
                 .collect()
-        })
+            })
+    }
+
+    async fn existing_rd_storage_object_diagnostics(
+        pool: &PgPool,
+    ) -> Result<Vec<ExistingRdStorageDiagnostic>, sqlx::Error> {
+        Self::existing_rd_storage_diagnostics(pool)
+            .await
+            .map(|diagnostics| {
+                diagnostics
+                    .into_iter()
+                    .filter(|diagnostic| !is_rd_runtime_authority_diagnostic(diagnostic))
+                    .collect()
+            })
+    }
+
+    async fn sealed_rd_storage_is_present(pool: &PgPool) -> Result<bool, sqlx::Error> {
+        sqlx::query_scalar(
+            "SELECT COALESCE(
+                 pg_catalog.pg_get_userbyid((
+                   SELECT namespace.nspowner
+                     FROM pg_catalog.pg_namespace namespace
+                    WHERE namespace.nspname='rd_owner_api'
+                 ))='rd_custodian', false
+               ) OR EXISTS (
+                 SELECT 1
+                   FROM pg_catalog.pg_class relation
+                  WHERE relation.oid IN (
+                    pg_catalog.to_regclass('public.rd_research_request_receipts_v1'),
+                    pg_catalog.to_regclass('public.rd_source_intake_bindings_v1')
+                  )
+                    AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
+               ) OR EXISTS (
+                 SELECT 1
+                   FROM pg_catalog.pg_proc routine
+                  WHERE routine.oid=pg_catalog.to_regprocedure(
+                    'rd_owner_api.derive_source_intake_identity_v1(text,text[])'
+                  )
+                    AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
+               )",
+        )
+        .fetch_one(pool)
+        .await
     }
 
     async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
@@ -1345,6 +1417,32 @@ impl PostgresResearchGoalOwnerV1 {
         transaction.commit().await.map_err(|e| storage(&e))?;
         custody.into_v2_result_with_policy_current(read_cut, policy_current)
     }
+}
+
+fn is_rd_runtime_authority_diagnostic(diagnostic: &ExistingRdStorageDiagnostic) -> bool {
+    matches!(
+        (
+            diagnostic.kind.as_str(),
+            diagnostic.locator.as_str(),
+            diagnostic.invariant.as_str(),
+        ),
+        (
+            "role",
+            "role:rd_owner",
+            "session_identity_and_login_capabilities" | "membership_isolation"
+        ) | ("database", _, "runtime_connect_without_create_or_temporary")
+            | ("schema", "schema:public", "runtime_create_denied")
+            | (
+                "role",
+                "role:rd_owner->role:rd_custodian",
+                "membership_denied"
+            )
+            | (
+                "schema",
+                "schema:rd_owner_api",
+                "runtime_usage_without_create"
+            )
+    )
 }
 
 fn assemble_peeked_source_intake_research_request_v1(
@@ -2759,6 +2857,54 @@ mod tests {
     }
 
     #[rstest]
+    fn migration_connection_reuses_complete_sealed_custody_without_ddl() {
+        let source = include_str!("product_edge_postgres.rs");
+        let connect = source
+            .split("pub async fn connect(")
+            .nth(1)
+            .expect("R&D Owner migration connection")
+            .split("pub async fn connect_existing")
+            .next()
+            .expect("migration connection boundary");
+
+        let object_validation = connect
+            .find("Self::existing_rd_storage_object_diagnostics(&pool)")
+            .expect("R&D object manifest validation");
+        let source_validation = connect
+            .find("validate_existing_source_intake_object_topology(&pool)")
+            .expect("Source Intake object manifest validation");
+        let sealed_stop = connect
+            .find("Self::sealed_rd_storage_is_present(&pool)")
+            .expect("partial sealed custody stop");
+        let migration = connect
+            .find("Self::migrate_rd_storage(&pool)")
+            .expect("fresh or legacy migration");
+
+        assert!(object_validation < sealed_stop);
+        assert!(source_validation < sealed_stop);
+        assert!(sealed_stop < migration);
+        assert!(connect.contains("PostgresQualificationOwnerV1::connect_existing"));
+        assert!(connect.contains("return Err(existing_rd_storage_unavailable())"));
+    }
+
+    #[rstest]
+    fn object_manifest_projection_discards_only_runtime_identity_diagnostics() {
+        let runtime = ExistingRdStorageDiagnostic {
+            kind: "role".into(),
+            locator: "role:rd_owner".into(),
+            invariant: "session_identity_and_login_capabilities".into(),
+        };
+        let object = ExistingRdStorageDiagnostic {
+            kind: "routine".into(),
+            locator: "routine:rd_owner_api.example()".into(),
+            invariant: "source_seal".into(),
+        };
+
+        assert!(is_rd_runtime_authority_diagnostic(&runtime));
+        assert!(!is_rd_runtime_authority_diagnostic(&object));
+    }
+
+    #[rstest]
     fn existing_connection_acl_manifest_admits_only_catalog_outbox_insert() {
         let expected = ["DELETE", "INSERT", "SELECT", "UPDATE"];
         let same_count_substitution = ["DELETE", "INSERT", "TRUNCATE", "UPDATE"];
@@ -2781,7 +2927,10 @@ mod tests {
                 .contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]")
         );
         assert!(validation.contains(
-            "required.name='rd_sealed_exploratory_replay_requests_v1' AND EXISTS (\n                         SELECT 1 FROM pg_catalog.pg_attribute attribute\n                         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
+            "NOT EXISTS (\n                        SELECT 1 FROM pg_catalog.pg_attribute attribute\n                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
+        ));
+        assert!(validation.contains(
+            "name='rd_sealed_exploratory_replay_requests_v1' AND oid IS NOT NULL AND NOT columns_owner_private"
         ));
         assert!(validation.contains("acl.grantee<>relation.relowner"));
         assert!(validation.contains(
@@ -2800,7 +2949,7 @@ mod tests {
             "WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN",
         ] {
             assert!(validation.contains(&format!(
-                "{invoker_signature}\n                           routine.prosecdef\n                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]"
+                "{invoker_signature}\n                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]"
             )));
         }
         assert!(

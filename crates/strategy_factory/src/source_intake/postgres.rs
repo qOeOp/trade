@@ -41,6 +41,23 @@ use super::{OpenAlexWorkByDoiRequestV1, SourceIntakePolicyEvidenceV1};
 pub async fn validate_existing_source_intake_topology(
     pool: &PgPool,
 ) -> Result<(), SourceIntakeError> {
+    validate_existing_source_intake_topology_for(pool, true).await
+}
+
+/// Validates only the immutable Source Intake object manifest.
+///
+/// Migration callers use this catalog-only projection to recognize an already sealed deployment
+/// without pretending that their topology-administration connection is the runtime `rd_owner`.
+pub async fn validate_existing_source_intake_object_topology(
+    pool: &PgPool,
+) -> Result<(), SourceIntakeError> {
+    validate_existing_source_intake_topology_for(pool, false).await
+}
+
+async fn validate_existing_source_intake_topology_for(
+    pool: &PgPool,
+    require_runtime_authority: bool,
+) -> Result<(), SourceIntakeError> {
     let exact: bool = sqlx::query_scalar(
         "WITH required_relations(name,runtime_privileges) AS (
            VALUES
@@ -77,16 +94,18 @@ pub async fn validate_existing_source_intake_topology(
              ('rd_research_source_provenance_immutable_v1','rd_research_source_provenance_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_research_source_provenance_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_research_source_provenance_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
              ('rd_source_candidate_immutable_v1','rd_source_candidates_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_candidate_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_source_candidates_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()')
          )
-         SELECT session_user='rd_owner'
-           AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname=session_user AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
-           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
-           AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+         SELECT (NOT $1 OR (
+             session_user='rd_owner'
+             AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname=session_user AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+             AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+             AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+             AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
+             AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
+             AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+             AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
+           ))
            AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
-           AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
            AND pg_catalog.pg_get_userbyid((SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='rd_owner_api'))='rd_custodian'
-           AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
-           AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
-           AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
            AND NOT EXISTS (
              SELECT 1 FROM required_relations required
              LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||required.name)
@@ -128,6 +147,7 @@ pub async fn validate_existing_source_intake_topology(
                 ) FROM required_triggers required JOIN pg_catalog.pg_trigger trigger_fact ON trigger_fact.tgname=required.name AND NOT trigger_fact.tgisinternal)
            AND (SELECT pg_catalog.count(*)=6 FROM pg_catalog.pg_trigger trigger_fact WHERE NOT trigger_fact.tgisinternal AND trigger_fact.tgrelid IN (SELECT pg_catalog.to_regclass('public.'||required.name) FROM required_relations required))",
     )
+    .bind(require_runtime_authority)
     .fetch_one(pool)
     .await
     .map_err(source_storage)?;
