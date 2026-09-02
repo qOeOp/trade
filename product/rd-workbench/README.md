@@ -119,6 +119,8 @@ mintable, workspace-bound token request with exactly these scopes:
 
 - `mcp:scripts:f/trade/product_edge/research_goal_v2`
 - `mcp:scripts:f/trade/product_edge/artifact_build_v1`
+- `mcp:scripts:f/trade/product_edge/exploratory_replay_v2`
+- `mcp:scripts:f/trade/product_edge/develop_composer_v2`
 - `mcp:endpoints:getJob,getJobLogs`
 
 The profile intentionally omits `mcp:all`, favorites, folder wildcards, flows, previews, deployment, workspace listing, and every create/update/delete tool. Folder filtering is not the security boundary.
@@ -143,5 +145,21 @@ Its only legal action is to resolve the original Owner receipt under that same
 identity.
 
 The `artifact_build.submit_or_resolve.v1` script is the one App/MCP operation. `RUN` reads canonical frozen Intent bytes from the Owner, invokes a bounded server-side provider, and submits only a typed untrusted candidate. Missing provider configuration and provider/parse failures fail closed through the Owner without a template fallback. The sandbox has no network, secret, Docker socket, host effect port, or ambient input mount; its schema-v2 receipt binds the pinned image, Dockerfile, toolchain, target, offline policy, and byte-identical double build before runtime admission.
+
+The Develop Composer V2 Agent entry is one typed App/MCP transport operation at
+`f/trade/product_edge/develop_composer_v2`. `RUN` forwards only an unchanged,
+untrusted `DevelopComposerRunRequestV2`-compatible Design, binding-request set,
+and bounded plugin capsule set to the existing R&D Owner endpoint. `RESOLVE`
+sends no request body and can address only that exact request identity. The
+script never calls a database, creates an Owner fact or receipt, handles a
+verified-build token, or turns transport ambiguity into success. The default
+Owner composition remains truthfully `UNAVAILABLE`; only the compile-time
+sealed acceptance composition can expose its bounded positive proof.
+
+This entry is CURRENT only as a typed, fail-closed transport. Durable Composer
+custody and the composed Source Intake-to-Research-to-Composer path remain the
+documented TARGET/SEALED_ACCEPTANCE work. Complex-strategy production readiness,
+ATR/RSI behavior, joined or multi-timeframe data, Backtest, Paper, Live,
+deployment, and trading effects are NOT_ADMITTED by this script or MCP scope.
 
 Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.
