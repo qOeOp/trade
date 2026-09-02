@@ -249,7 +249,7 @@ impl PostgresReplayResultOwnerV2 {
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_transaction_principal(&mut transaction).await?;
-        let query = format!("{READ_AGGREGATE} WHERE result.result_identity=$1 FOR UPDATE OF result");
+        let query = format!("{READ_AGGREGATE} WHERE result.result_identity=$1");
         let row = sqlx::query(sqlx::AssertSqlSafe(query))
             .bind(result_identity.as_str())
             .fetch_optional(&mut *transaction)
@@ -337,7 +337,7 @@ async fn read_matching_aggregate(
     result: &ReplayResultDtoV2,
 ) -> Result<Option<ReplayResultReadbackV2>, PostgresReplayResultOwnerErrorV2> {
     let query = format!(
-        "{READ_AGGREGATE} WHERE result.result_identity=$1 OR (result.request_identity=$2 AND result.attempt_identity=$3) FOR UPDATE OF result"
+        "{READ_AGGREGATE} WHERE result.result_identity=$1 OR (result.request_identity=$2 AND result.attempt_identity=$3)"
     );
     let rows = sqlx::query(sqlx::AssertSqlSafe(query))
         .bind(result.result_identity.as_str())
