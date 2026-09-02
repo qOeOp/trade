@@ -826,6 +826,7 @@ mod postgres_tests {
             .split_once("let column_shape")
             .expect("Catalog migration authority validator boundary")
             .0;
+
         for required in [
             "(NOT $2 OR SESSION_USER='rd_owner')",
             "count(*)=1 AND bool_and(granted_role='rd_custodian' AND member_role='rd_owner'",

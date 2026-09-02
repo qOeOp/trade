@@ -1067,6 +1067,7 @@ fn unavailable(error: impl Display) -> TrialFamilyError {
 #[cfg(test)]
 mod postgres_binding_tests {
     use super::*;
+    use rstest::rstest;
     use crate::{
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
         trial_family::{
@@ -1091,7 +1092,7 @@ mod postgres_binding_tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn legacy_migration_authority_accepts_only_the_exact_lease_topology() {
         assert!(exact_legacy_migration_authority().is_exact());
 
@@ -1117,7 +1118,7 @@ mod postgres_binding_tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn legacy_migration_query_binds_owner_membership_and_option_readback() {
         let source = include_str!("trial_family_postgres.rs");
         let migration_only = source
