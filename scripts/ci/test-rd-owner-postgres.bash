@@ -190,7 +190,7 @@ sql_match = re.search(
 )
 rust_match = re.search(r'const FUNCTION_SOURCE: &str = "([^"]*)";', rust)
 lock_sql_match = re.search(
-    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.lock_authority_catalogs_v1\(\)"
+    r"CREATE OR REPLACE FUNCTION backtest_authority_lock_api\.lock_authority_catalogs_v1\(\)"
     r".*?AS \$function\$(.*?)\$function\$;",
     migration,
     re.DOTALL,
@@ -209,6 +209,30 @@ if sql_match.group(1) != rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result locked-read source identity mismatch")
 if lock_sql_match.group(1) != lock_rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result authority-lock source identity mismatch")
+required_isolation = (
+    "CREATE SCHEMA IF NOT EXISTS backtest_authority_lock_api AUTHORIZATION postgres;",
+    "misplaced Backtest authority-lock function provenance mismatch",
+    "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner;",
+    "namespace.nspname='backtest_authority_lock_api'",
+    "pg_catalog.pg_class relation WHERE relation.relnamespace=namespace.oid",
+    "pg_catalog.pg_default_acl default_acl WHERE default_acl.defaclnamespace=namespace.oid",
+)
+if any(required not in migration for required in required_isolation):
+    raise SystemExit("ERROR: Backtest Result authority-lock schema isolation is unavailable")
+runtime_census = (
+    "pg_catalog.pg_class relation WHERE relation.relnamespace=namespace.oid",
+    "pg_catalog.pg_type data_type WHERE data_type.typnamespace=namespace.oid",
+    "pg_catalog.pg_operator operator WHERE operator.oprnamespace=namespace.oid",
+    "pg_catalog.pg_default_acl default_acl WHERE default_acl.defaclnamespace=namespace.oid",
+)
+if any(required not in rust for required in runtime_census):
+    raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
+if "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner, backtest_owner;" in migration:
+    raise SystemExit("ERROR: backtest_owner retains sibling Owner API namespace access")
+if "backtest_authority_lock_api.poisoned_sibling_v1()" not in test_script:
+    raise SystemExit("ERROR: authority-lock sibling rejection oracle is unavailable")
+if "backtest_authority_lock_api.poisoned_relation_v1" not in test_script:
+    raise SystemExit("ERROR: authority-lock object rejection oracle is unavailable")
 ordered_fences = re.compile(
     r"SELECT pg_catalog\.pg_advisory_xact_lock\(\s*"
     r"pg_catalog\.hashtextextended\('vibe\.backtest\.result-topology\.v2',0\)\s*"
@@ -902,6 +926,91 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
+run_authority_migration_for_database() {
+  local fixture_database="$1"
+  docker exec --interactive \
+    --env POSTGRES_HOST=127.0.0.1 \
+    --env "POSTGRES_DATABASE=${fixture_database}" \
+    --env "POSTGRES_PASSWORD=${test_password}" \
+    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+    --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+    --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
+    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+}
+
+verify_authority_lock_schema_sibling_fails_closed() {
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+CREATE FUNCTION backtest_authority_lock_api.poisoned_sibling_v1()
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS 'SELECT true';
+COMMIT;
+SQL
+
+  if run_authority_migration_for_database "$test_database"; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+DROP FUNCTION IF EXISTS backtest_authority_lock_api.poisoned_sibling_v1();
+COMMIT;
+SQL
+    echo "ERROR: authority migration accepted a sibling in the authority-lock schema." >&2
+    return 1
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+DROP FUNCTION IF EXISTS backtest_authority_lock_api.poisoned_sibling_v1();
+COMMIT;
+SQL
+  run_authority_migration_for_database "$test_database"
+}
+
+verify_authority_lock_schema_sibling_fails_closed
+
+verify_authority_lock_schema_object_fails_closed() {
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+CREATE TABLE backtest_authority_lock_api.poisoned_relation_v1(value text);
+GRANT SELECT ON TABLE backtest_authority_lock_api.poisoned_relation_v1 TO PUBLIC;
+COMMIT;
+SQL
+
+  if run_authority_migration_for_database "$test_database"; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+DROP TABLE IF EXISTS backtest_authority_lock_api.poisoned_relation_v1;
+COMMIT;
+SQL
+    echo "ERROR: authority migration accepted an object in the authority-lock schema." >&2
+    return 1
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+DROP TABLE IF EXISTS backtest_authority_lock_api.poisoned_relation_v1;
+COMMIT;
+SQL
+  run_authority_migration_for_database "$test_database"
+}
+
+verify_authority_lock_schema_object_fails_closed
+
 verify_cross_database_authority_catalog_fence() {
   local holder_pid
   local mutator_pid
@@ -917,7 +1026,7 @@ verify_cross_database_authority_catalog_fence() {
     --username rd_owner --dbname "$test_database" > /dev/null << 'SQL' &
 SET application_name='vibe-backtest-authority-holder-v1';
 BEGIN;
-SELECT backtest_owner_api.lock_authority_catalogs_v1();
+SELECT backtest_authority_lock_api.lock_authority_catalogs_v1();
 SELECT pg_catalog.pg_sleep(2);
 ROLLBACK;
 SQL
