@@ -1067,7 +1067,6 @@ fn unavailable(error: impl Display) -> TrialFamilyError {
 #[cfg(test)]
 mod postgres_binding_tests {
     use super::*;
-    use rstest::rstest;
     use crate::{
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
         trial_family::{
@@ -1076,6 +1075,7 @@ mod postgres_binding_tests {
             TrialFamilyPolicyV1, form_initial_family,
         },
     };
+    use rstest::rstest;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use vibe_testkit::postgres::{DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation};
 
