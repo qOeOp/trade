@@ -1087,8 +1087,8 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires the harness-injected cross-spliced Backtest aggregate"]
-    async fn postgres_result_rd_read_rejects_cross_spliced_aggregate() {
+    #[ignore = "requires the harness-injected inherited Backtest Owner membership"]
+    async fn postgres_result_rd_read_rejects_inherited_owner_membership() {
         assert_rd_result_fault_fails_closed().await;
     }
 

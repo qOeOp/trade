@@ -33,7 +33,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
-  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_cross_spliced_aggregate'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_inherited_owner_membership'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
@@ -69,7 +69,7 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[13]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
     [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_cross_spliced_aggregate' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
     [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
     [[ "${rd_owner_postgres_tests[18]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
     [[ "${rd_owner_postgres_tests[19]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
@@ -847,16 +847,10 @@ SQL
 GRANT SELECT ON TABLE public.backtest_replay_results_v2 TO rd_owner;
 SQL
       ;;
-    splice)
+    membership)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
-CREATE TABLE vibe_test_admin.backtest_result_receipt_backup_v1 AS
-SELECT result_identity,canonical_bytes FROM public.backtest_replay_result_receipts_v1
-WHERE request_identity='request' AND result_identity LIKE 'backtest-replay-result-v2-%';
-UPDATE public.backtest_replay_result_receipts_v1 receipt
-SET canonical_bytes=outbox.canonical_bytes
-FROM public.backtest_replay_result_outbox_v1 outbox
-WHERE receipt.result_identity=outbox.result_identity AND receipt.request_identity='request';
+GRANT backtest_owner TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 SQL
       ;;
     rollback)
@@ -873,14 +867,10 @@ SQL
 
 restore_backtest_result_fault() {
   local fault="$1"
-  if [[ "$fault" == splice ]]; then
+  if [[ "$fault" == membership ]]; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
-UPDATE public.backtest_replay_result_receipts_v1 receipt
-SET canonical_bytes=backup.canonical_bytes
-FROM vibe_test_admin.backtest_result_receipt_backup_v1 backup
-WHERE receipt.result_identity=backup.result_identity;
-DROP TABLE vibe_test_admin.backtest_result_receipt_backup_v1;
+REVOKE backtest_owner FROM rd_owner;
 SQL
   elif [[ "$fault" == rollback ]]; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -917,7 +907,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   case "$test_name" in
     postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
     postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
-    postgres_result_rd_read_rejects_cross_spliced_aggregate) backtest_result_fault=splice ;;
+    postgres_result_rd_read_rejects_inherited_owner_membership) backtest_result_fault=membership ;;
     postgres_result_mid_commit_failure_rolls_back_every_aggregate_row) backtest_result_fault=rollback ;;
   esac
   if [[ -n "$backtest_result_fault" ]]; then
