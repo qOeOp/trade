@@ -437,7 +437,11 @@ ON CONFLICT (binding_identity, manifest_identity) DO NOTHING;
 DO $rd_ownership$
 DECLARE object record;
 BEGIN
-  FOR object IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'rd_%' LOOP
+  FOR object IN
+    SELECT schemaname, tablename FROM pg_tables
+    WHERE schemaname = 'public' AND tablename LIKE 'rd_%'
+      AND tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1')
+  LOOP
     EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_custodian', object.schemaname, object.tablename);
     EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner', object.schemaname, object.tablename);

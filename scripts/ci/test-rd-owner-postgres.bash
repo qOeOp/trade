@@ -194,6 +194,7 @@ check_migration_authority_boundary() {
     ! rg -Fq 'return "$migration_status"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'Source Intake/legacy drain topology is partial' "$authority_migration" ||
     ! rg -Fq 'sealed relation schema or ACL drift' "$authority_migration" ||
+    ! rg -Fq "tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1')" "$authority_migration" ||
     ! rg -Fq "('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],'890e336826ddcdf96d948b012c5ba32d')" "$authority_migration" ||
     ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',false,false,'v','u',NULL::text[],'7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
     ! rg -Fq 'Source Intake routine ownership, seal, or ACL manifest mismatch' "$authority_migration" ||
