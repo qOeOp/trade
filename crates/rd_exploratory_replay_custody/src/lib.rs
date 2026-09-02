@@ -383,19 +383,20 @@ async fn validate_resolution_binding(
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
+             AND owner.rolname='rd_custodian'
              AND language.lanname='plpgsql'
              AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE' AND acl.grantee <> owner.oid
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
              )
              AND EXISTS (
                SELECT 1 FROM pg_catalog.pg_proc helper
                JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                WHERE helper.oid=pg_catalog.to_regprocedure($2)
-                 AND helper_owner.rolname='rd_owner'
+                 AND helper_owner.rolname='rd_custodian'
                  AND NOT helper.prosecdef
                  AND helper.provolatile='v'
                  AND helper.proparallel='u'
@@ -405,7 +406,8 @@ async fn validate_resolution_binding(
                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                  AND NOT EXISTS (
                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                    WHERE helper_acl.privilege_type='EXECUTE' AND helper_acl.grantee<>helper_owner.oid
+                    WHERE helper_acl.privilege_type='EXECUTE'
+                      AND helper_acl.grantee NOT IN (helper_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
                  )
              )
            FROM pg_catalog.pg_proc procedure

@@ -143,7 +143,7 @@ BEGIN
 END
 $normalize_runtime_api_schema_acl$;
 GRANT USAGE ON SCHEMA product_edge_api TO product_edge_owner, rd_owner, portfolio_owner;
-GRANT USAGE ON SCHEMA rd_owner_api TO rd_owner, product_edge_owner, qualification_writer;
+GRANT USAGE ON SCHEMA rd_owner_api TO rd_owner, product_edge_owner, qualification_writer, backtest_owner;
 REVOKE ALL ON SCHEMA public FROM backtest_owner;
 GRANT USAGE ON SCHEMA public TO backtest_owner;
 
@@ -1339,6 +1339,8 @@ BEGIN
 END
 $runtime_custody_cutover$;
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rd_owner_api TO rd_owner;
+REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 DO $grant_optional_rd_runtime_routines$
 DECLARE signature text;
 BEGIN

@@ -614,11 +614,12 @@ impl PostgresResearchGoalOwnerV1 {
                AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian'
                AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
                AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
-               AND (SELECT count(*)=5
+               AND (SELECT count(*)=6
                           AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
                     WHERE namespace.nspname='rd_owner_api')
@@ -670,6 +671,8 @@ impl PostgresResearchGoalOwnerV1 {
                          WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
                          WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
                          WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
+                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
                          ELSE ARRAY['rd_custodian','rd_owner']::text[]
                        END
                )",

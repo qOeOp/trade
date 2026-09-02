@@ -704,7 +704,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>helper_owner.oid
+                  AND acl.grantee NOT IN (helper_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
              )
              AND recovery_owner.rolname='rd_custodian'
              AND NOT recovery.prosecdef
@@ -718,7 +718,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(recovery.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>recovery_owner.oid
+                  AND acl.grantee NOT IN (recovery_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
              )
           FROM pg_catalog.pg_proc facade
           JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner
@@ -1401,7 +1401,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>helper_owner.oid
+                  AND acl.grantee NOT IN (helper_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
              )
           FROM pg_catalog.pg_proc facade
           JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner

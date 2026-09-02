@@ -1621,7 +1621,7 @@ async fn validate_backtest_binding_v2(
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
+             AND owner.rolname='rd_custodian'
              AND language.lanname='plpgsql'
              AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
@@ -1723,7 +1723,7 @@ async fn validate_backtest_binding(
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
+             AND owner.rolname='rd_custodian'
              AND language.lanname='plpgsql'
              AND pg_catalog.strpos(procedure.prosrc,'rd_owner_api.verify_exploratory_replay_request_internal_v1') > 0
              AND backtest.rolcanlogin
@@ -1754,14 +1754,14 @@ async fn validate_backtest_binding(
                   AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
-                  AND helper_owner.rolname='rd_owner'
+                  AND helper_owner.rolname='rd_custodian'
                   AND helper_language.lanname='plpgsql'
                   AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                   AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND helper_acl.grantee<>helper_owner.oid
+                       AND helper_acl.grantee NOT IN (helper_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
                   )
              )
            FROM pg_catalog.pg_proc procedure
