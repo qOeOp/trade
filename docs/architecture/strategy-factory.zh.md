@@ -140,6 +140,27 @@ capability closure、primitive 与 plugin ABI 版本、资源上限、lifecycle/
 1. **Lowering** 为 `ProgramHostV2` 生成唯一规范 `StrategyPlanV2` 和内容寻址 `StrategyArtifactV2` package。
    相同输入必须产生字节完全相同的 plan、Artifact 与 binding digest。
 
+**TARGET / NOT_ADMITTED，Market W3 持久 role-set attestation：** R&D Owner 必须在与 Composer aggregate、
+receipt 和 outbox 相同的 positive Develop Composer transaction 中持久化一份不可变、完整的 Strategy Design
+role-set attestation。该 attestation 绑定准确 Research
+request、Composer aggregate 与 `StrategyDesignV2`、按规范顺序排列的每个 typed role 及 semantic coordinate、
+完整 role coverage，以及其内容寻址准确 locator。它唯一的跨 Owner surface 是受数据库 ACL 保护、按准确 locator
+读取的 R&D read function；不存在 public constructor、deserializer、bearer token、cryptographic-key authority、
+latest/history scan 或 raw-table access。由于 locator 在发送前已知，response loss 只能通过解析同一 locator 并逐字节
+校验同一份已提交 attestation 来恢复，绝不能铸造 replacement。
+
+Market Data 的 positive Replay composition 只接受该不受信 attestation locator 与准确原生 dependency locator。
+Market Data 在内部校验 R&D attestation，但在原子签发 `ReplayCompositionBindingV1` 前，仍必须独立重新解析自身的
+持久 binding registry、完整 observation census、joined cut、sample projection、R0 与 Market Semantics fact。
+caller 提供的 receipt、readback、role set、count、authoritative token 或 `StrategyPlanV2` 永远不是 positive
+evidence。Market Data 不解析 R&D raw table，也不依赖 Strategy Factory；R&D 不能选择或重新解释任何 Market
+fact。证据缺失、partial、stale、reordered、digest mismatch 或 cross-splice 时，binding、Replay V2 fact、receipt
+与 outbox 均保持零写入。该设计保留上述唯一前向形态，既不增加新 Owner，也不增加第二个 canonicalization authority。
+
+在 disposable PostgreSQL Owner readback 与最终 consumer path 证明 positive、rejection 和 response-loss case
+之前，该 target 不声称 implementation、admitted store、deployed composition、production write、runtime 或
+trading authority。
+
 ### TARGET - ARC Complex D Bounded Feature Program V1
 
 `BoundedFeatureProgramV1`（BFP V1）是唯一接纳的通用 Complex D 表示。R&D/Develop 将其规范含义与 Research
@@ -398,6 +419,24 @@ trigger time、latest head 或本地 timeframe 解释派生或修复任何一个
 readback shape；Native Replay preparation 仅在同时持有准确 V1 joined-cut receipt 和完整 Plan binding set 时消费
 它。这不会使未来 BFP coordinate port 可执行，也不证明 Native Replay run、production startup、durable product
 composition 或 Backtest 闭合。
+
+**TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive
+`StrategyInputSampleProjectionV4` 是唯一可在完整 native join 中组合 BAR component 的 projection。
+它的 projection kind 闭集为 `FRAME|JOINED_CUT`，lifecycle 闭集为 `BAR`；V2 EVENT/FRAME/JOINED_CUT 与 V3
+BAR/FRAME 的 bytes、identity、semantics 和 resolver 保持不变。V4 JOINED_CUT 以准确、未改变的 V1 joined-cut
+receipt digest 为 subject。其 receipt identity 还覆盖准确 canonical schedule-dependency-set digest，且每个 V4
+component 的 role、binding、frame、timeframe、sample、coordinate 与 schedule dependency field 都必须严格等于
+对应 Owner-resolved V3 BAR FRAME component。caller、Composer 或 consumer 均不得重新 canonicalize、narrow
+或 substitute 任一集合。
+
+首个 corpus 准确包含六个 role：1-minute OPEN、HIGH、LOW 与 CLOSE，1-hour CLOSE，以及 exchange-session
+1-day CLOSE。1-minute CLOSE 是 trigger。四个 1-minute role 必须解析同一个完整 schedule slot 与 observation
+batch。1-hour 与 1-day component 必须是在其 Owner schedule 下不晚于该 trigger 的完整 latest-closed sample；
+1-day component 是 exchange-session day，绝不能替换为 UTC day 或 24-hour interval。W3 只能消费按准确 locator
+回读的 V4 JOINED_CUT，绝不能把 V2 或 V3 当作 joined composition。证据缺失、partial、future、stale、duplicate、
+cross-batch、cross-slot、schedule-set、V1-subject 或 strict component-equality failure，必须在 Composer、Plan、
+Artifact、Host、Backtest 或 lifecycle mutation 前拒绝。该 target 不授予 production、deployment、runtime 或
+trading authority。
 
 Market Data 为 sealed static binding 解析准确 historical timeframe-projection receipt，并从 verified census
 中选择、封存 coordinate。R&D、Strategy Factory、Host caller、Backtest 与 plugin 都不能 mint、narrow、

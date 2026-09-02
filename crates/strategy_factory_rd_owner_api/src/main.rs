@@ -11,6 +11,10 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::replay_market_facts_v2::{
+    ReplayCompositionOwnerV1, UntrustedComposerNativeJoinRequestV1,
+};
 #[cfg(test)]
 use vibe_data::owner::{
     ResearchPitTerminalBootstrapError, ResearchPitTerminalBootstrapFailure,
@@ -191,8 +195,28 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let develop_composer =
-        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&composer_writer_database_url).await?);
+    let replay_composition = ReplayCompositionOwnerV1::connect(
+        &required_env("MARKET_DATA_OWNER_DATABASE_URL")?,
+        &required_env("MARKET_DATA_RD_ROLE_SET_DATABASE_URL")?,
+    )
+    .await?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let native_join_request: UntrustedComposerNativeJoinRequestV1 = serde_json::from_str(
+        &required_env("MARKET_DATA_COMPOSER_NATIVE_JOIN_LOCATORS_V1")?,
+    )?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let native_join = replay_composition
+        .issue_composer_native_join_v1(&native_join_request)
+        .await?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let develop_composer = Arc::new(
+        SealedDevelopComposerAcceptanceV2::connect_with_writer_and_native_join(
+            &database_url,
+            &composer_writer_database_url,
+            native_join,
+        )
+        .await?,
+    );
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -1574,6 +1598,23 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+
+    #[rstest]
+    fn composer_startup_issues_market_data_native_join_before_consuming_it() {
+        let source = include_str!("main.rs");
+        let issuance = source
+            .find("issue_composer_native_join_v1(&native_join_request)")
+            .expect("Market Data native-join issuance");
+        let composer = source
+            .find("connect_with_writer_and_native_join(")
+            .expect("move-only Composer construction");
+        assert!(issuance < composer);
+        assert!(source.contains("MARKET_DATA_OWNER_DATABASE_URL"));
+        assert!(source.contains("MARKET_DATA_RD_ROLE_SET_DATABASE_URL"));
+        assert!(source.contains("MARKET_DATA_COMPOSER_NATIVE_JOIN_LOCATORS_V1"));
+        let forbidden_route = ["/v1/strategy-design-role-sets", "/resolve"].concat();
+        assert!(!source.contains(&forbidden_route));
+    }
 
     #[rstest]
     fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {

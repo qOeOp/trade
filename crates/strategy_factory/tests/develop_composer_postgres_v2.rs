@@ -33,6 +33,19 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(migration.contains("capsule_identity BYTEA NOT NULL UNIQUE"));
     assert!(migration.contains("canonical_bytes BYTEA NOT NULL"));
     assert!(migration.contains("module_bytes BYTEA NOT NULL"));
+    assert!(migration.contains("attestation_identity BYTEA NOT NULL UNIQUE"));
+    assert!(migration.contains("native_join_digest BYTEA NOT NULL UNIQUE"));
+    assert!(
+        migration.contains("composer_owner_api.resolve_strategy_design_role_set_attestation_v1")
+    );
+    assert!(migration.contains("composer_owner_api.resolve_strategy_design_native_join_v1"));
+    assert!(migration.contains("GRANT USAGE ON SCHEMA composer_owner_api TO market_data_reader"));
+    assert!(
+        migration.contains(
+            "REVOKE ALL ON ALL TABLES IN SCHEMA composer_private FROM market_data_reader"
+        )
+    );
+    assert!(!source.contains("CREATE TABLE IF NOT EXISTS"));
     assert!(migration.contains("REVOKE ALL ON ALL TABLES IN SCHEMA"));
     assert!(!source.contains("JSONB"));
     assert!(!source.contains("serde_json"));
@@ -123,6 +136,8 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         "composer_private.rd_develop_composer_receipts_v2",
         "composer_private.rd_develop_host_receipts_v2",
         "composer_private.rd_develop_operations_v2",
+        "composer_private.rd_develop_strategy_design_role_set_attestations_v1",
+        "composer_private.rd_develop_strategy_design_native_joins_v1",
         "composer_private.rd_develop_outbox_v2",
     ] {
         assert!(source.contains(table));
@@ -222,7 +237,7 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
         reader.read_accepted(&unknown).await,
         Err(DevelopComposerSealedReadErrorV2::Unavailable)
     );
-    assert_eq!(custody_counts(topology_admin_pool).await, [0; 9]);
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 11]);
 
     let owner = SealedDevelopComposerAcceptanceV2::connect(
         database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
@@ -370,7 +385,7 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
         .expect("caller backend after missing read");
     assert_eq!(backend_after, backend_before);
     transaction.rollback().await.expect("missing-read rollback");
-    assert_eq!(custody_counts(topology_admin_pool).await, [0; 9]);
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 11]);
 
     let run = owner.run().await.expect("sealed Composer RUN");
     let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
@@ -538,7 +553,7 @@ async fn corrupt_plan_bytes(
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 9] {
+async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 11] {
     let row = sqlx::query(
         "SELECT
            (SELECT count(*) FROM composer_private.rd_develop_designs_v2) AS designs,
@@ -549,6 +564,8 @@ async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 9] {
            (SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2) AS composer_receipts,
            (SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2) AS host_receipts,
            (SELECT count(*) FROM composer_private.rd_develop_operations_v2) AS operations,
+           (SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1) AS role_set_attestations,
+           (SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1) AS native_joins,
            (SELECT count(*) FROM composer_private.rd_develop_outbox_v2) AS outbox",
     )
     .fetch_one(pool)
@@ -563,6 +580,8 @@ async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 9] {
         row.get("composer_receipts"),
         row.get("host_receipts"),
         row.get("operations"),
+        row.get("role_set_attestations"),
+        row.get("native_joins"),
         row.get("outbox"),
     ]
 }

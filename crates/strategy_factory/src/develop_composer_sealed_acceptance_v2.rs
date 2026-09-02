@@ -67,7 +67,7 @@ mod sealed {
     };
     use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES;
     use vibe_data::owner::{
-        sealed_acceptance::issue_strategy_input_universe_frame,
+        sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame,
         strategy_input_binding::{
             MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
             UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
@@ -104,6 +104,8 @@ mod sealed {
         store: PostgresDevelopComposerStoreV2,
         request: &'static DevelopComposerRunRequestV2,
         evidence: SealedDevelopComposerAcceptanceEvidenceV2,
+        native_join:
+            Option<vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1>,
     }
 
     struct SealedDevelopComposerA0BuildV2;
@@ -136,23 +138,54 @@ mod sealed {
                 store,
                 request,
                 evidence,
+                native_join: None,
             })
+        }
+
+        pub async fn connect_with_writer_and_native_join(
+            rd_owner_database_url: &str,
+            rd_fact_writer_database_url: &str,
+            native_join: vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1,
+        ) -> anyhow::Result<Self> {
+            let mut acceptance =
+                Self::connect_with_writer(rd_owner_database_url, rd_fact_writer_database_url)
+                    .await?;
+            acceptance.native_join = Some(native_join);
+            Ok(acceptance)
         }
 
         pub async fn run(&self) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
             let mut builder = SealedDevelopComposerA0BuildV2;
-            self.store
-                .run(&mut builder, &self.evidence, self.request, 1)
-                .await
+            if let Some(native_join) = &self.native_join {
+                self.store
+                    .run_with_native_join(
+                        &mut builder,
+                        &self.evidence,
+                        self.request,
+                        1,
+                        native_join,
+                    )
+                    .await
+            } else {
+                self.store
+                    .run(&mut builder, &self.evidence, self.request, 1)
+                    .await
+            }
         }
 
         pub async fn resolve(
             &self,
             request_identity: &str,
         ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-            self.store
-                .resolve_with_evidence(request_identity, &self.evidence, 1)
-                .await
+            if let Some(native_join) = &self.native_join {
+                self.store
+                    .resolve_with_native_join(request_identity, &self.evidence, 1, native_join)
+                    .await
+            } else {
+                self.store
+                    .resolve_with_evidence(request_identity, &self.evidence, 1)
+                    .await
+            }
         }
 
         pub async fn read_accepted_in_transaction(
@@ -178,7 +211,7 @@ mod sealed {
         &'static DevelopComposerRunRequestV2,
         SealedDevelopComposerAcceptanceEvidenceV2,
     )> {
-        let frame = issue_strategy_input_universe_frame()?;
+        let frame = issue_strategy_input_exact_instrument_bar_frame()?;
         let design = fixed_design();
         let design_identity = match prepare_strategy_design_v2(&design) {
             StrategyDesignPreparationV2::Prepared {
@@ -193,7 +226,7 @@ mod sealed {
         }) {
             anyhow::bail!("sealed Market Data frame does not bind the fixed Design");
         }
-        let bindings = VerifiedStrategyInputBindingsV2::from_sealed_universe(&frame);
+        let bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(frame.bindings());
         let binding_requests = design
             .inputs
             .iter()
@@ -203,7 +236,6 @@ mod sealed {
                     input,
                     design.research_request_identity,
                     design_identity,
-                    frame.selection().selection_identity(),
                     ordinal as u8,
                 )
             })
@@ -252,16 +284,19 @@ mod sealed {
         input: &InputRoleV2,
         research_request_identity: BindingDigest,
         strategy_design_identity: BindingDigest,
-        selection_identity: BindingDigest,
         seed: u8,
     ) -> UntrustedStrategyInputBindingRequest {
         UntrustedStrategyInputBindingRequest {
             research_request_identity,
             strategy_design_identity,
             input_role_identity: strategy_input_role_identity_v2(input),
-            scope: UntrustedStrategyInputScope::UniverseSelection { selection_identity },
+            scope: UntrustedStrategyInputScope::ExactInstrument {
+                instrument: input.instrument.clone(),
+            },
             field_semantic: match input.field_semantic_id.as_str() {
                 "MARKET_DATA.BAR.OPEN.PRICE.V1" => MarketDataFieldSemantic::BarOpenPrice,
+                "MARKET_DATA.BAR.HIGH.PRICE.V1" => MarketDataFieldSemantic::BarHighPrice,
+                "MARKET_DATA.BAR.LOW.PRICE.V1" => MarketDataFieldSemantic::BarLowPrice,
                 _ => MarketDataFieldSemantic::BarClosePrice,
             },
             channel: StrategyInputChannel::Market,
@@ -316,9 +351,8 @@ mod sealed {
     }
 
     fn compute_node(node: &str, state: &str, event: bool) -> ComputeNodeV2 {
-        let market_source = |input_id: &str, member_ordinal| ValueRefV2::UniverseMemberInput {
+        let market_source = |input_id: &str| ValueRefV2::Input {
             input_id: input_id.to_owned(),
-            member_ordinal,
         };
         let timer_source = || ValueRefV2::Parameter {
             parameter_id: "research.parameter.timer-close.v1".to_owned(),
@@ -327,7 +361,7 @@ mod sealed {
             PortBindingV2 {
                 port_id: "input.close.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.close.v1", 0)
+                    market_source("research.input.close.v1")
                 } else {
                     timer_source()
                 },
@@ -335,23 +369,39 @@ mod sealed {
             PortBindingV2 {
                 port_id: "input.open.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.open.v1", 0)
+                    market_source("research.input.open.v1")
                 } else {
                     timer_source()
                 },
             },
             PortBindingV2 {
-                port_id: "input.member-b-close.v2".to_owned(),
+                port_id: "input.high.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.close.v1", 1)
+                    market_source("research.input.high.v1")
                 } else {
                     timer_source()
                 },
             },
             PortBindingV2 {
-                port_id: "input.member-b-open.v2".to_owned(),
+                port_id: "input.low.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.open.v1", 1)
+                    market_source("research.input.low.v1")
+                } else {
+                    timer_source()
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.close-1h.v1".to_owned(),
+                source: if event {
+                    market_source("research.input.close-1h.v1")
+                } else {
+                    timer_source()
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.close-1d-session.v1".to_owned(),
+                source: if event {
+                    market_source("research.input.close-1d-session.v1")
                 } else {
                     timer_source()
                 },
@@ -421,8 +471,10 @@ mod sealed {
         let mut input_ports = vec![
             ("input.close.v1", ValueTypeV2::I128, 16),
             ("input.open.v1", ValueTypeV2::I128, 16),
-            ("input.member-b-close.v2", ValueTypeV2::I128, 16),
-            ("input.member-b-open.v2", ValueTypeV2::I128, 16),
+            ("input.high.v1", ValueTypeV2::I128, 16),
+            ("input.low.v1", ValueTypeV2::I128, 16),
+            ("input.close-1h.v1", ValueTypeV2::I128, 16),
+            ("input.close-1d-session.v1", ValueTypeV2::I128, 16),
             ("input.current-position.v1", ValueTypeV2::I64, 8),
             ("input.envelope-digest.v1", ValueTypeV2::Digest32, 32),
             ("input.intent.v1", ValueTypeV2::StableIdentity16, 16),
@@ -468,11 +520,11 @@ mod sealed {
                 InputRoleV2 {
                     semantic_id: "research.input.close.v1".to_owned(),
                     fact_class: InputFactClassV2::MarketData,
-                    instrument: String::new(),
-                    scope: InputScopeV2::UniverseMembers,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     channel: "MARKET".to_owned(),
-                    timeframe: "1D".to_owned(),
+                    timeframe: "1M".to_owned(),
                     unit: "PRICE".to_owned(),
                     scale: 2,
                     value_type: ValueTypeV2::I128,
@@ -480,9 +532,57 @@ mod sealed {
                 InputRoleV2 {
                     semantic_id: "research.input.open.v1".to_owned(),
                     fact_class: InputFactClassV2::MarketData,
-                    instrument: String::new(),
-                    scope: InputScopeV2::UniverseMembers,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
                     field_semantic_id: "MARKET_DATA.BAR.OPEN.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.high.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.HIGH.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.low.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.LOW.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.close-1h.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1H".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.close-1d-session.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     channel: "MARKET".to_owned(),
                     timeframe: "1D".to_owned(),
                     unit: "PRICE".to_owned(),
@@ -490,7 +590,20 @@ mod sealed {
                     value_type: ValueTypeV2::I128,
                 },
             ],
-            joins: vec![],
+            joins: vec![InputJoinV2 {
+                semantic_id: "research.join.bar-six.v1".to_owned(),
+                inputs: vec![
+                    "research.input.open.v1".to_owned(),
+                    "research.input.high.v1".to_owned(),
+                    "research.input.low.v1".to_owned(),
+                    "research.input.close.v1".to_owned(),
+                    "research.input.close-1h.v1".to_owned(),
+                    "research.input.close-1d-session.v1".to_owned(),
+                ],
+                alignment_semantic_id: "strategy.input-join.latest-not-after-trigger.v1".to_owned(),
+                trigger_input_id: "research.input.close.v1".to_owned(),
+                max_staleness_ns: 86_400_000_000_000,
+            }],
             parameters: vec![
                 ParameterV2 {
                     semantic_id: "research.parameter.lookback.v1".to_owned(),
@@ -595,14 +708,14 @@ mod sealed {
         use super::*;
 
         #[rstest]
-        fn fixed_corpus_matches_the_owner_sealed_aapl_msft_frame() {
+        fn fixed_corpus_matches_the_owner_sealed_exact_instrument_frame() {
             let (request, _) = fixed_corpus().expect("fixed corpus");
             assert_eq!(
                 request.request_identity,
                 SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2
             );
-            assert_eq!(request.design.inputs.len(), 2);
-            assert_eq!(request.binding_requests.len(), 2);
+            assert_eq!(request.design.inputs.len(), 6);
+            assert_eq!(request.binding_requests.len(), 6);
             assert_eq!(request.plugin_source_capsules.len(), 1);
         }
 
