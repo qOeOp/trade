@@ -18,17 +18,11 @@ pub use vibe_backtest_owner_contracts::{
     ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2, ReplayNamespaceV2,
     ReplayRequestDtoV2, ReplayRequestV2, ReplayTerminalV2, VersionedIdentityV2,
 };
-use vibe_backtest_owner_contracts::{ReplayModelProfilesV2, ReplayWindowV2};
-
 mod sealed {
     pub trait Sealed {}
 }
 
-mod native_replay;
 pub mod postgres;
-
-pub use native_replay::run_stateful_trend_native_replay_v2;
-
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
 /// The private supertrait prevents arbitrary external implementations.

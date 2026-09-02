@@ -37,7 +37,7 @@ use super::{
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
     plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, TypedValueV2},
     program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
-    program_host_v2::AdmittedProgramEventV2,
+    program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
     strategy_design_v2::{
         CapabilityDeclarationV2, ComputeNodeV2, InputFactClassV2, InputRoleV2, InputScopeV2,
         LifecycleContextV2, LifecycleKindV2, ParameterV2, PluginManifestV2, PluginStateContractV2,
@@ -448,22 +448,13 @@ fn bindings(design: &StrategyDesignV2) -> Vec<(InputRoleV2, BindingDigest)> {
         .collect()
 }
 
-pub struct StatefulBacktestNativeReplayEvidenceV2 {
+struct StatefulBacktestNativeReplayEvidenceV2 {
     corpus: Vec<u8>,
     trace: BacktestProgramHostTraceV2,
-    consumed_meanings: Vec<NativeReplayConsumedMeaningV2>,
-    design_digest: [u8; 32],
-    plan_digest: [u8; 32],
-    artifact_digest: [u8; 32],
-    #[cfg(test)]
     restored: bool,
-    #[cfg(test)]
     native_position_closed: bool,
-    #[cfg(test)]
     native_final_position_units: i64,
-    #[cfg(test)]
     native_order_statuses: Vec<String>,
-    owner_input_cut: [u8; 32],
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -472,64 +463,6 @@ struct NativeReplayConsumedMeaningV2 {
     observed_meaning_identity: OpaqueIdentityV2,
     observed_meaning_digest: CanonicalDigestV2,
     observation_digest: CanonicalDigestV2,
-}
-
-impl StatefulBacktestNativeReplayEvidenceV2 {
-    pub fn canonical_execution_bytes(&self) -> &[u8] {
-        &self.corpus
-    }
-
-    pub fn owner_input_cut(&self) -> [u8; 32] {
-        self.owner_input_cut
-    }
-
-    pub fn consumed_meanings(
-        &self,
-    ) -> impl ExactSizeIterator<
-        Item = (
-            ObservationComponentV2,
-            &OpaqueIdentityV2,
-            &CanonicalDigestV2,
-            &CanonicalDigestV2,
-        ),
-    > {
-        self.consumed_meanings.iter().map(|meaning| {
-            (
-                meaning.component,
-                &meaning.observed_meaning_identity,
-                &meaning.observed_meaning_digest,
-                &meaning.observation_digest,
-            )
-        })
-    }
-
-    pub fn design_digest(&self) -> [u8; 32] {
-        self.design_digest
-    }
-
-    pub fn plan_digest(&self) -> [u8; 32] {
-        self.plan_digest
-    }
-
-    pub fn artifact_digest(&self) -> [u8; 32] {
-        self.artifact_digest
-    }
-
-    pub fn lifecycle_count(&self, lifecycle: &str) -> usize {
-        self.trace
-            .host_transitions
-            .iter()
-            .filter(|transition| transition.lifecycle == lifecycle)
-            .count()
-    }
-
-    pub fn native_fill_count(&self) -> usize {
-        self.trace
-            .native_order_observations
-            .iter()
-            .filter(|observation| !observation.protection_order && observation.event == "FILLED")
-            .count()
-    }
 }
 
 #[derive(Serialize)]
@@ -544,12 +477,6 @@ struct Corpus<'a> {
     native_position_events: usize,
     owner_input_cut: [u8; 32],
     consumed_meanings: &'a [NativeReplayConsumedMeaningV2],
-}
-
-pub fn run_stateful_backtest_native_replay_v2(
-    restore: bool,
-) -> anyhow::Result<StatefulBacktestNativeReplayEvidenceV2> {
-    run_corpus(restore, InputMutation::None)
 }
 
 #[cfg(test)]
@@ -827,10 +754,10 @@ fn run_corpus(
         .collect();
     let trace = Rc::new(RefCell::new(BacktestProgramHostTraceV2::default()));
     let restore_performed = Rc::new(Cell::new(false));
+    let host = ProgramHostV2::new(plan.clone(), artifact.clone())?;
     let strategy = BacktestProgramHostStrategyV2::new(
         StrategyId::from("STRATEGY-DESIGN-V2-BACKTEST-001"),
-        plan.clone(),
-        artifact.clone(),
+        host,
         instrument_id,
         bar_type,
         events,
@@ -909,19 +836,10 @@ fn run_corpus(
     Ok(StatefulBacktestNativeReplayEvidenceV2 {
         corpus,
         trace,
-        consumed_meanings,
-        design_digest,
-        plan_digest,
-        artifact_digest,
-        #[cfg(test)]
         restored: restore_performed.get(),
-        #[cfg(test)]
         native_position_closed,
-        #[cfg(test)]
         native_final_position_units,
-        #[cfg(test)]
         native_order_statuses,
-        owner_input_cut,
     })
 }
 
