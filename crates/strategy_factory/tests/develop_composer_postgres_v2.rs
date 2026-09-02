@@ -77,12 +77,10 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(writer_authority.contains("AND NOT rolcreaterole"));
     assert!(writer_authority.contains("AND NOT rolreplication"));
     assert!(writer_authority.contains("AND NOT rolbypassrls"));
-    assert!(
-        writer_authority.contains("pg_catalog.pg_has_role(writer.oid,related_role.oid,'MEMBER')")
-    );
-    assert!(
-        writer_authority.contains("pg_catalog.pg_has_role(related_role.oid,writer.oid,'MEMBER')")
-    );
+    assert!(writer_authority.contains("JOIN pg_catalog.pg_auth_members membership"));
+    assert!(writer_authority.contains("membership.member=writer.oid"));
+    assert!(writer_authority.contains("membership.roleid=writer.oid"));
+    assert!(!writer_authority.contains("pg_catalog.pg_has_role(writer.oid"));
     assert!(writer_authority.contains("pg_catalog.has_table_privilege"));
     assert!(writer_authority.contains("pg_catalog.has_column_privilege"));
     assert!(writer_authority.contains("private_namespace.nspname='composer_private'"));
@@ -172,23 +170,13 @@ fn composer_writer_startup_rejects_rd_custodian_membership() {
         .next()
         .expect("bounded Composer writer membership gate");
 
-    assert!(membership_gate.contains(
-        "JOIN pg_catalog.pg_roles related_role\n                  ON related_role.oid<>writer.oid"
-    ));
+    assert!(membership_gate.contains("JOIN pg_catalog.pg_auth_members membership"));
+    assert!(membership_gate.contains("membership.member=writer.oid"));
+    assert!(membership_gate.contains("membership.roleid=writer.oid"));
     assert!(
-        membership_gate.contains("pg_catalog.pg_has_role(writer.oid,related_role.oid,'MEMBER')")
-    );
-    assert!(
-        membership_gate.contains("pg_catalog.pg_has_role(related_role.oid,writer.oid,'MEMBER')")
-    );
-    assert!(
-        !membership_gate.contains("related_role.rolname")
-            && !membership_gate.contains("related_role.rolsuper")
-            && !membership_gate.contains("related_role.rolcreatedb")
-            && !membership_gate.contains("related_role.rolcreaterole")
-            && !membership_gate.contains("related_role.rolreplication")
-            && !membership_gate.contains("related_role.rolbypassrls"),
-        "rd_custodian and every other role must remain in the startup membership closure",
+        !membership_gate.contains("pg_catalog.pg_has_role")
+            && !membership_gate.contains("pg_catalog.pg_roles related_role"),
+        "rd_custodian and every other direct membership edge must remain forbidden at startup",
     );
 }
 
