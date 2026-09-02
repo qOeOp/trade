@@ -44,6 +44,7 @@ schema:
               items: {type: object}
             plugin_source_capsules:
               type: array
+              maxItems: 64
               items: {type: object}
   required:
     - action
