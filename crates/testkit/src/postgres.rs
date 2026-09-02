@@ -431,10 +431,14 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     ///
     /// # Errors
     ///
-    /// Returns the PostgreSQL error when the fixed-source lease transition fails closed.
+    /// Returns the transition error with the original recovery capability when the fixed-source
+    /// lease transition fails closed.
     pub async fn acquire_replay_policy_catalog_fault_authority(
         &self,
-    ) -> Result<ReplayPolicyCatalogFaultAuthorityV1, sqlx::Error> {
+    ) -> Result<
+        ReplayPolicyCatalogFaultAuthorityV1,
+        ReplayPolicyCatalogFaultTransitionErrorV1<ReplayPolicyCatalogFaultAuthorityV1>,
+    > {
         let lease_identity = format!(
             "replay-policy-catalog-fault-v1:{}:{}",
             std::process::id(),
@@ -442,32 +446,55 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 .duration_since(UNIX_EPOCH)
                 .map_or(0, |duration| duration.as_nanos())
         );
-        let acquire = || {
-            sqlx::query_scalar::<_, String>(
-                "SELECT vibe_test_replay_policy_catalog_fault.acquire_v1($1,$2)",
-            )
-            .bind(&self.marker_identity)
-            .bind(&lease_identity)
-            .fetch_one(&self.owner_topology_admin_pool)
-        };
-        let returned_lease_identity = match acquire().await {
-            Ok(value) => value,
-            Err(_) => acquire().await?,
-        };
-        if returned_lease_identity != lease_identity {
-            return Err(sqlx::Error::Protocol(
-                "Replay Policy Catalog fault authority acquire mismatch".into(),
-            ));
-        }
-        Ok(ReplayPolicyCatalogFaultAuthorityV1 {
+        let authority = ReplayPolicyCatalogFaultAuthorityV1 {
             pool: self.owner_topology_admin_pool.clone(),
             marker_identity: self.marker_identity.clone(),
             lease_identity,
-        })
+        };
+        if let Err(source) = authority.acquire_readback().await {
+            return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                capability: authority,
+                source,
+            });
+        }
+        Ok(authority)
     }
 }
 
 impl ReplayPolicyCatalogFaultAuthorityV1 {
+    async fn acquire_readback(&self) -> Result<(), sqlx::Error> {
+        let returned_lease_identity = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_replay_policy_catalog_fault.acquire_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await?;
+        if returned_lease_identity != self.lease_identity {
+            return Err(sqlx::Error::Protocol(
+                "Replay Policy Catalog fault authority acquire mismatch".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Performs one bounded acquire retry/readback with the original lease identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns the transition error while retaining this exact recovery capability.
+    pub async fn retry_acquire(
+        self,
+    ) -> Result<Self, ReplayPolicyCatalogFaultTransitionErrorV1<Self>> {
+        if let Err(source) = self.acquire_readback().await {
+            return Err(ReplayPolicyCatalogFaultTransitionErrorV1 {
+                capability: self,
+                source,
+            });
+        }
+        Ok(self)
+    }
+
     /// Returns the admitted lease pool for fixed test-only Catalog fault operations.
     #[must_use]
     pub fn pool(&self) -> &PgPool {
@@ -1559,6 +1586,9 @@ mod tests {
 
         for required in [
             "vibe_test_replay_policy_catalog_fault.acquire_v1($1,$2)",
+            "pub async fn retry_acquire(",
+            "if let Err(source) = authority.acquire_readback().await",
+            "capability: authority",
             "vibe_test_replay_policy_catalog_fault.release_v1($1,$2)",
             "vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1($1,$2)",
             "vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1($1,$2)",
