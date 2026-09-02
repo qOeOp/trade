@@ -253,11 +253,59 @@ check_migration_authority_boundary() {
   fi
 }
 
+check_rd_owner_fresh_migration_lease() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+function_match = re.search(
+    r"provision_owner_schemas\(\) \{(.*?)\n\}",
+    script,
+    re.DOTALL,
+)
+if function_match is None:
+    raise SystemExit("ERROR: R&D fresh migration boundary is unavailable")
+body = function_match.group(1)
+ordered_contract = (
+    "GRANT rd_owner TO vibe_test_owner_topology_admin\n"
+    "  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;",
+    "AND member.rolname='vibe_test_owner_topology_admin'",
+    "AND grantor.rolname='postgres' AND NOT membership.admin_option",
+    "AND NOT membership.inherit_option AND membership.set_option",
+    "local rd_owner_test_status=0",
+    'RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url"',
+    'rd_owner_test_status="$?"',
+    "REVOKE rd_owner FROM vibe_test_owner_topology_admin;",
+    "WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')\n"
+    "      OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')",
+    "Replay Policy Catalog/R&D protected membership cleanup failed",
+    'if [[ "$rd_owner_test_status" -ne 0 ]]; then',
+    'return "$rd_owner_test_status"',
+    'RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url"',
+)
+position = -1
+for required in ordered_contract:
+    next_position = body.find(required, position + 1)
+    if next_position < 0:
+        raise SystemExit(
+            f"ERROR: R&D fresh migration lease contract is missing or reordered: {required}"
+        )
+    position = next_position
+if body.count("GRANT rd_owner TO vibe_test_owner_topology_admin") != 1:
+    raise SystemExit("ERROR: R&D fresh migration lease grant is not unique")
+if body.count("REVOKE rd_owner FROM vibe_test_owner_topology_admin") != 1:
+    raise SystemExit("ERROR: R&D fresh migration lease cleanup is not unique")
+PY
+}
+
 check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
 check_replay_policy_catalog_fault_function_bodies
 check_migration_authority_boundary
+check_rd_owner_fresh_migration_lease
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -1727,7 +1775,43 @@ GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;
 GRANT CREATE ON SCHEMA public TO rd_owner;
 SQL
 
-  if ! env \
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+BEGIN;
+GRANT rd_owner TO vibe_test_owner_topology_admin
+  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+DO $rd_owner_migration_lease$
+DECLARE exact_edge_count bigint;
+BEGIN
+  SELECT pg_catalog.count(*) INTO exact_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+       OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+     AND granted.rolname='rd_owner'
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND NOT membership.inherit_option AND membership.set_option;
+  IF exact_edge_count<>1 OR EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE (granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+        OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
+      AND NOT (granted.rolname='rd_owner'
+           AND member.rolname='vibe_test_owner_topology_admin')
+  ) THEN
+    RAISE EXCEPTION 'R&D fresh migration lease membership mismatch';
+  END IF;
+END
+$rd_owner_migration_lease$;
+COMMIT;
+SQL
+
+  local rd_owner_test_status=0
+  if env \
     RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url" \
     QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
     cargo nextest run \
@@ -1735,7 +1819,32 @@ SQL
     --profile "$nextest_profile" \
     "${nextest_execution_args[@]}" \
     -E "$rd_owner_filter"; then
-    return 1
+    :
+  else
+    rd_owner_test_status="$?"
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'
+REVOKE rd_owner FROM vibe_test_owner_topology_admin;
+DO $rd_owner_migration_cleanup$
+DECLARE protected_edge_count bigint;
+BEGIN
+  SELECT pg_catalog.count(*) INTO protected_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+   WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')
+      OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer');
+  IF protected_edge_count<>0 THEN
+    RAISE EXCEPTION 'Replay Policy Catalog/R&D protected membership cleanup failed';
+  END IF;
+END
+$rd_owner_migration_cleanup$;
+SQL
+
+  if [[ "$rd_owner_test_status" -ne 0 ]]; then
+    return "$rd_owner_test_status"
   fi
 
   if ! env RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url" \
