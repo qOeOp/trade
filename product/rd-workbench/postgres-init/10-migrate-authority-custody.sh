@@ -2884,6 +2884,7 @@ BEGIN
     'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
   ] LOOP
     IF pg_catalog.to_regprocedure(signature) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO rd_custodian',signature);
       EXECUTE pg_catalog.format('REVOKE EXECUTE ON FUNCTION %s FROM rd_owner',signature);
       EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO backtest_owner',signature);
     END IF;
