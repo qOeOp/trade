@@ -607,7 +607,7 @@ fn migration_function_source(tag: &str) -> Option<&'static str> {
 async fn lock_catalog(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    let exact: bool = sqlx::query_scalar("SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND count(*)=3 AND bool_and(pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl) IS NOT DISTINCT FROM CASE procedure.proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] END) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1)")
+    let exact: bool = sqlx::query_scalar("WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND EXISTS(SELECT 1 FROM owner) AND count(*)=3 AND bool_and(pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl) IS NOT DISTINCT FROM CASE procedure.proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] END) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner') FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1)")
         .bind(["apply_replay_policy_catalog_command_v2", "lock_current_replay_policy_catalog_v2", "lock_replay_policy_catalog_record_v2"]).fetch_one(&mut **transaction).await.map_err(unavailable)?;
 
     if !exact {
@@ -780,6 +780,22 @@ mod postgres_tests {
             runtime_check
                 .contains("pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=family.oid")
         );
+        let runtime_authority_check = source
+            .split("async fn lock_catalog")
+            .nth(1)
+            .expect("Catalog runtime authority check")
+            .split("let table_shape")
+            .next()
+            .expect("bounded Catalog runtime authority check");
+        assert!(runtime_authority_check.contains("NOT rolcanlogin AND NOT rolsuper"));
+        assert!(
+            runtime_authority_check
+                .contains("pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER')")
+        );
+        assert!(
+            runtime_authority_check
+                .contains("WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner'")
+        );
     }
 
     #[tokio::test]
@@ -915,7 +931,6 @@ mod postgres_tests {
         let mutation = database.mutation();
         let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
         let topology_admin_pool = database.owner_topology_admin_pool();
-        crate::trial_family_postgres::migrate(pool).await.unwrap();
 
         verify_catalog_storage_authority(pool).await.unwrap();
         let external_write_grants: i64 = sqlx::query_scalar(
@@ -957,6 +972,36 @@ mod postgres_tests {
             &format!("sha256:{}", "a".repeat(64)),
         )
         .unwrap();
+        let before_membership_drift = catalog_and_family_write_counts(topology_admin_pool).await;
+        sqlx::query("GRANT replay_policy_catalog_owner TO rd_owner")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        let mut transaction = pool.begin().await.unwrap();
+        let membership_drift = ReplayPolicyCatalogAdministrationPortV2::create_policy(
+            &mut transaction,
+            &admin,
+            "catalog-command-membership-drift-v2",
+            "catalog-policy-membership-drift-v2",
+            &replay_policy(900),
+            900,
+        )
+        .await;
+        assert!(matches!(
+            membership_drift,
+            Err(ReplayPolicyCatalogErrorV2::Unavailable(_))
+        ));
+        transaction.rollback().await.unwrap();
+        assert_eq!(
+            catalog_and_family_write_counts(topology_admin_pool).await,
+            before_membership_drift
+        );
+        sqlx::query("REVOKE replay_policy_catalog_owner FROM rd_owner")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        verify_catalog_storage_authority(pool).await.unwrap();
+
         let mut transaction = pool.begin().await.unwrap();
         let first = ReplayPolicyCatalogAdministrationPortV2::create_policy(
             &mut transaction,
@@ -1246,6 +1291,36 @@ mod postgres_tests {
                 .await
                 .unwrap(),
         )
+    }
+
+    async fn catalog_and_family_write_counts(pool: &PgPool) -> Vec<i64> {
+        let row = sqlx::query(
+            "SELECT
+              (SELECT count(*) FROM public.rd_trial_families_v1) AS families,
+              (SELECT count(*) FROM public.rd_trial_family_members_v1) AS members,
+              (SELECT count(*) FROM public.rd_trial_family_heads_v1) AS heads,
+              (SELECT count(*) FROM public.rd_owner_outbox_v1) AS outbox,
+              (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2) AS catalog_records,
+              (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2) AS catalog_head,
+              (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2) AS catalog_revocations,
+              (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2) AS catalog_audit",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        [
+            "families",
+            "members",
+            "heads",
+            "outbox",
+            "catalog_records",
+            "catalog_head",
+            "catalog_revocations",
+            "catalog_audit",
+        ]
+        .into_iter()
+        .map(|column| row.try_get(column).unwrap())
+        .collect()
     }
 
     fn family_policy() -> TrialFamilyPolicyV1 {
