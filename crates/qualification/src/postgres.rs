@@ -82,14 +82,19 @@ impl PostgresQualificationOwnerV1 {
                 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint foreign_key WHERE foreign_key.contype='f' AND foreign_key.confrelid IN (SELECT pg_catalog.to_regclass('public.'||name) FROM required) AND foreign_key.conrelid NOT IN (SELECT pg_catalog.to_regclass('public.'||name) FROM required))
                 AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency JOIN pg_catalog.pg_rewrite rewrite_fact ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass AND dependency.objid=rewrite_fact.oid WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass AND dependency.refobjid IN (SELECT pg_catalog.to_regclass('public.'||name) FROM required) AND rewrite_fact.ev_class NOT IN (SELECT pg_catalog.to_regclass('public.'||name) FROM required))
                 AND NOT EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_tables table_entry
-                  WHERE table_entry.schemaname = 'public'
-                    AND table_entry.tablename LIKE 'rd_%'
-                    AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
+                  SELECT 1
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid=relation.relnamespace
+                  CROSS JOIN pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name
+                  WHERE namespace.nspname='public'
+                    AND relation.relkind IN ('r','p')
+                    AND relation.relname LIKE 'rd\\_%' ESCAPE '\\'
+                    AND pg_catalog.has_table_privilege(
                       current_user,
-                      pg_catalog.format('public.%I', table_entry.tablename),
+                      relation.oid,
                       privilege_name
-                    )) FROM pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
+                    )
                 )
                 AND pg_catalog.has_schema_privilege(current_user, 'rd_owner_api', 'USAGE')
                 AND pg_catalog.has_function_privilege(current_user, 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)', 'EXECUTE')
@@ -1602,6 +1607,19 @@ mod postgres_tests {
         assert!(source.contains("relrowsecurity"));
         assert!(source.contains("pg_catalog.pg_auth_members"));
         assert!(source.contains("vibe-source-md5:"));
+
+        let validation = source
+            .split("async fn validate_existing")
+            .nth(1)
+            .expect("existing Qualification validation")
+            .split("/// Resolve the exact R&D basis")
+            .next()
+            .expect("existing Qualification validation boundary");
+        assert!(validation.contains("FROM pg_catalog.pg_class relation"));
+        assert!(validation.contains("JOIN pg_catalog.pg_namespace namespace"));
+        assert!(validation.contains("relation.relname LIKE 'rd\\\\_%' ESCAPE '\\\\'"));
+        assert!(validation.contains("relation.oid,"));
+        assert!(!validation.contains("pg_catalog.format('public.%I'"));
     }
 
     #[rstest]
