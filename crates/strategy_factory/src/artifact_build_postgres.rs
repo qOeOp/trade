@@ -341,6 +341,7 @@ impl PostgresArtifactBuildOwnerV1 {
             .fetch_one(&self.pool)
             .await
             .map_err(storage)?;
+
         if session_is_rd_owner {
             migrate_trial_family(&self.pool)
                 .await
