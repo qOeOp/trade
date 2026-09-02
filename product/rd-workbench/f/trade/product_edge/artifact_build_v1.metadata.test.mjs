@@ -28,6 +28,7 @@ test("default Windmill App and MCP artifact-build entry is one typed operation",
     "mcp:scripts:f/trade/product_edge/research_goal_v2",
     `mcp:scripts:${artifactPath}`,
     "mcp:scripts:f/trade/product_edge/exploratory_replay_v2",
+    "mcp:scripts:f/trade/product_edge/develop_composer_v2",
     "mcp:endpoints:getJob,getJobLogs",
   ])
   assert.equal(profile.scopes.filter((scope) => scope.startsWith("mcp:scripts:") && scope.includes("artifact_build")).length, 1)

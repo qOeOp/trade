@@ -1,0 +1,66 @@
+summary: Run or resolve one Develop Composer V2 request
+description: >-
+  Transports one typed untrusted Design, binding-request set, and bounded plugin
+  capsule set to the R&D Owner. It creates no Owner fact and exposes no build token.
+lock: "!inline f/trade/product_edge/develop_composer_v2.script.lock"
+kind: script
+schema:
+  $schema: https://json-schema.org/draft/2020-12/schema
+  type: object
+  additionalProperties: false
+  order:
+    - action
+    - request_identity
+    - request
+  properties:
+    action:
+      type: string
+      enum:
+        - RUN
+        - RESOLVE
+    request_identity:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: Exact caller-owned identity used by RUN and same-identity RESOLVE.
+    request:
+      description: DevelopComposerRunRequestV2-compatible untrusted request for RUN; null for RESOLVE.
+      oneOf:
+        - type: "null"
+        - type: object
+          additionalProperties: false
+          required:
+            - request_identity
+            - research_custody_reference
+            - design
+            - binding_requests
+            - plugin_source_capsules
+          properties:
+            request_identity: {type: string, minLength: 1, maxLength: 256}
+            research_custody_reference: {type: string, minLength: 1}
+            design: {type: object}
+            binding_requests:
+              type: array
+              items: {type: object}
+            plugin_source_capsules:
+              type: array
+              maxItems: 64
+              items: {type: object}
+  required:
+    - action
+    - request_identity
+    - request
+  allOf:
+    - if:
+        properties:
+          action: {const: RUN}
+      then:
+        properties:
+          request: {type: object}
+    - if:
+        properties:
+          action: {const: RESOLVE}
+      then:
+        properties:
+          request: {type: "null"}
+tag: rd-product-edge

@@ -2,6 +2,7 @@ version: v2
 locks:
   f/trade/product_edge/artifact_build_v1: 05a427cbb47bf626c38cba0c6a3934d5065308d8a203dfa82f5cc947bcf9b406
   f/trade/product_edge/consumer_projection_v1: c96284d055ed7aeb9869a12883ed54a0c3a35bb4eab9768e9129a3dbba9e06bc
+  f/trade/product_edge/develop_composer_v2: 0b71f44d30f4fc697342405b23a867de1cdd03970986471d6c3464842da693a5
   f/trade/product_edge/exploratory_replay_v2: 83d29ed1eb946f81bdc2794b6b2df31af45899869eb300667bb398c57e1fd619
   f/trade/product_edge/research_goal_v1: c35f58b276ac233bb78b95df813962cf378ee0d44cf14c25bffa9aed788830a9
   f/trade/product_edge/research_goal_v2: f2ae29e34965ccf67c04fb9ec7300201b7aea554d6933ef93763bb60716210bf
