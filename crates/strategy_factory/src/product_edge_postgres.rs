@@ -639,11 +639,11 @@ impl PostgresResearchGoalOwnerV1 {
                                                  WHEN 'rd_owner_outbox_v1' THEN 12
                                                  ELSE 11
                                                END
-                               OR count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) <> 7
-                               OR count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4
-                               OR count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND acl.privilege_type='INSERT' AND NOT acl.is_grantable) <> CASE required.name
-                                     WHEN 'rd_owner_outbox_v1' THEN 1
-                                     ELSE 0
+                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
+                               OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable) IS DISTINCT FROM CASE required.name
+                                     WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]
+                                     ELSE NULL::text[]
                                    END
                           FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
                )
@@ -2699,6 +2699,11 @@ mod tests {
 
     #[rstest]
     fn existing_connection_acl_manifest_admits_only_catalog_outbox_insert() {
+        let expected = ["DELETE", "INSERT", "SELECT", "UPDATE"];
+        let same_count_substitution = ["DELETE", "INSERT", "TRUNCATE", "UPDATE"];
+        assert_eq!(expected.len(), same_count_substitution.len());
+        assert_ne!(expected, same_count_substitution);
+
         let source = include_str!("product_edge_postgres.rs");
         let validation = source
             .split("async fn validate_existing_rd_storage")
@@ -2710,10 +2715,19 @@ mod tests {
 
         assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN 12"));
         assert!(validation.contains(
-            "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND acl.privilege_type='INSERT' AND NOT acl.is_grantable"
+            "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable"
         ));
-        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN 1"));
-        assert!(validation.contains("ELSE 0"));
+        assert!(validation.contains(
+            "ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]"
+        ));
+        assert!(validation.contains("ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]"));
+        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]"));
+        assert!(validation.contains("ELSE NULL::text[]"));
+        assert!(
+            !validation.contains(
+                "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4"
+            )
+        );
     }
 
     #[async_trait]

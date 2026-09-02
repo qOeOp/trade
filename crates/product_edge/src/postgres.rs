@@ -1317,8 +1317,8 @@ impl ProductEdgePostgresOwnerV1 {
                          AND pg_catalog.pg_get_userbyid(relation.relowner)='product_edge_custodian'
                          AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text)
                          AND (SELECT count(*)=11
-                                  AND count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable)=7
-                                  AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable)=4
+                                  AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+                                  AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
                                 FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl))
                       FROM pg_catalog.pg_class relation
                       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -5622,6 +5622,30 @@ mod tests {
         ProductEdgeManifestBindingV1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    #[rstest]
+    fn existing_product_edge_acl_manifest_rejects_same_count_privilege_substitution() {
+        let expected = ["DELETE", "INSERT", "SELECT", "UPDATE"];
+        let same_count_substitution = ["DELETE", "INSERT", "TRUNCATE", "UPDATE"];
+        assert_eq!(expected.len(), same_count_substitution.len());
+        assert_ne!(expected, same_count_substitution);
+
+        let source = include_str!("postgres.rs");
+        let validation = source
+            .split("pub async fn connect_existing")
+            .nth(1)
+            .expect("existing Product Edge connection")
+            .split("async fn migrate")
+            .next()
+            .expect("existing Product Edge connection boundary");
+        assert!(validation.contains(
+            "ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]"
+        ));
+        assert!(validation.contains("ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]"));
+        assert!(!validation.contains(
+            "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable)=4"
+        ));
+    }
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
