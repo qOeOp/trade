@@ -18,6 +18,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_database_owner') THEN CREATE ROLE rd_database_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'replay_policy_catalog_owner') THEN CREATE ROLE replay_policy_catalog_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'composer_owner') THEN CREATE ROLE composer_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backtest_custodian') THEN CREATE ROLE backtest_custodian NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_owner') THEN CREATE ROLE rd_owner LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_fact_writer') THEN CREATE ROLE rd_fact_writer LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'replay_policy_catalog_admin_writer') THEN CREATE ROLE replay_policy_catalog_admin_writer LOGIN; END IF;
@@ -34,6 +35,7 @@ $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE replay_policy_catalog_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE composer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE backtest_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'rd_password';
 ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
 ALTER ROLE replay_policy_catalog_admin_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
@@ -53,7 +55,7 @@ REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization
 DO $isolate_rd_authority_roles$
 DECLARE authority_role text; membership record;
 BEGIN
-  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','rd_fact_writer','market_data_reader'] LOOP
+  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','backtest_custodian','rd_fact_writer','market_data_reader'] LOOP
     FOR membership IN
       SELECT granted.rolname AS granted_role, member.rolname AS member_role
       FROM pg_catalog.pg_auth_members edge
@@ -106,7 +108,91 @@ GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner;
 CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
-GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer;
+GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer, backtest_owner;
+CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
+ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
+REVOKE ALL ON SCHEMA backtest_owner_api FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner;
+
+CREATE TABLE IF NOT EXISTS public.backtest_replay_results_v2 (
+  result_identity text PRIMARY KEY,
+  result_digest text NOT NULL,
+  request_identity text NOT NULL,
+  request_meaning_digest text NOT NULL,
+  attempt_identity text NOT NULL,
+  terminal text NOT NULL CHECK (terminal IN ('RUN_REJECTED','TERMINAL_RESULT','INVALID_REPLAY_EVIDENCE')),
+  canonical_bytes bytea NOT NULL,
+  canonical_bytes_blake3 text NOT NULL,
+  UNIQUE (request_identity,attempt_identity)
+);
+CREATE TABLE IF NOT EXISTS public.backtest_replay_result_receipts_v1 (
+  result_identity text PRIMARY KEY,
+  receipt_identity text NOT NULL UNIQUE,
+  receipt_digest text NOT NULL,
+  request_identity text NOT NULL,
+  request_meaning_digest text NOT NULL,
+  result_digest text NOT NULL,
+  namespace text NOT NULL CHECK (namespace='EXPLORATORY'),
+  outbox_event_identity text NOT NULL UNIQUE,
+  committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms>=0),
+  canonical_bytes bytea NOT NULL,
+  canonical_bytes_blake3 text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.backtest_replay_result_outbox_v1 (
+  result_identity text PRIMARY KEY,
+  event_identity text NOT NULL UNIQUE,
+  event_digest text NOT NULL,
+  receipt_identity text NOT NULL UNIQUE,
+  request_identity text NOT NULL,
+  request_meaning_digest text NOT NULL,
+  result_digest text NOT NULL,
+  namespace text NOT NULL CHECK (namespace='EXPLORATORY'),
+  payload_digest text NOT NULL,
+  committed_at_epoch_ms bigint NOT NULL CHECK (committed_at_epoch_ms>=0),
+  canonical_bytes bytea NOT NULL,
+  canonical_bytes_blake3 text NOT NULL
+);
+ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_replay_result_receipts_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_replay_result_outbox_v1 OWNER TO backtest_custodian;
+REVOKE ALL ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 TO backtest_owner;
+
+CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(
+  p_result_identity text,
+  p_request_identity text,
+  p_attempt_identity text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.encode(locked_result.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END$function$;
+ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) OWNER TO backtest_custodian;
+REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) TO rd_owner;
+
+DO $backtest_result_topology_readback$
+DECLARE exact boolean;
+BEGIN
+  SELECT
+    (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian' FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
+    AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND relation.relkind='r' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
+           FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian') OR membership.member=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_custodian'))
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('backtest_owner','backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)','EXECUTE')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','SELECT,INSERT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT')
+    AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT')
+    AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_results_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_receipts_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+    AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_replay_result_outbox_v1','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest Result topology mismatch'; END IF;
+END
+$backtest_result_topology_readback$;
 REVOKE ALL ON SCHEMA public FROM backtest_owner;
 GRANT USAGE ON SCHEMA public TO backtest_owner;
 
