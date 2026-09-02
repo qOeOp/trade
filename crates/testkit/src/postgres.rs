@@ -12,16 +12,22 @@ use url::Url;
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
 const LEGACY_REPLAY_FAULT_URL_ENV: &str = "VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL";
+const LEGACY_MIGRATION_URL_ENV: &str = "VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL";
+const LEGACY_MIGRATION_LEASE_IDENTITY_ENV: &str = "VIBE_TEST_LEGACY_MIGRATION_LEASE_IDENTITY";
 const LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1: &str =
     "4d055aabd875b2181a4845b6021543319911dbe97c13db739c8efa6b16856346";
 const REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
-    "7a3b86bcf89dcc6f45b6337123d6b21b2de9b2511976240425c51fac7e7f8b42";
+    "6d6fa280093609a63a6efd14e95f394f92e36400c74409c4c33ccffdcf58a601";
 const REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
     "dc63b386e8797231a8a25111416c1efd424061ead05c2e652ba3c39aa015977a";
 const REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
     "029f93c5e3f7161af85001b543515f73e29510288e0fe9bcfa93a8d01f900836";
 const REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
     "8e7faf8d1a3cb98540b5f2eba0cb040ca560ec04b22b4494bd48ba2bf21cdb43";
+const LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "9a7a55a346a76d96073594d7da723a6bdb6b92b767fef86908d74a541bce1509";
+const LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "996cd305d65a193127680e8f37d8622684093eb189fca04772b3fafbf052df2f";
 const PRODUCTION_DATABASE_URL_ENVS: [&str; 6] = [
     "RD_OWNER_DATABASE_URL",
     "RD_FACT_WRITER_DATABASE_URL",
@@ -70,6 +76,8 @@ pub enum DedicatedPostgresTestDatabaseError {
     CrossOwnerDatabaseMismatch,
     /// The read-only admission connection failed.
     ReadOnlyPreflightUnavailable,
+    /// The Catalog topology-administrator authority query could not execute.
+    CatalogAdminAuthorityQueryUnavailable,
     /// The immutable admin marker was absent or did not match.
     MarkerMismatch,
     /// The connected role could create or mutate the marker.
@@ -101,6 +109,9 @@ impl Display for DedicatedPostgresTestDatabaseError {
             }
             Self::ReadOnlyPreflightUnavailable => {
                 formatter.write_str("dedicated database read-only preflight unavailable")
+            }
+            Self::CatalogAdminAuthorityQueryUnavailable => {
+                formatter.write_str("catalog administrator authority query unavailable")
             }
             Self::MarkerMismatch => formatter.write_str("dedicated database marker mismatch"),
             Self::MarkerNotImmutable => {
@@ -183,6 +194,7 @@ pub struct CanonicalOwnerPostgresTestDatabaseV1 {
     pools: [PgPool; 6],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
+    legacy_migration_caller_pool: PgPool,
 }
 
 /// One-shot capability for the disposable legacy Replay duplicate fault.
@@ -208,6 +220,26 @@ pub struct ReplayPolicyCatalogFaultAuthorityV1 {
 pub struct ReleasedReplayPolicyCatalogFaultAuthorityV1 {
     _marker_identity: String,
     _lease_identity: String,
+}
+
+/// Linear test-only authority for one legacy Replay migration continuity consumer.
+pub struct LegacyReplayMigrationAuthorityV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+}
+
+/// Proof that the legacy Replay migration authority returned to READY.
+pub struct ReleasedLegacyReplayMigrationAuthorityV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+}
+
+/// A failed legacy migration lease transition retaining the recovery capability.
+pub struct LegacyReplayMigrationTransitionErrorV1<T> {
+    capability: T,
+    source: sqlx::Error,
 }
 
 /// Proof of the exact injected third-party Catalog owner edge.
@@ -258,6 +290,49 @@ impl Debug for ReleasedReplayPolicyCatalogFaultAuthorityV1 {
             .field("marker_identity", &"[REDACTED]")
             .field("lease_identity", &"[REDACTED]")
             .finish_non_exhaustive()
+    }
+}
+
+impl Debug for LegacyReplayMigrationAuthorityV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LegacyReplayMigrationAuthorityV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl Debug for ReleasedLegacyReplayMigrationAuthorityV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(ReleasedLegacyReplayMigrationAuthorityV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> Debug for LegacyReplayMigrationTransitionErrorV1<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(LegacyReplayMigrationTransitionErrorV1))
+            .field("source", &self.source)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> LegacyReplayMigrationTransitionErrorV1<T> {
+    /// Returns the retained linear capability for an explicit recovery attempt.
+    #[must_use]
+    pub fn into_capability(self) -> T {
+        self.capability
+    }
+
+    /// Returns the fail-closed PostgreSQL transition error.
+    #[must_use]
+    pub fn source(&self) -> &sqlx::Error {
+        &self.source
     }
 }
 
@@ -380,6 +455,8 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
         }
         let owner_topology_admin_pool =
             admit_owner_topology_admin(&expected_database, &expected_marker, first).await?;
+        let legacy_migration_caller_pool =
+            admit_legacy_migration_caller(&expected_database, &expected_marker, first).await?;
 
         Ok(Self {
             database_urls: urls
@@ -390,6 +467,7 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 .map_err(|_| DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch)?,
             marker_identity: expected_marker,
             owner_topology_admin_pool,
+            legacy_migration_caller_pool,
         })
     }
 
@@ -460,6 +538,126 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             });
         }
         Ok(authority)
+    }
+
+    /// Acquires the exact test-only legacy Replay migration lease after clean canonical admission.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining the non-clone capability when the fixed-source acquire
+    /// or its exact readback fails closed.
+    pub async fn acquire_legacy_replay_migration_authority(
+        &self,
+    ) -> Result<
+        LegacyReplayMigrationAuthorityV1,
+        LegacyReplayMigrationTransitionErrorV1<LegacyReplayMigrationAuthorityV1>,
+    > {
+        let lease_identity = env::var(LEGACY_MIGRATION_LEASE_IDENTITY_ENV).unwrap_or_default();
+        let authority = LegacyReplayMigrationAuthorityV1 {
+            pool: self.legacy_migration_caller_pool.clone(),
+            marker_identity: self.marker_identity.clone(),
+            lease_identity,
+        };
+        if authority.lease_identity.is_empty() {
+            return Err(LegacyReplayMigrationTransitionErrorV1 {
+                capability: authority,
+                source: sqlx::Error::Protocol(
+                    "legacy Replay migration lease identity is unavailable".into(),
+                ),
+            });
+        }
+        if let Err(source) = authority.acquire_readback().await {
+            return Err(LegacyReplayMigrationTransitionErrorV1 {
+                capability: authority,
+                source,
+            });
+        }
+        Ok(authority)
+    }
+}
+
+impl LegacyReplayMigrationAuthorityV1 {
+    async fn acquire_readback(&self) -> Result<(), sqlx::Error> {
+        let returned = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_legacy_migration_lease.acquire_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await?;
+        if returned == self.lease_identity {
+            Ok(())
+        } else {
+            Err(sqlx::Error::Protocol(
+                "legacy Replay migration authority acquire mismatch".into(),
+            ))
+        }
+    }
+
+    /// Replays the same identity-bound acquire without creating another lease.
+    pub async fn retry_acquire(&self) -> Result<(), sqlx::Error> {
+        self.acquire_readback().await
+    }
+
+    /// Proves a different lease identity cannot replace the active linear lease.
+    pub async fn try_wrong_lease(&self, wrong_lease_identity: &str) -> Result<String, sqlx::Error> {
+        sqlx::query_scalar("SELECT vibe_test_legacy_migration_lease.acquire_v1($1,$2)")
+            .bind(&self.marker_identity)
+            .bind(wrong_lease_identity)
+            .fetch_one(&self.pool)
+            .await
+    }
+
+    /// Releases the exact lease and proves both temporary authorities are absent and state is READY.
+    pub async fn release(
+        self,
+    ) -> Result<
+        ReleasedLegacyReplayMigrationAuthorityV1,
+        LegacyReplayMigrationTransitionErrorV1<Self>,
+    > {
+        let result = sqlx::query_scalar::<_, String>(
+            "SELECT vibe_test_legacy_migration_lease.release_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+        match result {
+            Ok(phase) if phase == "READY" => Ok(ReleasedLegacyReplayMigrationAuthorityV1 {
+                pool: self.pool.clone(),
+                marker_identity: self.marker_identity.clone(),
+                lease_identity: self.lease_identity.clone(),
+            }),
+            Ok(_) => Err(LegacyReplayMigrationTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "legacy Replay migration authority release mismatch".into(),
+                ),
+            }),
+            Err(source) => Err(LegacyReplayMigrationTransitionErrorV1 {
+                capability: self,
+                source,
+            }),
+        }
+    }
+}
+
+impl ReleasedLegacyReplayMigrationAuthorityV1 {
+    /// Repeats the exact release readback and proves cleanup remains idempotent.
+    pub async fn confirm_ready(&self) -> Result<(), sqlx::Error> {
+        let phase: String =
+            sqlx::query_scalar("SELECT vibe_test_legacy_migration_lease.release_v1($1,$2)")
+                .bind(&self.marker_identity)
+                .bind(&self.lease_identity)
+                .fetch_one(&self.pool)
+                .await?;
+        if phase == "READY" {
+            Ok(())
+        } else {
+            Err(sqlx::Error::Protocol(
+                "legacy Replay migration authority READY readback mismatch".into(),
+            ))
+        }
     }
 }
 
@@ -864,6 +1062,82 @@ async fn admit_owner_topology_admin(
     Ok(pool)
 }
 
+async fn admit_legacy_migration_caller(
+    expected_database: &str,
+    expected_marker: &str,
+    canonical_target: &NormalizedDatabaseTarget,
+) -> Result<PgPool, DedicatedPostgresTestDatabaseError> {
+    let url = env::var(LEGACY_MIGRATION_URL_ENV).map_err(|_| {
+        DedicatedPostgresTestDatabaseError::MissingEnvironment(LEGACY_MIGRATION_URL_ENV)
+    })?;
+    let target = normalize_url(LEGACY_MIGRATION_URL_ENV, &url)?;
+    if target.database != expected_database
+        || target.role != "vibe_test_legacy_migration_caller"
+        || !target.same_database(canonical_target)
+    {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(&url)
+        .await
+        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    let exact: bool = sqlx::query_scalar(
+        "SELECT session_user='vibe_test_legacy_migration_caller'
+           AND pg_catalog.current_database()=$1
+           AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
+           AND NOT role.rolreplication AND NOT role.rolbypassrls
+           AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+           AND NOT pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+           AND NOT pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid)
+           AND EXISTS (SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker WHERE marker.marker_identity=$2 AND marker.database_name=$1 AND marker.test_role=session_user)
+           AND pg_catalog.has_schema_privilege(session_user,'vibe_test_legacy_migration_lease','USAGE')
+           AND NOT pg_catalog.has_table_privilege(session_user,'vibe_test_legacy_migration_lease.authority_state_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           AND EXISTS (
+             SELECT 1 FROM pg_catalog.pg_namespace namespace
+              WHERE namespace.nspname='vibe_test_legacy_migration_lease'
+                AND pg_catalog.pg_get_userbyid(namespace.nspowner)='postgres'
+                AND (SELECT count(*)=3
+                       AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND acl.privilege_type IN ('CREATE','USAGE') AND NOT acl.is_grantable)=2
+                       AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                       AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable)=0
+                     FROM pg_catalog.aclexplode(namespace.nspacl) acl)
+           )
+           AND (SELECT count(*)=2 AND bool_and(
+                  pg_catalog.pg_get_userbyid(procedure.proowner)='postgres'
+                  AND language.lanname='plpgsql' AND procedure.prokind='f'
+                  AND procedure.prorettype='text'::pg_catalog.regtype
+                  AND procedure.prosecdef AND procedure.proisstrict
+                  AND procedure.provolatile='v' AND procedure.proparallel='u'
+                  AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+                  AND pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(procedure.prosrc,'UTF8')),'hex')=expected.source_digest
+                  AND pg_catalog.has_function_privilege(session_user,procedure.oid,'EXECUTE')
+                  AND (SELECT count(*)=2
+                         AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                         AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                         AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable OR acl.privilege_type<>'EXECUTE')=0
+                       FROM pg_catalog.aclexplode(procedure.proacl) acl)
+                )
+                  FROM (VALUES ('acquire_v1',$3::text),('release_v1',$4::text)) expected(procedure_name,source_digest)
+                  JOIN pg_catalog.pg_proc procedure ON procedure.proname=expected.procedure_name
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace AND namespace.nspname='vibe_test_legacy_migration_lease'
+                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang)
+          FROM pg_catalog.pg_roles role WHERE role.rolname=session_user",
+    )
+    .bind(expected_database)
+    .bind(expected_marker)
+    .bind(LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
+    .bind(LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1)
+    .fetch_one(&pool)
+    .await
+    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+    if !exact {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+    Ok(pool)
+}
+
 const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
     "SELECT session_user='vibe_test_owner_topology_admin'
            AND pg_catalog.current_database()=$1
@@ -924,9 +1198,19 @@ const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
                AND relation.relpersistence='p' AND owner.rolname='postgres'
                AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
                AND relation.reloptions IS NULL
-               AND (SELECT count(*)=7 AND bool_and(
-                      acl.grantee=relation.relowner AND NOT acl.is_grantable
-                    ) FROM pg_catalog.aclexplode(
+               AND (SELECT count(*)=8
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable
+                      )=7
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=administrator.oid
+                          AND acl.privilege_type='SELECT' AND NOT acl.is_grantable
+                      )=1
+                      AND count(*) FILTER (
+                        WHERE acl.grantee NOT IN (relation.relowner,administrator.oid)
+                           OR acl.is_grantable
+                      )=0
+                    FROM pg_catalog.aclexplode(
                    COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))
                  ) acl)
                AND NOT EXISTS (
@@ -1065,7 +1349,7 @@ async fn owner_topology_admin_authority_is_exact(
         .bind(REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
         .fetch_one(pool)
         .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
+        .map_err(|_| DedicatedPostgresTestDatabaseError::CatalogAdminAuthorityQueryUnavailable)?;
     Ok(role_is_exact)
 }
 
@@ -1638,6 +1922,48 @@ mod tests {
             REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1,
             REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1,
             REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1,
+        ] {
+            assert_eq!(digest.len(), 64);
+            assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));
+        }
+    }
+
+    #[rstest]
+    fn legacy_replay_migration_authority_is_linear_bounded_and_failure_released() {
+        let source = include_str!("postgres.rs");
+        let consumers =
+            include_str!("../../strategy_factory/tests/exploratory_replay_request_owner.rs");
+        let shell = include_str!("../../../scripts/ci/test-rd-owner-postgres.bash");
+        let test_loop = shell
+            .rsplit("# The first two filters exercise explicit legacy/origin migration")
+            .next()
+            .expect("legacy migration test loop");
+
+        assert!(!source.contains("#[derive(Clone)]\npub struct LegacyReplayMigrationAuthorityV1"));
+        assert_eq!(
+            consumers
+                .matches(".acquire_legacy_replay_migration_authority()")
+                .count(),
+            2
+        );
+        for required in [
+            "pub async fn retry_acquire(&self)",
+            "pub async fn try_wrong_lease(&self",
+            "pub async fn release(",
+            "pub async fn confirm_ready(&self)",
+            "CatalogAdminAuthorityQueryUnavailable",
+            "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')",
+        ] {
+            assert!(
+                source.contains(required) || shell.contains(required),
+                "missing bounded legacy migration lease check: {required}"
+            );
+        }
+        assert!(!test_loop.contains("GRANT CREATE ON SCHEMA public TO rd_owner;"));
+        assert!(!test_loop.contains("GRANT rd_custodian TO rd_owner;"));
+        for digest in [
+            LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1,
+            LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1,
         ] {
             assert_eq!(digest.len(), 64);
             assert!(digest.bytes().all(|byte| byte.is_ascii_hexdigit()));

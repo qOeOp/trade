@@ -295,6 +295,20 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .await
         .expect("current Replay V2 request committed");
 
+    let legacy_migration_authority = fixture
+        .database
+        .acquire_legacy_replay_migration_authority()
+        .await
+        .expect("exact legacy Replay migration authority");
+    legacy_migration_authority
+        .retry_acquire()
+        .await
+        .expect("same legacy Replay migration lease is idempotent");
+    legacy_migration_authority
+        .try_wrong_lease("wrong-legacy-replay-migration-lease")
+        .await
+        .expect_err("a different legacy Replay migration lease must fail closed");
+
     sqlx::query(
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
          RENAME TO rd_exploratory_replay_request_custody_v1",
@@ -307,8 +321,16 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         &fixture.qualification_url,
         &fixture.backtest_url,
     )
-    .await
-    .expect("renamed internal Replay custody migrated");
+    .await;
+    let released = legacy_migration_authority
+        .release()
+        .await
+        .expect("legacy Replay migration authority released");
+    released
+        .confirm_ready()
+        .await
+        .expect("legacy Replay migration authority remains READY");
+    let restarted = restarted.expect("renamed internal Replay custody migrated");
 
     let locked_v1 = restarted
         .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
@@ -528,6 +550,12 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
         .await
         .expect("Origin-current Replay V2 request committed");
 
+    let legacy_migration_authority = fixture
+        .database
+        .acquire_legacy_replay_migration_authority()
+        .await
+        .expect("exact Origin-current legacy Replay migration authority");
+
     sqlx::query(
         "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
          RENAME TO rd_exploratory_replay_requests_v1",
@@ -540,8 +568,16 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
         &fixture.qualification_url,
         &fixture.backtest_url,
     )
-    .await
-    .expect("Origin current Replay custody migrated");
+    .await;
+    let released = legacy_migration_authority
+        .release()
+        .await
+        .expect("Origin-current legacy Replay migration authority released");
+    released
+        .confirm_ready()
+        .await
+        .expect("Origin-current legacy Replay migration authority remains READY");
+    let restarted = restarted.expect("Origin current Replay custody migrated");
     let names_are_exact: bool = sqlx::query_scalar(
         "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NULL
             AND pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL

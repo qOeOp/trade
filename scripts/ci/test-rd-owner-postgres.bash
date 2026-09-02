@@ -199,6 +199,7 @@ functions = {
     "restore_third_party_owner_edge_v1":
         "REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1",
 }
+
 for function_name, constant_name in functions.items():
     body_match = re.search(
         rf"CREATE FUNCTION vibe_test_replay_policy_catalog_fault\.{function_name}\("
@@ -219,6 +220,55 @@ for function_name, constant_name in functions.items():
         raise SystemExit(
             f"ERROR: Replay Policy Catalog fault body changed without admission identity: {function_name}"
         )
+PY
+}
+
+check_legacy_migration_lease_function_bodies() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - "${BASH_SOURCE[0]}" "$repository_root/crates/testkit/src/postgres.rs" << 'PY'
+from hashlib import sha256
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+functions = {
+    "acquire_v1": "LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1",
+    "release_v1": "LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1",
+}
+for function_name, constant_name in functions.items():
+    body_match = re.search(
+        rf"CREATE FUNCTION vibe_test_legacy_migration_lease\.{function_name}\("
+        r".*?AS \$function\$(.*?)\$function\$;",
+        script,
+        re.DOTALL,
+    )
+    digest_match = re.search(
+        rf'{constant_name}: &str =\s*"([0-9a-f]{{64}})";',
+        rust,
+    )
+    if body_match is None or digest_match is None:
+        raise SystemExit(
+            f"ERROR: legacy migration lease source identity is unavailable: {function_name}"
+        )
+    actual = sha256(body_match.group(1).encode("utf-8")).hexdigest()
+    if actual != digest_match.group(1):
+        raise SystemExit(
+            f"ERROR: legacy migration lease body changed without admission identity: {function_name}"
+        )
+
+test_loop = script.rsplit(
+    "# The first two filters exercise explicit legacy/origin migration", 1
+)[1]
+if "GRANT CREATE ON SCHEMA public TO rd_owner;" in test_loop:
+    raise SystemExit("ERROR: legacy migration loop exposes raw public CREATE authority")
+if "GRANT rd_custodian TO rd_owner;" in test_loop:
+    raise SystemExit("ERROR: legacy migration loop exposes raw custodian membership")
+release = "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')"
+if release not in test_loop or test_loop.index(release) > test_loop.index('if [[ "$test_passed" != true ]]'):
+    raise SystemExit("ERROR: legacy migration lease is not released before test failure exits")
 PY
 }
 
@@ -313,6 +363,7 @@ check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
 check_replay_policy_catalog_fault_function_bodies
+check_legacy_migration_lease_function_bodies
 check_migration_authority_boundary
 check_rd_owner_fresh_migration_lease
 if [[ "${1:-}" == "--check" ]]; then
@@ -853,11 +904,13 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_marker="$test_marker" << 'SQL'
 CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE vibe_test_legacy_migration_caller LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
 GRANT composer_owner, rd_custodian, product_edge_custodian TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
 GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
+GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_migration_caller;
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
   marker_identity text NOT NULL,
@@ -867,8 +920,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer, vibe_test_legacy_migration_caller;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_replay_fault_writer, vibe_test_legacy_migration_caller;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -879,7 +932,8 @@ FROM unnest(ARRAY[
   'qualification_writer',
   'backtest_owner',
   'vibe_test_owner_topology_admin',
-  'vibe_test_legacy_replay_fault_writer'
+  'vibe_test_legacy_replay_fault_writer',
+  'vibe_test_legacy_migration_caller'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
@@ -907,6 +961,8 @@ CREATE TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 (
 );
 ALTER TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 OWNER TO postgres;
 REVOKE ALL ON TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1 FROM PUBLIC;
+GRANT SELECT ON TABLE vibe_test_replay_policy_catalog_fault.authority_state_v1
+  TO vibe_test_owner_topology_admin;
 INSERT INTO vibe_test_replay_policy_catalog_fault.authority_state_v1(
   singleton,marker_identity,database_name,execution_boundary,phase,lease_identity,
   last_released_lease_identity
@@ -933,6 +989,9 @@ BEGIN
   IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
     RAISE EXCEPTION 'Replay Policy Catalog fault authority caller mismatch' USING ERRCODE='42501';
   END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('vibe-test-exclusive-authority-v1',0)
+  );
   SELECT pg_catalog.count(*) INTO exact_marker_count
     FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
    WHERE marker.marker_identity=expected_marker_identity
@@ -940,6 +999,14 @@ BEGIN
      AND marker.test_role='vibe_test_owner_topology_admin';
   IF exact_marker_count<>1 THEN
     RAISE EXCEPTION 'Replay Policy Catalog fault authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM vibe_test_legacy_migration_lease.authority_state_v1 state
+     WHERE NOT state.singleton OR state.marker_identity<>expected_marker_identity
+        OR state.database_name<>pg_catalog.current_database()
+        OR state.phase<>'READY' OR state.lease_identity IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'legacy Replay migration authority is not clean' USING ERRCODE='55000';
   END IF;
   SELECT state.phase,state.lease_identity,state.last_released_lease_identity
     INTO current_phase,current_lease_identity,last_released_lease_identity
@@ -1344,6 +1411,200 @@ GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.release_v1(text,
 GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.inject_third_party_owner_edge_v1(text,text) TO vibe_test_owner_topology_admin;
 GRANT EXECUTE ON FUNCTION vibe_test_replay_policy_catalog_fault.restore_third_party_owner_edge_v1(text,text) TO vibe_test_owner_topology_admin;
 
+CREATE SCHEMA vibe_test_legacy_migration_lease AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_legacy_migration_lease FROM PUBLIC;
+GRANT USAGE ON SCHEMA vibe_test_legacy_migration_lease
+  TO vibe_test_legacy_migration_caller;
+CREATE TABLE vibe_test_legacy_migration_lease.authority_state_v1 (
+  singleton boolean DEFAULT true NOT NULL,
+  marker_identity text NOT NULL,
+  database_name name NOT NULL,
+  phase text NOT NULL,
+  lease_identity text,
+  last_released_lease_identity text,
+  CONSTRAINT legacy_migration_authority_state_v1_singleton_pk PRIMARY KEY (singleton),
+  CONSTRAINT legacy_migration_authority_state_v1_singleton_check CHECK (singleton),
+  CONSTRAINT legacy_migration_authority_state_v1_phase_check CHECK (phase IN ('READY','LEASED')),
+  CONSTRAINT legacy_migration_authority_state_v1_lease_check CHECK (
+    (phase='READY' AND lease_identity IS NULL)
+    OR (phase='LEASED' AND lease_identity IS NOT NULL)
+  )
+);
+ALTER TABLE vibe_test_legacy_migration_lease.authority_state_v1 OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_legacy_migration_lease.authority_state_v1 FROM PUBLIC;
+INSERT INTO vibe_test_legacy_migration_lease.authority_state_v1(
+  singleton,marker_identity,database_name,phase,lease_identity,last_released_lease_identity
+) VALUES (true,:'test_marker',:'test_database','READY',NULL,NULL);
+
+CREATE FUNCTION vibe_test_legacy_migration_lease.acquire_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  exact_membership_count bigint;
+  exact_schema_create_count bigint;
+  current_phase text;
+  current_lease_identity text;
+  last_released_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_legacy_migration_caller' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'legacy Replay migration authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('vibe-test-exclusive-authority-v1',0)
+  );
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_legacy_migration_caller';
+  IF exact_marker_count<>1 OR expected_lease_identity='' THEN
+    RAISE EXCEPTION 'legacy Replay migration authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity,state.last_released_lease_identity
+    INTO current_phase,current_lease_identity,last_released_lease_identity
+    FROM vibe_test_legacy_migration_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+   FOR UPDATE;
+  IF current_phase='LEASED' AND current_lease_identity=expected_lease_identity THEN
+    SELECT pg_catalog.count(*) INTO exact_membership_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+     WHERE granted.rolname='rd_custodian' AND member.rolname='rd_owner'
+       AND grantor.rolname='postgres' AND NOT membership.admin_option
+       AND membership.inherit_option AND membership.set_option;
+    SELECT pg_catalog.count(*) INTO exact_schema_create_count
+      FROM pg_catalog.pg_namespace namespace
+      CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
+     WHERE namespace.nspname='public'
+       AND acl.grantee=pg_catalog.to_regrole('rd_owner')::oid
+       AND acl.privilege_type='CREATE' AND NOT acl.is_grantable;
+    IF exact_membership_count=1 AND exact_schema_create_count=1 THEN
+      RETURN expected_lease_identity;
+    END IF;
+    RAISE EXCEPTION 'legacy Replay migration leased authority mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'READY' OR current_lease_identity IS NOT NULL
+     OR last_released_lease_identity=expected_lease_identity THEN
+    RAISE EXCEPTION 'legacy Replay migration authority phase mismatch' USING ERRCODE='55000';
+  END IF;
+  IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+     OR pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
+     OR EXISTS (
+       SELECT 1 FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+        WHERE NOT state.singleton OR state.marker_identity<>expected_marker_identity
+           OR state.database_name<>pg_catalog.current_database()
+           OR state.phase<>'READY' OR state.lease_identity IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'legacy Replay migration authority is not clean' USING ERRCODE='55000';
+  END IF;
+  GRANT CREATE ON SCHEMA public TO rd_owner;
+  GRANT rd_custodian TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+  SELECT pg_catalog.count(*) INTO exact_membership_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE granted.rolname='rd_custodian' AND member.rolname='rd_owner'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  SELECT pg_catalog.count(*) INTO exact_schema_create_count
+    FROM pg_catalog.pg_namespace namespace
+    CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
+   WHERE namespace.nspname='public'
+     AND acl.grantee=pg_catalog.to_regrole('rd_owner')::oid
+     AND acl.privilege_type='CREATE' AND NOT acl.is_grantable;
+  IF exact_membership_count<>1 OR exact_schema_create_count<>1 THEN
+    RAISE EXCEPTION 'legacy Replay migration authority acquire mismatch' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_legacy_migration_lease.authority_state_v1
+     SET phase='LEASED',lease_identity=expected_lease_identity
+   WHERE singleton AND phase='READY' AND lease_identity IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'legacy Replay migration authority phase advance failed' USING ERRCODE='55000';
+  END IF;
+  RETURN expected_lease_identity;
+END
+$function$;
+
+CREATE FUNCTION vibe_test_legacy_migration_lease.release_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  exact_marker_count bigint;
+  current_phase text;
+  current_lease_identity text;
+  last_released_lease_identity text;
+BEGIN
+  IF session_user<>'vibe_test_legacy_migration_caller' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'legacy Replay migration authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_marker_count
+    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+   WHERE marker.marker_identity=expected_marker_identity
+     AND marker.database_name=pg_catalog.current_database()
+     AND marker.test_role='vibe_test_legacy_migration_caller';
+  IF exact_marker_count<>1 OR expected_lease_identity='' THEN
+    RAISE EXCEPTION 'legacy Replay migration authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT state.phase,state.lease_identity,state.last_released_lease_identity
+    INTO current_phase,current_lease_identity,last_released_lease_identity
+    FROM vibe_test_legacy_migration_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+   FOR UPDATE;
+  IF current_phase='READY' AND current_lease_identity IS NULL
+     AND (last_released_lease_identity IS NULL
+          OR last_released_lease_identity=expected_lease_identity) THEN
+    IF NOT pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+       AND NOT pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER') THEN
+      RETURN 'READY';
+    END IF;
+    RAISE EXCEPTION 'legacy Replay migration released authority mismatch' USING ERRCODE='55000';
+  END IF;
+  IF current_phase IS DISTINCT FROM 'LEASED'
+     OR current_lease_identity IS DISTINCT FROM expected_lease_identity THEN
+    RAISE EXCEPTION 'legacy Replay migration authority phase mismatch' USING ERRCODE='55000';
+  END IF;
+  REVOKE CREATE ON SCHEMA public FROM rd_owner;
+  REVOKE rd_custodian FROM rd_owner;
+  IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+     OR pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER') THEN
+    RAISE EXCEPTION 'legacy Replay migration authority release mismatch' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_legacy_migration_lease.authority_state_v1
+     SET phase='READY',lease_identity=NULL,
+         last_released_lease_identity=expected_lease_identity
+   WHERE singleton AND phase='LEASED' AND lease_identity=expected_lease_identity;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'legacy Replay migration authority phase release failed' USING ERRCODE='55000';
+  END IF;
+  RETURN 'READY';
+END
+$function$;
+
+ALTER FUNCTION vibe_test_legacy_migration_lease.acquire_v1(text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_legacy_migration_lease.release_v1(text,text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_legacy_migration_lease.acquire_v1(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_legacy_migration_lease.release_v1(text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_legacy_migration_lease.acquire_v1(text,text)
+  TO vibe_test_legacy_migration_caller;
+GRANT EXECUTE ON FUNCTION vibe_test_legacy_migration_lease.release_v1(text,text)
+  TO vibe_test_legacy_migration_caller;
+
 CREATE SCHEMA vibe_test_legacy_replay_fault AUTHORIZATION postgres;
 REVOKE ALL ON SCHEMA vibe_test_legacy_replay_fault FROM PUBLIC;
 GRANT USAGE ON SCHEMA vibe_test_legacy_replay_fault TO vibe_test_legacy_replay_fault_writer;
@@ -1425,7 +1686,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT,TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin, vibe_test_legacy_migration_caller;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1468,6 +1729,8 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
    SET database_name=:'origin_current_database';
 UPDATE vibe_test_replay_policy_catalog_fault.authority_state_v1
+   SET database_name=:'origin_current_database';
+UPDATE vibe_test_legacy_migration_lease.authority_state_v1
    SET database_name=:'origin_current_database';
 SQL
 
@@ -1713,6 +1976,7 @@ export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL="postgresql://vibe_test_legacy_replay_fault_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
@@ -2048,12 +2312,11 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   elif [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
     migration_database="$origin_current_database"
   fi
+  legacy_migration_lease_identity=''
+  legacy_migration_url=''
   if [[ -n "$migration_database" ]]; then
-    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-      --username postgres --dbname "$migration_database" << 'SQL'
-GRANT CREATE ON SCHEMA public TO rd_owner;
-GRANT rd_custodian TO rd_owner;
-SQL
+    legacy_migration_lease_identity="legacy-replay-migration:${test_marker}:${test_name}:v1"
+    legacy_migration_url="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${migration_database}"
   fi
   test_passed=false
   if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
@@ -2066,6 +2329,8 @@ SQL
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_migration_url" \
+      VIBE_TEST_LEGACY_MIGRATION_LEASE_IDENTITY="$legacy_migration_lease_identity" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -2074,7 +2339,18 @@ SQL
       test_passed=true
     fi
   else
-    if cargo nextest run \
+    if [[ -n "$migration_database" ]]; then
+      if env \
+        VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_migration_url" \
+        VIBE_TEST_LEGACY_MIGRATION_LEASE_IDENTITY="$legacy_migration_lease_identity" \
+        cargo nextest run \
+        --archive-file "$nextest_archive_file" \
+        --profile "$nextest_profile" \
+        "${nextest_execution_args[@]}" \
+        -E "$test_filter"; then
+        test_passed=true
+      fi
+    elif cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
@@ -2083,6 +2359,14 @@ SQL
     fi
   fi
   if [[ -n "$migration_database" ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$migration_database" \
+      --set=test_marker="$test_marker" \
+      --set=lease_identity="$legacy_migration_lease_identity" << 'SQL'
+SET SESSION AUTHORIZATION vibe_test_legacy_migration_caller;
+SELECT vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity');
+RESET SESSION AUTHORIZATION;
+SQL
     run_authority_migration_for_database "$migration_database"
     revoke_runtime_schema_create "$migration_database"
     restore_disposable_topology_admin "$migration_database"
