@@ -20,6 +20,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|postgres_freshness_tests::postgres_rd_owner_api_path|fresh_rd_owner_existing_custody_validates_after_migration'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write'
@@ -51,19 +52,20 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 17 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all seventeen ordered runtime and migration tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 18 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all eighteen ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[6]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
-    [[ "${rd_owner_postgres_tests[7]}" != *'|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write' ]] ||
-    [[ "${rd_owner_postgres_tests[11]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[5]}" != *'|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl' ]] ||
+    [[ "${rd_owner_postgres_tests[7]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
+    [[ "${rd_owner_postgres_tests[8]}" != *'|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -496,6 +498,8 @@ readonly container="vibe-rd-owner-test-${suffix}"
 readonly volume="vibe-rd-owner-test-${suffix}"
 readonly test_database="vibe_test_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
+readonly partial_sealed_database="vibe_test_partial_sealed_${suffix//-/_}"
+readonly partial_sealed_routine_database="vibe_test_partial_sealed_routine_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -2148,6 +2152,8 @@ impersonator_endpoint="$(
 read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
 
 export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_OWNER_PARTIAL_SEALED_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${partial_sealed_database}"
+export RD_OWNER_PARTIAL_SEALED_ROUTINE_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${partial_sealed_routine_database}"
 export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
@@ -2384,6 +2390,76 @@ SQL
 
 provision_owner_schemas "$test_database"
 provision_owner_schemas "$origin_current_database"
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=partial_sealed_database="$partial_sealed_database" << 'SQL'
+CREATE DATABASE :"partial_sealed_database" OWNER rd_database_owner;
+REVOKE CONNECT ON DATABASE :"partial_sealed_database" FROM PUBLIC;
+GRANT CONNECT, CREATE ON DATABASE :"partial_sealed_database" TO rd_owner;
+SQL
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$partial_sealed_database" << 'SQL'
+GRANT USAGE, CREATE ON SCHEMA public TO rd_owner;
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+CREATE TABLE public.rd_source_candidates_v1 (probe integer NOT NULL);
+ALTER TABLE public.rd_source_candidates_v1 OWNER TO rd_custodian;
+REVOKE ALL ON TABLE public.rd_source_candidates_v1 FROM PUBLIC;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=partial_sealed_routine_database="$partial_sealed_routine_database" << 'SQL'
+CREATE DATABASE :"partial_sealed_routine_database" OWNER rd_database_owner;
+REVOKE CONNECT ON DATABASE :"partial_sealed_routine_database" FROM PUBLIC;
+GRANT CONNECT, CREATE ON DATABASE :"partial_sealed_routine_database" TO rd_owner;
+SQL
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$partial_sealed_routine_database" << 'SQL'
+GRANT USAGE, CREATE ON SCHEMA public TO rd_owner;
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+CREATE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()
+RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RETURN NULL; END $function$;
+ALTER FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()
+  OWNER TO rd_custodian;
+REVOKE ALL ON FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()
+  FROM PUBLIC;
+SQL
+
+partial_sealed_topology_fingerprint() {
+  local fingerprint_database="$1"
+  {
+    docker exec "$container" pg_dump \
+      --schema-only --quote-all-identifiers --username postgres \
+      --dbname "$fingerprint_database"
+    docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+      --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+      --set=fingerprint_database="$fingerprint_database" << 'SQL'
+SELECT 'database:'||database_entry.datname||':'||
+       pg_catalog.pg_get_userbyid(database_entry.datdba)||':'||
+       COALESCE(database_entry.datacl::text,'<NULL>')
+  FROM pg_catalog.pg_database database_entry
+ WHERE database_entry.datname=:'fingerprint_database';
+SELECT 'role:'||role.rolname||':'||role.rolsuper::text||':'||role.rolinherit::text||':'||
+       role.rolcreaterole::text||':'||role.rolcreatedb::text||':'||role.rolcanlogin::text||':'||
+       role.rolreplication::text||':'||role.rolbypassrls::text||':'||
+       COALESCE(role.rolconfig::text,'<NULL>')
+  FROM pg_catalog.pg_roles role
+ WHERE role.rolname IN ('rd_owner','rd_custodian','rd_database_owner')
+ ORDER BY role.rolname;
+SELECT 'membership:'||granted.rolname||':'||member.rolname||':'||grantor.rolname||':'||
+       membership.admin_option::text||':'||membership.inherit_option::text||':'||
+       membership.set_option::text
+  FROM pg_catalog.pg_auth_members membership
+  JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+  JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+  JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+ WHERE granted.rolname IN ('rd_owner','rd_custodian','rd_database_owner')
+    OR member.rolname IN ('rd_owner','rd_custodian','rd_database_owner')
+ ORDER BY granted.rolname,member.rolname,grantor.rolname;
+SQL
+  } | sed -e '/^\\restrict /d' -e '/^\\unrestrict /d' | sha256sum | awk '{print $1}'
+}
 run_authority_migration_for_database "$test_database"
 run_authority_migration_for_database "$origin_current_database"
 revoke_runtime_schema_create "$test_database"
@@ -2575,7 +2651,50 @@ GRANT CONNECT ON DATABASE :"migration_database" TO vibe_test_legacy_migration_ca
 SQL
   fi
   test_passed=false
-  if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
+  if [[ "$test_name" == 'partial_sealed_non_anchor_objects_fail_before_ddl' ]]; then
+    partial_sealed_fingerprint_before="$(
+      printf '%s\n%s\n' \
+        "$(partial_sealed_topology_fingerprint "$partial_sealed_database")" \
+        "$(partial_sealed_topology_fingerprint "$partial_sealed_routine_database")" |
+        sha256sum | awk '{print $1}'
+    )"
+    if env \
+      RD_OWNER_PARTIAL_SEALED_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${partial_sealed_database}" \
+      RD_OWNER_PARTIAL_SEALED_ROUTINE_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${partial_sealed_routine_database}" \
+      QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"; then
+      test_passed=true
+    fi
+    partial_sealed_fingerprint_after="$(
+      printf '%s\n%s\n' \
+        "$(partial_sealed_topology_fingerprint "$partial_sealed_database")" \
+        "$(partial_sealed_topology_fingerprint "$partial_sealed_routine_database")" |
+        sha256sum | awk '{print $1}'
+    )"
+    if [[ "$partial_sealed_fingerprint_after" != "$partial_sealed_fingerprint_before" ]]; then
+      echo "ERROR: rejected partial-sealed R&D startup changed PostgreSQL topology." >&2
+      test_passed=false
+    fi
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname postgres \
+      --set=partial_sealed_database="$partial_sealed_database" \
+      --set=partial_sealed_routine_database="$partial_sealed_routine_database" << 'SQL'
+DROP DATABASE :"partial_sealed_database" WITH (FORCE);
+DROP DATABASE :"partial_sealed_routine_database" WITH (FORCE);
+SQL
+    if docker exec "$container" psql --quiet --tuples-only --no-align \
+      --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+      --set=partial_sealed_database="$partial_sealed_database" \
+      --set=partial_sealed_routine_database="$partial_sealed_routine_database" \
+      --command "SELECT 1 FROM pg_catalog.pg_database WHERE datname IN (:'partial_sealed_database',:'partial_sealed_routine_database')" | grep -q 1; then
+      echo "ERROR: partial-sealed PostgreSQL fixture database survived cleanup." >&2
+      test_passed=false
+    fi
+  elif [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
     if env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \

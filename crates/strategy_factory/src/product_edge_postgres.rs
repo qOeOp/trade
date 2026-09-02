@@ -782,17 +782,16 @@ impl PostgresResearchGoalOwnerV1 {
                ) OR EXISTS (
                  SELECT 1
                    FROM pg_catalog.pg_class relation
-                  WHERE relation.oid IN (
-                    pg_catalog.to_regclass('public.rd_research_request_receipts_v1'),
-                    pg_catalog.to_regclass('public.rd_source_intake_bindings_v1')
-                  )
+                   JOIN pg_catalog.pg_namespace namespace
+                     ON namespace.oid=relation.relnamespace
+                  WHERE namespace.nspname='public'
                     AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
                ) OR EXISTS (
                  SELECT 1
                    FROM pg_catalog.pg_proc routine
-                  WHERE routine.oid=pg_catalog.to_regprocedure(
-                    'rd_owner_api.derive_source_intake_identity_v1(text,text[])'
-                  )
+                   JOIN pg_catalog.pg_namespace namespace
+                     ON namespace.oid=routine.pronamespace
+                  WHERE namespace.nspname IN ('public','rd_owner_api')
                     AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
                )",
         )
@@ -2783,6 +2782,45 @@ mod tests {
         outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,
     }
 
+    async fn partial_sealed_topology_fingerprint(pool: &PgPool) -> String {
+        sqlx::query_scalar(
+            "WITH facts(fact) AS (
+               SELECT 'namespace:'||namespace.nspname||':'||
+                      pg_catalog.pg_get_userbyid(namespace.nspowner)||':'||
+                      COALESCE(namespace.nspacl::text,'<NULL>')
+                 FROM pg_catalog.pg_namespace namespace
+                WHERE namespace.nspname IN ('public','rd_owner_api')
+               UNION ALL
+               SELECT 'relation:'||namespace.nspname||'.'||relation.relname||':'||
+                      relation.relkind::text||':'||
+                      pg_catalog.pg_get_userbyid(relation.relowner)||':'||
+                      COALESCE(relation.relacl::text,'<NULL>')||':'||
+                      COALESCE(pg_catalog.obj_description(relation.oid,'pg_class'),'<NULL>')
+                 FROM pg_catalog.pg_class relation
+                 JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                WHERE namespace.nspname IN ('public','rd_owner_api')
+               UNION ALL
+               SELECT 'routine:'||namespace.nspname||'.'||routine.proname||'('||
+                      pg_catalog.pg_get_function_identity_arguments(routine.oid)||'):'||
+                      pg_catalog.pg_get_userbyid(routine.proowner)||':'||
+                      routine.prosecdef::text||':'||routine.proisstrict::text||':'||
+                      routine.provolatile::text||':'||routine.proparallel::text||':'||
+                      COALESCE(routine.proconfig::text,'<NULL>')||':'||
+                      COALESCE(routine.proacl::text,'<NULL>')||':'||
+                      pg_catalog.md5(routine.prosrc)
+                 FROM pg_catalog.pg_proc routine
+                 JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+                WHERE namespace.nspname IN ('public','rd_owner_api')
+             )
+             SELECT pg_catalog.md5(COALESCE(
+               pg_catalog.string_agg(fact,E'\\n' ORDER BY fact),''
+             )) FROM facts",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("partial-sealed topology fingerprint")
+    }
+
     #[rstest]
     fn research_bootstrap_uses_only_the_canonical_source_identity_prerequisite() {
         assert_eq!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1.len(), 3);
@@ -2885,6 +2923,36 @@ mod tests {
         assert!(sealed_stop < migration);
         assert!(connect.contains("PostgresQualificationOwnerV1::connect_existing"));
         assert!(connect.contains("return Err(existing_rd_storage_unavailable())"));
+    }
+
+    #[rstest]
+    fn partial_sealed_detection_covers_every_custodian_owned_rd_object() {
+        let source = include_str!("product_edge_postgres.rs");
+        let detection = source
+            .split("async fn sealed_rd_storage_is_present")
+            .nth(1)
+            .expect("sealed R&D storage detection")
+            .split("async fn migrate_rd_storage")
+            .next()
+            .expect("sealed detection boundary");
+
+        assert!(detection.contains("namespace.nspname='public'"));
+        assert!(detection.contains("namespace.nspname IN ('public','rd_owner_api')"));
+        assert_eq!(
+            detection
+                .matches("pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'")
+                .count(),
+            1
+        );
+        assert_eq!(
+            detection
+                .matches("pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'")
+                .count(),
+            1
+        );
+        assert!(!detection.contains("rd_research_request_receipts_v1"));
+        assert!(!detection.contains("rd_source_intake_bindings_v1"));
+        assert!(!detection.contains("derive_source_intake_identity_v1"));
     }
 
     #[rstest]
@@ -3455,6 +3523,115 @@ mod tests {
         assert_eq!(
             basis_privileges,
             (true, true, false, false, false, false, true)
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the isolated partial-sealed R&D PostgreSQL fixture"]
+    async fn partial_sealed_non_anchor_objects_fail_before_ddl() {
+        let rd_database_url = std::env::var("RD_OWNER_PARTIAL_SEALED_TEST_DATABASE_URL")
+            .expect("partial-sealed rd_owner URL");
+        let routine_database_url =
+            std::env::var("RD_OWNER_PARTIAL_SEALED_ROUTINE_TEST_DATABASE_URL")
+                .expect("partial-sealed routine-only rd_owner URL");
+        let qualification_database_url =
+            std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
+                .expect("fresh qualification_writer URL");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&rd_database_url)
+            .await
+            .expect("partial-sealed R&D connection");
+
+        let fixture: (bool, bool, bool, bool, bool, i64) = sqlx::query_as(
+            "SELECT
+               pg_catalog.pg_get_userbyid((
+                 SELECT namespace.nspowner
+                   FROM pg_catalog.pg_namespace namespace
+                  WHERE namespace.nspname='rd_owner_api'
+               ))='rd_owner',
+               pg_catalog.to_regclass('public.rd_research_request_receipts_v1') IS NULL,
+               pg_catalog.to_regclass('public.rd_source_intake_bindings_v1') IS NULL,
+               pg_catalog.to_regprocedure(
+                 'rd_owner_api.derive_source_intake_identity_v1(text,text[])'
+               ) IS NULL,
+               pg_catalog.pg_get_userbyid((
+                 SELECT relation.relowner
+                   FROM pg_catalog.pg_class relation
+                  WHERE relation.oid=pg_catalog.to_regclass('public.rd_source_candidates_v1')
+               ))='rd_custodian',
+               (SELECT pg_catalog.count(*)
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='public'
+                   AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian')",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("partial-sealed fixture identity");
+        assert_eq!(fixture, (true, true, true, true, true, 1));
+
+        let before = partial_sealed_topology_fingerprint(&pool).await;
+        let error =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .expect_err("partial sealed custody must fail before migration");
+        assert_eq!(error, existing_rd_storage_unavailable());
+        assert_eq!(partial_sealed_topology_fingerprint(&pool).await, before);
+
+        let routine_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&routine_database_url)
+            .await
+            .expect("partial-sealed routine-only R&D connection");
+        let routine_fixture: (bool, bool, bool, bool, i64, i64, i64) = sqlx::query_as(
+            "SELECT
+               pg_catalog.pg_get_userbyid((
+                 SELECT namespace.nspowner
+                   FROM pg_catalog.pg_namespace namespace
+                  WHERE namespace.nspname='rd_owner_api'
+               ))='rd_owner',
+               pg_catalog.to_regclass('public.rd_research_request_receipts_v1') IS NULL,
+               pg_catalog.to_regclass('public.rd_source_intake_bindings_v1') IS NULL,
+               pg_catalog.pg_get_userbyid((
+                 SELECT routine.proowner
+                   FROM pg_catalog.pg_proc routine
+                  WHERE routine.oid=pg_catalog.to_regprocedure(
+                    'public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'
+                  )
+               ))='rd_custodian',
+               (SELECT pg_catalog.count(*)
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='public'
+                   AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'),
+               (SELECT pg_catalog.count(*)
+                  FROM pg_catalog.pg_proc routine
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+                 WHERE namespace.nspname='rd_owner_api'
+                   AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'),
+               (SELECT pg_catalog.count(*)
+                  FROM pg_catalog.pg_proc routine
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+                 WHERE namespace.nspname='public'
+                   AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian')",
+        )
+        .fetch_one(&routine_pool)
+        .await
+        .expect("partial-sealed routine-only fixture identity");
+        assert_eq!(routine_fixture, (true, true, true, true, 0, 0, 1));
+
+        let routine_before = partial_sealed_topology_fingerprint(&routine_pool).await;
+        let routine_error = PostgresResearchGoalOwnerV1::connect(
+            &routine_database_url,
+            &qualification_database_url,
+        )
+        .await
+        .expect_err("partial sealed public routine must fail before migration");
+        assert_eq!(routine_error, existing_rd_storage_unavailable());
+        assert_eq!(
+            partial_sealed_topology_fingerprint(&routine_pool).await,
+            routine_before
         );
     }
 
