@@ -491,7 +491,7 @@ restore_disposable_topology_admin() {
   local fixture_database="$1"
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres --set=fixture_database="$fixture_database" << 'SQL'
-GRANT replay_policy_catalog_owner, composer_owner, rd_custodian, product_edge_custodian TO vibe_test_owner_topology_admin;
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
 SQL
 }
@@ -1279,6 +1279,7 @@ BEGIN
      OR NOT pg_catalog.has_database_privilege('backtest_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('qualification_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('operator_authorization_owner', pg_catalog.current_database(), 'CONNECT')
+     OR (SELECT count(*)<>2 OR count(*) FILTER (WHERE granted.rolname IN ('replay_policy_catalog_owner','composer_owner') AND membership.set_option)<>2 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles administrator ON administrator.oid=membership.member JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid WHERE administrator.rolname='vibe_test_owner_topology_admin')
      OR EXISTS (
        SELECT 1 FROM pg_catalog.unnest(ARRAY['rd_owner','rd_fact_writer','operator_authorization_writer','qualification_writer','product_edge_owner','backtest_owner']) runtime_role(role_name)
        WHERE pg_catalog.has_database_privilege(runtime_role.role_name,pg_catalog.current_database(),'CREATE')
