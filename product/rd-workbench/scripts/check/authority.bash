@@ -42,8 +42,8 @@ if grep -Eq 'GRANT EXECUTE ON FUNCTION (replay_policy_catalog_api\.apply_replay_
   echo "rd_owner must not execute Catalog/Composer mutation routines" >&2
   exit 1
 fi
-if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
-  echo "rd_owner must use fixed Catalog/Composer APIs, not raw table grants" >&2
+if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*(ON (TABLE )?(replay_policy_catalog_private|composer_private)\.|ON ALL TABLES IN SCHEMA (replay_policy_catalog_private|composer_private)).*TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "rd_owner must use fixed Catalog/Composer APIs, not raw private table grants" >&2
   exit 1
 fi
 grep -Fq "tablename LIKE 'rd_%'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -56,8 +56,10 @@ grep -Fq 'ALTER DEFAULT PRIVILEGES FOR ROLE rd_owner IN SCHEMA public REVOKE SEL
 grep -Fq "REVOKE ALL PRIVILEGES ON TABLE %I.%I FROM qualification_owner, qualification_writer" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION qualification_api.lock_projection_for_basis_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq "ALTER TABLE %I.%I OWNER TO rd_owner" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'ALTER TABLE %I.%I OWNER TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "ALTER TABLE %I.%I OWNER TO rd_custodian" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE %I.%I OWNER TO product_edge_custodian' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 test "$(grep -Ec '^UPDATE public\.product_edge_(deployment_bindings|request_admissions)_v1$' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
 if grep -Eq '^[[:space:]]*(DELETE FROM|UPDATE .*SET .*(_json|_digest|committed_at)|INSERT INTO .*(_json|_digest|committed_at))[[:space:]]' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
   echo "authority custody migration must not rewrite canonical business facts" >&2
@@ -71,8 +73,8 @@ grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_cla
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_custodian' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO rd_owner, product_edge_owner, qualification_writer, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(' "$package_dir/../../crates/strategy_factory/src/product_edge_postgres.rs"
