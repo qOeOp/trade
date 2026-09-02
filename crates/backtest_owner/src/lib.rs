@@ -25,6 +25,7 @@ mod sealed {
 }
 
 mod native_replay;
+pub mod postgres;
 
 pub use native_replay::run_stateful_trend_native_replay_v2;
 
