@@ -283,7 +283,7 @@ BEGIN
     ) expected(name,columns,index_count,constraint_count)
     LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||expected.name)
     WHERE relation.oid IS NULL OR relation.relkind<>'r' OR relation.relpersistence<>'p'
-       OR (SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)<>expected.columns
+       OR (SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped)<>expected.columns
        OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid=relation.oid)<>expected.index_count
        OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid)<>expected.constraint_count
        OR relation.relrowsecurity OR relation.relforcerowsecurity
