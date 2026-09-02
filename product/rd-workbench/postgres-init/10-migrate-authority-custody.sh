@@ -16,6 +16,7 @@ BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(
   pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
 );
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_database_owner') THEN CREATE ROLE rd_database_owner NOLOGIN; END IF;
@@ -115,7 +116,7 @@ GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer, 
 CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
 ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
 REVOKE ALL ON SCHEMA backtest_owner_api FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
-GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner;
+GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner, backtest_owner;
 
 CREATE TABLE IF NOT EXISTS public.backtest_replay_results_v2 (
   result_identity text PRIMARY KEY,
@@ -161,6 +162,14 @@ ALTER TABLE public.backtest_replay_result_outbox_v1 OWNER TO backtest_custodian;
 REVOKE ALL ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 TO backtest_owner;
 
+CREATE OR REPLACE FUNCTION backtest_owner_api.lock_authority_catalogs_v1()
+RETURNS boolean LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END$function$;
+ALTER FUNCTION backtest_owner_api.lock_authority_catalogs_v1() OWNER TO postgres;
+REVOKE ALL ON FUNCTION backtest_owner_api.lock_authority_catalogs_v1() FROM PUBLIC, backtest_custodian, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.lock_authority_catalogs_v1() TO rd_owner, backtest_owner;
+
 CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(
   p_result_identity text,
   p_request_identity text,
@@ -183,8 +192,13 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
     AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_owner')
     AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner')
+    AND (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='postgres' AND language.lanname='plpgsql' AND procedure.prokind='f' AND NOT procedure.proleakproof AND procedure.prorettype='boolean'::pg_catalog.regtype AND procedure.pronargs=0 AND procedure.prosecdef AND procedure.proisstrict AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND procedure.prosrc='BEGIN LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE MODE; RETURN true; END'
+           AND (SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(role.rolname IN ('rd_owner','backtest_owner') AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable AND pg_catalog.pg_get_userbyid(acl.grantor)='postgres') FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>procedure.proowner)
+           FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang WHERE procedure.oid=pg_catalog.to_regprocedure('backtest_owner_api.lock_authority_catalogs_v1()'))
     AND pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','USAGE')
     AND NOT pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','CREATE')
+    AND pg_catalog.has_schema_privilege('backtest_owner','backtest_owner_api','USAGE')
+    AND NOT pg_catalog.has_schema_privilege('backtest_owner','backtest_owner_api','CREATE')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_result_outbox_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')

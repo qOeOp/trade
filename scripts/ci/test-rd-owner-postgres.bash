@@ -173,13 +173,15 @@ check_backtest_result_function_source() {
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   python3 - \
     "$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh" \
-    "$repository_root/crates/backtest_result_custody/src/lib.rs" << 'PY'
+    "$repository_root/crates/backtest_result_custody/src/lib.rs" \
+    "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
 from pathlib import Path
 import re
 import sys
 
 migration = Path(sys.argv[1]).read_text(encoding="utf-8")
 rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
 sql_match = re.search(
     r"CREATE OR REPLACE FUNCTION backtest_owner_api\.resolve_exploratory_replay_result_v2\("
     r".*?AS \$function\$(.*?)\$function\$;",
@@ -187,10 +189,45 @@ sql_match = re.search(
     re.DOTALL,
 )
 rust_match = re.search(r'const FUNCTION_SOURCE: &str = "([^"]*)";', rust)
-if sql_match is None or rust_match is None:
+lock_sql_match = re.search(
+    r"CREATE OR REPLACE FUNCTION backtest_owner_api\.lock_authority_catalogs_v1\(\)"
+    r".*?AS \$function\$(.*?)\$function\$;",
+    migration,
+    re.DOTALL,
+)
+lock_rust_match = re.search(
+    r'const AUTHORITY_LOCK_FUNCTION_SOURCE: &str =\s*"([^"]*)";', rust
+)
+if (
+    sql_match is None
+    or rust_match is None
+    or lock_sql_match is None
+    or lock_rust_match is None
+):
     raise SystemExit("ERROR: Backtest Result locked-read source identity is unavailable")
 if sql_match.group(1) != rust_match.group(1):
     raise SystemExit("ERROR: Backtest Result locked-read source identity mismatch")
+if lock_sql_match.group(1) != lock_rust_match.group(1):
+    raise SystemExit("ERROR: Backtest Result authority-lock source identity mismatch")
+ordered_fences = re.compile(
+    r"SELECT pg_catalog\.pg_advisory_xact_lock\(\s*"
+    r"pg_catalog\.hashtextextended\('vibe\.backtest\.result-topology\.v2',0\)\s*"
+    r"\);\s*LOCK TABLE pg_catalog\.pg_authid, pg_catalog\.pg_auth_members "
+    r"IN SHARE ROW EXCLUSIVE MODE;"
+)
+inverted_fences = re.compile(
+    r"LOCK TABLE pg_catalog\.pg_authid, pg_catalog\.pg_auth_members "
+    r"IN SHARE ROW EXCLUSIVE MODE;\s*SELECT pg_catalog\.pg_advisory_xact_lock\(\s*"
+    r"pg_catalog\.hashtextextended\('vibe\.backtest\.result-topology\.v2',0\)"
+)
+if len(ordered_fences.findall(migration)) != 1:
+    raise SystemExit("ERROR: authority migration fence order is unavailable or duplicated")
+if len(ordered_fences.findall(test_script)) != 4:
+    raise SystemExit("ERROR: Backtest Result managed-fault fence order changed")
+if inverted_fences.search(migration) or inverted_fences.search(test_script):
+    raise SystemExit("ERROR: Backtest Result shared-catalog/advisory lock order is inverted")
+if rust.index("pg_advisory_xact_lock_shared") > rust.index("let exact_lock"):
+    raise SystemExit("ERROR: Backtest Result runtime fence order is inverted")
 PY
 }
 
@@ -865,6 +902,90 @@ cargo nextest archive \
   --cargo-profile "$cargo_ci_profile" \
   --archive-file "$nextest_archive_file"
 
+verify_cross_database_authority_catalog_fence() {
+  local holder_pid
+  local mutator_pid
+  local observed_holder=false
+  local observed_mutator=false
+  local holder_status=0
+  local mutator_status=0
+  local mutation_committed
+  local attempt
+
+  docker exec --interactive --env "PGPASSWORD=${test_password}" "$container" \
+    psql --quiet --set ON_ERROR_STOP=1 --host 127.0.0.1 \
+    --username rd_owner --dbname "$test_database" > /dev/null << 'SQL' &
+SET application_name='vibe-backtest-authority-holder-v1';
+BEGIN;
+SELECT backtest_owner_api.lock_authority_catalogs_v1();
+SELECT pg_catalog.pg_sleep(2);
+ROLLBACK;
+SQL
+  holder_pid="$!"
+  for attempt in $(seq 1 100); do
+    if [[ "$(docker exec "$container" psql --quiet --tuples-only --no-align \
+      --username postgres --dbname "$test_database" --command \
+      "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE application_name='vibe-backtest-authority-holder-v1' AND wait_event_type='Timeout' AND wait_event='PgSleep')")" == t ]]; then
+      observed_holder=true
+      break
+    fi
+    sleep 0.02
+  done
+  if [[ "$observed_holder" != true ]]; then
+    wait "$holder_pid" || true
+    echo "ERROR: cross-database authority holder did not acquire shared catalog locks." >&2
+    return 1
+  fi
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$origin_current_database" > /dev/null << 'SQL' &
+SET application_name='vibe-backtest-authority-mutator-v1';
+BEGIN;
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
+ALTER ROLE backtest_owner BYPASSRLS;
+COMMIT;
+SQL
+  mutator_pid="$!"
+  for attempt in $(seq 1 100); do
+    if [[ "$(docker exec "$container" psql --quiet --tuples-only --no-align \
+      --username postgres --dbname "$origin_current_database" --command \
+      "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE application_name='vibe-backtest-authority-mutator-v1' AND wait_event_type='Lock')")" == t ]]; then
+      observed_mutator=true
+      break
+    fi
+    sleep 0.02
+  done
+  wait "$holder_pid" || holder_status="$?"
+  wait "$mutator_pid" || mutator_status="$?"
+
+  mutation_committed="$(docker exec "$container" psql --quiet --tuples-only --no-align \
+    --username postgres --dbname "$origin_current_database" --command \
+    "SELECT rolbypassrls FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'")"
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$origin_current_database" << 'SQL'
+BEGIN;
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
+ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+COMMIT;
+SQL
+
+  if [[ "$holder_status" -ne 0 || "$mutator_status" -ne 0 ]]; then
+    echo "ERROR: cross-database authority fence process failed (holder=${holder_status}, mutator=${mutator_status})." >&2
+    return 1
+  fi
+  if [[ "$observed_mutator" != true ]]; then
+    echo "ERROR: cross-database managed role mutation bypassed shared catalog locks." >&2
+    return 1
+  fi
+  if [[ "$mutation_committed" != t ]]; then
+    echo "ERROR: cross-database managed role mutation did not commit after fence release." >&2
+    return 1
+  fi
+}
+
+verify_cross_database_authority_catalog_fence
+
 inject_backtest_result_fault() {
   local fault="$1"
   case "$fault" in
@@ -893,6 +1014,7 @@ SQL
         --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
 GRANT backtest_owner TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 COMMIT;
 SQL
@@ -902,6 +1024,7 @@ SQL
         --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
 ALTER ROLE backtest_owner BYPASSRLS;
 COMMIT;
 SQL
@@ -930,6 +1053,7 @@ restore_backtest_result_fault() {
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
 REVOKE backtest_owner FROM rd_owner;
 COMMIT;
 SQL
@@ -938,6 +1062,7 @@ SQL
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSIVE MODE;
 ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 COMMIT;
 SQL
