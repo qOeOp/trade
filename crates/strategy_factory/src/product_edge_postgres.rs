@@ -639,6 +639,12 @@ impl PostgresResearchGoalOwnerV1 {
                     OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
                     OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
                     OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_custodian'
+                    OR (required.name='rd_sealed_exploratory_replay_requests_v1' AND EXISTS (
+                         SELECT 1 FROM pg_catalog.pg_attribute attribute
+                         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                         WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+                           AND acl.grantee<>relation.relowner
+                       ))
                     OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
                     OR (SELECT count(*) <> CASE required.name
                                                  WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7
@@ -2752,6 +2758,10 @@ mod tests {
                 .contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]")
         );
         assert!(validation.contains(
+            "required.name='rd_sealed_exploratory_replay_requests_v1' AND EXISTS (\n                         SELECT 1 FROM pg_catalog.pg_attribute attribute\n                         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
+        ));
+        assert!(validation.contains("acl.grantee<>relation.relowner"));
+        assert!(validation.contains(
             "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable"
         ));
         assert!(validation.contains(
@@ -2775,6 +2785,20 @@ mod tests {
                 "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4"
             )
         );
+
+        let authority_migration = include_str!(
+            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+        );
+        let runtime_custody_cutover = authority_migration
+            .split("DO $runtime_custody_cutover$")
+            .nth(1)
+            .expect("runtime custody cutover")
+            .split("$runtime_custody_cutover$;")
+            .next()
+            .expect("runtime custody cutover boundary");
+        assert!(runtime_custody_cutover.contains(
+            "IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN\n      NULL;\n    ELSIF object.relname='rd_source_intake_bindings_v1' THEN"
+        ));
     }
 
     #[rstest]

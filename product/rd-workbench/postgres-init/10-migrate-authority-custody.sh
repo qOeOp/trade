@@ -2787,7 +2787,9 @@ BEGIN
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
-    IF object.relname='rd_source_intake_bindings_v1' THEN
+    IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN
+      NULL;
+    ELSIF object.relname='rd_source_intake_bindings_v1' THEN
       EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
     ELSIF object.relname IN ('rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1') THEN
       EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, REFERENCES ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
