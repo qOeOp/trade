@@ -20,21 +20,111 @@ use crate::{
 const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
+const TRIAL_FAMILY_TABLES: [&str; 6] = [
+    "rd_trial_families_v1",
+    "rd_trial_family_members_v1",
+    "rd_trial_family_heads_v1",
+    "rd_trial_family_attempt_cuts_v2",
+    "rd_artifact_trial_family_bindings_v1",
+    "rd_owner_outbox_v1",
+];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LegacyMigrationAuthorityReadback {
+    session_is_rd_owner: bool,
+    rd_owner_is_exact: bool,
+    custodian_is_exact: bool,
+    relation_count: i64,
+    relations_are_custodian_owned: bool,
+    protected_membership_count: i64,
+    exact_lease_membership_count: i64,
+    public_create_grant_count: i64,
+}
+
+impl LegacyMigrationAuthorityReadback {
+    fn is_exact(self) -> bool {
+        self.session_is_rd_owner
+            && self.rd_owner_is_exact
+            && self.custodian_is_exact
+            && self.relation_count == 6
+            && self.relations_are_custodian_owned
+            && self.protected_membership_count == 1
+            && self.exact_lease_membership_count == 1
+            && self.public_create_grant_count == 1
+    }
+}
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     let exact: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner' AND count(*)=6 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname=ANY($1) AND relation.relkind='r'")
-        .bind(["rd_trial_families_v1","rd_trial_family_members_v1","rd_trial_family_heads_v1","rd_trial_family_attempt_cuts_v2","rd_artifact_trial_family_bindings_v1","rd_owner_outbox_v1"])
+        .bind(TRIAL_FAMILY_TABLES)
         .fetch_one(pool).await.map_err(storage)?;
 
-    if !exact {
+    if exact {
+        crate::replay_policy_catalog_postgres_v2::migrate(pool)
+            .await
+            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+        return Ok(());
+    }
+
+    let legacy = read_legacy_migration_authority(pool).await?;
+    if !legacy.is_exact() {
         return Err(TrialFamilyError::Unavailable(
             "TrialFamily authority topology is unavailable".to_owned(),
         ));
     }
-    crate::replay_policy_catalog_postgres_v2::migrate(pool)
+    crate::replay_policy_catalog_postgres_v2::migrate_with_legacy_migration_lease(pool)
         .await
         .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
+}
+
+async fn read_legacy_migration_authority(
+    pool: &PgPool,
+) -> Result<LegacyMigrationAuthorityReadback, TrialFamilyError> {
+    let row = sqlx::query(
+        "WITH protected_memberships AS (
+           SELECT membership.*,granted.rolname AS granted_role,member.rolname AS member_role,
+                  grantor.rolname AS grantor_role
+             FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+             JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+             JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+            WHERE granted.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+               OR member.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+         ), relations AS (
+           SELECT relation.relowner
+             FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+            WHERE namespace.nspname='public' AND relation.relname=ANY($1) AND relation.relkind='r'
+         )
+         SELECT SESSION_USER='rd_owner' AS session_is_rd_owner,
+                EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AS rd_owner_is_exact,
+                EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AS custodian_is_exact,
+                (SELECT count(*) FROM relations) AS relation_count,
+                COALESCE((SELECT bool_and(pg_catalog.pg_get_userbyid(relowner)='rd_custodian') FROM relations),false) AS relations_are_custodian_owned,
+                (SELECT count(*) FROM protected_memberships) AS protected_membership_count,
+                (SELECT count(*) FROM protected_memberships WHERE granted_role='rd_custodian' AND member_role='rd_owner' AND grantor_role='postgres' AND NOT admin_option AND inherit_option AND set_option) AS exact_lease_membership_count,
+                (SELECT count(*) FROM pg_catalog.pg_namespace namespace CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl WHERE namespace.nspname='public' AND acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='CREATE' AND NOT acl.is_grantable) AS public_create_grant_count",
+    )
+    .bind(TRIAL_FAMILY_TABLES)
+    .fetch_one(pool)
+    .await
+    .map_err(storage)?;
+
+    Ok(LegacyMigrationAuthorityReadback {
+        session_is_rd_owner: row.try_get("session_is_rd_owner").map_err(storage)?,
+        rd_owner_is_exact: row.try_get("rd_owner_is_exact").map_err(storage)?,
+        custodian_is_exact: row.try_get("custodian_is_exact").map_err(storage)?,
+        relation_count: row.try_get("relation_count").map_err(storage)?,
+        relations_are_custodian_owned: row
+            .try_get("relations_are_custodian_owned")
+            .map_err(storage)?,
+        protected_membership_count: row.try_get("protected_membership_count").map_err(storage)?,
+        exact_lease_membership_count: row
+            .try_get("exact_lease_membership_count")
+            .map_err(storage)?,
+        public_create_grant_count: row.try_get("public_create_grant_count").map_err(storage)?,
+    })
 }
 
 pub(crate) async fn persist_initial_family(
@@ -987,6 +1077,70 @@ mod postgres_binding_tests {
     };
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use vibe_testkit::postgres::{DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation};
+
+    fn exact_legacy_migration_authority() -> LegacyMigrationAuthorityReadback {
+        LegacyMigrationAuthorityReadback {
+            session_is_rd_owner: true,
+            rd_owner_is_exact: true,
+            custodian_is_exact: true,
+            relation_count: 6,
+            relations_are_custodian_owned: true,
+            protected_membership_count: 1,
+            exact_lease_membership_count: 1,
+            public_create_grant_count: 1,
+        }
+    }
+
+    #[test]
+    fn legacy_migration_authority_accepts_only_the_exact_lease_topology() {
+        assert!(exact_legacy_migration_authority().is_exact());
+
+        for drifted in [
+            LegacyMigrationAuthorityReadback {
+                relations_are_custodian_owned: false,
+                ..exact_legacy_migration_authority()
+            },
+            LegacyMigrationAuthorityReadback {
+                protected_membership_count: 2,
+                ..exact_legacy_migration_authority()
+            },
+            LegacyMigrationAuthorityReadback {
+                exact_lease_membership_count: 0,
+                ..exact_legacy_migration_authority()
+            },
+            LegacyMigrationAuthorityReadback {
+                public_create_grant_count: 0,
+                ..exact_legacy_migration_authority()
+            },
+        ] {
+            assert!(!drifted.is_exact());
+        }
+    }
+
+    #[test]
+    fn legacy_migration_query_binds_owner_membership_and_option_readback() {
+        let source = include_str!("trial_family_postgres.rs");
+        let migration_only = source
+            .split_once("async fn read_legacy_migration_authority")
+            .expect("legacy migration validator")
+            .1
+            .split_once("pub(crate) async fn persist_initial_family")
+            .expect("legacy migration validator boundary")
+            .0;
+
+        for required in [
+            "pg_get_userbyid(relowner)='rd_custodian'",
+            "granted_role='rd_custodian' AND member_role='rd_owner'",
+            "grantor_role='postgres' AND NOT admin_option AND inherit_option AND set_option",
+            "acl.privilege_type='CREATE' AND NOT acl.is_grantable",
+            "migrate_with_legacy_migration_lease(pool)",
+        ] {
+            assert!(
+                migration_only.contains(required) || source.contains(required),
+                "missing exact legacy migration authority check: {required}"
+            );
+        }
+    }
 
     #[tokio::test]
     #[ignore = "requires an admitted RD_OWNER_TEST_DATABASE_URL"]
