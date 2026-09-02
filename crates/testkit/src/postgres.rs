@@ -593,14 +593,15 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
 
 impl LegacyReplayMigrationAuthorityV1 {
     async fn preflight_readback(&self) -> Result<(), sqlx::Error> {
+        // Keep this readback phase-invariant so an acquire that committed before response loss can
+        // repeat it. The admitted acquire_v1 source then accepts only READY without either grant or
+        // LEASED with this exact identity and both exact grants.
         let exact: bool = sqlx::query_scalar(
             "SELECT session_user='vibe_test_legacy_migration_caller'
            AND pg_catalog.current_database()=$1
            AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
            AND NOT role.rolreplication AND NOT role.rolbypassrls
            AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
-           AND NOT pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
-           AND NOT pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid)
            AND EXISTS (SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker WHERE marker.marker_identity=$2 AND marker.database_name=$1 AND marker.test_role=session_user)
            AND pg_catalog.has_schema_privilege(session_user,'vibe_test_legacy_migration_lease','USAGE')
@@ -668,8 +669,9 @@ impl LegacyReplayMigrationAuthorityV1 {
         }
     }
 
-    /// Replays the same identity-bound acquire without creating another lease.
+    /// Repeats the exact preflight and same identity-bound acquire without creating another lease.
     pub async fn retry_acquire(&self) -> Result<(), sqlx::Error> {
+        self.preflight_readback().await?;
         self.acquire_readback().await
     }
 
@@ -2017,6 +2019,20 @@ mod tests {
             .find("acquire_readback().await")
             .expect("legacy migration lease acquire");
         assert!(preflight < lease_acquire);
+        let retry = source
+            .split_once("pub async fn retry_acquire(&self)")
+            .expect("legacy migration acquire retry")
+            .1
+            .split_once("pub async fn try_wrong_lease(&self")
+            .expect("legacy migration acquire retry boundary")
+            .0;
+        let retry_preflight = retry
+            .find("preflight_readback().await")
+            .expect("legacy migration retry preflight");
+        let retry_acquire = retry
+            .find("acquire_readback().await")
+            .expect("legacy migration retry acquire");
+        assert!(retry_preflight < retry_acquire);
         assert_eq!(
             consumers
                 .matches(".acquire_legacy_replay_migration_authority()")
