@@ -635,9 +635,16 @@ impl PostgresResearchGoalOwnerV1 {
                     OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
                     OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_custodian'
                     OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text)
-                    OR (SELECT count(*) <> 11
+                    OR (SELECT count(*) <> CASE required.name
+                                                 WHEN 'rd_owner_outbox_v1' THEN 12
+                                                 ELSE 11
+                                               END
                                OR count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) <> 7
                                OR count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4
+                               OR count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND acl.privilege_type='INSERT' AND NOT acl.is_grantable) <> CASE required.name
+                                     WHEN 'rd_owner_outbox_v1' THEN 1
+                                     ELSE 0
+                                   END
                           FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
                )
                AND NOT EXISTS (
@@ -2688,6 +2695,25 @@ mod tests {
         assert!(existing_with_backtest.contains("Self::connect_existing"));
         assert!(!existing_with_backtest.contains("Self::connect("));
         assert!(!existing_with_backtest.contains("migrate_rd_storage"));
+    }
+
+    #[rstest]
+    fn existing_connection_acl_manifest_admits_only_catalog_outbox_insert() {
+        let source = include_str!("product_edge_postgres.rs");
+        let validation = source
+            .split("async fn validate_existing_rd_storage")
+            .nth(1)
+            .expect("existing storage validation")
+            .split("async fn migrate_rd_storage")
+            .next()
+            .expect("existing storage validation boundary");
+
+        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN 12"));
+        assert!(validation.contains(
+            "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND acl.privilege_type='INSERT' AND NOT acl.is_grantable"
+        ));
+        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN 1"));
+        assert!(validation.contains("ELSE 0"));
     }
 
     #[async_trait]
