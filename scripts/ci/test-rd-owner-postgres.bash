@@ -269,6 +269,17 @@ if "GRANT rd_custodian TO rd_owner;" in test_loop:
 release = "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')"
 if release not in test_loop or test_loop.index(release) > test_loop.index('if [[ "$test_passed" != true ]]'):
     raise SystemExit("ERROR: legacy migration lease is not released before test failure exits")
+grant_connect = 'GRANT CONNECT ON DATABASE :"migration_database" TO vibe_test_legacy_migration_caller;'
+revoke_connect = 'REVOKE CONNECT ON DATABASE :"migration_database" FROM vibe_test_legacy_migration_caller;'
+if test_loop.count(grant_connect) != 1 or test_loop.count(revoke_connect) != 1:
+    raise SystemExit("ERROR: legacy migration caller CONNECT window is not unique")
+if not (
+    test_loop.index(grant_connect) < test_loop.index("test_passed=false")
+    and test_loop.index(release) < test_loop.index(revoke_connect)
+    and test_loop.index(revoke_connect)
+    < test_loop.index('run_authority_migration_for_database "$migration_database"')
+):
+    raise SystemExit("ERROR: legacy migration caller CONNECT window is not bounded by release")
 PY
 }
 
@@ -2317,6 +2328,11 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$migration_database" ]]; then
     legacy_migration_lease_identity="legacy-replay-migration:${test_marker}:${test_name}:v1"
     legacy_migration_url="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${migration_database}"
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname postgres \
+      --set=migration_database="$migration_database" << 'SQL'
+GRANT CONNECT ON DATABASE :"migration_database" TO vibe_test_legacy_migration_caller;
+SQL
   fi
   test_passed=false
   if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
@@ -2366,6 +2382,11 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
 SET SESSION AUTHORIZATION vibe_test_legacy_migration_caller;
 SELECT vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity');
 RESET SESSION AUTHORIZATION;
+SQL
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname postgres \
+      --set=migration_database="$migration_database" << 'SQL'
+REVOKE CONNECT ON DATABASE :"migration_database" FROM vibe_test_legacy_migration_caller;
 SQL
     run_authority_migration_for_database "$migration_database"
     revoke_runtime_schema_create "$migration_database"
