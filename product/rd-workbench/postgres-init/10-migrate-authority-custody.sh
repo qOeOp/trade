@@ -2818,8 +2818,6 @@ BEGIN
   END IF;
 END
 $source_intake_routine_acl_readback$;
-REVOKE EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM rd_owner;
-GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text), rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 DO $grant_optional_rd_runtime_routines$
 DECLARE signature text;
 BEGIN
@@ -2830,6 +2828,15 @@ BEGIN
   ] LOOP
     IF pg_catalog.to_regprocedure(signature) IS NOT NULL THEN
       EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO product_edge_owner',signature);
+    END IF;
+  END LOOP;
+  FOREACH signature IN ARRAY ARRAY[
+    'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',
+    'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
+  ] LOOP
+    IF pg_catalog.to_regprocedure(signature) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('REVOKE EXECUTE ON FUNCTION %s FROM rd_owner',signature);
+      EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO backtest_owner',signature);
     END IF;
   END LOOP;
 END

@@ -198,6 +198,8 @@ check_migration_authority_boundary() {
     ! rg -Fq "('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()',false,false,'v','u',NULL::text[],'7e54a7158586a88841c26e8732a31e62')" "$authority_migration" ||
     ! rg -Fq 'Source Intake routine ownership, seal, or ACL manifest mismatch' "$authority_migration" ||
     ! rg -Fq 'product_edge_owner:EXECUTE:false' "$authority_migration" ||
+    ! rg -Fq "EXECUTE pg_catalog.format('REVOKE EXECUTE ON FUNCTION %s FROM rd_owner',signature)" "$authority_migration" ||
+    ! rg -Fq "EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO backtest_owner',signature)" "$authority_migration" ||
     ! rg -Fq 'GRANT SELECT, INSERT ON TABLE %I.%I TO rd_owner' "$authority_migration" ||
     ! rg -Fq 'lock_source_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner' "$authority_migration"; then
     echo "ERROR: bounded admin migration/runtime startup topology changed." >&2
