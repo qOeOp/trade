@@ -976,18 +976,10 @@ async fn verify_composer_writer_authority_in_transaction(
             AND NOT EXISTS (
               SELECT 1
                 FROM writer
-                JOIN pg_catalog.pg_roles unsafe_role
-                  ON unsafe_role.oid<>writer.oid
-                 AND (
-                   unsafe_role.rolname='composer_owner'
-                   OR unsafe_role.rolsuper
-                   OR unsafe_role.rolcreatedb
-                   OR unsafe_role.rolcreaterole
-                   OR unsafe_role.rolreplication
-                   OR unsafe_role.rolbypassrls
-                 )
-               WHERE pg_catalog.pg_has_role(writer.oid,unsafe_role.oid,'MEMBER')
-                  OR pg_catalog.pg_has_role(unsafe_role.oid,writer.oid,'MEMBER')
+                JOIN pg_catalog.pg_roles related_role
+                  ON related_role.oid<>writer.oid
+               WHERE pg_catalog.pg_has_role(writer.oid,related_role.oid,'MEMBER')
+                  OR pg_catalog.pg_has_role(related_role.oid,writer.oid,'MEMBER')
             )
             AND (SELECT count(*)=9 FROM private_relations)
             AND NOT EXISTS (
