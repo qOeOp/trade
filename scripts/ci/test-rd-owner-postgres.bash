@@ -270,10 +270,10 @@ if function_match is None:
 body = function_match.group(1)
 ordered_contract = (
     "GRANT rd_owner TO vibe_test_owner_topology_admin\n"
-    "  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;",
+    "  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;",
     "AND member.rolname='vibe_test_owner_topology_admin'",
     "AND grantor.rolname='postgres' AND NOT membership.admin_option",
-    "AND NOT membership.inherit_option AND membership.set_option",
+    "AND membership.inherit_option AND membership.set_option",
     "local rd_owner_test_status=0",
     'RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url"',
     'rd_owner_test_status="$?"',
@@ -1779,7 +1779,7 @@ SQL
     --username postgres --dbname "$fixture_database" << 'SQL'
 BEGIN;
 GRANT rd_owner TO vibe_test_owner_topology_admin
-  WITH ADMIN FALSE, INHERIT FALSE, SET TRUE;
+  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 DO $rd_owner_migration_lease$
 DECLARE exact_edge_count bigint;
 BEGIN
@@ -1793,7 +1793,7 @@ BEGIN
      AND granted.rolname='rd_owner'
      AND member.rolname='vibe_test_owner_topology_admin'
      AND grantor.rolname='postgres' AND NOT membership.admin_option
-     AND NOT membership.inherit_option AND membership.set_option;
+     AND membership.inherit_option AND membership.set_option;
   IF exact_edge_count<>1 OR EXISTS (
     SELECT 1 FROM pg_catalog.pg_auth_members membership
     JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
