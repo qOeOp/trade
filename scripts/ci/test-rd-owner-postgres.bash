@@ -181,11 +181,11 @@ PY
 }
 
 check_migration_authority_boundary() {
-  if [[ "$(rg -F -c 'revoke_runtime_schema_create "$fixture_database"' "${BASH_SOURCE[0]}")" -ne 4 ]] ||
-    [[ "$(rg -F -c 'revoke_runtime_schema_create "$migration_database"' "${BASH_SOURCE[0]}")" -ne 2 ]] ||
-    ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
-    ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}"; then
-    echo "ERROR: bounded Owner migration grant/revoke topology changed." >&2
+  if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq "test(=tests::runtime_storage_connectors_start_without_migration_authority)" "${BASH_SOURCE[0]}"; then
+    echo "ERROR: bounded admin migration/runtime startup topology changed." >&2
     return 1
   fi
 }
@@ -471,10 +471,11 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"test_database" OWNER postgres;
 SQL
 
-run_authority_migration() {
+run_authority_migration_for_database() {
+  local migration_database="$1"
   docker exec --interactive \
     --env POSTGRES_HOST=127.0.0.1 \
-    --env "POSTGRES_DATABASE=${test_database}" \
+    --env "POSTGRES_DATABASE=${migration_database}" \
     --env "POSTGRES_PASSWORD=${test_password}" \
     --env "RD_OWNER_DB_PASSWORD=${test_password}" \
     --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
@@ -482,6 +483,9 @@ run_authority_migration() {
     --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
     --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+}
+run_authority_migration() {
+  run_authority_migration_for_database "$test_database"
 }
 run_authority_migration
 
@@ -549,6 +553,30 @@ SQL
     exit 1
   fi
 done
+for runtime_role in rd_owner product_edge_owner; do
+  runtime_schema='rd_owner_api'
+  runtime_signature='rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)'
+  if [[ "$runtime_role" == product_edge_owner ]]; then
+    runtime_schema='product_edge_api'
+    runtime_signature='product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()'
+  fi
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << SQL; then
+SET SESSION AUTHORIZATION "$runtime_role";
+CREATE FUNCTION ${runtime_schema}.forbidden_runtime_function_v1() RETURNS integer LANGUAGE sql AS 'SELECT 1';
+SQL
+    echo "ERROR: ${runtime_role} can create API routines" >&2
+    exit 1
+  fi
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << SQL; then
+SET SESSION AUTHORIZATION "$runtime_role";
+ALTER FUNCTION ${runtime_signature} RENAME TO forbidden_runtime_replacement_v1;
+SQL
+    echo "ERROR: ${runtime_role} can replace API routines" >&2
+    exit 1
+  fi
+done
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
 DO $replace_catalog_check$
@@ -583,8 +611,9 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
-GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+GRANT replay_policy_catalog_owner, composer_owner, rd_custodian, product_edge_custodian, rd_owner TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
+GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
 CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
 CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
@@ -1024,44 +1053,65 @@ SQL
 
 provision_owner_schemas() {
   local fixture_database="$1"
-  local product_edge_url="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
-  local rd_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
+  local admin_url="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
   local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=rd_owner_schema_is_provisioned_before_runtime_connections)'
+  local artifact_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)'
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
-GRANT CREATE ON SCHEMA public TO rd_owner, product_edge_owner;
+ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
+GRANT CREATE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
 SQL
 
-  if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$product_edge_url" \
+  if ! env PRODUCT_EDGE_TEST_DATABASE_URL="$admin_url" \
     cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$product_edge_filter"; then
-    revoke_runtime_schema_create "$fixture_database"
     return 1
   fi
 
   if ! env \
-    RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_url" \
+    RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url" \
     QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
     cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
       "${nextest_execution_args[@]}" \
       -E "$rd_owner_filter"; then
-    revoke_runtime_schema_create "$fixture_database"
     return 1
   fi
 
-  revoke_runtime_schema_create "$fixture_database"
+  if ! env RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url" \
+    cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$artifact_filter"; then
+    return 1
+  fi
+
 }
 
 provision_owner_schemas "$test_database"
 provision_owner_schemas "$origin_current_database"
+run_authority_migration_for_database "$test_database"
+run_authority_migration_for_database "$origin_current_database"
+revoke_runtime_schema_create "$test_database"
+revoke_runtime_schema_create "$origin_current_database"
+runtime_startup_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_storage_connectors_start_without_migration_authority)'
+env \
+  RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  cargo nextest run \
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$runtime_startup_filter"
 
 # The first two filters exercise explicit legacy/origin migration under separate,
 # test-bounded schema authority. The final filters deliberately poison Owner state
@@ -1079,6 +1129,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$migration_database" << 'SQL'
 GRANT CREATE ON SCHEMA public TO rd_owner;
+GRANT rd_custodian TO rd_owner;
 SQL
   fi
   test_passed=false
@@ -1109,6 +1160,7 @@ SQL
     fi
   fi
   if [[ -n "$migration_database" ]]; then
+    run_authority_migration_for_database "$migration_database"
     revoke_runtime_schema_create "$migration_database"
   fi
   if [[ "$test_passed" != true ]]; then

@@ -198,6 +198,57 @@ impl PostgresArtifactBuildOwnerV1 {
         Ok(owner)
     }
 
+    /// Connects the runtime Artifact Owner to deployment-provisioned custody.
+    /// This path performs no DDL and fails closed on authority or manifest drift.
+    pub async fn connect_existing(
+        database_url: &str,
+        sandbox_socket: &str,
+        attempt_timeout_ms: u64,
+    ) -> Result<Self, ArtifactBuildError> {
+        let database_endpoint_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                database_url,
+            )?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        let topology_is_exact: bool = sqlx::query_scalar(
+            "WITH required(name) AS (VALUES ('rd_artifact_build_attempts_v1'),('rd_strategy_artifacts_v1'))
+             SELECT session_user='rd_owner'
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+               AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+               AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
+               AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian'
+               AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
+               AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
+               AND (SELECT count(*)=5 AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 FROM pg_catalog.pg_namespace namespace, LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl WHERE namespace.nspname='rd_owner_api')
+               AND (SELECT count(*)=2 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian' AND relation.relkind='r' AND relation.relpersistence='p' AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text) AND (SELECT count(*)=11 AND count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable)=7 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable)=4 FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)) FROM required JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||required.name))
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)') AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian' AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[] AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AND (SELECT pg_catalog.array_agg(role.rolname ORDER BY role.rolname) FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[])",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(storage)?;
+        if !topology_is_exact {
+            return Err(ArtifactBuildError::Storage(
+                "existing Artifact custody or runtime authority is unavailable".into(),
+            ));
+        }
+        let owner = Self {
+            pool,
+            database_endpoint_resource_fingerprint,
+            sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
+            attempt_timeout_ms,
+            clock: Arc::new(current_epoch_ms),
+        };
+        owner.assert_activation_safe().await?;
+        Ok(owner)
+    }
+
     async fn migrate(&self) -> Result<(), ArtifactBuildError> {
         for statement in [
             "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL)",
@@ -275,7 +326,7 @@ impl PostgresArtifactBuildOwnerV1 {
         .map_err(storage)?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_custodian",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner",
             "REVOKE ALL ON TABLE rd_artifact_build_attempts_v1 FROM product_edge_owner",
@@ -2318,6 +2369,16 @@ mod postgres_freshness_tests {
     };
 
     #[tokio::test]
+    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+    async fn artifact_schema_is_provisioned_by_topology_admin() {
+        let database_url = std::env::var("RD_ARTIFACT_ADMIN_DATABASE_URL")
+            .expect("disposable Artifact migration URL");
+        PostgresArtifactBuildOwnerV1::connect(&database_url, "/tmp/unused-sandbox.sock", 600_000)
+            .await
+            .expect("canonical Artifact schema migration");
+    }
+
+    #[tokio::test]
     #[ignore = "requires an explicitly supplied read-only attempt-custody database URL"]
     async fn stored_attempt_catalog_is_exactly_classifiable_without_writes() {
         let database_url = std::env::var("RD_OWNER_CLASSIFICATION_DATABASE_URL")
@@ -2375,7 +2436,7 @@ mod postgres_freshness_tests {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
         let database_url = test_database.database_url().to_string();
-        let owner = PostgresArtifactBuildOwnerV1::connect(
+        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2475,7 +2536,7 @@ mod postgres_freshness_tests {
             .bind(serde_json::to_value(&nonterminal).unwrap()).bind(&build_request_identity)
             .execute(&owner.pool).await.unwrap();
         assert!(matches!(
-            PostgresArtifactBuildOwnerV1::connect(
+            PostgresArtifactBuildOwnerV1::connect_existing(
                 &database_url,
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,
@@ -2508,7 +2569,7 @@ mod postgres_freshness_tests {
             PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner))
                 .await
                 .unwrap();
-        let owner = PostgresArtifactBuildOwnerV1::connect(
+        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2524,7 +2585,7 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect(
+        let research_owner = PostgresResearchGoalOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
@@ -2755,7 +2816,7 @@ mod postgres_freshness_tests {
         .await
         .unwrap();
         assert_eq!(first, replay);
-        let restarted = PostgresArtifactBuildOwnerV1::connect(
+        let restarted = PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2793,7 +2854,7 @@ mod postgres_freshness_tests {
                 .await
                 .unwrap();
         assert!(matches!(
-            PostgresArtifactBuildOwnerV1::connect(
+            PostgresArtifactBuildOwnerV1::connect_existing(
                 &alias_database_url,
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,
@@ -2854,7 +2915,7 @@ mod postgres_freshness_tests {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
         let database_url = test_database.database_url().to_string();
-        let owner = PostgresArtifactBuildOwnerV1::connect(
+        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2986,9 +3047,10 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
-            .await
-            .unwrap();
+        let research_owner =
+            PostgresResearchGoalOwnerV1::connect_existing(&database_url, &database_url)
+                .await
+                .unwrap();
         let accepted = research_owner
             .submit_v2(research_request(
                 &research_request_identity,
@@ -3027,7 +3089,7 @@ mod postgres_freshness_tests {
                 .unwrap()
                 .semantic_digest;
 
-        let mut owner = PostgresArtifactBuildOwnerV1::connect(
+        let mut owner = PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -3461,13 +3523,13 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect(
+        let research_owner = PostgresResearchGoalOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
         .await
         .unwrap();
-        let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
+        let artifact_owner = PostgresArtifactBuildOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -4199,7 +4261,7 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         let deployment_identity = format!("product-edge-deployment-{suffix}");
-        let edge = ProductEdgePostgresOwnerV1::connect(
+        let edge = ProductEdgePostgresOwnerV1::connect_existing(
             product_edge_database_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {

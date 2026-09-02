@@ -12,6 +12,8 @@ BEGIN;
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_database_owner') THEN CREATE ROLE rd_database_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_custodian') THEN CREATE ROLE rd_custodian NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'product_edge_custodian') THEN CREATE ROLE product_edge_custodian NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'replay_policy_catalog_owner') THEN CREATE ROLE replay_policy_catalog_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'composer_owner') THEN CREATE ROLE composer_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_owner') THEN CREATE ROLE rd_owner LOGIN; END IF;
@@ -26,6 +28,8 @@ BEGIN
 END
 $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE rd_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE product_edge_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE replay_policy_catalog_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE composer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'rd_password';
@@ -34,7 +38,7 @@ ALTER ROLE operator_authorization_owner NOLOGIN;
 ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;
 ALTER ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
-ALTER ROLE product_edge_owner PASSWORD :'edge_password';
+ALTER ROLE product_edge_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'edge_password';
 ALTER ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
 ALTER ROLE portfolio_owner NOLOGIN;
 GRANT operator_authorization_owner TO operator_authorization_writer;
@@ -45,7 +49,7 @@ REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization
 DO $isolate_rd_authority_roles$
 DECLARE authority_role text; membership record;
 BEGIN
-  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','composer_owner','rd_fact_writer','rd_owner'] LOOP
+  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','rd_custodian','product_edge_custodian','replay_policy_catalog_owner','composer_owner','rd_fact_writer','rd_owner'] LOOP
     FOR membership IN
       SELECT granted.rolname AS granted_role, member.rolname AS member_role
       FROM pg_catalog.pg_auth_members edge
@@ -58,7 +62,7 @@ BEGIN
   END LOOP;
 END
 $isolate_rd_authority_roles$;
-REVOKE replay_policy_catalog_owner, composer_owner, rd_database_owner FROM rd_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+REVOKE replay_policy_catalog_owner, composer_owner, rd_database_owner, rd_custodian, product_edge_custodian FROM rd_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 REVOKE rd_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner FROM replay_policy_catalog_owner, composer_owner, rd_database_owner;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
@@ -114,14 +118,32 @@ GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
 REVOKE CREATE ON SCHEMA public FROM rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
-CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_owner;
-ALTER SCHEMA product_edge_api OWNER TO product_edge_owner;
-REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner;
-GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner;
-CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
-ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
-REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
-GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer;
+CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_custodian;
+ALTER SCHEMA product_edge_api OWNER TO product_edge_custodian;
+CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_custodian;
+ALTER SCHEMA rd_owner_api OWNER TO rd_custodian;
+DO $normalize_runtime_api_schema_acl$
+DECLARE schema_fact record; grantee_fact record;
+BEGIN
+  FOR schema_fact IN
+    SELECT namespace.oid, namespace.nspname, namespace.nspowner
+    FROM pg_catalog.pg_namespace namespace
+    WHERE namespace.nspname IN ('product_edge_api','rd_owner_api')
+  LOOP
+    EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA %I FROM PUBLIC',schema_fact.nspname);
+    FOR grantee_fact IN
+      SELECT DISTINCT role.rolname
+      FROM pg_catalog.aclexplode(COALESCE((SELECT nspacl FROM pg_catalog.pg_namespace WHERE oid=schema_fact.oid),pg_catalog.acldefault('n',schema_fact.nspowner))) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+      WHERE acl.grantee<>schema_fact.nspowner
+    LOOP
+      EXECUTE pg_catalog.format('REVOKE ALL ON SCHEMA %I FROM %I',schema_fact.nspname,grantee_fact.rolname);
+    END LOOP;
+  END LOOP;
+END
+$normalize_runtime_api_schema_acl$;
+GRANT USAGE ON SCHEMA product_edge_api TO product_edge_owner, rd_owner, portfolio_owner;
+GRANT USAGE ON SCHEMA rd_owner_api TO rd_owner, product_edge_owner, qualification_writer;
 REVOKE ALL ON SCHEMA public FROM backtest_owner;
 GRANT USAGE ON SCHEMA public TO backtest_owner;
 
@@ -314,10 +336,13 @@ DO $rd_ownership$
 DECLARE object record;
 BEGIN
   FOR object IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'rd_%' LOOP
-    EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_owner', object.schemaname, object.tablename);
+    EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_custodian', object.schemaname, object.tablename);
+    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner', object.schemaname, object.tablename);
   END LOOP;
   FOR object IN SELECT sequence_schema AS schemaname, sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public' AND sequence_name LIKE 'rd_%' LOOP
-    EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO rd_owner', object.schemaname, object.sequence_name);
+    EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO rd_custodian', object.schemaname, object.sequence_name);
+    EXECUTE format('GRANT USAGE, SELECT, UPDATE ON SEQUENCE %I.%I TO rd_owner', object.schemaname, object.sequence_name);
   END LOOP;
 END
 $rd_ownership$;
@@ -397,7 +422,7 @@ BEGIN
   );
 END
 $function$;
-ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_owner;
+ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer;
 
@@ -405,8 +430,9 @@ DO $product_edge_ownership$
 DECLARE object record;
 BEGIN
   FOR object IN SELECT schemaname, tablename FROM pg_tables WHERE schemaname = 'public' AND tablename LIKE 'product_edge_%' LOOP
-    EXECUTE format('ALTER TABLE %I.%I OWNER TO product_edge_owner', object.schemaname, object.tablename);
-    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM rd_owner, operator_authorization_writer, portfolio_owner', object.schemaname, object.tablename);
+    EXECUTE format('ALTER TABLE %I.%I OWNER TO product_edge_custodian', object.schemaname, object.tablename);
+    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
+    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner', object.schemaname, object.tablename);
   END LOOP;
 END
 $product_edge_ownership$;
@@ -423,7 +449,7 @@ BEGIN
   RETURN pg_catalog.jsonb_build_object('schema_version', 1);
 END
 $function$;
-ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() TO rd_owner, product_edge_owner;
 
@@ -466,7 +492,7 @@ BEGIN
   );
 END
 $function$;
-ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) TO rd_owner, product_edge_owner;
 
@@ -600,7 +626,7 @@ BEGIN
   );
 END
 $function$;
-ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner;
 
@@ -709,7 +735,7 @@ BEGIN
   );
 END
 $function$;
-ALTER FUNCTION product_edge_api.lock_source_invocation_state_v1(text,text,text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_source_invocation_state_v1(text,text,text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_state_v1(text,text,text,text) FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(
@@ -722,7 +748,7 @@ SET search_path = pg_catalog
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'CLAIMED')
 $function$;
-ALTER FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner;
 
@@ -736,7 +762,7 @@ SET search_path = pg_catalog
 AS $function$
   SELECT product_edge_api.lock_source_invocation_state_v1($1,$2,$3,'INVOCATION_STARTED')
 $function$;
-ALTER FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, qualification_owner, qualification_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner;
 
@@ -775,7 +801,7 @@ BEGIN
   );
 END
 $function$;
-ALTER FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) OWNER TO product_edge_owner;
+ALTER FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) OWNER TO product_edge_custodian;
 REVOKE ALL ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) TO portfolio_owner;
 
@@ -850,12 +876,13 @@ DROP TRIGGER IF EXISTS rd_replay_policy_catalog_revocations_guard_v2 ON replay_p
 DROP TRIGGER IF EXISTS rd_replay_policy_catalog_audit_guard_v2 ON replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2;
 DROP TRIGGER IF EXISTS rd_replay_policy_catalog_outbox_guard_v2 ON public.rd_owner_outbox_v1;
 DROP FUNCTION IF EXISTS rd_owner_api.guard_replay_policy_catalog_mutation_v2();
-ALTER TABLE public.rd_trial_families_v1 OWNER TO rd_owner;
-ALTER TABLE public.rd_trial_family_members_v1 OWNER TO rd_owner;
-ALTER TABLE public.rd_trial_family_heads_v1 OWNER TO rd_owner;
-ALTER TABLE public.rd_trial_family_attempt_cuts_v2 OWNER TO rd_owner;
-ALTER TABLE public.rd_artifact_trial_family_bindings_v1 OWNER TO rd_owner;
-ALTER TABLE public.rd_owner_outbox_v1 OWNER TO rd_owner;
+ALTER TABLE public.rd_trial_families_v1 OWNER TO rd_custodian;
+ALTER TABLE public.rd_trial_family_members_v1 OWNER TO rd_custodian;
+ALTER TABLE public.rd_trial_family_heads_v1 OWNER TO rd_custodian;
+ALTER TABLE public.rd_trial_family_attempt_cuts_v2 OWNER TO rd_custodian;
+ALTER TABLE public.rd_artifact_trial_family_bindings_v1 OWNER TO rd_custodian;
+ALTER TABLE public.rd_owner_outbox_v1 OWNER TO rd_custodian;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.rd_trial_families_v1, public.rd_trial_family_members_v1, public.rd_trial_family_heads_v1, public.rd_trial_family_attempt_cuts_v2, public.rd_artifact_trial_family_bindings_v1, public.rd_owner_outbox_v1 TO rd_owner;
 
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_designs_v2 (design_identity BYTEA PRIMARY KEY, canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL);
@@ -1128,6 +1155,82 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
+DO $runtime_custody_cutover$
+DECLARE object record; relation_seal text;
+BEGIN
+  FOR object IN
+    SELECT relation.oid, namespace.nspname AS schema_name, relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'rd\_%' ESCAPE '\'
+  LOOP
+    EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner',object.schema_name,object.relname);
+    SELECT 'vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+      'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
+    )::text) INTO relation_seal;
+    EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
+  END LOOP;
+  FOR object IN
+    SELECT relation.oid, namespace.nspname AS schema_name, relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'product\_edge\_%' ESCAPE '\'
+  LOOP
+    EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO product_edge_custodian',object.schema_name,object.relname);
+    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner',object.schema_name,object.relname);
+    SELECT 'vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+      'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid)
+    )::text) INTO relation_seal;
+    EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
+  END LOOP;
+  FOR object IN
+    SELECT procedure.oid::pg_catalog.regprocedure AS signature, namespace.nspname,
+           procedure.proowner,
+           'vibe-source-md5:'||pg_catalog.md5(procedure.prosrc) AS source_seal
+    FROM pg_catalog.pg_proc procedure
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+    WHERE namespace.nspname IN ('rd_owner_api','product_edge_api')
+  LOOP
+    EXECUTE pg_catalog.format(
+      'ALTER FUNCTION %s OWNER TO %I',object.signature,
+      CASE object.nspname WHEN 'rd_owner_api' THEN 'rd_custodian' ELSE 'product_edge_custodian' END
+    );
+    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',object.signature);
+    FOR relation_seal IN
+      SELECT role.rolname
+      FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+      WHERE role.rolname<>CASE object.nspname WHEN 'rd_owner_api' THEN 'rd_custodian' ELSE 'product_edge_custodian' END
+    LOOP
+      EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal);
+    END LOOP;
+    EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L',object.signature,object.source_seal);
+  END LOOP;
+END
+$runtime_custody_cutover$;
+GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA rd_owner_api TO rd_owner;
+DO $grant_optional_rd_runtime_routines$
+DECLARE signature text;
+BEGIN
+  FOREACH signature IN ARRAY ARRAY[
+    'rd_owner_api.peek_current_research_for_artifact_v1(text)',
+    'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)',
+    'rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)'
+  ] LOOP
+    IF pg_catalog.to_regprocedure(signature) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO product_edge_owner',signature);
+    END IF;
+  END LOOP;
+END
+$grant_optional_rd_runtime_routines$;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1(), product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text), product_edge_api.lock_downstream_admission_v1(text,text,text), product_edge_api.lock_source_invocation_claim_v1(text,text,text), product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) TO portfolio_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,text,text,bigint), composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_fact_writer;
 DO $catalog_composer_readback$

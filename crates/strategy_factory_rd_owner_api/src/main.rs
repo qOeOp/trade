@@ -154,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
     let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
     let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
     let product_edge = Arc::new(
-        ProductEdgePostgresOwnerV1::connect(
+        ProductEdgePostgresOwnerV1::connect_existing(
             &product_edge_database_url,
             required_env("PRODUCT_EDGE_DEPLOYMENT_IDENTITY")?,
             ProductEdgeAuthorizationTrustV1 {
@@ -166,12 +166,13 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     let owner =
-        PostgresResearchGoalOwnerV1::connect(&database_url, &qualification_database_url).await?;
+        PostgresResearchGoalOwnerV1::connect_existing(&database_url, &qualification_database_url)
+            .await?;
     #[cfg(feature = "sealed-source-intake-acceptance")]
     let owner = owner.bind_sealed_source_intake_research_policy();
     let owner = Arc::new(owner);
     let artifact_owner = Arc::new(
-        PostgresArtifactBuildOwnerV1::connect(
+        PostgresArtifactBuildOwnerV1::connect_existing(
             &database_url,
             &env_or("RD_SANDBOX_SOCKET", SANDBOX_SOCKET_DEFAULT),
             env_or("RD_ARTIFACT_ATTEMPT_TIMEOUT_MS", "600000").parse()?,
@@ -1556,6 +1557,36 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+    async fn runtime_storage_connectors_start_without_migration_authority() {
+        let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+        let qualification_url =
+            std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+        let edge_url = std::env::var("PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL").unwrap();
+        ProductEdgePostgresOwnerV1::connect_existing(
+            &edge_url,
+            "product-edge-runtime-startup-v1",
+            ProductEdgeAuthorizationTrustV1 {
+                issuer_identity: "runtime-startup-issuer-v1".into(),
+                issuer_key_version: "runtime-startup-key-v1".into(),
+                audience: "R_AND_D".into(),
+            },
+        )
+        .await
+        .expect("Product Edge existing custody");
+        PostgresResearchGoalOwnerV1::connect_existing(&rd_url, &qualification_url)
+            .await
+            .expect("R&D existing custody");
+        PostgresArtifactBuildOwnerV1::connect_existing(
+            &rd_url,
+            "/tmp/unused-runtime-sandbox.sock",
+            600_000,
+        )
+        .await
+        .expect("Artifact existing custody");
+    }
+
+    #[tokio::test]
     async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
         assert!(
             bootstrap_deployment_store_admission_from_lookup(|_| None)
@@ -1752,7 +1783,7 @@ mod tests {
             .await
             .unwrap();
         let deployment_identity = format!("rd-api-retry-deployment-{suffix}");
-        let product_edge = ProductEdgePostgresOwnerV1::connect(
+        let product_edge = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
@@ -1805,7 +1836,7 @@ mod tests {
         );
         let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
         let owner = Arc::new(
-            PostgresResearchGoalOwnerV1::connect(
+            PostgresResearchGoalOwnerV1::connect_existing(
                 test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                 test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
             )
@@ -1813,7 +1844,7 @@ mod tests {
             .unwrap(),
         );
         let artifact_owner = Arc::new(
-            PostgresArtifactBuildOwnerV1::connect(
+            PostgresArtifactBuildOwnerV1::connect_existing(
                 test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,

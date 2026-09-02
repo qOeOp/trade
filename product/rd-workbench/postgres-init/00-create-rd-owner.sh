@@ -6,6 +6,8 @@ psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" << 'SQL'
 CREATE ROLE rd_database_owner NOLOGIN;
+CREATE ROLE rd_custodian NOLOGIN;
+CREATE ROLE product_edge_custodian NOLOGIN;
 CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
@@ -29,10 +31,10 @@ CREATE SCHEMA composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA composer_owner_api AUTHORIZATION composer_owner;
 REVOKE ALL ON SCHEMA composer_private, composer_owner_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer;
-CREATE SCHEMA product_edge_api AUTHORIZATION product_edge_owner;
+CREATE SCHEMA product_edge_api AUTHORIZATION product_edge_custodian;
 REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA product_edge_api TO rd_owner;
-CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_custodian;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner;
 CREATE SCHEMA operator_authorization_private AUTHORIZATION operator_authorization_owner;
@@ -40,6 +42,8 @@ CREATE SCHEMA operator_authorization_api AUTHORIZATION operator_authorization_ow
 REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner;
 REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
-ALTER DEFAULT PRIVILEGES FOR ROLE product_edge_owner IN SCHEMA public
-  REVOKE ALL ON TABLES FROM rd_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE product_edge_custodian IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO product_edge_owner;
+ALTER DEFAULT PRIVILEGES FOR ROLE rd_custodian IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO rd_owner;
 SQL

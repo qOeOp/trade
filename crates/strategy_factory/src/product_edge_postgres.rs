@@ -522,9 +522,10 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| storage(&e))?;
         Self::validate_existing_rd_storage(&pool).await?;
-        let qualification = PostgresQualificationOwnerV1::connect(qualification_database_url)
-            .await
-            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
+        let qualification =
+            PostgresQualificationOwnerV1::connect_existing(qualification_database_url)
+                .await
+                .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         Ok(Self {
             pool,
             qualification,
@@ -601,25 +602,65 @@ impl PostgresResearchGoalOwnerV1 {
                ]::text[])
              )
              SELECT session_user='rd_owner'
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
                AND pg_catalog.has_database_privilege(
                  session_user,pg_catalog.current_database(),'CONNECT'
                )
+               AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+               AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
+               AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian'
                AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
+               AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
+               AND (SELECT count(*)=5
+                          AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                     FROM pg_catalog.pg_namespace namespace,
+                          LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
+                    WHERE namespace.nspname='rd_owner_api')
                AND NOT EXISTS (
                  SELECT 1 FROM required_relations required
                  LEFT JOIN pg_catalog.pg_class relation
                    ON relation.oid=pg_catalog.to_regclass('public.' || required.name)
                  WHERE relation.oid IS NULL
                     OR relation.relkind <> 'r'
-                    OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_owner'
+                    OR relation.relpersistence <> 'p'
+                    OR pg_catalog.pg_get_userbyid(relation.relowner) <> 'rd_custodian'
+                    OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text)
+                    OR (SELECT count(*) <> 11
+                               OR count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) <> 7
+                               OR count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4
+                          FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
                )
                AND NOT EXISTS (
                  SELECT 1 FROM required_routines required
                  LEFT JOIN pg_catalog.pg_proc routine
                    ON routine.oid=pg_catalog.to_regprocedure(required.signature)
                  WHERE routine.oid IS NULL
-                    OR pg_catalog.pg_get_userbyid(routine.proowner) <> 'rd_owner'
-                    OR pg_catalog.has_function_privilege('public',routine.oid,'EXECUTE')
+                    OR pg_catalog.pg_get_userbyid(routine.proowner) <> 'rd_custodian'
+                    OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+                    OR CASE required.signature
+                         WHEN 'rd_owner_api.derive_source_intake_identity_v1(text,text[])' THEN
+                           routine.prosecdef OR NOT routine.proisstrict OR routine.provolatile<>'i'
+                           OR routine.proparallel<>'s'
+                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[]
+                         ELSE NOT routine.prosecdef
+                           OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                       END
+                    OR (SELECT pg_catalog.array_agg(role.rolname ORDER BY role.rolname)
+                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+                          JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS DISTINCT FROM
+                       CASE required.signature
+                         WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                         WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
+                         ELSE ARRAY['rd_custodian','rd_owner']::text[]
+                       END
                )",
         )
         .fetch_one(pool)
@@ -902,8 +943,8 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_owner",
-            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian",
+            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_custodian",
             "REVOKE ALL ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) TO product_edge_owner",
@@ -1006,7 +1047,7 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer",
             "REVOKE ALL ON TABLE rd_independence_bases_v1, rd_owner_outbox_v1 FROM qualification_owner, qualification_writer",
@@ -3086,7 +3127,7 @@ mod tests {
             .as_nanos();
         let request_identity = format!("research-request-v2-read-cut-{suffix}");
         let admission = bootstrap_admission(&database_url, &request_identity, suffix).await;
-        let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
+        let owner = PostgresResearchGoalOwnerV1::connect_existing(&database_url, &database_url)
             .await
             .unwrap();
         let accepted = owner
@@ -3289,7 +3330,7 @@ mod tests {
             .await
             .unwrap();
         let deployment_identity = format!("product-edge-deployment-{suffix}");
-        let edge = ProductEdgePostgresOwnerV1::connect(
+        let edge = ProductEdgePostgresOwnerV1::connect_existing(
             database_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {

@@ -65,12 +65,13 @@ const ARTIFACT_BUILD_SCHEMA_V1: &str = "rd-artifact-build-request-v1";
 const ARTIFACT_PROVIDER_EFFECT_V1: &str = "R_AND_D_PROVIDER_INVOCATION_V1";
 const SOURCE_PROVIDER_EFFECT_V1: &str = "R_AND_D_SOURCE_PROVIDER_INVOCATION_V1";
 const MAX_ADMISSION_EVENT_PAGE_V1: u32 = 100;
-const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 3] = [
+const EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS: [&str; 4] = [
     "CREATE TABLE IF NOT EXISTS public.product_edge_expired_manifest_recoveries_v1 (recovery_epoch_identity TEXT PRIMARY KEY CHECK (recovery_epoch_identity <> ''), recovery_epoch_digest TEXT NOT NULL UNIQUE CHECK (recovery_epoch_digest <> ''), predecessor_binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity) CHECK (predecessor_binding_identity <> ''), successor_binding_identity TEXT NOT NULL UNIQUE REFERENCES public.product_edge_deployment_bindings_v1(binding_identity) CHECK (successor_binding_identity <> '' AND successor_binding_identity <> predecessor_binding_identity), recovery_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL CHECK (committed_at_epoch_ms >= 0))",
-    "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner",
+    "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_custodian",
     "REVOKE ALL ON TABLE public.product_edge_expired_manifest_recoveries_v1 FROM PUBLIC, rd_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
+    "GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.product_edge_expired_manifest_recoveries_v1 TO product_edge_owner",
 ];
-const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('product_edge_owner')::oid
+const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner = pg_catalog.to_regrole('product_edge_custodian')::oid
    AND relation.relpersistence = 'p'
    AND (
      SELECT pg_catalog.count(*) = 6
@@ -108,8 +109,9 @@ const VERIFY_EXPIRED_MANIFEST_RECOVERY_SCHEMA: &str = "SELECT relation.relowner 
       WHERE constraint_entry.conrelid = relation.oid
    )
    AND (
-     SELECT pg_catalog.count(*) = 7
-        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) = 7
+     SELECT pg_catalog.count(*) = 11
+        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_custodian')::oid AND NOT acl.is_grantable) = 7
+        AND pg_catalog.count(*) FILTER (WHERE acl.grantee = pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable) = 4
        FROM pg_catalog.aclexplode(COALESCE(relation.relacl, pg_catalog.acldefault('r', relation.relowner))) acl
    )
   FROM pg_catalog.pg_class relation
@@ -1275,6 +1277,26 @@ impl ProductEdgePostgresOwnerV1 {
         let mut transaction = begin_repeatable_read(&pool).await?;
         let runtime_authority_is_exact: bool = sqlx::query_scalar(
             "SELECT session_user='product_edge_owner'
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
+               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+               AND EXISTS (
+                 SELECT 1 FROM pg_catalog.pg_roles
+                  WHERE rolname='product_edge_custodian' AND NOT rolcanlogin
+                    AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+                    AND NOT rolreplication AND NOT rolbypassrls
+               )
+               AND NOT pg_catalog.pg_has_role(session_user,'product_edge_custodian','MEMBER')
+               AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='product_edge_api'))='product_edge_custodian'
+               AND pg_catalog.has_schema_privilege(session_user,'product_edge_api','USAGE')
+               AND NOT pg_catalog.has_schema_privilege(session_user,'product_edge_api','CREATE')
+               AND (SELECT count(*)=5
+                          AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('portfolio_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                     FROM pg_catalog.pg_namespace namespace,
+                          LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
+                    WHERE namespace.nspname='product_edge_api')
                AND NOT pg_catalog.has_schema_privilege(session_user, 'public', 'CREATE')
                AND NOT pg_catalog.has_database_privilege(
                  session_user,
@@ -1286,6 +1308,46 @@ impl ProductEdgePostgresOwnerV1 {
         .await
         .map_err(storage)?;
         if !runtime_authority_is_exact {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let custody_manifest_is_exact: bool = sqlx::query_scalar(
+            "SELECT (SELECT count(*)=13
+                       AND bool_and(relation.relkind='r' AND relation.relpersistence='p'
+                         AND pg_catalog.pg_get_userbyid(relation.relowner)='product_edge_custodian'
+                         AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-relation-md5:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid))::text)
+                         AND (SELECT count(*)=11
+                                  AND count(*) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable)=7
+                                  AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable)=4
+                                FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl))
+                      FROM pg_catalog.pg_class relation
+                      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                     WHERE namespace.nspname='public' AND relation.relname LIKE 'product\\_edge\\_%' ESCAPE '\\' AND relation.relkind='r')
+               AND NOT EXISTS (
+                 SELECT 1 FROM (VALUES
+                   ('product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1()',ARRAY['product_edge_custodian','product_edge_owner','rd_owner']::text[]),
+                   ('product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text)',ARRAY['product_edge_custodian','product_edge_owner','rd_owner']::text[]),
+                   ('product_edge_api.lock_downstream_admission_v1(text,text,text)',ARRAY['product_edge_custodian','product_edge_owner','rd_owner']::text[]),
+                   ('product_edge_api.lock_source_invocation_state_v1(text,text,text,text)',ARRAY['product_edge_custodian']::text[]),
+                   ('product_edge_api.lock_source_invocation_claim_v1(text,text,text)',ARRAY['product_edge_custodian','product_edge_owner','rd_owner']::text[]),
+                   ('product_edge_api.lock_source_invocation_started_v1(text,text,text)',ARRAY['product_edge_custodian','product_edge_owner','rd_owner']::text[]),
+                   ('product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text)',ARRAY['portfolio_owner','product_edge_custodian']::text[])
+                 ) required(signature,grantees)
+                 LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
+                 WHERE routine.oid IS NULL
+                    OR pg_catalog.pg_get_userbyid(routine.proowner)<>'product_edge_custodian'
+                    OR NOT routine.prosecdef OR routine.provolatile<>'v' OR routine.proparallel<>'u'
+                    OR routine.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                    OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+                    OR (SELECT pg_catalog.array_agg(role.rolname ORDER BY role.rolname)
+                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+                          JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS DISTINCT FROM required.grantees
+               )",
+        )
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(storage)?;
+        if !custody_manifest_is_exact {
             return Err(ProductEdgeError::Unavailable);
         }
         verify_admission_event_stream(&mut transaction).await?;
@@ -1355,11 +1417,11 @@ impl ProductEdgePostgresOwnerV1 {
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_states_v1 (claim_identity TEXT PRIMARY KEY REFERENCES product_edge_effect_invocation_claims_v1(claim_identity), admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, state_digest TEXT NOT NULL, state_json JSONB NOT NULL, updated_at_epoch_ms BIGINT NOT NULL)",
             "CREATE OR REPLACE FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function$ BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; RETURN pg_catalog.jsonb_build_object('schema_version', 1); END $function$",
-            "ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_owner",
+            "ALTER FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() OWNER TO product_edge_custodian",
             "REVOKE ALL ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
             "GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1() TO rd_owner, product_edge_owner",
             "CREATE OR REPLACE FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(requested_admission_identity text, requested_attempt_identity text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function$ DECLARE admission_count bigint; claim_count bigint; state_count bigint; provider_start_count bigint; BEGIN IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF; LOCK TABLE public.product_edge_effect_invocation_admissions_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_claims_v1 IN SHARE ROW EXCLUSIVE MODE; LOCK TABLE public.product_edge_effect_invocation_states_v1 IN SHARE ROW EXCLUSIVE MODE; SELECT pg_catalog.count(*) INTO admission_count FROM public.product_edge_effect_invocation_admissions_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO claim_count FROM public.product_edge_effect_invocation_claims_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO state_count FROM public.product_edge_effect_invocation_states_v1 WHERE admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity; SELECT pg_catalog.count(*) INTO provider_start_count FROM public.product_edge_effect_invocation_states_v1 WHERE (admission_identity=requested_admission_identity OR attempt_identity=requested_attempt_identity) AND state_json->>'state'='INVOCATION_STARTED'; RETURN pg_catalog.jsonb_build_object('schema_version', 1, 'effect_invocation_admission_count', admission_count, 'effect_invocation_claim_count', claim_count, 'effect_invocation_state_count', state_count, 'provider_start_custody_count', provider_start_count); END $function$",
-            "ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_owner",
+            "ALTER FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) OWNER TO product_edge_custodian",
             "REVOKE ALL ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) FROM PUBLIC, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner",
             "GRANT EXECUTE ON FUNCTION product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text) TO rd_owner, product_edge_owner",
             "CREATE TABLE IF NOT EXISTS product_edge_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
@@ -5557,7 +5619,7 @@ mod tests {
 
     #[rstest]
     fn expired_manifest_recovery_schema_preparation_is_exactly_bounded() {
-        assert_eq!(EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS.len(), 3);
+        assert_eq!(EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS.len(), 4);
         assert!(
             EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
                 .iter()
@@ -5568,11 +5630,11 @@ mod tests {
         assert_eq!(
             EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
                 .map(|statement| { statement.split_ascii_whitespace().next().unwrap() }),
-            ["CREATE", "ALTER", "REVOKE"]
+            ["CREATE", "ALTER", "REVOKE", "GRANT"]
         );
         assert_eq!(
             EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS[1],
-            "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_owner"
+            "ALTER TABLE public.product_edge_expired_manifest_recoveries_v1 OWNER TO product_edge_custodian"
         );
         assert!(
             !EXPIRED_MANIFEST_RECOVERY_SCHEMA_STATEMENTS
@@ -6281,7 +6343,7 @@ mod tests {
             };
         assert!(earlier_grant.locator().grant_identity < grant.locator().grant_identity);
         let deployment = format!("portfolio-policy-deployment-{suffix}");
-        let owner = ProductEdgePostgresOwnerV1::connect(
+        let owner = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment,
             ProductEdgeAuthorizationTrustV1 {
@@ -6771,7 +6833,7 @@ mod tests {
             })
             .await
             .unwrap();
-        let owner = ProductEdgePostgresOwnerV1::connect(
+        let owner = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment,
             ProductEdgeAuthorizationTrustV1 {
@@ -7019,7 +7081,7 @@ mod tests {
             owner.recover_expired_manifests(stale_head).await,
             Err(ProductEdgeError::ConflictingReplay)
         ));
-        let restarted = ProductEdgePostgresOwnerV1::connect(
+        let restarted = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             deployment,
             ProductEdgeAuthorizationTrustV1 {
@@ -7108,7 +7170,7 @@ mod tests {
             .unwrap();
         let deployment = format!("product-edge-deployment-{suffix}");
         let first_binding = format!("product-edge-binding-1-{suffix}");
-        let owner = ProductEdgePostgresOwnerV1::connect(
+        let owner = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment,
             ProductEdgeAuthorizationTrustV1 {
@@ -7340,7 +7402,7 @@ mod tests {
             .execute(pe_pool)
             .await
             .unwrap();
-        let rebuilt = ProductEdgePostgresOwnerV1::connect(
+        let rebuilt = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment,
             ProductEdgeAuthorizationTrustV1 {
@@ -7384,7 +7446,7 @@ mod tests {
             Some(first_wake.event_identity())
         );
         assert_eq!(rebuilt_mapping.3, "REBUILT");
-        let rebuilt_reconnected = ProductEdgePostgresOwnerV1::connect(
+        let rebuilt_reconnected = ProductEdgePostgresOwnerV1::connect_existing(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment,
             ProductEdgeAuthorizationTrustV1 {

@@ -37,7 +37,24 @@ impl PostgresQualificationOwnerV1 {
         Ok(owner)
     }
 
+    /// Connects the runtime Qualification writer to deployment-provisioned custody.
+    /// This path performs only read-only authority validation and never runs migration DDL.
+    pub async fn connect_existing(database_url: &str) -> Result<Self, QualificationOwnerError> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        let owner = Self { pool };
+        owner.validate_existing().await?;
+        Ok(owner)
+    }
+
     async fn migrate(&self) -> Result<(), QualificationOwnerError> {
+        self.validate_existing().await
+    }
+
+    async fn validate_existing(&self) -> Result<(), QualificationOwnerError> {
         let admitted: bool = sqlx::query_scalar(
             "SELECT
                 pg_catalog.has_database_privilege(current_user, pg_catalog.current_database(), 'CONNECT')
@@ -1544,6 +1561,23 @@ mod postgres_tests {
 
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[rstest]
+    fn existing_connection_path_contains_no_migration_or_ddl() {
+        let source = include_str!("postgres.rs");
+        let existing = source
+            .split("pub async fn connect_existing")
+            .nth(1)
+            .expect("existing Qualification connection")
+            .split("async fn migrate")
+            .next()
+            .expect("existing connection boundary");
+        assert!(existing.contains("validate_existing"));
+        assert!(!existing.contains(".migrate()"));
+        assert!(!existing.contains("CREATE "));
+        assert!(!existing.contains("ALTER "));
+        assert!(!existing.contains("DROP "));
+    }
 
     #[rstest]
     fn forged_raw_envelope_cannot_construct_a_positive_readback() {
