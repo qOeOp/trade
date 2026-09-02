@@ -337,9 +337,15 @@ impl PostgresArtifactBuildOwnerV1 {
                 .await
                 .map_err(storage)?;
         }
-        migrate_trial_family(&self.pool)
+        let session_is_rd_owner: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner'")
+            .fetch_one(&self.pool)
             .await
-            .map_err(|e| trial_family_storage(&e))?;
+            .map_err(storage)?;
+        if session_is_rd_owner {
+            migrate_trial_family(&self.pool)
+                .await
+                .map_err(|e| trial_family_storage(&e))?;
+        }
         Ok(())
     }
 
@@ -2394,6 +2400,22 @@ mod postgres_freshness_tests {
                 "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable)=4"
             )
         );
+    }
+
+    #[rstest]
+    fn artifact_migration_reserves_trial_family_authority_for_rd_owner_session() {
+        let source = include_str!("artifact_build_postgres.rs");
+        let migration = source
+            .split("async fn migrate(&self)")
+            .nth(1)
+            .expect("Artifact migration")
+            .split("async fn assert_activation_safe")
+            .next()
+            .expect("Artifact migration boundary");
+
+        assert!(migration.contains("SELECT SESSION_USER='rd_owner'"));
+        assert!(migration.contains("if session_is_rd_owner"));
+        assert!(migration.contains("migrate_trial_family(&self.pool)"));
     }
 
     #[tokio::test]
