@@ -6,7 +6,10 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{
+    PgPool,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
 use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
@@ -194,7 +197,8 @@ pub struct CanonicalOwnerPostgresTestDatabaseV1 {
     pools: [PgPool; 6],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
-    legacy_migration_caller_pool: PgPool,
+    legacy_migration_caller_options: PgConnectOptions,
+    legacy_migration_caller_target: NormalizedDatabaseTarget,
 }
 
 /// One-shot capability for the disposable legacy Replay duplicate fault.
@@ -225,6 +229,7 @@ pub struct ReleasedReplayPolicyCatalogFaultAuthorityV1 {
 /// Linear test-only authority for one legacy Replay migration continuity consumer.
 pub struct LegacyReplayMigrationAuthorityV1 {
     pool: PgPool,
+    database_identity: String,
     marker_identity: String,
     lease_identity: String,
 }
@@ -455,8 +460,8 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
         }
         let owner_topology_admin_pool =
             admit_owner_topology_admin(&expected_database, &expected_marker, first).await?;
-        let legacy_migration_caller_pool =
-            admit_legacy_migration_caller(&expected_database, &expected_marker, first).await?;
+        let (legacy_migration_caller_options, legacy_migration_caller_target) =
+            admit_legacy_migration_caller(&expected_database, first)?;
 
         Ok(Self {
             database_urls: urls
@@ -467,7 +472,8 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 .map_err(|_| DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch)?,
             marker_identity: expected_marker,
             owner_topology_admin_pool,
-            legacy_migration_caller_pool,
+            legacy_migration_caller_options,
+            legacy_migration_caller_target,
         })
     }
 
@@ -554,7 +560,10 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
     > {
         let lease_identity = env::var(LEGACY_MIGRATION_LEASE_IDENTITY_ENV).unwrap_or_default();
         let authority = LegacyReplayMigrationAuthorityV1 {
-            pool: self.legacy_migration_caller_pool.clone(),
+            pool: PgPoolOptions::new()
+                .max_connections(1)
+                .connect_lazy_with(self.legacy_migration_caller_options.clone()),
+            database_identity: self.legacy_migration_caller_target.database.clone(),
             marker_identity: self.marker_identity.clone(),
             lease_identity,
         };
@@ -564,6 +573,12 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                 source: sqlx::Error::Protocol(
                     "legacy Replay migration lease identity is unavailable".into(),
                 ),
+            });
+        }
+        if let Err(source) = authority.preflight_readback().await {
+            return Err(LegacyReplayMigrationTransitionErrorV1 {
+                capability: authority,
+                source,
             });
         }
         if let Err(source) = authority.acquire_readback().await {
@@ -577,6 +592,65 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
 }
 
 impl LegacyReplayMigrationAuthorityV1 {
+    async fn preflight_readback(&self) -> Result<(), sqlx::Error> {
+        let exact: bool = sqlx::query_scalar(
+            "SELECT session_user='vibe_test_legacy_migration_caller'
+           AND pg_catalog.current_database()=$1
+           AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
+           AND NOT role.rolreplication AND NOT role.rolbypassrls
+           AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+           AND NOT pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+           AND NOT pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid)
+           AND EXISTS (SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker WHERE marker.marker_identity=$2 AND marker.database_name=$1 AND marker.test_role=session_user)
+           AND pg_catalog.has_schema_privilege(session_user,'vibe_test_legacy_migration_lease','USAGE')
+           AND NOT pg_catalog.has_table_privilege(session_user,'vibe_test_legacy_migration_lease.authority_state_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+           AND EXISTS (
+             SELECT 1 FROM pg_catalog.pg_namespace namespace
+              WHERE namespace.nspname='vibe_test_legacy_migration_lease'
+                AND pg_catalog.pg_get_userbyid(namespace.nspowner)='postgres'
+                AND (SELECT count(*)=3
+                       AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND acl.privilege_type IN ('CREATE','USAGE') AND NOT acl.is_grantable)=2
+                       AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                       AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable)=0
+                     FROM pg_catalog.aclexplode(namespace.nspacl) acl)
+           )
+           AND (SELECT count(*)=2 AND bool_and(
+                  pg_catalog.pg_get_userbyid(procedure.proowner)='postgres'
+                  AND language.lanname='plpgsql' AND procedure.prokind='f'
+                  AND procedure.prorettype='text'::pg_catalog.regtype
+                  AND procedure.prosecdef AND procedure.proisstrict
+                  AND procedure.provolatile='v' AND procedure.proparallel='u'
+                  AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+                  AND pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(procedure.prosrc,'UTF8')),'hex')=expected.source_digest
+                  AND pg_catalog.has_function_privilege(session_user,procedure.oid,'EXECUTE')
+                  AND (SELECT count(*)=2
+                         AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                         AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                         AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable OR acl.privilege_type<>'EXECUTE')=0
+                       FROM pg_catalog.aclexplode(procedure.proacl) acl)
+                )
+                  FROM (VALUES ('acquire_v1',$3::text),('release_v1',$4::text)) expected(procedure_name,source_digest)
+                  JOIN pg_catalog.pg_proc procedure ON procedure.proname=expected.procedure_name
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace AND namespace.nspname='vibe_test_legacy_migration_lease'
+                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang)
+          FROM pg_catalog.pg_roles role WHERE role.rolname=session_user",
+        )
+        .bind(&self.database_identity)
+        .bind(&self.marker_identity)
+        .bind(LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
+        .bind(LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1)
+        .fetch_one(&self.pool)
+        .await?;
+        if exact {
+            Ok(())
+        } else {
+            Err(sqlx::Error::Protocol(
+                "legacy Replay migration caller preflight mismatch".into(),
+            ))
+        }
+    }
+
     async fn acquire_readback(&self) -> Result<(), sqlx::Error> {
         let returned = sqlx::query_scalar::<_, String>(
             "SELECT vibe_test_legacy_migration_lease.acquire_v1($1,$2)",
@@ -1062,11 +1136,10 @@ async fn admit_owner_topology_admin(
     Ok(pool)
 }
 
-async fn admit_legacy_migration_caller(
+fn admit_legacy_migration_caller(
     expected_database: &str,
-    expected_marker: &str,
     canonical_target: &NormalizedDatabaseTarget,
-) -> Result<PgPool, DedicatedPostgresTestDatabaseError> {
+) -> Result<(PgConnectOptions, NormalizedDatabaseTarget), DedicatedPostgresTestDatabaseError> {
     let url = env::var(LEGACY_MIGRATION_URL_ENV).map_err(|_| {
         DedicatedPostgresTestDatabaseError::MissingEnvironment(LEGACY_MIGRATION_URL_ENV)
     })?;
@@ -1077,65 +1150,10 @@ async fn admit_legacy_migration_caller(
     {
         return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
     }
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&url)
-        .await
-        .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
-    let exact: bool = sqlx::query_scalar(
-        "SELECT session_user='vibe_test_legacy_migration_caller'
-           AND pg_catalog.current_database()=$1
-           AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
-           AND NOT role.rolreplication AND NOT role.rolbypassrls
-           AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
-           AND NOT pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
-           AND NOT pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
-           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid)
-           AND EXISTS (SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker WHERE marker.marker_identity=$2 AND marker.database_name=$1 AND marker.test_role=session_user)
-           AND pg_catalog.has_schema_privilege(session_user,'vibe_test_legacy_migration_lease','USAGE')
-           AND NOT pg_catalog.has_table_privilege(session_user,'vibe_test_legacy_migration_lease.authority_state_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-           AND EXISTS (
-             SELECT 1 FROM pg_catalog.pg_namespace namespace
-              WHERE namespace.nspname='vibe_test_legacy_migration_lease'
-                AND pg_catalog.pg_get_userbyid(namespace.nspowner)='postgres'
-                AND (SELECT count(*)=3
-                       AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND acl.privilege_type IN ('CREATE','USAGE') AND NOT acl.is_grantable)=2
-                       AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
-                       AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable)=0
-                     FROM pg_catalog.aclexplode(namespace.nspacl) acl)
-           )
-           AND (SELECT count(*)=2 AND bool_and(
-                  pg_catalog.pg_get_userbyid(procedure.proowner)='postgres'
-                  AND language.lanname='plpgsql' AND procedure.prokind='f'
-                  AND procedure.prorettype='text'::pg_catalog.regtype
-                  AND procedure.prosecdef AND procedure.proisstrict
-                  AND procedure.provolatile='v' AND procedure.proparallel='u'
-                  AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
-                  AND pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(procedure.prosrc,'UTF8')),'hex')=expected.source_digest
-                  AND pg_catalog.has_function_privilege(session_user,procedure.oid,'EXECUTE')
-                  AND (SELECT count(*)=2
-                         AND count(*) FILTER (WHERE acl.grantee=procedure.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
-                         AND count(*) FILTER (WHERE acl.grantee=role.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
-                         AND count(*) FILTER (WHERE acl.grantee=0 OR acl.is_grantable OR acl.privilege_type<>'EXECUTE')=0
-                       FROM pg_catalog.aclexplode(procedure.proacl) acl)
-                )
-                  FROM (VALUES ('acquire_v1',$3::text),('release_v1',$4::text)) expected(procedure_name,source_digest)
-                  JOIN pg_catalog.pg_proc procedure ON procedure.proname=expected.procedure_name
-                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace AND namespace.nspname='vibe_test_legacy_migration_lease'
-                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang)
-          FROM pg_catalog.pg_roles role WHERE role.rolname=session_user",
-    )
-    .bind(expected_database)
-    .bind(expected_marker)
-    .bind(LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
-    .bind(LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1)
-    .fetch_one(&pool)
-    .await
-    .map_err(|_| DedicatedPostgresTestDatabaseError::ReadOnlyPreflightUnavailable)?;
-    if !exact {
-        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
-    }
-    Ok(pool)
+    let options = url.parse().map_err(|_| {
+        DedicatedPostgresTestDatabaseError::InvalidDatabaseUrl(LEGACY_MIGRATION_URL_ENV)
+    })?;
+    Ok((options, target))
 }
 
 const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
@@ -1931,6 +1949,38 @@ mod tests {
     #[rstest]
     fn legacy_replay_migration_authority_is_linear_bounded_and_failure_released() {
         let source = include_str!("postgres.rs");
+        let canonical = source
+            .split_once("impl CanonicalOwnerPostgresTestDatabaseV1")
+            .expect("canonical database implementation")
+            .1;
+        let ordinary_admission = canonical
+            .split_once("pub async fn admit()")
+            .expect("canonical admission")
+            .1
+            .split_once("pub fn database_url(")
+            .expect("canonical admission boundary")
+            .0;
+        let acquire = source
+            .split_once("pub async fn acquire_legacy_replay_migration_authority(")
+            .expect("legacy migration acquire")
+            .1
+            .split_once("impl LegacyReplayMigrationAuthorityV1")
+            .expect("legacy migration acquire boundary")
+            .0;
+        let preflight_readback = source
+            .split_once("async fn preflight_readback(&self)")
+            .expect("legacy migration preflight")
+            .1
+            .split_once("async fn acquire_readback(&self)")
+            .expect("legacy migration preflight boundary")
+            .0;
+        let caller_identity_admission = source
+            .split_once("fn admit_legacy_migration_caller(")
+            .expect("legacy migration caller identity admission")
+            .1
+            .split_once("const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY")
+            .expect("legacy migration caller identity admission boundary")
+            .0;
         let consumers =
             include_str!("../../strategy_factory/tests/exploratory_replay_request_owner.rs");
         let shell = include_str!("../../../scripts/ci/test-rd-owner-postgres.bash");
@@ -1940,6 +1990,33 @@ mod tests {
             .expect("legacy migration test loop");
 
         assert!(!source.contains("#[derive(Clone)]\npub struct LegacyReplayMigrationAuthorityV1"));
+        assert!(ordinary_admission.contains("admit_legacy_migration_caller"));
+        assert!(!ordinary_admission.contains("preflight_readback().await"));
+        assert!(!ordinary_admission.contains("legacy_migration_caller_pool"));
+        assert!(!caller_identity_admission.contains(".connect("));
+        assert!(!caller_identity_admission.contains(".fetch_one("));
+        assert!(acquire.contains("connect_lazy_with"));
+        for exact_preflight in [
+            "session_user='vibe_test_legacy_migration_caller'",
+            "marker.marker_identity=$2 AND marker.database_name=$1",
+            "NOT pg_catalog.has_database_privilege",
+            "NOT pg_catalog.has_table_privilege",
+            "procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']",
+            "LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1",
+            "LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1",
+        ] {
+            assert!(
+                preflight_readback.contains(exact_preflight),
+                "missing exact lazy preflight check: {exact_preflight}"
+            );
+        }
+        let preflight = acquire
+            .find("preflight_readback().await")
+            .expect("legacy migration preflight");
+        let lease_acquire = acquire
+            .find("acquire_readback().await")
+            .expect("legacy migration lease acquire");
+        assert!(preflight < lease_acquire);
         assert_eq!(
             consumers
                 .matches(".acquire_legacy_replay_migration_authority()")
