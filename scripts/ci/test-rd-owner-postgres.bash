@@ -34,6 +34,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_inherited_owner_membership'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_attribute_drift'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_topology_fence_serializes_managed_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
@@ -57,8 +59,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 20 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all twenty ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 22 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-two ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -70,9 +72,11 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
     [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
     [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[19]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -591,6 +595,37 @@ FROM unnest(ARRAY[
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+
+CREATE FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(
+  expected_marker_identity text
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Backtest Result fence fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'Backtest Result fence fault marker mismatch' USING ERRCODE='55000';
+  END IF;
+  PERFORM pg_catalog.set_config(
+    'application_name','vibe-backtest-result-fence-v1',true
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
+  );
+  EXECUTE 'GRANT SELECT ON TABLE public.backtest_replay_results_v2 TO rd_owner';
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text)
+  TO vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -836,30 +871,53 @@ inject_backtest_result_fault() {
     source)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS 'SELECT NULL::jsonb';
+COMMIT;
 SQL
       ;;
     acl)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 GRANT SELECT ON TABLE public.backtest_replay_results_v2 TO rd_owner;
+COMMIT;
 SQL
       ;;
     membership)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 GRANT backtest_owner TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+COMMIT;
 SQL
+      ;;
+    attribute)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+ALTER ROLE backtest_owner BYPASSRLS;
+COMMIT;
+SQL
+      ;;
+    concurrent_acl)
       ;;
     rollback)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 CREATE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1()
 RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RAISE EXCEPTION 'injected Backtest outbox failure'; END $function$;
 CREATE TRIGGER reject_backtest_result_outbox_v1 BEFORE INSERT ON public.backtest_replay_result_outbox_v1
 FOR EACH ROW EXECUTE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
+COMMIT;
 SQL
       ;;
   esac
@@ -870,13 +928,27 @@ restore_backtest_result_fault() {
   if [[ "$fault" == membership ]]; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 REVOKE backtest_owner FROM rd_owner;
+COMMIT;
+SQL
+  elif [[ "$fault" == attribute ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+COMMIT;
 SQL
   elif [[ "$fault" == rollback ]]; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
 DROP TRIGGER reject_backtest_result_outbox_v1 ON public.backtest_replay_result_outbox_v1;
 DROP FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
+COMMIT;
 SQL
   fi
   docker exec --interactive \
@@ -908,6 +980,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
     postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
     postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
     postgres_result_rd_read_rejects_inherited_owner_membership) backtest_result_fault=membership ;;
+    postgres_result_rd_read_rejects_owner_attribute_drift) backtest_result_fault=attribute ;;
+    postgres_result_topology_fence_serializes_managed_acl_drift) backtest_result_fault=concurrent_acl ;;
     postgres_result_mid_commit_failure_rolls_back_every_aggregate_row) backtest_result_fault=rollback ;;
   esac
   if [[ -n "$backtest_result_fault" ]]; then

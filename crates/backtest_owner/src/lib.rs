@@ -1093,6 +1093,103 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest Owner attribute drift"]
+    async fn postgres_result_rd_read_rejects_owner_attribute_drift() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the isolated topology-fenced ACL mutation harness"]
+    async fn postgres_result_topology_fence_serializes_managed_acl_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool)
+            .await
+            .expect("Backtest writer topology");
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request)).expect("sealed result");
+        owner
+            .commit_exploratory_replay_result_v2(&result)
+            .await
+            .expect("committed aggregate");
+
+        let mut rd_transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
+        resolve_exploratory_replay_result_for_rd_in_transaction(
+            &mut rd_transaction,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: result.result_identity().as_str(),
+                request_identity: request.request_identity().as_str(),
+                attempt_identity: "attempt",
+            },
+        )
+        .await
+        .expect("topology-fenced R&D resolve")
+        .expect("committed aggregate");
+
+        let admin_pool = database.owner_topology_admin_pool().clone();
+        let marker = mutation.marker_identity().to_string();
+        let fault_application_name = "vibe-backtest-result-fence-v1";
+        let observer_pool = admin_pool.clone();
+        let fault = tokio::spawn(async move {
+            sqlx::query("SELECT vibe_test_admin.inject_backtest_result_acl_with_fence_v1($1)")
+                .bind(marker)
+                .execute(&admin_pool)
+                .await
+        });
+        let mut observed_wait = false;
+        for _ in 0..100 {
+            observed_wait = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE application_name=$1 AND usename=session_user AND wait_event_type='Lock' AND wait_event='advisory')",
+            )
+            .bind(fault_application_name)
+            .fetch_one(&observer_pool)
+            .await
+            .expect("managed fault wait observation");
+            if observed_wait || fault.is_finished() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            observed_wait && !fault.is_finished(),
+            "managed ACL mutation must reach the advisory wait behind the caller-owned R&D transaction"
+        );
+        rd_transaction
+            .rollback()
+            .await
+            .expect("R&D rollback releases topology fence");
+        fault
+            .await
+            .expect("managed fault task")
+            .expect("managed ACL mutation after fence release");
+
+        let mut rejected = rd_pool.begin().await.expect("second R&D transaction");
+        assert!(
+            resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut rejected,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result.result_identity().as_str(),
+                    request_identity: request.request_identity().as_str(),
+                    attempt_identity: "attempt",
+                },
+            )
+            .await
+            .is_err(),
+            "post-fence ACL drift must fail closed"
+        );
+        rejected
+            .rollback()
+            .await
+            .expect("fault transaction rollback");
+    }
+
+    #[tokio::test]
     #[ignore = "requires the harness-injected Backtest outbox failure"]
     async fn postgres_result_mid_commit_failure_rolls_back_every_aggregate_row() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()

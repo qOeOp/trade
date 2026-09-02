@@ -13,6 +13,9 @@ psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgr
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
   --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" << 'SQL'
 BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(
+  pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0)
+);
 DO $roles$
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_database_owner') THEN CREATE ROLE rd_database_owner NOLOGIN; END IF;
@@ -45,7 +48,7 @@ ALTER ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 ALTER ROLE qualification_owner NOLOGIN;
 ALTER ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 ALTER ROLE product_edge_owner PASSWORD :'edge_password';
-ALTER ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
+ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'backtest_password';
 ALTER ROLE portfolio_owner NOLOGIN;
 GRANT operator_authorization_owner TO operator_authorization_writer;
 REVOKE portfolio_owner FROM product_edge_owner;
@@ -178,6 +181,8 @@ BEGIN
            FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
           WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')) OR membership.member IN (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('backtest_custodian','backtest_owner','rd_owner')))
+    AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='backtest_owner')
+    AND (SELECT role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner')
     AND pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','USAGE')
     AND NOT pg_catalog.has_schema_privilege('rd_owner','backtest_owner_api','CREATE')
     AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
