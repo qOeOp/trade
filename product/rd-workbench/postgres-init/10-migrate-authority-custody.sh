@@ -300,6 +300,14 @@ BEGIN
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM PUBLIC',relation_fact.relname);
     FOR grantee_fact IN SELECT DISTINCT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT relacl FROM pg_catalog.pg_class WHERE oid=relation_fact.oid),pg_catalog.acldefault('r',(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_fact.oid)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_fact.oid)
     LOOP EXECUTE pg_catalog.format('REVOKE ALL ON TABLE public.%I FROM %I',relation_fact.relname,grantee_fact.rolname); END LOOP;
+    FOR grantee_fact IN
+      SELECT attribute.attname AS column_name,acl.grantee,pg_catalog.pg_get_userbyid(acl.grantee) AS grantee_name
+      FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      WHERE attribute.attrelid=relation_fact.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+        AND acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=relation_fact.oid)
+    LOOP
+      EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE public.%I FROM %s',grantee_fact.column_name,relation_fact.relname,CASE WHEN grantee_fact.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(grantee_fact.grantee_name) END);
+    END LOOP;
     EXECUTE pg_catalog.format('GRANT SELECT,INSERT,UPDATE,DELETE ON TABLE public.%I TO qualification_writer',relation_fact.relname);
     SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation_fact.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation_fact.oid),'indexes',(SELECT pg_catalog.jsonb_agg(pg_catalog.pg_get_indexdef(index_fact.indexrelid) ORDER BY pg_catalog.pg_get_indexdef(index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid=relation_fact.oid))::text) INTO relation_seal;
     EXECUTE pg_catalog.format('COMMENT ON TABLE public.%I IS %L',relation_fact.relname,relation_seal);
@@ -308,6 +316,12 @@ BEGIN
   FOR grantee_fact IN SELECT DISTINCT role.rolname FROM pg_catalog.pg_proc procedure CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE procedure.oid=pg_catalog.to_regprocedure('qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text)') AND acl.grantee<>procedure.proowner
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) FROM %I',grantee_fact.rolname); END LOOP;
   GRANT EXECUTE ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) TO rd_owner, qualification_writer;
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    WHERE attribute.attrelid IN (pg_catalog.to_regclass('public.qualification_protected_feedback_projections_v1'),pg_catalog.to_regclass('public.qualification_protected_feedback_heads_v1'),pg_catalog.to_regclass('public.qualification_owner_outbox_v1'))
+      AND attribute.attnum>0 AND NOT attribute.attisdropped
+      AND acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=attribute.attrelid)
+  ) THEN RAISE EXCEPTION 'Qualification column ACL seal mismatch'; END IF;
   EXECUTE pg_catalog.format('COMMENT ON FUNCTION qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text) IS %L','vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('qualification_api.lock_projection_for_basis_v1(text,text,text,text,jsonb,text)'))));
 END
 $qualification_closed_manifest$;
@@ -4173,7 +4187,7 @@ FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authoriz
 GRANT SELECT, INSERT ON TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 TO rd_owner;
 \endif
 DO $runtime_custody_cutover$
-DECLARE object record; relation_seal text; exact boolean;
+DECLARE object record; relation_seal text; exact boolean; column_acl record;
 BEGIN
   IF EXISTS (
     WITH admitted(name) AS (SELECT * FROM pg_catalog.unnest(ARRAY[
@@ -4269,6 +4283,14 @@ BEGIN
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    FOR column_acl IN
+      SELECT attribute.attname AS column_name,acl.grantee,pg_catalog.pg_get_userbyid(acl.grantee) AS grantee_name
+      FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+        AND acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=object.oid)
+    LOOP
+      EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE %I.%I FROM %s',column_acl.column_name,object.schema_name,object.relname,CASE WHEN column_acl.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(column_acl.grantee_name) END);
+    END LOOP;
     IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN
       NULL;
     ELSIF object.relname='rd_source_intake_bindings_v1' THEN
@@ -4293,6 +4315,14 @@ BEGIN
   LOOP
     EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO product_edge_custodian',object.schema_name,object.relname);
     EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    FOR column_acl IN
+      SELECT attribute.attname AS column_name,acl.grantee,pg_catalog.pg_get_userbyid(acl.grantee) AS grantee_name
+      FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+        AND acl.grantee<>(SELECT relowner FROM pg_catalog.pg_class WHERE oid=object.oid)
+    LOOP
+      EXECUTE pg_catalog.format('REVOKE ALL (%I) ON TABLE %I.%I FROM %s',column_acl.column_name,object.schema_name,object.relname,CASE WHEN column_acl.grantee=0 THEN 'PUBLIC' ELSE pg_catalog.quote_ident(column_acl.grantee_name) END);
+    END LOOP;
     EXECUTE pg_catalog.format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO product_edge_owner',object.schema_name,object.relname);
     SELECT 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=object.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=object.oid),'acl',COALESCE((SELECT relation.relacl::text FROM pg_catalog.pg_class relation WHERE relation.oid=object.oid),'<NULL>'))::text) INTO relation_seal;
     EXECUTE pg_catalog.format('COMMENT ON TABLE %I.%I IS %L',object.schema_name,object.relname,relation_seal);
@@ -4303,6 +4333,7 @@ BEGIN
     WHERE namespace.nspname IN ('rd_owner_api','product_edge_api') OR procedure.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'))
   LOOP
     EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',object.signature,object.custodian);
+    EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM PUBLIC',object.signature);
     FOR relation_seal IN SELECT role.rolname FROM pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure),pg_catalog.acldefault('f',(SELECT proowner FROM pg_catalog.pg_proc WHERE oid=object.signature::pg_catalog.regprocedure)))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE role.rolname<>object.custodian
     LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',object.signature,relation_seal); END LOOP;
     EXECUTE pg_catalog.format('COMMENT ON FUNCTION %s IS %L',object.signature,object.source_seal);
@@ -4338,9 +4369,9 @@ BEGIN
     WHERE routine.oid IS NULL
        OR pg_catalog.pg_get_userbyid(routine.proowner)<>'rd_custodian'
        OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
-       OR (SELECT pg_catalog.array_agg(role.rolname||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY role.rolname,acl.privilege_type,acl.is_grantable)
+       OR (SELECT pg_catalog.array_agg(COALESCE(role.rolname,'PUBLIC')||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY COALESCE(role.rolname,'PUBLIC'),acl.privilege_type,acl.is_grantable)
              FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-             JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM CASE WHEN required.product_edge_execute
+             LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM CASE WHEN required.product_edge_execute
                THEN ARRAY['product_edge_owner:EXECUTE:false','rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[]
                ELSE ARRAY['rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[] END
   ) INTO exact;
@@ -4405,9 +4436,9 @@ BEGIN
       AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[]
       AND pg_catalog.md5(routine.prosrc)='f2a92add3aa2d4bc840b139af4ca81fd'
       AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
-      AND (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
+      AND (SELECT pg_catalog.array_agg(COALESCE(role.rolname,'PUBLIC')::text ORDER BY COALESCE(role.rolname,'PUBLIC'))
         FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-        JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+        LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
         =ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
   ) THEN
@@ -4420,6 +4451,46 @@ GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_ef
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) TO portfolio_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,text,text,bigint), composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_fact_writer;
+DO $runtime_acl_seal_readback$
+DECLARE exact boolean;
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    WHERE namespace.nspname='public' AND relation.relkind IN ('r','p')
+      AND (relation.relname LIKE 'rd\_%' ESCAPE '\' OR relation.relname LIKE 'product\_edge\_%' ESCAPE '\')
+      AND attribute.attnum>0 AND NOT attribute.attisdropped AND acl.grantee<>relation.relowner
+  ) THEN RAISE EXCEPTION 'R&D/Product Edge column ACL seal mismatch'; END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM pg_catalog.pg_proc routine
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+    CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+    WHERE (namespace.nspname IN ('rd_owner_api','product_edge_api')
+       OR routine.oid IN (pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')))
+      AND (acl.grantee=0 OR acl.is_grantable)
+  ) THEN RAISE EXCEPTION 'R&D/Product Edge routine ACL seal mismatch'; END IF;
+
+  WITH expected(signature,grantees) AS (VALUES
+    ('rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)',ARRAY['rd_custodian','rd_owner']::text[]),
+    ('rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',ARRAY['backtest_owner','rd_custodian']::text[]),
+    ('rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)',ARRAY['rd_custodian','rd_owner']::text[]),
+    ('rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',ARRAY['backtest_owner','rd_custodian']::text[])
+  )
+  SELECT pg_catalog.bool_and(
+    (SELECT pg_catalog.array_agg(COALESCE(role.rolname::text,'PUBLIC') ORDER BY COALESCE(role.rolname::text,'PUBLIC'))
+     FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+     WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=expected.grantees
+  ) INTO exact
+  FROM expected JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(expected.signature);
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'R&D Replay routine ACL manifest mismatch'; END IF;
+END
+$runtime_acl_seal_readback$;
 DO $catalog_composer_readback$
 DECLARE exact boolean;
 BEGIN

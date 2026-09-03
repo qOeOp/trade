@@ -112,6 +112,7 @@ async fn validate_existing_source_intake_topology_for(
              WHERE relation.oid IS NULL OR relation.relkind<>'r' OR relation.relpersistence<>'p'
                 OR relation.relrowsecurity OR relation.relforcerowsecurity
                 OR pg_catalog.pg_get_userbyid(relation.relowner)<>'rd_custodian'
+                OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND acl.grantee<>relation.relowner)
                 OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
                 OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
                 OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
@@ -3159,6 +3160,7 @@ RETURNING binding.request_identity, binding.binding_identity, receipt.receipt_id
 #[cfg(test)]
 mod terminal_wrapper_tests {
     use rstest::rstest;
+    use sqlx::postgres::PgPoolOptions;
 
     use super::*;
 
@@ -3177,6 +3179,24 @@ mod terminal_wrapper_tests {
                 < gate.find("FOR UPDATE")
         );
         assert!(source.contains("REVOKE ALL ON FUNCTION rd_owner_api.read_source_intake_v1(text) FROM PUBLIC, product_edge_owner"));
+    }
+
+    #[rstest]
+    #[tokio::test]
+    #[ignore = "requires an injected non-owner Source Intake column ACL"]
+    async fn existing_topology_rejects_nonowner_column_acl() {
+        let database_url = std::env::var("RD_SOURCE_INTAKE_COLUMN_ACL_TEST_DATABASE_URL")
+            .expect("Source Intake column ACL test URL");
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .expect("Source Intake runtime connection");
+        assert!(
+            validate_existing_source_intake_topology(&pool)
+                .await
+                .is_err()
+        );
     }
 
     #[rstest]

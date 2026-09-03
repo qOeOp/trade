@@ -26,6 +26,8 @@ use vibe_product_edge::{
     ProductEdgeError, ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
     ProductEdgeInvocationStateV1, ProductEdgePostgresOwnerV1,
 };
+#[cfg(test)]
+use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadErrorV2;
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -36,6 +38,7 @@ use vibe_strategy_factory::{
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
+    develop_composer_postgres_v2::validate_existing_develop_composer_read_authority_v2,
     develop_composer_sealed_acceptance_v2::default_unavailable_response,
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
@@ -147,6 +150,7 @@ async fn main() -> anyhow::Result<()> {
         .init();
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+    validate_existing_develop_composer_read_authority_v2(&database_url).await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let rd_fact_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
@@ -1611,10 +1615,42 @@ mod tests {
         )
         .await
         .expect("Artifact existing custody");
+        validate_existing_develop_composer_read_authority_v2(&rd_url)
+            .await
+            .expect("Composer read custody");
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         SealedDevelopComposerAcceptanceV2::connect_with_writer(&rd_url, &rd_fact_writer_url)
             .await
             .expect("Composer read and mutation custody");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
+    async fn composer_read_startup_rejects_corrupt_index_options() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        sqlx::query(
+            "ALTER INDEX composer_private.rd_develop_designs_v2_pkey SET (fillfactor = 90)",
+        )
+        .execute(topology_admin_pool)
+        .await
+        .expect("inject Composer index option");
+
+        let validation = validate_existing_develop_composer_read_authority_v2(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await;
+
+        sqlx::query("ALTER INDEX composer_private.rd_develop_designs_v2_pkey RESET (fillfactor)")
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore Composer index option");
+        assert_eq!(
+            validation,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+        );
     }
 
     #[tokio::test]

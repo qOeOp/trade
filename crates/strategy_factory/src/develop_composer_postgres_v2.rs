@@ -180,6 +180,40 @@ impl Display for DevelopComposerSealedReadErrorV2 {
 
 impl std::error::Error for DevelopComposerSealedReadErrorV2 {}
 
+/// Validates the deployment-installed Composer read custody using only the R&D Owner credential.
+///
+/// This opens no writer connection, performs no migration or DDL, and exposes no positive readback.
+/// Missing, malformed, or over-privileged authority is reported uniformly as unavailable.
+pub async fn validate_existing_develop_composer_read_authority_v2(
+    rd_owner_database_url: &str,
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(rd_owner_database_url)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    verify_pool_role(&pool, "rd_owner")
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let database_fingerprint = database_fingerprint(&pool)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let mut transaction = pool
+        .begin()
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    verify_transaction_database(&mut transaction, &database_fingerprint)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    verify_composer_read_authority_in_transaction(&mut transaction)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    transaction
+        .rollback()
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
+}
+
 /// R&D-sealed canonical Composer package readback.
 ///
 /// Private fields and the absence of `Deserialize` or a public constructor prevent callers from

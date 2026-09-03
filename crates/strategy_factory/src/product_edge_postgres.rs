@@ -3777,6 +3777,19 @@ mod tests {
         );
     }
 
+    #[rstest]
+    #[tokio::test]
+    #[ignore = "requires an injected non-owner Qualification column ACL"]
+    async fn qualification_existing_topology_rejects_nonowner_column_acl() {
+        let database_url = std::env::var("QUALIFICATION_COLUMN_ACL_TEST_DATABASE_URL")
+            .expect("Qualification column ACL test URL");
+        assert!(
+            PostgresQualificationOwnerV1::connect_existing(&database_url)
+                .await
+                .is_err()
+        );
+    }
+
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
     async fn legacy_rd_owner_storage_is_normalized_before_authority_migration() {

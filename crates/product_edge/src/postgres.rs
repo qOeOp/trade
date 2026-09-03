@@ -1313,7 +1313,7 @@ impl ProductEdgePostgresOwnerV1 {
         }
         let custody_manifest_is_exact: bool = sqlx::query_scalar(
             "SELECT (SELECT count(*)=13
-                       AND bool_and(relation.relname=ANY(ARRAY['product_edge_operation_manifests_v1','product_edge_deployment_bindings_v1','product_edge_deployment_supersessions_v1','product_edge_binding_manifests_v1','product_edge_deployment_heads_v1','product_edge_request_admissions_v1','product_edge_effect_invocation_admissions_v1','product_edge_effect_invocation_claims_v1','product_edge_effect_invocation_states_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1','product_edge_expired_manifest_recoveries_v1']::text[]) AND relation.relkind='r' AND relation.relpersistence='p' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal AND (trigger_fact.tgname,trigger_fact.tgfoid,trigger_fact.tgrelid) NOT IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_owner_outbox_v1')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_admission_events_v1'))))
+                       AND bool_and(relation.relname=ANY(ARRAY['product_edge_operation_manifests_v1','product_edge_deployment_bindings_v1','product_edge_deployment_supersessions_v1','product_edge_binding_manifests_v1','product_edge_deployment_heads_v1','product_edge_request_admissions_v1','product_edge_effect_invocation_admissions_v1','product_edge_effect_invocation_claims_v1','product_edge_effect_invocation_states_v1','product_edge_owner_outbox_v1','product_edge_admission_event_stream_v1','product_edge_admission_events_v1','product_edge_expired_manifest_recoveries_v1']::text[]) AND relation.relkind='r' AND relation.relpersistence='p' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND acl.grantee<>relation.relowner) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal AND (trigger_fact.tgname,trigger_fact.tgfoid,trigger_fact.tgrelid) NOT IN (('product_edge_admission_event_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_event_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_owner_outbox_v1')),('product_edge_admission_assignment_immutable_v1',pg_catalog.to_regprocedure('public.product_edge_reject_admission_assignment_mutation_v1()'),pg_catalog.to_regclass('public.product_edge_admission_events_v1'))))
                          AND pg_catalog.pg_get_userbyid(relation.relowner)='product_edge_custodian'
                          AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
                          AND (SELECT count(*)=11
@@ -5622,6 +5622,27 @@ mod tests {
         ProductEdgeManifestBindingV1,
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    #[rstest]
+    #[tokio::test]
+    #[ignore = "requires an injected non-owner Product Edge column ACL"]
+    async fn existing_topology_rejects_nonowner_column_acl() {
+        let database_url = std::env::var("PRODUCT_EDGE_COLUMN_ACL_TEST_DATABASE_URL")
+            .expect("Product Edge column ACL test URL");
+        assert!(matches!(
+            ProductEdgePostgresOwnerV1::connect_existing(
+                &database_url,
+                "column-acl-test-deployment",
+                ProductEdgeAuthorizationTrustV1 {
+                    issuer_identity: "column-acl-test-issuer".into(),
+                    issuer_key_version: "column-acl-test-key".into(),
+                    audience: "R_AND_D".into(),
+                },
+            )
+            .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+    }
 
     #[rstest]
     fn existing_product_edge_acl_manifest_rejects_same_count_privilege_substitution() {

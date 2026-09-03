@@ -24,6 +24,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_corrupt_index_options'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
@@ -52,8 +53,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 18 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all eighteen ordered runtime and migration tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 19 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all nineteen ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -62,10 +63,11 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[5]}" != *'|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl' ]] ||
     [[ "${rd_owner_postgres_tests[7]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[9]}" != *'|tests::composer_read_startup_rejects_corrupt_index_options' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -3491,6 +3493,90 @@ SQL
   return "$negative_runtime_status"
 }
 
+verify_owner_column_acl_fails_closed() {
+  local fixture_database="$1"
+  local relation_name="$2"
+  local column_name="$3"
+  local database_url_variable="$4"
+  local negative_filter="$5"
+  local runtime_role
+  local injection_status=0
+  local negative_status=0
+  local cleanup_status=0
+
+  case "$database_url_variable" in
+    QUALIFICATION_*) runtime_role='qualification_writer' ;;
+    PRODUCT_EDGE_*) runtime_role='product_edge_owner' ;;
+    *) runtime_role='rd_owner' ;;
+  esac
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" \
+    --set=relation_name="$relation_name" --set=column_name="$column_name" << 'SQL'; then
+SELECT pg_catalog.set_config('vibe_test.relation_name',:'relation_name',false);
+SELECT pg_catalog.set_config('vibe_test.column_name',:'column_name',false);
+DO $column_acl_injection$
+BEGIN
+  EXECUTE pg_catalog.format(
+    'GRANT SELECT (%I) ON TABLE public.%I TO vibe_test_legacy_replay_fault_writer',
+    pg_catalog.current_setting('vibe_test.column_name'),
+    pg_catalog.current_setting('vibe_test.relation_name')
+  );
+END
+$column_acl_injection$;
+SQL
+    :
+  else
+    injection_status="$?"
+  fi
+
+  if [[ "$injection_status" -eq 0 ]] && env \
+    "${database_url_variable}=postgresql://${runtime_role}:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    cargo nextest run \
+    --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" \
+    "${nextest_execution_args[@]}" \
+    -E "$negative_filter"; then
+    :
+  else
+    negative_status="$?"
+  fi
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" \
+    --set=relation_name="$relation_name" --set=column_name="$column_name" << 'SQL'; then
+SELECT pg_catalog.set_config('vibe_test.relation_name',:'relation_name',false);
+SELECT pg_catalog.set_config('vibe_test.column_name',:'column_name',false);
+DO $column_acl_cleanup$
+BEGIN
+  EXECUTE pg_catalog.format(
+    'REVOKE ALL (%I) ON TABLE public.%I FROM vibe_test_legacy_replay_fault_writer',
+    pg_catalog.current_setting('vibe_test.column_name'),
+    pg_catalog.current_setting('vibe_test.relation_name')
+  );
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute attribute
+    CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+    WHERE attribute.attrelid=pg_catalog.to_regclass('public.'||pg_catalog.current_setting('vibe_test.relation_name'))
+      AND attribute.attnum>0 AND NOT attribute.attisdropped
+      AND acl.grantee<>(
+        SELECT relation.relowner FROM pg_catalog.pg_class relation
+        WHERE relation.oid=attribute.attrelid
+      )
+  ) THEN RAISE EXCEPTION 'Owner column ACL cleanup mismatch'; END IF;
+END
+$column_acl_cleanup$;
+SQL
+    :
+  else
+    cleanup_status="$?"
+  fi
+
+  if [[ "$injection_status" -ne 0 ]]; then return "$injection_status"; fi
+  if [[ "$cleanup_status" -ne 0 ]]; then return "$cleanup_status"; fi
+  return "$negative_status"
+}
+
 runtime_diagnostic_filter='package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_is_empty_for_existing_custody)'
 runtime_startup_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_storage_connectors_start_without_migration_authority)'
 artifact_runtime_manifest_failures() {
@@ -3580,6 +3666,36 @@ if verify_sealed_column_acl_fails_closed "$test_database"; then
   :
 else
   negative_runtime_status="$?"
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_owner_column_acl_fails_closed \
+    "$test_database" qualification_protected_feedback_projections_v1 projection_json \
+    QUALIFICATION_COLUMN_ACL_TEST_DATABASE_URL \
+    'package(vibe-strategy-factory) & test(=product_edge_postgres::tests::qualification_existing_topology_rejects_nonowner_column_acl)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_owner_column_acl_fails_closed \
+    "$test_database" rd_source_candidates_v1 candidate_json \
+    RD_SOURCE_INTAKE_COLUMN_ACL_TEST_DATABASE_URL \
+    'package(vibe-strategy-factory) & test(=source_intake::postgres::terminal_wrapper_tests::existing_topology_rejects_nonowner_column_acl)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_owner_column_acl_fails_closed \
+    "$test_database" product_edge_operation_manifests_v1 manifest_json \
+    PRODUCT_EDGE_COLUMN_ACL_TEST_DATABASE_URL \
+    'package(vibe-product-edge) & test(=postgres::tests::existing_topology_rejects_nonowner_column_acl)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
 fi
 post_cleanup_runtime_status=0
 if verify_runtime_startup "$test_database"; then
