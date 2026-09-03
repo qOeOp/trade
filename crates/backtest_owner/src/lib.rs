@@ -1081,6 +1081,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest Owner API routine sibling"]
+    async fn postgres_result_rd_read_rejects_owner_api_routine_sibling() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
     #[ignore = "requires the harness-injected Backtest ACL fault"]
     async fn postgres_result_rd_read_rejects_raw_table_acl_drift() {
         assert_rd_result_fault_fails_closed().await;

@@ -32,6 +32,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_function_source_drift'
+  'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_raw_table_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_inherited_owner_membership'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_rd_read_rejects_owner_attribute_drift'
@@ -59,8 +60,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 22 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-two ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 23 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-three ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
@@ -70,13 +71,14 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[12]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[13]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
-    [[ "${rd_owner_postgres_tests[20]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[21]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[22]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -227,8 +229,29 @@ runtime_census = (
 )
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
+owner_api_routine_census = (
+    "pg_catalog.count(*)=1 AND pg_catalog.bool_and("
+    "procedure.oid=pg_catalog.to_regprocedure("
+)
+if owner_api_routine_census not in migration or owner_api_routine_census not in rust:
+    raise SystemExit("ERROR: Backtest Owner API routine census is unavailable")
 if "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner, backtest_owner;" in migration:
     raise SystemExit("ERROR: backtest_owner retains sibling Owner API namespace access")
+owner_api_sibling_oracle = (
+    "CREATE FUNCTION backtest_owner_api.poisoned_sibling_v1()",
+    "SECURITY DEFINER\nSET search_path = pg_catalog, pg_temp",
+    "ALTER FUNCTION backtest_owner_api.poisoned_sibling_v1() OWNER TO backtest_custodian",
+    "REVOKE ALL ON FUNCTION backtest_owner_api.poisoned_sibling_v1() FROM PUBLIC",
+    "GRANT EXECUTE ON FUNCTION backtest_owner_api.poisoned_sibling_v1() TO rd_owner",
+    "if run_authority_migration; then",
+    "DROP FUNCTION backtest_owner_api.poisoned_sibling_v1()",
+    "authority migration accepted a sibling Backtest Owner API routine",
+)
+position = -1
+for required in owner_api_sibling_oracle:
+    position = test_script.find(required, position + 1)
+    if position < 0:
+        raise SystemExit("ERROR: Backtest Owner API sibling rejection oracle is unavailable")
 if "backtest_authority_lock_api.poisoned_sibling_v1()" not in test_script:
     raise SystemExit("ERROR: authority-lock sibling rejection oracle is unavailable")
 if "backtest_authority_lock_api.poisoned_relation_v1" not in test_script:
@@ -942,6 +965,10 @@ run_authority_migration_for_database() {
     "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 }
 
+run_authority_migration() {
+  run_authority_migration_for_database "$test_database"
+}
+
 verify_authority_lock_schema_sibling_fails_closed() {
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
@@ -1109,6 +1136,20 @@ SET search_path = pg_catalog, pg_temp AS 'SELECT NULL::jsonb';
 COMMIT;
 SQL
       ;;
+    owner_api_sibling)
+      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+        --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+CREATE FUNCTION backtest_owner_api.poisoned_sibling_v1()
+RETURNS boolean LANGUAGE sql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS 'SELECT true';
+ALTER FUNCTION backtest_owner_api.poisoned_sibling_v1() OWNER TO backtest_custodian;
+REVOKE ALL ON FUNCTION backtest_owner_api.poisoned_sibling_v1() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION backtest_owner_api.poisoned_sibling_v1() TO rd_owner;
+COMMIT;
+SQL
+      ;;
     acl)
       docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
         --username postgres --dbname "$test_database" << 'SQL'
@@ -1157,7 +1198,23 @@ SQL
 
 restore_backtest_result_fault() {
   local fault="$1"
-  if [[ "$fault" == membership ]]; then
+  if [[ "$fault" == owner_api_sibling ]]; then
+    local owner_api_sibling_accepted=false
+    if run_authority_migration; then
+      owner_api_sibling_accepted=true
+    fi
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+BEGIN;
+SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
+DROP FUNCTION backtest_owner_api.poisoned_sibling_v1();
+COMMIT;
+SQL
+    if [[ "$owner_api_sibling_accepted" == true ]]; then
+      echo "ERROR: authority migration accepted a sibling Backtest Owner API routine." >&2
+      return 1
+    fi
+  elif [[ "$fault" == membership ]]; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
@@ -1212,6 +1269,7 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   backtest_result_fault=''
   case "$test_name" in
     postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
+    postgres_result_rd_read_rejects_owner_api_routine_sibling) backtest_result_fault=owner_api_sibling ;;
     postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
     postgres_result_rd_read_rejects_inherited_owner_membership) backtest_result_fault=membership ;;
     postgres_result_rd_read_rejects_owner_attribute_drift) backtest_result_fault=attribute ;;
