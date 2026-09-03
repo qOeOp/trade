@@ -304,8 +304,9 @@ if min(normalization_start, test_provision, origin_provision, production_migrati
 normalization = script[normalization_start:production_migration]
 ordered_normalization = (
     'legacy-replay-migration:${test_marker}:pre-authority-normalization:v1',
-    'test(=rd_owner_schema_is_provisioned_before_runtime_connections)',
+    'test(=product_edge_postgres::postgres_freshness_tests::fresh_rd_owner_existing_custody_validates_after_migration)',
     "vibe_test_legacy_migration_lease.acquire_v1(:'test_marker',:'lease_identity')",
+    'RD_OWNER_SEALED_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
     'RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
     'QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
     'VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_normalization_migration_url"',
@@ -2777,7 +2778,7 @@ SQL
 
 readonly legacy_normalization_lease_identity="legacy-replay-migration:${test_marker}:pre-authority-normalization:v1"
 readonly legacy_normalization_migration_url="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
-readonly legacy_normalization_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=rd_owner_schema_is_provisioned_before_runtime_connections)'
+readonly legacy_normalization_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=product_edge_postgres::postgres_freshness_tests::fresh_rd_owner_existing_custody_validates_after_migration)'
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
@@ -2790,6 +2791,7 @@ SQL
 
 legacy_normalization_status=0
 if env \
+  RD_OWNER_SEALED_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_normalization_migration_url" \
