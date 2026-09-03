@@ -388,6 +388,22 @@ for recovery_step in (
         raise SystemExit(
             f"ERROR: legacy normalization recovery omits: {recovery_step}"
         )
+for bounded_sql in (recovery_body, normalization):
+    if "pg_catalog.extract(" in bounded_sql:
+        raise SystemExit(
+            "ERROR: PostgreSQL special EXTRACT syntax must not be schema-qualified"
+        )
+    for dollar_body in re.findall(
+        r"\$[A-Za-z_][A-Za-z0-9_]*\$(.*?)\$[A-Za-z_][A-Za-z0-9_]*\$",
+        bounded_sql,
+        re.DOTALL,
+    ):
+        if re.search(r":'[A-Za-z_][A-Za-z0-9_]*'", dollar_body):
+            raise SystemExit(
+                "ERROR: psql variables are not expanded inside dollar-quoted SQL"
+            )
+if re.search(r"--command[^\n]*:'[A-Za-z_][A-Za-z0-9_]*'", recovery_body):
+    raise SystemExit("ERROR: psql --command does not expand recovery variables")
 if normalization.count(
     'SELECT vibe_test_legacy_normalization_cluster.acquire_v1('
 ) != 2:
@@ -821,11 +837,13 @@ recover_legacy_normalization_topology() {
     return 0
   fi
 
-  legacy_database_present="$(docker exec "$container" psql --quiet --tuples-only --no-align \
-    --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
-    --set=legacy_database="$legacy_normalization_database" \
-    --command "SELECT count(*) FROM pg_catalog.pg_database WHERE datname=:'legacy_database'")" ||
-    recovery_failed=true
+  legacy_database_present="$(
+    docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+      --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+      --set=legacy_database="$legacy_normalization_database" << 'SQL'
+SELECT count(*) FROM pg_catalog.pg_database WHERE datname=:'legacy_database';
+SQL
+  )" || recovery_failed=true
   if [[ "$legacy_database_present" == 1 ]] &&
     ! docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$legacy_normalization_database" << 'SQL'
@@ -840,11 +858,18 @@ SQL
     --set=test_database="$test_database" \
     --set=origin_current_database="$origin_current_database" << 'SQL'
 REVOKE rd_custodian FROM rd_owner;
+SELECT pg_catalog.set_config(
+  'vibe_test.test_database',:'test_database',false
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.origin_current_database',:'origin_current_database',false
+);
 DO $restore_shared_connect$
 DECLARE database_name text;
 BEGIN
   FOREACH database_name IN ARRAY ARRAY[
-    :'test_database',:'origin_current_database'
+    pg_catalog.current_setting('vibe_test.test_database'),
+    pg_catalog.current_setting('vibe_test.origin_current_database')
   ] LOOP
     IF EXISTS (
       SELECT 1 FROM pg_catalog.pg_database WHERE datname=database_name
@@ -2980,7 +3005,7 @@ BEGIN
      SET phase='LEASED',target_database=requested_target,
          lease_identity=requested_lease,
          acquired_at_epoch_ms=pg_catalog.floor(
-           pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp())*1000
+           extract(epoch FROM pg_catalog.clock_timestamp())*1000
          )::bigint
    WHERE singleton;
 END
@@ -3023,7 +3048,7 @@ BEGIN
   UPDATE vibe_test_legacy_normalization_cluster.authority_state_v1
      SET phase='READY',target_database=NULL,lease_identity=NULL,
          released_at_epoch_ms=pg_catalog.floor(
-           pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp())*1000
+           extract(epoch FROM pg_catalog.clock_timestamp())*1000
          )::bigint
    WHERE singleton;
 END
@@ -3038,16 +3063,35 @@ SELECT vibe_test_legacy_normalization_cluster.acquire_v1(
   :'test_marker',:'legacy_database',:'lease_identity',
   :'test_database',:'origin_current_database'
 );
+SELECT pg_catalog.set_config(
+  'vibe_test.test_database',:'test_database',false
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.origin_current_database',:'origin_current_database',false
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.legacy_database',:'legacy_database',false
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.lease_identity',:'lease_identity',false
+);
 DO $cluster_lease_readback$
 BEGIN
-  IF pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
+  IF pg_catalog.has_database_privilege(
+       'rd_owner',pg_catalog.current_setting('vibe_test.test_database'),'CONNECT'
+     )
      OR pg_catalog.has_database_privilege(
-       'rd_owner',:'origin_current_database','CONNECT'
+       'rd_owner',
+       pg_catalog.current_setting('vibe_test.origin_current_database'),
+       'CONNECT'
      )
      OR EXISTS (
        SELECT 1 FROM pg_catalog.pg_stat_activity
         WHERE usename='rd_owner'
-          AND datname IN (:'test_database',:'origin_current_database')
+          AND datname IN (
+            pg_catalog.current_setting('vibe_test.test_database'),
+            pg_catalog.current_setting('vibe_test.origin_current_database')
+          )
      )
      OR (SELECT pg_catalog.count(*)
            FROM pg_catalog.pg_auth_members membership
@@ -3064,8 +3108,10 @@ BEGIN
        SELECT 1
          FROM vibe_test_legacy_normalization_cluster.authority_state_v1
         WHERE singleton AND phase='LEASED'
-          AND target_database=:'legacy_database'
-          AND lease_identity=:'lease_identity'
+          AND target_database=
+              pg_catalog.current_setting('vibe_test.legacy_database')
+          AND lease_identity=
+              pg_catalog.current_setting('vibe_test.lease_identity')
           AND acquired_at_epoch_ms IS NOT NULL
      ) THEN
     RAISE EXCEPTION 'legacy normalization cluster lease readback mismatch';
@@ -3079,14 +3125,22 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_marker="$test_marker" \
   --set=legacy_database="$legacy_normalization_database" << 'SQL'
 BEGIN;
+SELECT pg_catalog.set_config(
+  'vibe_test.test_marker',:'test_marker',true
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.legacy_database',:'legacy_database',true
+);
 DO $target_lease$
 DECLARE marker_row record;
 BEGIN
   SELECT * INTO STRICT marker_row
     FROM vibe_test_legacy_normalization.instance_v1
    WHERE singleton;
-  IF marker_row.test_marker<>:'test_marker'
-     OR marker_row.database_name<>:'legacy_database'
+  IF marker_row.test_marker<>
+       pg_catalog.current_setting('vibe_test.test_marker')
+     OR marker_row.database_name<>
+       pg_catalog.current_setting('vibe_test.legacy_database')
      OR marker_row.database_name<>pg_catalog.current_database()
      OR pg_catalog.has_schema_privilege('rd_owner','public','CREATE') THEN
     RAISE EXCEPTION 'legacy normalization target marker mismatch';
@@ -3163,10 +3217,22 @@ SELECT vibe_test_legacy_normalization_cluster.release_v1(
 );
 GRANT CONNECT ON DATABASE :"test_database" TO rd_owner;
 GRANT CONNECT ON DATABASE :"origin_current_database" TO rd_owner;
+SELECT pg_catalog.set_config(
+  'vibe_test.test_database',:'test_database',true
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.origin_current_database',:'origin_current_database',true
+);
 DO $shared_restored$
 BEGIN
-  IF NOT pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
-     OR NOT pg_catalog.has_database_privilege('rd_owner',:'origin_current_database','CONNECT')
+  IF NOT pg_catalog.has_database_privilege(
+       'rd_owner',pg_catalog.current_setting('vibe_test.test_database'),'CONNECT'
+     )
+     OR NOT pg_catalog.has_database_privilege(
+       'rd_owner',
+       pg_catalog.current_setting('vibe_test.origin_current_database'),
+       'CONNECT'
+     )
      OR pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
      OR NOT EXISTS (
        SELECT 1
@@ -3195,12 +3261,22 @@ if [[ "$legacy_normalization_cluster_cleanup_status" -ne 0 ]]; then
 REVOKE rd_custodian FROM rd_owner;
 GRANT CONNECT ON DATABASE :"test_database" TO rd_owner;
 GRANT CONNECT ON DATABASE :"origin_current_database" TO rd_owner;
+SELECT pg_catalog.set_config(
+  'vibe_test.test_database',:'test_database',false
+);
+SELECT pg_catalog.set_config(
+  'vibe_test.origin_current_database',:'origin_current_database',false
+);
 DO $failed_release_cleanup$
 BEGIN
   IF pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
-     OR NOT pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
      OR NOT pg_catalog.has_database_privilege(
-       'rd_owner',:'origin_current_database','CONNECT'
+       'rd_owner',pg_catalog.current_setting('vibe_test.test_database'),'CONNECT'
+     )
+     OR NOT pg_catalog.has_database_privilege(
+       'rd_owner',
+       pg_catalog.current_setting('vibe_test.origin_current_database'),
+       'CONNECT'
      ) THEN
     RAISE EXCEPTION 'legacy normalization failed-release cleanup mismatch';
   END IF;
