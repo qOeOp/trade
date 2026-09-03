@@ -7,6 +7,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_backtest_owner_contracts::{
+    CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
+};
+
 use crate::{
     replay_execution_policy_v2::ReplayExecutionPolicyV2,
     replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogErrorV2},
@@ -28,6 +33,42 @@ const CATALOG_TABLES_V2: [&str; 4] = [
     "rd_replay_policy_catalog_revocations_v2",
     "rd_replay_policy_catalog_audit_v2",
 ];
+
+const CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL: &str = "SELECT count(*)=4 AND NOT EXISTS (
+       SELECT 1
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+         JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+         CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+        WHERE namespace.nspname='replay_policy_catalog_private'
+          AND relation.relname=ANY($1)
+          AND relation.relkind='r'
+          AND attribute.attnum>0
+          AND NOT attribute.attisdropped
+          AND acl.grantee<>relation.relowner
+     )
+       FROM pg_catalog.pg_class relation
+       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      WHERE namespace.nspname='replay_policy_catalog_private'
+        AND relation.relname=ANY($1)
+        AND relation.relkind='r'";
+const CATALOG_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL: &str = "WITH family AS (
+       SELECT relation.oid
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+        WHERE namespace.nspname='replay_policy_catalog_private'
+          AND relation.relname=ANY($1)
+     )
+     SELECT NOT EXISTS (
+       SELECT 1
+         FROM pg_catalog.pg_depend dependency
+         JOIN pg_catalog.pg_rewrite rewrite_fact
+           ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+          AND dependency.objid=rewrite_fact.oid
+        WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+          AND dependency.refobjid IN (SELECT oid FROM family)
+          AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
+     )";
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErrorV2> {
     migrate_and_verify(pool, false).await
@@ -53,7 +94,7 @@ pub(crate) struct AuthenticatedCatalogAdministratorV2 {
 }
 
 impl AuthenticatedCatalogAdministratorV2 {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
     pub(crate) fn admit(
         identity: &str,
         authentication_fact_digest: &str,
@@ -68,6 +109,106 @@ impl AuthenticatedCatalogAdministratorV2 {
             authentication_fact_digest: authentication_fact_digest.to_owned(),
         })
     }
+}
+
+/// Installs the one fixed Catalog fact used by the compile-time sealed acceptance composition.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) async fn ensure_sealed_acceptance_fixture(
+    pool: &PgPool,
+) -> Result<(), ReplayPolicyCatalogErrorV2> {
+    const RECORD_ID: &str = "sealed-acceptance-replay-policy-v2";
+
+    verify_catalog_storage_authority(pool).await?;
+    let policy = sealed_acceptance_policy()?;
+    let expected = ReplayPolicyCatalogBindingV2::from_policy(RECORD_ID, 1, &policy)?;
+    let mut transaction = pool.begin().await.map_err(unavailable)?;
+
+    match current_head(&mut transaction).await? {
+        None => {
+            let administrator = AuthenticatedCatalogAdministratorV2::admit(
+                "sealed-acceptance-catalog-administrator-v2",
+                &format!("sha256:{}", "a".repeat(64)),
+            )?;
+            let created = ReplayPolicyCatalogAdministrationPortV2::create_policy(
+                &mut transaction,
+                &administrator,
+                "sealed-acceptance-catalog-create-v2",
+                RECORD_ID,
+                &policy,
+                1,
+            )
+            .await?;
+            ReplayPolicyCatalogAdministrationPortV2::advance_current_head(
+                &mut transaction,
+                &administrator,
+                "sealed-acceptance-catalog-head-v2",
+                None,
+                created.catalog_record_id(),
+                2,
+            )
+            .await?;
+        }
+        Some((record_id, version)) if record_id == RECORD_ID && version == 1 => {
+            if load_record_by_id(&mut transaction, RECORD_ID).await? != expected
+                || is_revoked(&mut transaction, RECORD_ID).await?
+            {
+                return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                    "sealed acceptance Catalog fixture mismatch".to_owned(),
+                ));
+            }
+        }
+        Some(_) => {
+            return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+                "sealed acceptance Catalog head mismatch".to_owned(),
+            ));
+        }
+    }
+
+    transaction.commit().await.map_err(unavailable)
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCatalogErrorV2> {
+    fn opaque(value: &str) -> Result<OpaqueIdentityV2, ReplayPolicyCatalogErrorV2> {
+        OpaqueIdentityV2::try_from(value.to_owned())
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))
+    }
+    fn versioned(value: &str) -> Result<VersionedIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(VersionedIdentityV2 {
+            identity: opaque(value)?,
+            version: opaque("v1")?,
+        })
+    }
+    fn content(value: &str) -> Result<ContentIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(ContentIdentityV2 {
+            identity: opaque(value)?,
+            digest: CanonicalDigestV2::try_from(format!("sha256:{}", "b".repeat(64)))
+                .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?,
+        })
+    }
+
+    Ok(ReplayExecutionPolicyV2 {
+        runtime_kernel: versioned("runtime-kernel-v2")?,
+        simulator: versioned("simulator-v2")?,
+        cost: versioned("cost-model-v1")?,
+        slippage: versioned("slippage-model-v1")?,
+        capacity: versioned("capacity-model-v1")?,
+        runner_operational_profile: versioned("runner-profile-v2")?,
+        diagnostic_policy: versioned("diagnostic-policy-v2")?,
+        deterministic_seed: 1,
+        window: ReplayWindowV2 {
+            start_event_ns: 1,
+            end_event_ns_exclusive: 2,
+        },
+        calendar: versioned("calendar-v2")?,
+        session: versioned("session-v2")?,
+        time_zone: versioned("time-zone-v2")?,
+        correction_rule: versioned("correction-rule-v2")?,
+        market_semantics: versioned("market-semantics-v2")?,
+        replay_configuration: content("replay-configuration-v2")?,
+        corporate_action_cut: content("corporate-action-cut-v2")?,
+        historical_membership_cut: content("historical-membership-cut-v2")?,
+    })
 }
 
 /// Sole private writer for Catalog records, head, revocations, audit, and outbox.
@@ -480,7 +621,7 @@ async fn verify_catalog_storage_authority_for_migration(
     legacy_migration_lease: bool,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
     let authority_is_exact: bool = sqlx::query_scalar(
-        "WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')), relations AS (SELECT relation.oid, relation.relowner, relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r'), routines AS (SELECT procedure.proname,procedure.proowner,procedure.prosecdef,procedure.provolatile,procedure.proparallel,procedure.proconfig,procedure.proacl FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname IN ('lock_replay_policy_catalog_record_v2','lock_current_replay_policy_catalog_v2','apply_replay_policy_catalog_command_v2')), catalog_memberships AS (SELECT membership.roleid FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')), lease_memberships AS (SELECT membership.*,granted.rolname AS granted_role,member.rolname AS member_role,grantor.rolname AS grantor_role FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor WHERE granted.rolname IN ('rd_custodian','replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('rd_custodian','replay_policy_catalog_owner','rd_owner','rd_fact_writer')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND (NOT $2 OR SESSION_USER='rd_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND (SELECT count(*)=4 AND bool_and(relowner=(SELECT oid FROM owner)) AND NOT bool_or(EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner)) FROM relations) AND (SELECT count(*)=3 AND bool_and(proowner=(SELECT oid FROM owner) AND prosecdef AND provolatile='v' AND proparallel='u' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(proacl,pg_catalog.acldefault('f',proowner))) acl) IS NOT DISTINCT FROM CASE proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] END) FROM routines) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND (($2 AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND (SELECT count(*)=1 AND bool_and(granted_role='rd_custodian' AND member_role='rd_owner' AND grantor_role='postgres' AND NOT admin_option AND inherit_option AND set_option) FROM lease_memberships)) OR (NOT $2 AND NOT EXISTS(SELECT 1 FROM catalog_memberships)))",
+        "WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')), relations AS (SELECT relation.oid, relation.relowner, relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r'), routines AS (SELECT procedure.proname,procedure.proowner,procedure.prosecdef,procedure.provolatile,procedure.proparallel,procedure.proconfig,procedure.proacl FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname IN ('lock_replay_policy_catalog_record_v2','lock_current_replay_policy_catalog_v2','apply_replay_policy_catalog_command_v2')), catalog_memberships AS (SELECT membership.roleid FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')), lease_memberships AS (SELECT membership.*,granted.rolname AS granted_role,member.rolname AS member_role,grantor.rolname AS grantor_role FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor WHERE granted.rolname IN ('rd_custodian','replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('rd_custodian','replay_policy_catalog_owner','rd_owner','rd_fact_writer')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND (NOT $2 OR SESSION_USER='rd_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND (SELECT count(*)=4 AND bool_and(relowner=(SELECT oid FROM owner)) AND NOT bool_or(EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner)) FROM relations) AND (SELECT count(*)=3 AND bool_and(proowner=(SELECT oid FROM owner) AND prosecdef AND provolatile='v' AND proparallel='u' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(proacl,pg_catalog.acldefault('f',proowner))) acl) IS NOT DISTINCT FROM CASE proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[] END) FROM routines) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND (($2 AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND (SELECT count(*)=1 AND bool_and(granted_role='rd_custodian' AND member_role='rd_owner' AND grantor_role='postgres' AND NOT admin_option AND inherit_option AND set_option) FROM lease_memberships)) OR (NOT $2 AND NOT EXISTS(SELECT 1 FROM catalog_memberships)))",
     )
     .bind(CATALOG_TABLES_V2.as_slice())
     .bind(legacy_migration_lease)
@@ -491,6 +632,17 @@ async fn verify_catalog_storage_authority_for_migration(
     if !authority_is_exact {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog PostgreSQL owner or ACL readback mismatch".to_owned(),
+        ));
+    }
+    let column_acl_is_owner_only: bool = sqlx::query_scalar(CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL)
+        .bind(CATALOG_TABLES_V2.as_slice())
+        .fetch_one(pool)
+        .await
+        .map_err(unavailable)?;
+
+    if !column_acl_is_owner_only {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog PostgreSQL column ACL readback mismatch".to_owned(),
         ));
     }
     let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
@@ -543,6 +695,18 @@ async fn verify_catalog_storage_authority_for_migration(
     if !dependency_shape_is_exact {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog constraint or dependency readback mismatch".to_owned(),
+        ));
+    }
+    let external_rewrite_dependencies_absent: bool =
+        sqlx::query_scalar(CATALOG_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .fetch_one(pool)
+            .await
+            .map_err(unavailable)?;
+
+    if !external_rewrite_dependencies_absent {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog external rewrite dependency readback mismatch".to_owned(),
         ));
     }
     let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT CASE WHEN constraint_fact.contype IN ('p','u','f') THEN constraint_fact.connoinherit WHEN constraint_fact.contype='c' THEN NOT constraint_fact.connoinherit ELSE false END OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
@@ -628,12 +792,23 @@ fn migration_function_source(tag: &str) -> Option<&'static str> {
 async fn lock_catalog(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
-    let exact: bool = sqlx::query_scalar("WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND EXISTS(SELECT 1 FROM owner) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND count(*)=3 AND bool_and(pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl) IS NOT DISTINCT FROM CASE procedure.proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[] END) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1)")
+    let exact: bool = sqlx::query_scalar("WITH owner AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='replay_policy_catalog_owner' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls), callers AS (SELECT oid FROM pg_catalog.pg_roles WHERE rolname IN ('rd_owner','rd_fact_writer')) SELECT SESSION_USER IN ('rd_owner','rd_fact_writer') AND EXISTS(SELECT 1 FROM owner) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls) AND count(*)=3 AND bool_and(pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner' AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u' AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[] AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_userbyid(acl.grantee)||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY pg_catalog.pg_get_userbyid(acl.grantee),acl.privilege_type,acl.is_grantable) FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl) IS NOT DISTINCT FROM CASE procedure.proname WHEN 'apply_replay_policy_catalog_command_v2' THEN ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[] ELSE ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[] END) AND NOT EXISTS (SELECT 1 FROM callers WHERE pg_catalog.pg_has_role(callers.oid,(SELECT oid FROM owner),'MEMBER') OR pg_catalog.pg_has_role((SELECT oid FROM owner),callers.oid,'MEMBER')) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1)")
         .bind(["apply_replay_policy_catalog_command_v2", "lock_current_replay_policy_catalog_v2", "lock_replay_policy_catalog_record_v2"]).fetch_one(&mut **transaction).await.map_err(unavailable)?;
 
     if !exact {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog runtime ACL drift".to_owned(),
+        ));
+    }
+    let column_acl_is_owner_only: bool = sqlx::query_scalar(CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL)
+        .bind(CATALOG_TABLES_V2.as_slice())
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(unavailable)?;
+
+    if !column_acl_is_owner_only {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog runtime column ACL drift".to_owned(),
         ));
     }
     let table_shape: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relowner,relation.relacl FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relname=ANY($1) AND relation.relkind='r') SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relowner)='replay_policy_catalog_owner' AND NOT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(relacl,pg_catalog.acldefault('r',relowner))) acl WHERE acl.grantee<>relowner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=family.oid AND NOT trigger_fact.tgisinternal) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=family.oid)) FROM family")
@@ -642,6 +817,18 @@ async fn lock_catalog(
     if !table_shape {
         return Err(ReplayPolicyCatalogErrorV2::Unavailable(
             "Catalog runtime table drift".to_owned(),
+        ));
+    }
+    let external_rewrite_dependencies_absent: bool =
+        sqlx::query_scalar(CATALOG_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(unavailable)?;
+
+    if !external_rewrite_dependencies_absent {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog runtime external rewrite dependency drift".to_owned(),
         ));
     }
     let sources = sqlx::query("SELECT procedure.proname, procedure.prosrc FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname=ANY($1) ORDER BY procedure.proname")
@@ -773,13 +960,47 @@ mod postgres_tests {
             .split("#[cfg(test)]\nmod postgres_tests")
             .next()
             .expect("Catalog production source");
-        let reader_acl = "ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[]";
-        let writer_acl = "ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:true']::text[]";
+        let reader_acl = "ARRAY['rd_fact_writer:EXECUTE:false','rd_owner:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[]";
+        let writer_acl = "ARRAY['rd_fact_writer:EXECUTE:false','replay_policy_catalog_owner:EXECUTE:false']::text[]";
         assert_eq!(production.matches(reader_acl).count(), 2);
         assert_eq!(production.matches(writer_acl).count(), 2);
         assert!(AUTHORITY_MIGRATION_SQL.contains(
             "pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class"
         ));
+        let pre_cutover = AUTHORITY_MIGRATION_SQL
+            .split("DO $private_owner_cutover$")
+            .nth(1)
+            .expect("Catalog/Composer private-owner cutover")
+            .split("$private_owner_cutover$;")
+            .next()
+            .expect("bounded Catalog/Composer private-owner cutover");
+        assert_eq!(
+            pre_cutover
+                .matches("dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass")
+                .count(),
+            2
+        );
+        let post_cutover = AUTHORITY_MIGRATION_SQL
+            .split("DO $catalog_composer_constraint_manifest$")
+            .nth(1)
+            .expect("Catalog/Composer post-cutover manifest")
+            .split("$catalog_composer_constraint_manifest$;")
+            .next()
+            .expect("bounded Catalog/Composer post-cutover manifest");
+        assert!(
+            post_cutover
+                .contains("dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass")
+        );
+        assert!(
+            CATALOG_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL
+                .contains("rewrite_fact.ev_class NOT IN (SELECT oid FROM family)")
+        );
+        assert_eq!(
+            production
+                .matches("CATALOG_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL")
+                .count(),
+            3
+        );
         let connect_check = source
             .split("let dependency_shape_is_exact")
             .nth(1)
@@ -819,6 +1040,17 @@ mod postgres_tests {
         assert_eq!(production.matches(rd_owner_role).count(), 2);
         assert_eq!(production.matches(writer_role).count(), 2);
         assert_eq!(production.matches(closed_membership).count(), 2);
+        assert_eq!(
+            production
+                .matches("sqlx::query_scalar(CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL)")
+                .count(),
+            2
+        );
+        assert!(
+            CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL
+                .contains("pg_catalog.aclexplode(attribute.attacl) acl")
+        );
+        assert!(CATALOG_COLUMN_ACL_IS_OWNER_ONLY_SQL.contains("acl.grantee<>relation.relowner"));
         let migration_authority = source
             .split_once("async fn verify_catalog_storage_authority_for_migration")
             .expect("Catalog migration authority validator")
@@ -844,6 +1076,263 @@ mod postgres_tests {
                 .count(),
             1
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+    async fn catalog_runtime_rejects_nonowner_column_acl_and_restores() {
+        const FINGERPRINT_SQL: &str = "WITH facts(fact) AS (
+          SELECT 'relation:'||relation.relname||':'||relation.relowner::text||':'||
+                 COALESCE(relation.relacl::text,'<NULL>')
+            FROM pg_catalog.pg_class relation
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+           WHERE namespace.nspname='replay_policy_catalog_private'
+             AND relation.relname=ANY($1)
+          UNION ALL
+          SELECT 'column:'||relation.relname||':'||attribute.attnum::text||':'||
+                 attribute.attname||':'||COALESCE(attribute.attacl::text,'<NULL>')
+            FROM pg_catalog.pg_class relation
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+            JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+           WHERE namespace.nspname='replay_policy_catalog_private'
+             AND relation.relname=ANY($1)
+             AND attribute.attnum>0 AND NOT attribute.attisdropped
+        ) SELECT pg_catalog.md5(pg_catalog.string_agg(fact,E'\\n' ORDER BY fact)) FROM facts";
+        const WRITE_COUNTS_SQL: &str = "SELECT
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2),
+          (SELECT count(*) FROM public.rd_owner_outbox_v1
+            WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2')";
+        const GRANT_SQL: &str = "GRANT SELECT (catalog_record_id)
+          ON replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 TO rd_owner";
+        const REVOKE_SQL: &str = "REVOKE SELECT (catalog_record_id)
+          ON replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 FROM rd_owner";
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = database.mutation();
+        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let lease = database
+            .acquire_replay_policy_catalog_fault_authority()
+            .await
+            .unwrap();
+        let before_fingerprint: String = sqlx::query_scalar(FINGERPRINT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .fetch_one(lease.pool())
+            .await
+            .unwrap();
+        let before_writes: (i64, i64, i64, i64, i64) = sqlx::query_as(WRITE_COUNTS_SQL)
+            .fetch_one(lease.pool())
+            .await
+            .unwrap();
+        sqlx::query(GRANT_SQL).execute(lease.pool()).await.unwrap();
+        if let Err(e) = lease.release().await {
+            let lease = e.into_capability();
+            let rollback_fault = sqlx::query(REVOKE_SQL).execute(lease.pool()).await;
+            let release_retry = lease.release().await;
+            rollback_fault.expect("column ACL rollback after lease release failure");
+            release_retry.expect("fault authority release retry after column ACL rollback");
+            panic!("fault authority release failed after column ACL injection");
+        }
+
+        let connect_result = verify_catalog_storage_authority(rd_owner_pool).await;
+        let runtime_result = match rd_owner_pool.begin().await {
+            Ok(mut transaction) => {
+                let result = lock_catalog(&mut transaction).await;
+                transaction.rollback().await.map(|()| result).ok()
+            }
+            Err(_) => None,
+        };
+
+        let cleanup_lease = match database
+            .acquire_replay_policy_catalog_fault_authority()
+            .await
+        {
+            Ok(lease) => Ok(lease),
+            Err(e) => e
+                .into_capability()
+                .retry_acquire()
+                .await
+                .map_err(|retry| retry.source().to_string()),
+        };
+        let cleanup_result = match cleanup_lease {
+            Ok(lease) => {
+                let during_writes =
+                    sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(WRITE_COUNTS_SQL)
+                        .fetch_one(lease.pool())
+                        .await;
+                let revoke = sqlx::query(REVOKE_SQL).execute(lease.pool()).await;
+                let release = lease.release().await;
+                match (during_writes, revoke, release) {
+                    (Ok(writes), Ok(_), Ok(_)) => Ok(writes),
+                    (writes, revoke, release) => Err(format!(
+                        "column ACL cleanup failed: writes={writes:?}; revoke={revoke:?}; release={release:?}"
+                    )),
+                }
+            }
+            Err(e) => Err(e),
+        };
+        let readback_lease = database
+            .acquire_replay_policy_catalog_fault_authority()
+            .await
+            .expect("Catalog post-cleanup fingerprint authority");
+        let after_fingerprint = sqlx::query_scalar::<_, String>(FINGERPRINT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .fetch_one(readback_lease.pool())
+            .await;
+        let readback_release = readback_lease.release().await;
+
+        let during_writes =
+            cleanup_result.expect("column ACL cleanup must restore fault authority");
+        assert!(matches!(
+            connect_result,
+            Err(ReplayPolicyCatalogErrorV2::Unavailable(_))
+        ));
+        assert!(matches!(
+            runtime_result,
+            Some(Err(ReplayPolicyCatalogErrorV2::Unavailable(_)))
+        ));
+        assert_eq!(during_writes, before_writes);
+        readback_release.expect("release Catalog post-cleanup fingerprint authority");
+        assert_eq!(
+            after_fingerprint.expect("post-cleanup Catalog fingerprint"),
+            before_fingerprint
+        );
+        verify_catalog_storage_authority(rd_owner_pool)
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+    async fn catalog_runtime_rejects_external_view_dependency_and_restores() {
+        const VIEW_NAME: &str = "vibe_test_catalog_external_dependency_v2";
+        const FINGERPRINT_SQL: &str = "WITH family AS (
+          SELECT relation.oid
+            FROM pg_catalog.pg_class relation
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+           WHERE namespace.nspname='replay_policy_catalog_private'
+             AND relation.relname=ANY($1)
+        ), facts(fact) AS (
+          SELECT 'view:'||relation.oid::text||':'||relation.relkind::text
+            FROM pg_catalog.pg_class relation
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+           WHERE namespace.nspname='public' AND relation.relname=$2
+          UNION ALL
+          SELECT 'dependency:'||dependency.classid::text||':'||dependency.objid::text||':'||
+                 dependency.objsubid::text||':'||dependency.refobjid::text||':'||
+                 dependency.refobjsubid::text||':'||dependency.deptype::text||':'||
+                 rewrite_fact.ev_class::text
+            FROM pg_catalog.pg_depend dependency
+            JOIN pg_catalog.pg_rewrite rewrite_fact
+              ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+             AND dependency.objid=rewrite_fact.oid
+           WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+             AND dependency.refobjid IN (SELECT oid FROM family)
+             AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
+        ) SELECT pg_catalog.md5(COALESCE(pg_catalog.string_agg(fact,E'\\n' ORDER BY fact),'')) FROM facts";
+        const WRITE_COUNTS_SQL: &str = "SELECT
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2),
+          (SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2),
+          (SELECT count(*) FROM public.rd_owner_outbox_v1
+            WHERE event_kind LIKE 'REPLAY_POLICY_CATALOG_%_V2')";
+
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = database.mutation();
+        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let lease = database
+            .acquire_replay_policy_catalog_fault_authority()
+            .await
+            .unwrap();
+        let before_fingerprint: String = sqlx::query_scalar(FINGERPRINT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .bind(VIEW_NAME)
+            .fetch_one(lease.pool())
+            .await
+            .unwrap();
+        let before_writes: (i64, i64, i64, i64, i64) = sqlx::query_as(WRITE_COUNTS_SQL)
+            .fetch_one(lease.pool())
+            .await
+            .unwrap();
+        let create = sqlx::query(
+            "CREATE VIEW public.vibe_test_catalog_external_dependency_v2 AS
+             SELECT catalog_record_id
+             FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2",
+        )
+        .execute(lease.pool())
+        .await;
+
+        if let Err(e) = create {
+            lease
+                .release()
+                .await
+                .expect("release Catalog fault authority");
+            panic!("inject Catalog external view dependency: {e}");
+        }
+
+        if let Err(e) = lease.release().await {
+            let lease = e.into_capability();
+            let drop_view =
+                sqlx::query("DROP VIEW IF EXISTS public.vibe_test_catalog_external_dependency_v2")
+                    .execute(lease.pool())
+                    .await;
+            let release_retry = lease.release().await;
+            drop_view.expect("drop Catalog external view after lease release failure");
+            release_retry.expect("retry Catalog fault authority release after cleanup");
+            panic!("Catalog fault authority release failed after external view injection");
+        }
+
+        let connect_result = verify_catalog_storage_authority(rd_owner_pool).await;
+        let runtime_result = match rd_owner_pool.begin().await {
+            Ok(mut transaction) => {
+                let result = lock_catalog(&mut transaction).await;
+                transaction.rollback().await.map(|()| result).ok()
+            }
+            Err(_) => None,
+        };
+
+        let cleanup_lease = database
+            .acquire_replay_policy_catalog_fault_authority()
+            .await
+            .expect("acquire Catalog fault authority for cleanup readback");
+        let cleanup =
+            sqlx::query("DROP VIEW IF EXISTS public.vibe_test_catalog_external_dependency_v2")
+                .execute(cleanup_lease.pool())
+                .await;
+        let after_fingerprint = sqlx::query_scalar::<_, String>(FINGERPRINT_SQL)
+            .bind(CATALOG_TABLES_V2.as_slice())
+            .bind(VIEW_NAME)
+            .fetch_one(cleanup_lease.pool())
+            .await;
+        let after_writes = sqlx::query_as::<_, (i64, i64, i64, i64, i64)>(WRITE_COUNTS_SQL)
+            .fetch_one(cleanup_lease.pool())
+            .await;
+        let cleanup_release = cleanup_lease.release().await;
+
+        cleanup.expect("drop Catalog external view dependency");
+        cleanup_release.expect("release Catalog cleanup readback authority");
+        assert!(matches!(
+            connect_result,
+            Err(ReplayPolicyCatalogErrorV2::Unavailable(_))
+        ));
+        assert!(matches!(
+            runtime_result,
+            Some(Err(ReplayPolicyCatalogErrorV2::Unavailable(_)))
+        ));
+        assert_eq!(
+            after_writes.expect("post-cleanup Catalog writes"),
+            before_writes
+        );
+        assert_eq!(
+            after_fingerprint.expect("post-cleanup Catalog dependency fingerprint"),
+            before_fingerprint
+        );
+        verify_catalog_storage_authority(rd_owner_pool)
+            .await
+            .unwrap();
     }
 
     #[tokio::test]

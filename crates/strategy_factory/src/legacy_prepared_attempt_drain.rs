@@ -137,6 +137,13 @@ pub(crate) async fn require_existing_topology(pool: &PgPool) -> Result<(), Artif
                            AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
                            AND NOT relation.relrowsecurity
                            AND NOT relation.relforcerowsecurity
+                           AND NOT EXISTS (SELECT 1
+                                             FROM pg_catalog.pg_attribute attribute
+                                             CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                                            WHERE attribute.attrelid=relation.oid
+                                              AND attribute.attnum>0
+                                              AND NOT attribute.attisdropped
+                                              AND acl.grantee<>relation.relowner)
                            AND (SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY attribute.attnum)
                                   FROM pg_catalog.pg_attribute attribute
                                  WHERE attribute.attrelid=relation.oid
@@ -799,6 +806,8 @@ pub(crate) mod tests {
         }
         assert!(validator.contains("count(*)=1"));
         assert!(validator.contains("pg_get_userbyid(relation.relowner)='rd_custodian'"));
+        assert!(validator.contains("pg_catalog.aclexplode(attribute.attacl) acl"));
+        assert!(validator.contains("acl.grantee<>relation.relowner"));
         assert!(validator.contains("'rd_owner:INSERT:false','rd_owner:SELECT:false'"));
         assert!(
             validator.contains("pg_catalog.md5(routine.prosrc)='7e54a7158586a88841c26e8732a31e62'")

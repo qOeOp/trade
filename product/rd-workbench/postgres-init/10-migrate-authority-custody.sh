@@ -2498,6 +2498,23 @@ BEGIN
   SELECT count(*) INTO public_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(catalog_names);
   SELECT count(*) INTO private_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='replay_policy_catalog_private' AND c.relname=ANY(catalog_names);
   IF public_count<>0 AND public_count<>4 OR private_count<>0 AND private_count<>4 OR public_count+private_count NOT IN (0,4) THEN RAISE EXCEPTION 'unknown Replay Policy Catalog relation family'; END IF;
+  IF EXISTS (
+    WITH family AS (
+      SELECT relation.oid
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      WHERE namespace.nspname IN ('public','replay_policy_catalog_private')
+        AND relation.relname=ANY(catalog_names)
+    )
+    SELECT 1
+    FROM pg_catalog.pg_depend dependency
+    JOIN pg_catalog.pg_rewrite rewrite_fact
+      ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+     AND dependency.objid=rewrite_fact.oid
+    WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+      AND dependency.refobjid IN (SELECT oid FROM family)
+      AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
+  ) THEN RAISE EXCEPTION 'Replay Policy Catalog external rewrite dependency blocks private-owner cutover'; END IF;
   FOREACH relation_name IN ARRAY catalog_names LOOP
     IF pg_catalog.to_regclass('public.'||relation_name) IS NOT NULL THEN
       EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', relation_name);
@@ -2507,6 +2524,23 @@ BEGIN
   SELECT count(*) INTO public_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(composer_names);
   SELECT count(*) INTO private_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='composer_private' AND c.relname=ANY(composer_names);
   IF public_count<>0 AND public_count<>9 OR private_count<>0 AND private_count<>9 OR public_count+private_count NOT IN (0,9) THEN RAISE EXCEPTION 'unknown Composer relation family'; END IF;
+  IF EXISTS (
+    WITH family AS (
+      SELECT relation.oid
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      WHERE namespace.nspname IN ('public','composer_private')
+        AND relation.relname=ANY(composer_names)
+    )
+    SELECT 1
+    FROM pg_catalog.pg_depend dependency
+    JOIN pg_catalog.pg_rewrite rewrite_fact
+      ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+     AND dependency.objid=rewrite_fact.oid
+    WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+      AND dependency.refobjid IN (SELECT oid FROM family)
+      AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
+  ) THEN RAISE EXCEPTION 'Composer external rewrite dependency blocks private-owner cutover'; END IF;
   FOREACH relation_name IN ARRAY composer_names LOOP
     IF pg_catalog.to_regclass('public.'||relation_name) IS NOT NULL THEN
       EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', relation_name);
@@ -4520,7 +4554,7 @@ BEGIN
      OR NOT pg_catalog.has_function_privilege('rd_custodian','pg_catalog.pg_control_system()','EXECUTE')
      OR (SELECT pg_catalog.count(*)<>2
            OR pg_catalog.count(*) FILTER (
-             WHERE acl.grantor=routine.proowner AND acl.grantee=routine.proowner
+           WHERE acl.grantor=routine.proowner AND acl.grantee=routine.proowner
                AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
            )<>1
            OR pg_catalog.count(*) FILTER (
@@ -4558,11 +4592,11 @@ BEGIN
     AND pg_catalog.has_schema_privilege('rd_owner','composer_owner_api','USAGE')
     AND pg_catalog.has_schema_privilege('rd_fact_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('rd_fact_writer','composer_owner_api','USAGE')
-    AND (SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
-    AND (SELECT count(*)=9 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
+    AND (SELECT count(*)=4 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner' AND relation.relpersistence='p') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
+    AND (SELECT count(*)=9 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner' AND relation.relpersistence='p') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
     AND (SELECT count(*)=30 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND (SELECT count(*)=30 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
-    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND object.relkind NOT IN ('r','i'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND (object.relkind NOT IN ('r','i') OR object.relpersistence<>'p'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
@@ -4624,13 +4658,29 @@ BEGIN
   INTO exact FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND constraint_fact.contype='c';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer CHECK manifest mismatch'; END IF;
 
-  SELECT count(*)=27 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
+  SELECT count(*)=27 AND bool_and(relation.relpersistence='p' AND index_relation.relpersistence='p' AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
   INTO exact FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private');
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer index manifest mismatch'; END IF;
   IF EXISTS (
     SELECT 1 FROM pg_catalog.pg_constraint inbound JOIN pg_catalog.pg_class target ON target.oid=inbound.confrelid JOIN pg_catalog.pg_namespace target_namespace ON target_namespace.oid=target.relnamespace JOIN pg_catalog.pg_class source ON source.oid=inbound.conrelid JOIN pg_catalog.pg_namespace source_namespace ON source_namespace.oid=source.relnamespace
     WHERE target_namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND source_namespace.nspname NOT IN ('replay_policy_catalog_private','composer_private')
   ) THEN RAISE EXCEPTION 'Catalog/Composer external inbound dependency mismatch'; END IF;
+  IF EXISTS (
+    WITH family AS (
+      SELECT relation.oid
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private')
+    )
+    SELECT 1
+    FROM pg_catalog.pg_depend dependency
+    JOIN pg_catalog.pg_rewrite rewrite_fact
+      ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
+     AND dependency.objid=rewrite_fact.oid
+    WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
+      AND dependency.refobjid IN (SELECT oid FROM family)
+      AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
+  ) THEN RAISE EXCEPTION 'Catalog/Composer external rewrite dependency mismatch'; END IF;
 END
 $catalog_composer_constraint_manifest$;
 COMMIT;

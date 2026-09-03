@@ -20,7 +20,7 @@ const LEGACY_MIGRATION_LEASE_IDENTITY_ENV: &str = "VIBE_TEST_LEGACY_MIGRATION_LE
 const LEGACY_REPLAY_DUPLICATE_FUNCTION_SOURCE_SHA256_V1: &str =
     "4d055aabd875b2181a4845b6021543319911dbe97c13db739c8efa6b16856346";
 const REPLAY_POLICY_CATALOG_FAULT_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
-    "6d6fa280093609a63a6efd14e95f394f92e36400c74409c4c33ccffdcf58a601";
+    "a811a3da450635042c51d4fe416a5447f26f62383a81e8d29f922c6467281638";
 const REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
     "dc63b386e8797231a8a25111416c1efd424061ead05c2e652ba3c39aa015977a";
 const REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
@@ -28,9 +28,17 @@ const REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &
 const REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1: &str =
     "8e7faf8d1a3cb98540b5f2eba0cb040ca560ec04b22b4494bd48ba2bf21cdb43";
 const LEGACY_MIGRATION_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
-    "9a7a55a346a76d96073594d7da723a6bdb6b92b767fef86908d74a541bce1509";
+    "b22049ab38ab9d84132a511fee2911ec3e70af156080563c5930df463c633e82";
 const LEGACY_MIGRATION_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
     "996cd305d65a193127680e8f37d8622684093eb189fca04772b3fafbf052df2f";
+const PROTECTED_ROLE_LEASE_ACQUIRE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "8bb191b7e397cd5069fb19f3ac63cbac4d5161ef86c25366adab1fcd20bb7462";
+const PROTECTED_ROLE_LEASE_RELEASE_FUNCTION_SOURCE_SHA256_V1: &str =
+    "274b0126968515ca51faff8fdef4654c584c8c755046a1d382a2c21331e21ccf";
+const PROTECTED_ROLE_LEASE_INJECT_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1: &str =
+    "f6c501de2c59a14a3d73aaae983700b65577d1e9b95ed6772a33ada18afa684d";
+const PROTECTED_ROLE_LEASE_RESTORE_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1: &str =
+    "4ea29a06beb899a8d8f1fb2b01719bbe935730267847b227ef94dcdb876a9e41";
 const PRODUCTION_DATABASE_URL_ENVS: [&str; 6] = [
     "RD_OWNER_DATABASE_URL",
     "RD_FACT_WRITER_DATABASE_URL",
@@ -199,6 +207,66 @@ pub struct CanonicalOwnerPostgresTestDatabaseV1 {
     owner_topology_admin_pool: PgPool,
     legacy_migration_caller_options: PgConnectOptions,
     legacy_migration_caller_target: NormalizedDatabaseTarget,
+}
+
+/// Protected no-login roles whose test-only mutation authority must be leased.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProtectedOwnerTestRoleV1 {
+    ComposerOwner,
+    RdCustodian,
+    ProductEdgeCustodian,
+}
+
+impl ProtectedOwnerTestRoleV1 {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ComposerOwner => "composer_owner",
+            Self::RdCustodian => "rd_custodian",
+            Self::ProductEdgeCustodian => "product_edge_custodian",
+        }
+    }
+}
+
+/// Linear lease of one exact protected Owner role in the disposable fixture.
+pub struct ProtectedOwnerTestAuthorityV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+    role: ProtectedOwnerTestRoleV1,
+}
+
+impl Debug for ProtectedOwnerTestAuthorityV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(ProtectedOwnerTestAuthorityV1))
+            .field("marker_identity", &"[REDACTED]")
+            .field("lease_identity", &"[REDACTED]")
+            .field("role", &self.role)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Proof that the protected-role fixture returned to its zero-edge READY state.
+#[derive(Debug)]
+pub struct ReleasedProtectedOwnerTestAuthorityV1 {
+    _marker_identity: String,
+    _lease_identity: String,
+    _role: ProtectedOwnerTestRoleV1,
+}
+
+/// Exact retained Composer-owner-to-writer membership fault with no admin lease edge.
+#[derive(Debug)]
+pub struct InjectedProtectedOwnerTestComposerWriterEdgeV1 {
+    pool: PgPool,
+    marker_identity: String,
+    lease_identity: String,
+}
+
+/// A failed protected-role lease transition retaining the recovery capability.
+#[derive(Debug)]
+pub struct ProtectedOwnerTestTransitionErrorV1<T> {
+    capability: T,
+    source: sqlx::Error,
 }
 
 /// One-shot capability for the disposable legacy Replay duplicate fault.
@@ -374,6 +442,20 @@ impl<T> ReplayPolicyCatalogFaultTransitionErrorV1<T> {
     }
 }
 
+impl<T> ProtectedOwnerTestTransitionErrorV1<T> {
+    /// Returns the retained linear capability for an explicit recovery attempt.
+    #[must_use]
+    pub fn into_capability(self) -> T {
+        self.capability
+    }
+
+    /// Returns the fail-closed PostgreSQL transition error.
+    #[must_use]
+    pub fn source(&self) -> &sqlx::Error {
+        &self.source
+    }
+}
+
 impl Debug for CanonicalOwnerPostgresTestDatabaseV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -489,10 +571,39 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
         CanonicalOwnerPostgresTestMutationV1 { database: self }
     }
 
-    /// Returns the CI-only topology administrator used to inject private-owner faults.
-    #[must_use]
-    pub fn owner_topology_admin_pool(&self) -> &PgPool {
-        &self.owner_topology_admin_pool
+    /// Acquires one exact protected role for a bounded fixture mutation/readback window.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining the exact recovery capability when the
+    /// postgres-owned lease routine or its readback fails closed.
+    pub async fn acquire_protected_owner_test_authority(
+        &self,
+        role: ProtectedOwnerTestRoleV1,
+    ) -> Result<
+        ProtectedOwnerTestAuthorityV1,
+        ProtectedOwnerTestTransitionErrorV1<ProtectedOwnerTestAuthorityV1>,
+    > {
+        let authority = ProtectedOwnerTestAuthorityV1 {
+            pool: self.owner_topology_admin_pool.clone(),
+            marker_identity: self.marker_identity.clone(),
+            lease_identity: format!(
+                "protected-owner-test-v1:{}:{}",
+                std::process::id(),
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |duration| duration.as_nanos())
+            ),
+            role,
+        };
+
+        if let Err(source) = authority.acquire_readback().await {
+            return Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: authority,
+                source,
+            });
+        }
+        Ok(authority)
     }
 
     /// Admits the exact one-shot legacy Replay duplicate fixture.
@@ -756,6 +867,165 @@ impl ReleasedLegacyReplayMigrationAuthorityV1 {
             Err(sqlx::Error::Protocol(
                 "legacy Replay migration authority READY readback mismatch".into(),
             ))
+        }
+    }
+}
+
+impl ProtectedOwnerTestAuthorityV1 {
+    async fn acquire_readback(&self) -> Result<(), sqlx::Error> {
+        let returned: String =
+            sqlx::query_scalar("SELECT vibe_test_protected_owner_lease.acquire_v1($1,$2,$3)")
+                .bind(&self.marker_identity)
+                .bind(&self.lease_identity)
+                .bind(self.role.as_str())
+                .fetch_one(&self.pool)
+                .await?;
+
+        if returned == self.lease_identity {
+            Ok(())
+        } else {
+            Err(sqlx::Error::Protocol(
+                "protected Owner test authority acquire mismatch".into(),
+            ))
+        }
+    }
+
+    /// Repeats the exact acquire transition with the retained lease identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining this capability when the identity-bound readback fails.
+    pub async fn retry_acquire(self) -> Result<Self, ProtectedOwnerTestTransitionErrorV1<Self>> {
+        if let Err(source) = self.acquire_readback().await {
+            return Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source,
+            });
+        }
+        Ok(self)
+    }
+
+    /// Returns the pool while the exact protected-role lease is active.
+    #[must_use]
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+
+    /// Atomically replaces the Composer admin lease edge with the fixed writer fault edge.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining this capability when the role, transition, or readback fails.
+    pub async fn inject_composer_writer_edge(
+        self,
+    ) -> Result<
+        InjectedProtectedOwnerTestComposerWriterEdgeV1,
+        ProtectedOwnerTestTransitionErrorV1<Self>,
+    > {
+        if self.role != ProtectedOwnerTestRoleV1::ComposerOwner {
+            return Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "Composer writer fault requires Composer owner authority".into(),
+                ),
+            });
+        }
+        let result: Result<String, sqlx::Error> = sqlx::query_scalar(
+            "SELECT vibe_test_protected_owner_lease.inject_composer_writer_edge_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+
+        match result {
+            Ok(identity) if identity == self.lease_identity => {
+                Ok(InjectedProtectedOwnerTestComposerWriterEdgeV1 {
+                    pool: self.pool,
+                    marker_identity: self.marker_identity,
+                    lease_identity: self.lease_identity,
+                })
+            }
+            Ok(_) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol("Composer writer fault lease mismatch".into()),
+            }),
+            Err(source) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source,
+            }),
+        }
+    }
+
+    /// Releases the exact role and proves that every protected-role edge is absent.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining this capability when release or its readback fails.
+    pub async fn release(
+        self,
+    ) -> Result<ReleasedProtectedOwnerTestAuthorityV1, ProtectedOwnerTestTransitionErrorV1<Self>>
+    {
+        let result: Result<String, sqlx::Error> =
+            sqlx::query_scalar("SELECT vibe_test_protected_owner_lease.release_v1($1,$2,$3)")
+                .bind(&self.marker_identity)
+                .bind(&self.lease_identity)
+                .bind(self.role.as_str())
+                .fetch_one(&self.pool)
+                .await;
+
+        match result {
+            Ok(phase) if phase == "READY" => Ok(ReleasedProtectedOwnerTestAuthorityV1 {
+                _marker_identity: self.marker_identity,
+                _lease_identity: self.lease_identity,
+                _role: self.role,
+            }),
+            Ok(_) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol(
+                    "protected Owner test authority release mismatch".into(),
+                ),
+            }),
+            Err(source) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source,
+            }),
+        }
+    }
+}
+
+impl InjectedProtectedOwnerTestComposerWriterEdgeV1 {
+    /// Restores the fixed Composer writer edge and proves the protected graph is clean.
+    ///
+    /// # Errors
+    ///
+    /// Returns a transition error retaining this capability when restoration or readback fails.
+    pub async fn restore(
+        self,
+    ) -> Result<ReleasedProtectedOwnerTestAuthorityV1, ProtectedOwnerTestTransitionErrorV1<Self>>
+    {
+        let result: Result<String, sqlx::Error> = sqlx::query_scalar(
+            "SELECT vibe_test_protected_owner_lease.restore_composer_writer_edge_v1($1,$2)",
+        )
+        .bind(&self.marker_identity)
+        .bind(&self.lease_identity)
+        .fetch_one(&self.pool)
+        .await;
+
+        match result {
+            Ok(phase) if phase == "READY" => Ok(ReleasedProtectedOwnerTestAuthorityV1 {
+                _marker_identity: self.marker_identity,
+                _lease_identity: self.lease_identity,
+                _role: ProtectedOwnerTestRoleV1::ComposerOwner,
+            }),
+            Ok(_) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source: sqlx::Error::Protocol("Composer writer fault restore mismatch".into()),
+            }),
+            Err(source) => Err(ProtectedOwnerTestTransitionErrorV1 {
+                capability: self,
+                source,
+            }),
         }
     }
 }
@@ -1195,13 +1465,16 @@ const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
               WHERE marker.marker_identity=$2 AND marker.database_name=$1
                 AND marker.test_role='vibe_test_owner_topology_admin'
            )
-           AND (SELECT count(*)=1 AND bool_and(
-                  granted.rolname='composer_owner' AND NOT membership.admin_option
-                  AND membership.inherit_option AND membership.set_option
-                )
-                  FROM pg_catalog.pg_auth_members membership
-                JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
-                WHERE membership.member=administrator.oid
+           AND NOT EXISTS (
+             SELECT 1 FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+             JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+             WHERE granted.rolname IN (
+                     'composer_owner','rd_custodian','product_edge_custodian'
+                   )
+                OR member.rolname IN (
+                     'composer_owner','rd_custodian','product_edge_custodian'
+                   )
            )
            AND NOT EXISTS (
              SELECT 1 FROM pg_catalog.pg_auth_members membership
@@ -1375,6 +1648,47 @@ const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
                   JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
                   JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
            )
+           AND (SELECT count(*)=1 AND bool_and(
+                  state.singleton AND state.marker_identity=$2
+                  AND state.database_name=$1 AND state.phase='READY'
+                  AND state.lease_identity IS NULL AND state.leased_role IS NULL
+                ) FROM vibe_test_protected_owner_lease.authority_state_v1 state)
+           AND (SELECT count(*)=4 AND bool_and(
+                  owner.rolname='postgres' AND language.lanname='plpgsql'
+                  AND procedure.prokind='f'
+                  AND procedure.prorettype='text'::pg_catalog.regtype
+                  AND procedure.prosecdef AND procedure.proisstrict
+                  AND procedure.provolatile='v' AND procedure.proparallel='u'
+                  AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']
+                  AND pg_catalog.encode(pg_catalog.sha256(
+                        pg_catalog.convert_to(procedure.prosrc,'UTF8')
+                      ),'hex')=expected.source_digest
+                  AND (SELECT count(*)=2
+                        AND count(*) FILTER (
+                          WHERE acl.grantee=procedure.proowner
+                            AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+                        )=1
+                        AND count(*) FILTER (
+                          WHERE acl.grantee=administrator.oid
+                            AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+                        )=1
+                        AND count(*) FILTER (WHERE acl.grantee=0)=0
+                      FROM pg_catalog.aclexplode(procedure.proacl) acl)
+                )
+                  FROM (VALUES
+                    ('acquire_v1','expected_marker_identity text, expected_lease_identity text, requested_role text',$7::text),
+                    ('release_v1','expected_marker_identity text, expected_lease_identity text, requested_role text',$8::text),
+                    ('inject_composer_writer_edge_v1','expected_marker_identity text, expected_lease_identity text',$9::text),
+                    ('restore_composer_writer_edge_v1','expected_marker_identity text, expected_lease_identity text',$10::text)
+                  ) expected(procedure_name,identity_arguments,source_digest)
+                  JOIN pg_catalog.pg_proc procedure ON procedure.proname=expected.procedure_name
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid=procedure.pronamespace
+                   AND namespace.nspname='vibe_test_protected_owner_lease'
+                  JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+                  JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+                 WHERE pg_catalog.pg_get_function_identity_arguments(procedure.oid)=expected.identity_arguments
+           )
           FROM pg_catalog.pg_roles administrator
          WHERE administrator.rolname='vibe_test_owner_topology_admin' AND administrator.rolcanlogin";
 
@@ -1390,6 +1704,10 @@ async fn owner_topology_admin_authority_is_exact(
         .bind(REPLAY_POLICY_CATALOG_FAULT_RELEASE_FUNCTION_SOURCE_SHA256_V1)
         .bind(REPLAY_POLICY_CATALOG_FAULT_INJECT_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
         .bind(REPLAY_POLICY_CATALOG_FAULT_RESTORE_MEMBERSHIP_FUNCTION_SOURCE_SHA256_V1)
+        .bind(PROTECTED_ROLE_LEASE_ACQUIRE_FUNCTION_SOURCE_SHA256_V1)
+        .bind(PROTECTED_ROLE_LEASE_RELEASE_FUNCTION_SOURCE_SHA256_V1)
+        .bind(PROTECTED_ROLE_LEASE_INJECT_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1)
+        .bind(PROTECTED_ROLE_LEASE_RESTORE_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1)
         .fetch_one(pool)
         .await
         .map_err(|_| DedicatedPostgresTestDatabaseError::CatalogAdminAuthorityQueryUnavailable)?;

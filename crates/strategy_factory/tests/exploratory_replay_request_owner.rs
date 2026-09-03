@@ -53,7 +53,12 @@ use vibe_strategy_factory::{
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
 };
-use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+use vibe_testkit::postgres::{
+    CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, ProtectedOwnerTestRoleV1,
+};
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -185,6 +190,11 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .expect("sealed Replay table catalog");
     assert!(sealed_catalog_is_private);
 
+    let custody_read_authority = fixture
+        .database
+        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
+        .await
+        .expect("bounded R&D custody observation");
     let internal_custody_was_renamed_without_orphaning: bool = sqlx::query_scalar(
         "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
             AND EXISTS (
@@ -208,17 +218,25 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
                  )
                  AND lifecycle_state='FROZEN'
                  AND committed_at_epoch_ms=1700000000000
-                 AND request_schema_version=1
-                 AND v2_canonical_request_bytes IS NULL
-                 AND v2_meaning_digest IS NULL
-                 AND v2_seal_digest IS NULL
-                 AND v2_receipt_json IS NULL
+                 AND request_schema_version=2
+                 AND v2_canonical_request_bytes=pg_catalog.decode(
+                   '00112233445566778899aabbccddeeff','hex'
+                 )
+                 AND v2_meaning_digest='sha256:internal-continuity-meaning-v2'
+                 AND v2_seal_digest='sha256:internal-continuity-seal-v2'
+                 AND v2_receipt_json=pg_catalog.jsonb_build_object(
+                   'kind','internal-custody-continuity-v2-receipt','schema_version',2
+                 )
             )",
     )
-    .fetch_one(rd_pool)
+    .fetch_one(custody_read_authority.pool())
     .await
     .expect("internal Replay custody continuity");
     assert!(internal_custody_was_renamed_without_orphaning);
+    custody_read_authority
+        .release()
+        .await
+        .expect("release R&D custody observation");
 
     let legacy_catalog: LegacyReplayCatalogRow = sqlx::query_as(
             "SELECT owner.rolname,
@@ -454,7 +472,6 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     for denied_pool in [
         rd_pool,
         mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
-        fixture.database.owner_topology_admin_pool(),
     ] {
         let direct_fixture_denied = sqlx::query(
             "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
@@ -470,6 +487,28 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
             Some(std::borrow::Cow::Borrowed("42501"))
         );
     }
+    let topology_authority = fixture
+        .database
+        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::ComposerOwner)
+        .await
+        .expect("bounded topology administrator observation");
+    let direct_fixture_denied = sqlx::query(
+        "SELECT vibe_test_legacy_replay_fault.create_duplicate_current_candidate_v1($1)",
+    )
+    .bind(mutation.marker_identity())
+    .execute(topology_authority.pool())
+    .await
+    .expect_err("topology administrator must not execute legacy Replay fault");
+    assert_eq!(
+        direct_fixture_denied
+            .as_database_error()
+            .and_then(|e| e.code()),
+        Some(std::borrow::Cow::Borrowed("42501"))
+    );
+    topology_authority
+        .release()
+        .await
+        .expect("release topology administrator observation");
 
     let fault = fixture
         .database
@@ -2030,6 +2069,15 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let fixture_mutation = database.mutation();
+        ensure_replay_policy_catalog_fixture_v2(
+            fixture_mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("sealed acceptance Replay Policy Catalog fixture");
+    }
     let rd_url = database
         .database_url(CanonicalOwnerTestRoleV1::RdOwner)
         .to_string();

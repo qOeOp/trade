@@ -22,9 +22,23 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_existing_custody_validates_after_migration'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
+  'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_post_write_commit_fault_is_submitted_or_unknown_and_recoverable'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write'
+  'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing'
+  'vibe-strategy-factory|develop_composer_postgres_v2|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody'
+  'vibe-strategy-factory|develop_composer_postgres_v2|composer_writer_startup_rejects_composer_owner_membership'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_corrupt_index_options'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_private_schema_acl_drift'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_private_column_acl_drift'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_writer_membership_drift'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_writer_capability_drift'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_runtime_rejects_nonowner_column_acl_and_restores'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::revoked_required_catalog_execute_is_unavailable_and_writes_nothing'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_rule_injection_is_unavailable_and_writes_nothing'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_rejects_nonowner_column_acl_and_restores'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_underlying_pg_control_system_acl_drift'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_unlogged_relation_drift'
   'vibe-strategy-factory|source_intake|postgres_source_invocation_lifecycle_is_canonical_once_only_and_acl_sealed'
   'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::same_identity_started_retry_returns_http_ok_with_exact_custody_once'
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
@@ -33,6 +47,10 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_runtime_rejects_external_view_dependency_and_restores'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::composer_read_startup_rejects_external_view_dependency_and_restores'
+  'vibe-product-edge|vibe_product_edge|postgres::tests::runtime_rejects_third_party_protected_owner_membership_and_recovers'
+  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_drain_topology_faults_fail_before_receipt_or_outbox_mutation'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
 readonly nextest_graph_args=(
@@ -53,21 +71,32 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 19 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all nineteen ordered runtime and migration tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 37 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all thirty-seven ordered runtime and migration tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[2]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[5]}" != *'|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl' ]] ||
-    [[ "${rd_owner_postgres_tests[7]}" != *'|composer_startup_rejects_same_named_database_on_a_distinct_cluster' ]] ||
-    [[ "${rd_owner_postgres_tests[8]}" != *'|composer_post_start_writer_reconnection_to_distinct_cluster_fails_before_write' ]] ||
-    [[ "${rd_owner_postgres_tests[9]}" != *'|tests::composer_read_startup_rejects_corrupt_index_options' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[7]}" != *'|durable_owner_post_write_commit_fault_is_submitted_or_unknown_and_recoverable' ]] ||
+    [[ "${rd_owner_postgres_tests[10]}" != *'|transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[11]}" != *'|transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|composer_writer_startup_rejects_composer_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'catalog_runtime_rejects_nonowner_column_acl_and_restores' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'revoked_required_catalog_execute_is_unavailable_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'catalog_rule_injection_is_unavailable_and_writes_nothing' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'legacy_prepared_drain_rejects_nonowner_column_acl_and_restores' ]] ||
+    [[ "${rd_owner_postgres_tests[22]}" != *'|tests::composer_read_startup_rejects_underlying_pg_control_system_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[23]}" != *'|tests::composer_read_startup_rejects_unlogged_relation_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
+    [[ "${rd_owner_postgres_tests[30]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[31]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[32]}" != *'catalog_runtime_rejects_external_view_dependency_and_restores' ]] ||
+    [[ "${rd_owner_postgres_tests[33]}" != *'composer_read_startup_rejects_external_view_dependency_and_restores' ]] ||
+    [[ "${rd_owner_postgres_tests[34]}" != *'runtime_rejects_third_party_protected_owner_membership_and_recovers' ]] ||
+    [[ "${rd_owner_postgres_tests[35]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_drain_topology_faults_fail_before_receipt_or_outbox_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[36]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -227,6 +256,48 @@ for function_name, constant_name in functions.items():
     if actual != digest_match.group(1):
         raise SystemExit(
             f"ERROR: Replay Policy Catalog fault body changed without admission identity: {function_name}"
+        )
+PY
+}
+
+check_protected_owner_lease_function_bodies() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - "${BASH_SOURCE[0]}" "$repository_root/crates/testkit/src/postgres.rs" << 'PY'
+from hashlib import sha256
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+rust = Path(sys.argv[2]).read_text(encoding="utf-8")
+functions = {
+    "acquire_v1": "PROTECTED_ROLE_LEASE_ACQUIRE_FUNCTION_SOURCE_SHA256_V1",
+    "release_v1": "PROTECTED_ROLE_LEASE_RELEASE_FUNCTION_SOURCE_SHA256_V1",
+    "inject_composer_writer_edge_v1":
+        "PROTECTED_ROLE_LEASE_INJECT_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1",
+    "restore_composer_writer_edge_v1":
+        "PROTECTED_ROLE_LEASE_RESTORE_COMPOSER_WRITER_FUNCTION_SOURCE_SHA256_V1",
+}
+for function_name, constant_name in functions.items():
+    body_match = re.search(
+        rf"CREATE FUNCTION vibe_test_protected_owner_lease\.{function_name}\("
+        r".*?AS \$function\$(.*?)\$function\$;",
+        script,
+        re.DOTALL,
+    )
+    digest_match = re.search(
+        rf'{constant_name}: &str =\s*"([0-9a-f]{{64}})";',
+        rust,
+    )
+    if body_match is None or digest_match is None:
+        raise SystemExit(
+            f"ERROR: protected Owner lease source identity is unavailable: {function_name}"
+        )
+    actual = sha256(body_match.group(1).encode("utf-8")).hexdigest()
+    if actual != digest_match.group(1):
+        raise SystemExit(
+            f"ERROR: protected Owner lease body changed without admission identity: {function_name}"
         )
 PY
 }
@@ -717,6 +788,7 @@ check_static_isolation
 check_nextest_graph_contract
 check_legacy_replay_fault_function_body
 check_replay_policy_catalog_fault_function_bodies
+check_protected_owner_lease_function_bodies
 check_legacy_migration_lease_function_bodies
 check_migration_authority_boundary
 check_rd_owner_fresh_migration_lease
@@ -1173,8 +1245,7 @@ restore_disposable_topology_admin() {
     --username postgres --dbname postgres --set=fixture_database="$fixture_database" << 'SQL'
 REVOKE rd_custodian, product_edge_custodian
   FROM vibe_test_owner_topology_admin;
-GRANT composer_owner TO vibe_test_owner_topology_admin
-  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+REVOKE composer_owner FROM vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"fixture_database" TO vibe_test_owner_topology_admin;
 SQL
 }
@@ -1218,6 +1289,50 @@ SELECT pg_catalog.count(*) FROM public.rd_research_source_provenance_v1;
 SELECT pg_catalog.count(*) FROM public.rd_source_candidates_v1;
 SQL
 }
+verify_source_attribute_drift_fails_closed() {
+  local fingerprint_before
+  local fingerprint_after
+  local migration_status=0
+  local cleanup_status=0
+
+  fingerprint_before="$(source_intake_topology_fingerprint)" || return "$?"
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'; then
+ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL RESTRICTED;
+SQL
+    :
+  else
+    return "$?"
+  fi
+
+  if run_authority_migration; then
+    migration_status=0
+  else
+    migration_status="$?"
+  fi
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'; then
+ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL UNSAFE;
+SQL
+    :
+  else
+    cleanup_status="$?"
+  fi
+  if fingerprint_after="$(source_intake_topology_fingerprint)"; then
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      echo "ERROR: Source Intake routine attribute probe did not restore canonical custody" >&2
+      cleanup_status=1
+    fi
+  else
+    cleanup_status="$?"
+  fi
+
+  if [[ "$cleanup_status" -ne 0 ]]; then
+    return "$cleanup_status"
+  fi
+  return "$migration_status"
+}
 run_authority_migration
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1245,26 +1360,10 @@ END
 $rd_fact_writer_role_readback$;
 SQL
 
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" << 'SQL'
-ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL RESTRICTED;
-SQL
-source_attribute_drift_fingerprint_before="$(source_intake_topology_fingerprint)"
-readonly source_attribute_drift_fingerprint_before
-if run_authority_migration; then
+if verify_source_attribute_drift_fails_closed; then
   echo "ERROR: authority migration accepted same-source Source Intake routine attribute drift" >&2
   exit 1
 fi
-source_attribute_drift_fingerprint_after="$(source_intake_topology_fingerprint)"
-readonly source_attribute_drift_fingerprint_after
-if [[ "$source_attribute_drift_fingerprint_after" != "$source_attribute_drift_fingerprint_before" ]]; then
-  echo "ERROR: failed Source Intake routine attribute cutover committed custody mutation" >&2
-  exit 1
-fi
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" << 'SQL'
-ALTER FUNCTION rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text) PARALLEL UNSAFE;
-SQL
 run_authority_migration
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1406,8 +1505,6 @@ CREATE ROLE vibe_test_owner_topology_admin LOGIN PASSWORD :'test_password' NOSUP
 CREATE ROLE vibe_test_legacy_replay_fault_writer LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 CREATE ROLE vibe_test_legacy_migration_caller LOGIN PASSWORD :'test_password' NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_fact_writer PASSWORD :'test_password';
-GRANT composer_owner TO vibe_test_owner_topology_admin
-  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_owner_topology_admin;
 GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"test_database" TO vibe_test_legacy_replay_fault_writer;
@@ -1426,19 +1523,15 @@ GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO ope
 DO $owner_topology_admin_membership$
 DECLARE exact boolean;
 BEGIN
-  SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(
-           granted.rolname='composer_owner'
-           AND NOT membership.admin_option
-           AND membership.inherit_option
-           AND membership.set_option
-         )
+  SELECT pg_catalog.count(*)=0
     INTO exact
     FROM pg_catalog.pg_auth_members membership
     JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
     JOIN pg_catalog.pg_roles member ON member.oid=membership.member
-   WHERE member.rolname='vibe_test_owner_topology_admin';
+   WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+      OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian');
   IF exact IS DISTINCT FROM true THEN
-    RAISE EXCEPTION 'Owner topology administrator membership mismatch';
+    RAISE EXCEPTION 'protected Owner membership is not clean';
   END IF;
 END
 $owner_topology_admin_membership$;
@@ -1457,6 +1550,277 @@ FROM unnest(ARRAY[
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+
+CREATE SCHEMA vibe_test_protected_owner_lease AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_protected_owner_lease FROM PUBLIC;
+GRANT USAGE ON SCHEMA vibe_test_protected_owner_lease TO vibe_test_owner_topology_admin;
+CREATE TABLE vibe_test_protected_owner_lease.authority_state_v1 (
+  singleton boolean DEFAULT true NOT NULL,
+  marker_identity text NOT NULL,
+  database_name name NOT NULL,
+  phase text NOT NULL,
+  lease_identity text,
+  leased_role text,
+  last_released_lease_identity text,
+  CONSTRAINT protected_owner_authority_state_v1_singleton_pk PRIMARY KEY (singleton),
+  CONSTRAINT protected_owner_authority_state_v1_singleton_check CHECK (singleton),
+  CONSTRAINT protected_owner_authority_state_v1_phase_check CHECK (phase IN ('READY','LEASED','MEMBERSHIP_FAULT')),
+  CONSTRAINT protected_owner_authority_state_v1_lease_check CHECK (
+    (phase='READY' AND lease_identity IS NULL AND leased_role IS NULL)
+    OR (phase IN ('LEASED','MEMBERSHIP_FAULT') AND lease_identity IS NOT NULL
+        AND leased_role IN ('composer_owner','rd_custodian','product_edge_custodian'))
+  )
+);
+ALTER TABLE vibe_test_protected_owner_lease.authority_state_v1 OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_protected_owner_lease.authority_state_v1 FROM PUBLIC;
+GRANT SELECT ON TABLE vibe_test_protected_owner_lease.authority_state_v1
+  TO vibe_test_owner_topology_admin;
+INSERT INTO vibe_test_protected_owner_lease.authority_state_v1(
+  singleton,marker_identity,database_name,phase,lease_identity,leased_role,
+  last_released_lease_identity
+) VALUES (true,:'test_marker',:'test_database','READY',NULL,NULL,NULL);
+
+CREATE FUNCTION vibe_test_protected_owner_lease.acquire_v1(
+  expected_marker_identity text,
+  expected_lease_identity text,
+  requested_role text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  state_row vibe_test_protected_owner_lease.authority_state_v1%ROWTYPE;
+  exact_edge_count bigint;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres'
+     OR expected_lease_identity=''
+     OR requested_role NOT IN ('composer_owner','rd_custodian','product_edge_custodian') THEN
+    RAISE EXCEPTION 'protected Owner test authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtextextended('vibe-test-exclusive-authority-v1',0)
+  );
+  IF (SELECT pg_catalog.count(*) FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+       WHERE marker.marker_identity=expected_marker_identity
+         AND marker.database_name=pg_catalog.current_database()
+         AND marker.test_role='vibe_test_owner_topology_admin')<>1 THEN
+    RAISE EXCEPTION 'protected Owner test authority marker mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT * INTO state_row
+    FROM vibe_test_protected_owner_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+   FOR UPDATE;
+  IF state_row.phase='LEASED' AND state_row.lease_identity=expected_lease_identity
+     AND state_row.leased_role=requested_role THEN
+    SELECT pg_catalog.count(*) INTO exact_edge_count
+      FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+     WHERE (granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+         OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
+       AND granted.rolname=requested_role
+       AND member.rolname='vibe_test_owner_topology_admin'
+       AND grantor.rolname='postgres' AND NOT membership.admin_option
+       AND membership.inherit_option AND membership.set_option;
+    IF exact_edge_count=1 THEN RETURN expected_lease_identity; END IF;
+    RAISE EXCEPTION 'protected Owner test authority leased graph mismatch' USING ERRCODE='55000';
+  END IF;
+  IF state_row.phase IS DISTINCT FROM 'READY' OR state_row.lease_identity IS NOT NULL
+     OR state_row.leased_role IS NOT NULL
+     OR state_row.last_released_lease_identity=expected_lease_identity
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership
+                JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+                JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+                WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+                   OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
+     OR EXISTS (SELECT 1 FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
+                WHERE state.phase<>'READY' OR state.lease_identity IS NOT NULL)
+     OR EXISTS (SELECT 1 FROM vibe_test_legacy_migration_lease.authority_state_v1 state
+                WHERE state.phase<>'READY' OR state.lease_identity IS NOT NULL) THEN
+    RAISE EXCEPTION 'protected Owner test authority is not clean' USING ERRCODE='55000';
+  END IF;
+  EXECUTE pg_catalog.format('GRANT %I TO vibe_test_owner_topology_admin WITH ADMIN FALSE, INHERIT TRUE, SET TRUE',requested_role);
+  UPDATE vibe_test_protected_owner_lease.authority_state_v1
+     SET phase='LEASED',lease_identity=expected_lease_identity,leased_role=requested_role
+   WHERE singleton AND phase='READY' AND lease_identity IS NULL AND leased_role IS NULL;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'protected Owner test authority phase advance failed' USING ERRCODE='55000';
+  END IF;
+  RETURN expected_lease_identity;
+END
+$function$;
+
+CREATE FUNCTION vibe_test_protected_owner_lease.release_v1(
+  expected_marker_identity text,
+  expected_lease_identity text,
+  requested_role text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE
+  state_row vibe_test_protected_owner_lease.authority_state_v1%ROWTYPE;
+  exact_edge_count bigint;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres'
+     OR expected_lease_identity=''
+     OR requested_role NOT IN ('composer_owner','rd_custodian','product_edge_custodian') THEN
+    RAISE EXCEPTION 'protected Owner test authority caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT * INTO state_row
+    FROM vibe_test_protected_owner_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database()
+   FOR UPDATE;
+  IF state_row.phase='READY' AND state_row.lease_identity IS NULL
+     AND state_row.leased_role IS NULL
+     AND state_row.last_released_lease_identity=expected_lease_identity THEN
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership
+                   JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+                   JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+                   WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+                      OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')) THEN
+      RETURN 'READY';
+    END IF;
+    RAISE EXCEPTION 'protected Owner released graph mismatch' USING ERRCODE='55000';
+  END IF;
+  IF state_row.phase IS DISTINCT FROM 'LEASED'
+     OR state_row.lease_identity IS DISTINCT FROM expected_lease_identity
+     OR state_row.leased_role IS DISTINCT FROM requested_role THEN
+    RAISE EXCEPTION 'protected Owner test authority phase mismatch' USING ERRCODE='55000';
+  END IF;
+  SELECT pg_catalog.count(*) INTO exact_edge_count
+    FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+   WHERE (granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+       OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
+     AND granted.rolname=requested_role
+     AND member.rolname='vibe_test_owner_topology_admin'
+     AND grantor.rolname='postgres' AND NOT membership.admin_option
+     AND membership.inherit_option AND membership.set_option;
+  IF exact_edge_count<>1 THEN
+    RAISE EXCEPTION 'protected Owner test authority lease mismatch' USING ERRCODE='55000';
+  END IF;
+  EXECUTE pg_catalog.format('REVOKE %I FROM vibe_test_owner_topology_admin',requested_role);
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+             JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+             WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+                OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')) THEN
+    RAISE EXCEPTION 'protected Owner test authority release failed' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_protected_owner_lease.authority_state_v1
+     SET phase='READY',lease_identity=NULL,leased_role=NULL,
+         last_released_lease_identity=expected_lease_identity
+   WHERE singleton AND phase='LEASED' AND lease_identity=expected_lease_identity
+     AND leased_role=requested_role;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'protected Owner test authority phase release failed' USING ERRCODE='55000';
+  END IF;
+  RETURN 'READY';
+END
+$function$;
+
+CREATE FUNCTION vibe_test_protected_owner_lease.inject_composer_writer_edge_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE state_row vibe_test_protected_owner_lease.authority_state_v1%ROWTYPE;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Composer writer membership fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT * INTO state_row FROM vibe_test_protected_owner_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database() FOR UPDATE;
+  IF state_row.phase IS DISTINCT FROM 'LEASED'
+     OR state_row.lease_identity IS DISTINCT FROM expected_lease_identity
+     OR state_row.leased_role IS DISTINCT FROM 'composer_owner' THEN
+    RAISE EXCEPTION 'Composer writer membership fault phase mismatch' USING ERRCODE='55000';
+  END IF;
+  GRANT composer_owner TO rd_fact_writer WITH ADMIN FALSE, INHERIT FALSE, SET FALSE;
+  REVOKE composer_owner FROM vibe_test_owner_topology_admin;
+  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_auth_members membership
+      JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+      JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+      WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+         OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))<>1
+     OR NOT pg_catalog.pg_has_role('rd_fact_writer','composer_owner','MEMBER') THEN
+    RAISE EXCEPTION 'Composer writer membership fault graph mismatch' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_protected_owner_lease.authority_state_v1 SET phase='MEMBERSHIP_FAULT'
+   WHERE singleton AND phase='LEASED' AND lease_identity=expected_lease_identity
+     AND leased_role='composer_owner';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Composer writer membership fault advance failed' USING ERRCODE='55000'; END IF;
+  RETURN expected_lease_identity;
+END
+$function$;
+
+CREATE FUNCTION vibe_test_protected_owner_lease.restore_composer_writer_edge_v1(
+  expected_marker_identity text,
+  expected_lease_identity text
+)
+RETURNS text
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path=pg_catalog,pg_temp
+AS $function$
+DECLARE state_row vibe_test_protected_owner_lease.authority_state_v1%ROWTYPE;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Composer writer membership fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  SELECT * INTO state_row FROM vibe_test_protected_owner_lease.authority_state_v1 state
+   WHERE state.singleton AND state.marker_identity=expected_marker_identity
+     AND state.database_name=pg_catalog.current_database() FOR UPDATE;
+  IF state_row.phase IS DISTINCT FROM 'MEMBERSHIP_FAULT'
+     OR state_row.lease_identity IS DISTINCT FROM expected_lease_identity
+     OR state_row.leased_role IS DISTINCT FROM 'composer_owner' THEN
+    RAISE EXCEPTION 'Composer writer membership fault phase mismatch' USING ERRCODE='55000';
+  END IF;
+  REVOKE composer_owner FROM rd_fact_writer;
+  IF EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership
+             JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+             JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+             WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
+                OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')) THEN
+    RAISE EXCEPTION 'Composer writer membership fault cleanup failed' USING ERRCODE='55000';
+  END IF;
+  UPDATE vibe_test_protected_owner_lease.authority_state_v1
+     SET phase='READY',lease_identity=NULL,leased_role=NULL,
+         last_released_lease_identity=expected_lease_identity
+   WHERE singleton AND phase='MEMBERSHIP_FAULT' AND lease_identity=expected_lease_identity
+     AND leased_role='composer_owner';
+  IF NOT FOUND THEN RAISE EXCEPTION 'Composer writer membership fault restore failed' USING ERRCODE='55000'; END IF;
+  RETURN 'READY';
+END
+$function$;
+
+ALTER FUNCTION vibe_test_protected_owner_lease.acquire_v1(text,text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_protected_owner_lease.release_v1(text,text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_protected_owner_lease.inject_composer_writer_edge_v1(text,text) OWNER TO postgres;
+ALTER FUNCTION vibe_test_protected_owner_lease.restore_composer_writer_edge_v1(text,text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_protected_owner_lease.acquire_v1(text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_protected_owner_lease.release_v1(text,text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_protected_owner_lease.inject_composer_writer_edge_v1(text,text) FROM PUBLIC;
+REVOKE ALL ON FUNCTION vibe_test_protected_owner_lease.restore_composer_writer_edge_v1(text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_protected_owner_lease.acquire_v1(text,text,text)
+  TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_protected_owner_lease.release_v1(text,text,text)
+  TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_protected_owner_lease.inject_composer_writer_edge_v1(text,text)
+  TO vibe_test_owner_topology_admin;
+GRANT EXECUTE ON FUNCTION vibe_test_protected_owner_lease.restore_composer_writer_edge_v1(text,text)
+  TO vibe_test_owner_topology_admin;
 
 CREATE SCHEMA vibe_test_replay_policy_catalog_fault AUTHORIZATION postgres;
 REVOKE ALL ON SCHEMA vibe_test_replay_policy_catalog_fault FROM PUBLIC;
@@ -1527,6 +1891,15 @@ BEGIN
         OR state.phase<>'READY' OR state.lease_identity IS NOT NULL
   ) THEN
     RAISE EXCEPTION 'legacy Replay migration authority is not clean' USING ERRCODE='55000';
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM vibe_test_protected_owner_lease.authority_state_v1 state
+     WHERE NOT state.singleton OR state.marker_identity<>expected_marker_identity
+        OR state.database_name<>pg_catalog.current_database()
+        OR state.phase<>'READY' OR state.lease_identity IS NOT NULL
+        OR state.leased_role IS NOT NULL
+  ) THEN
+    RAISE EXCEPTION 'protected Owner test authority is not clean' USING ERRCODE='55000';
   END IF;
   SELECT state.phase,state.lease_identity,state.last_released_lease_identity
     INTO current_phase,current_lease_identity,last_released_lease_identity
@@ -2019,6 +2392,13 @@ BEGIN
   IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
      OR pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
      OR EXISTS (
+       SELECT 1 FROM vibe_test_protected_owner_lease.authority_state_v1 state
+        WHERE NOT state.singleton OR state.marker_identity<>expected_marker_identity
+           OR state.database_name<>pg_catalog.current_database()
+           OR state.phase<>'READY' OR state.lease_identity IS NOT NULL
+           OR state.leased_role IS NOT NULL
+     )
+     OR EXISTS (
        SELECT 1 FROM vibe_test_replay_policy_catalog_fault.authority_state_v1 state
         WHERE NOT state.singleton OR state.marker_identity<>expected_marker_identity
            OR state.database_name<>pg_catalog.current_database()
@@ -2438,6 +2818,7 @@ export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_pass
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export VIBE_TEST_POSTGRES_ADMIN_DATABASE_URL="postgresql://postgres:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_LEGACY_REPLAY_FAULT_DATABASE_URL="postgresql://vibe_test_legacy_replay_fault_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
@@ -2446,6 +2827,7 @@ impersonator_socket_host="${impersonator_socket_dir//\//%2F}"
 export RD_OWNER_SOCKET_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@localhost/${test_database}?host=${primary_socket_host}"
 export RD_FACT_WRITER_SOCKET_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@localhost/${test_database}?host=${primary_socket_host}"
 export RD_FACT_WRITER_IMPERSONATOR_TEST_DATABASE_URL="postgresql://rd_fact_writer:${impersonator_password}@localhost/${test_database}?host=${impersonator_socket_host}"
+export VIBE_TEST_IMPERSONATOR_POSTGRES_ADMIN_DATABASE_URL="postgresql://postgres:${impersonator_password}@localhost/${test_database}?host=${impersonator_socket_host}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
 
@@ -4291,7 +4673,7 @@ BEGIN
      OR NOT pg_catalog.has_database_privilege('backtest_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('qualification_owner', pg_catalog.current_database(), 'CONNECT')
      OR pg_catalog.has_database_privilege('operator_authorization_owner', pg_catalog.current_database(), 'CONNECT')
-     OR (SELECT count(*)<>1 OR count(*) FILTER (WHERE granted.rolname='composer_owner' AND NOT membership.admin_option AND membership.inherit_option AND membership.set_option)<>1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles administrator ON administrator.oid=membership.member JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid WHERE administrator.rolname='vibe_test_owner_topology_admin')
+     OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
      OR EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer') OR member.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer'))
      OR EXISTS (
        SELECT 1 FROM pg_catalog.unnest(ARRAY['rd_owner','rd_fact_writer','operator_authorization_writer','qualification_writer','product_edge_owner','backtest_owner']) runtime_role(role_name)
@@ -4635,7 +5017,15 @@ BEGIN
         WHERE request_identity='internal-continuity-replay-v1'
           AND request_digest='sha256:internal-continuity-request-v1'
           AND committed_at_epoch_ms=1700000000000
-          AND request_schema_version=1
+          AND request_schema_version=2
+          AND v2_canonical_request_bytes=pg_catalog.decode(
+            '00112233445566778899aabbccddeeff','hex'
+          )
+          AND v2_meaning_digest='sha256:internal-continuity-meaning-v2'
+          AND v2_seal_digest='sha256:internal-continuity-seal-v2'
+          AND v2_receipt_json=pg_catalog.jsonb_build_object(
+            'kind','internal-custody-continuity-v2-receipt','schema_version',2
+          )
      ) <> 1
   THEN
     RAISE EXCEPTION 'prior internal exploratory Replay custody was orphaned';

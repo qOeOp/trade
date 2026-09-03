@@ -866,6 +866,7 @@ impl PostgresResearchGoalOwnerV1 {
                SELECT 'role','role:rd_owner','session_identity_and_login_capabilities' WHERE NOT (
                  session_user='rd_owner' AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls))
                UNION ALL SELECT 'role','role:rd_owner','membership_isolation' WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
+               UNION ALL SELECT 'role','role:protected_owner','membership_isolation' WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
                UNION ALL SELECT 'database','database:'||pg_catalog.current_database(),'runtime_connect_without_create_or_temporary' WHERE NOT (pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CONNECT') AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY'))
                UNION ALL SELECT 'schema','schema:public','runtime_create_denied' WHERE pg_catalog.has_schema_privilege(session_user,'public','CREATE')
                UNION ALL SELECT 'role','role:rd_custodian','nologin_custodian_capabilities' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
@@ -880,7 +881,22 @@ impl PostgresResearchGoalOwnerV1 {
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
-                    WHERE namespace.nspname='rd_owner_api')
+                    WHERE namespace.nspname='rd_owner_api'
+                    GROUP BY namespace.nspowner)
+               UNION ALL SELECT 'routine','routine:pg_catalog.pg_control_system()','underlying_exact_acl_manifest' WHERE NOT EXISTS (
+                 SELECT 1
+                   FROM pg_catalog.pg_proc routine
+                  WHERE routine.oid=pg_catalog.to_regprocedure('pg_catalog.pg_control_system()')
+                    AND (SELECT count(*)=2
+                                AND count(*) FILTER (WHERE acl.grantor=routine.proowner
+                                                      AND acl.grantee=routine.proowner
+                                                      AND acl.privilege_type='EXECUTE'
+                                                      AND NOT acl.is_grantable)=1
+                                AND count(*) FILTER (WHERE acl.grantor=routine.proowner
+                                                      AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+                                                      AND acl.privilege_type='EXECUTE'
+                                                      AND NOT acl.is_grantable)=1
+                           FROM pg_catalog.aclexplode(routine.proacl) acl))
                UNION ALL SELECT 'relation','relation:public.'||name,'exists' FROM relation_state WHERE oid IS NULL
                UNION ALL SELECT 'relation','relation:public.'||name,'ordinary_persistent_without_row_security_or_extensions' FROM relation_state WHERE oid IS NOT NULL AND NOT (relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND no_user_triggers AND no_rewrites AND no_policies)
                UNION ALL SELECT 'relation','relation:public.'||name,'custodian_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM 'rd_custodian'
@@ -3359,6 +3375,16 @@ mod tests {
             )
         );
         assert!(validation.contains("acl.grantee<>relation.relowner"));
+        assert!(validation.contains("GROUP BY namespace.nspowner"));
+        assert!(
+            validation
+                .contains("routine:pg_catalog.pg_control_system()','underlying_exact_acl_manifest")
+        );
+        assert!(validation.contains("AND (SELECT count(*)=2"));
+        assert!(validation.contains("FROM pg_catalog.aclexplode(routine.proacl) acl"));
+        assert!(validation.contains("acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid"));
+        assert!(validation.contains("acl.privilege_type='EXECUTE'"));
+        assert!(validation.contains("NOT acl.is_grantable"));
         assert!(validation.contains(
             "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable"
         ));

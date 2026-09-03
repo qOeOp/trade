@@ -1277,6 +1277,7 @@ impl ProductEdgePostgresOwnerV1 {
         let mut transaction = begin_repeatable_read(&pool).await?;
         let runtime_authority_is_exact: bool = sqlx::query_scalar(
             "SELECT session_user='product_edge_owner'
+               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
                AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
                AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
                AND EXISTS (
@@ -1296,7 +1297,8 @@ impl ProductEdgePostgresOwnerV1 {
                           AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('portfolio_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
-                    WHERE namespace.nspname='product_edge_api')
+                    WHERE namespace.nspname='product_edge_api'
+                    GROUP BY namespace.nspowner)
                AND (SELECT count(*)=4
                           AND pg_catalog.pg_get_userbyid(namespace.nspowner)='operator_authorization_owner'
                           AND count(*) FILTER (WHERE acl.grantor=namespace.nspowner AND acl.grantee=namespace.nspowner AND acl.privilege_type IN ('CREATE','USAGE') AND NOT acl.is_grantable)=2
@@ -1304,7 +1306,8 @@ impl ProductEdgePostgresOwnerV1 {
                           AND count(*) FILTER (WHERE acl.grantor=namespace.nspowner AND acl.grantee=pg_catalog.to_regrole('product_edge_custodian')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
-                    WHERE namespace.nspname='operator_authorization_api')
+                    WHERE namespace.nspname='operator_authorization_api'
+                    GROUP BY namespace.nspowner)
                AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine
                             JOIN pg_catalog.pg_roles owner ON owner.oid=routine.proowner
                            WHERE routine.oid=pg_catalog.to_regprocedure('operator_authorization_api.lock_current_authorization_v1(text,text)')
@@ -5639,7 +5642,76 @@ mod tests {
         PortfolioResourceGrantSuccessorProposalV1, PortfolioResourceModeV1, PortfolioResourceV1,
         ProductEdgeManifestBindingV1,
     };
-    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1, ProtectedOwnerTestRoleV1,
+    };
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical OA/PE/R&D PostgreSQL topology"]
+    async fn runtime_rejects_third_party_protected_owner_membership_and_recovers() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let database_url = database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let trust = ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "protected-membership-test-issuer".into(),
+            issuer_key_version: "protected-membership-test-key".into(),
+            audience: "PRODUCT_EDGE".into(),
+        };
+        ProductEdgePostgresOwnerV1::connect_existing(
+            database_url,
+            "protected-membership-positive",
+            trust.clone(),
+        )
+        .await
+        .expect("positive zero-edge Product Edge topology");
+        let mutation = database.mutation();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let counts_before: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM product_edge_request_admissions_v1),
+                    (SELECT count(*) FROM product_edge_owner_outbox_v1),
+                    (SELECT count(*) FROM product_edge_admission_event_stream_v1),
+                    (SELECT count(*) FROM product_edge_admission_events_v1)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("Product Edge business fingerprint before membership fault");
+        let fault = database
+            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::ComposerOwner)
+            .await
+            .expect("protected membership fault authority")
+            .inject_composer_writer_edge()
+            .await
+            .expect("inject third-party protected membership");
+
+        assert!(matches!(
+            ProductEdgePostgresOwnerV1::connect_existing(
+                database_url,
+                "protected-membership-negative",
+                trust.clone(),
+            )
+            .await,
+            Err(ProductEdgeError::Unavailable)
+        ));
+        let counts_during: (i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM product_edge_request_admissions_v1),
+                    (SELECT count(*) FROM product_edge_owner_outbox_v1),
+                    (SELECT count(*) FROM product_edge_admission_event_stream_v1),
+                    (SELECT count(*) FROM product_edge_admission_events_v1)",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("Product Edge business fingerprint during membership fault");
+        assert_eq!(counts_during, counts_before);
+        fault.restore().await.expect("restore protected membership");
+        ProductEdgePostgresOwnerV1::connect_existing(
+            database_url,
+            "protected-membership-recovered",
+            trust,
+        )
+        .await
+        .expect("Product Edge topology recovers after membership cleanup");
+    }
 
     #[rstest]
     #[tokio::test]
