@@ -492,10 +492,10 @@ impl PostgresResearchGoalOwnerV1 {
             .max_connections(1)
             .connect(database_url)
             .await
-            .map_err(|error| storage(&error))?;
+            .map_err(|e| storage(&e))?;
         if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
             .await
-            .map_err(|error| storage(&error))?
+            .map_err(|e| storage(&e))?
         {
             return Err(ResearchGoalOwnerError::Storage(
                 "pre-cutover R&D schema materialization is unavailable".to_owned(),

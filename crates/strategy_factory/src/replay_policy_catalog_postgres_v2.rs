@@ -738,6 +738,8 @@ fn unavailable(error: impl Display) -> ReplayPolicyCatalogErrorV2 {
 
 #[cfg(test)]
 mod postgres_tests {
+    use rstest::rstest;
+
     use super::*;
     use crate::{
         product_edge::{ResearchRequestDisposition, ResearchRequestReceiptV1},
@@ -749,7 +751,7 @@ mod postgres_tests {
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
-    #[test]
+    #[rstest]
     fn catalog_rule_manifest_is_closed_across_migration_connect_and_runtime() {
         let source = include_str!("replay_policy_catalog_postgres_v2.rs");
         assert!(AUTHORITY_MIGRATION_SQL.contains(

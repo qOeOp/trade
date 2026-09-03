@@ -3,6 +3,7 @@
 //! This module contains no selection fallback and no administration surface. PostgreSQL custody is
 //! the only authority that may create records or resolve the current head for family formation.
 
+use rstest::rstest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -76,7 +77,7 @@ impl ReplayPolicyCatalogBindingV2 {
             REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DIGEST_V2,
             policy
                 .canonical_bytes()
-                .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?,
+                .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?,
         )
     }
 
@@ -88,11 +89,13 @@ impl ReplayPolicyCatalogBindingV2 {
         policy_canonical_bytes: Vec<u8>,
     ) -> Result<Self, ReplayPolicyCatalogErrorV2> {
         require_ascii_identity(catalog_record_id, "catalog record identity")?;
+
         if catalog_version == 0 {
             return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
                 "catalog version must be nonzero",
             ));
         }
+
         if policy_grammar_parser_id != REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_ID_V2
             || policy_grammar_parser_digest != REPLAY_EXECUTION_POLICY_GRAMMAR_PARSER_DIGEST_V2
         {
@@ -101,10 +104,10 @@ impl ReplayPolicyCatalogBindingV2 {
             ));
         }
         let policy = ReplayExecutionPolicyV2::parse_canonical(&policy_canonical_bytes)
-            .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
         let policy_digest = policy
             .policy_digest()
-            .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
         let canonical_record_bytes = canonical_record_bytes(
             catalog_record_id,
             catalog_version,
@@ -135,13 +138,14 @@ impl ReplayPolicyCatalogBindingV2 {
             self.policy_grammar_parser_digest,
             self.policy_canonical_bytes.clone(),
         )?;
+
         if &expected != self {
             return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
                 "catalog record digest mismatch",
             ));
         }
         ReplayExecutionPolicyV2::parse_canonical(&self.policy_canonical_bytes)
-            .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))
     }
 }
 
@@ -210,7 +214,7 @@ mod tests {
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
     };
 
-    #[test]
+    #[rstest]
     fn record_cross_binding_rejects_every_tampered_component() {
         let record = ReplayPolicyCatalogBindingV2::from_policy("catalog-policy-v2-a", 1, &policy())
             .expect("record");

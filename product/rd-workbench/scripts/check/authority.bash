@@ -17,8 +17,8 @@ grep -Fq 'command: ["--materialize-schema"]' "$package_dir/docker-compose.yml"
 grep -Fq 'condition: service_completed_successfully' "$package_dir/docker-compose.yml"
 sealed_compose="$package_dir/docker-compose.source-intake-sealed-acceptance.yml"
 test "$(grep -Fc 'profiles: !override []' "$sealed_compose")" -eq 3
-grep -Fq 'QUALIFICATION_OWNER_DB_PASSWORD: ${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}' "$sealed_compose"
-grep -Fq 'BACKTEST_OWNER_DB_PASSWORD: ${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}' "$sealed_compose"
+grep -Fq "QUALIFICATION_OWNER_DB_PASSWORD: \${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}" "$sealed_compose"
+grep -Fq "BACKTEST_OWNER_DB_PASSWORD: \${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}" "$sealed_compose"
 grep -A18 -F 'authority-custody-migrate:' "$sealed_compose" |
   grep -Fq 'schema-materialize:'
 grep -Fq 'materialize_schema(&database_url)' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"

@@ -183,6 +183,7 @@ impl PostgresArtifactBuildOwnerV1 {
             .connect(database_url)
             .await
             .map_err(storage)?;
+
         if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
             .await
             .map_err(storage)?

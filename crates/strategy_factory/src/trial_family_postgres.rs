@@ -58,7 +58,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
         .await
-        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
 }
 
@@ -280,6 +280,7 @@ pub(crate) async fn load_trial_family_in_transaction(
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+
     match schema_version {
         1 => {}
         2 => {
@@ -297,6 +298,7 @@ pub(crate) async fn load_trial_family_in_transaction(
             ));
         }
     }
+
     if member_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census incomplete".to_string(),
@@ -339,6 +341,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if head.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head missing".to_string(),
@@ -379,6 +382,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     let prior_member_count = prior.as_ref().map_or(1, |readback| readback.members.len());
     let next = append_attempt_to_census_v2(legacy_family, prior.as_ref(), append, now_epoch_ms)?;
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
+
     for (member, receipt) in next
         .members
         .iter()
@@ -421,6 +425,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if updated.rows_affected() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head changed concurrently".to_string(),
@@ -467,6 +472,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if roots.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family root missing".to_string(),
@@ -488,6 +494,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 family census incomplete".to_string(),
@@ -511,10 +518,12 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
     let mut members = vec![initial_member];
     let mut receipts = vec![initial_receipt];
+
     for row in member_rows.iter().skip(1) {
         let member_json = row.try_get("member_json").map_err(storage)?;
         let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
         let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
+
         if row
             .try_get::<String, _>("member_identity")
             .map_err(storage)?
@@ -536,6 +545,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         receipts.push(receipt);
     }
     let mut latest = None;
+
     for (index, row) in cut_rows.iter().enumerate() {
         let census: TrialFamilyCensusFrontierV2 =
             decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
@@ -772,6 +782,7 @@ async fn verify_census_outbox_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 census outbox missing".to_string(),

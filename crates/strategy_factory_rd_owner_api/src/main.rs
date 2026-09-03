@@ -1574,7 +1574,7 @@ mod tests {
 
     use super::*;
 
-    #[test]
+    #[rstest]
     fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {
         assert!(!schema_materialization_requested(&[]).unwrap());
         assert!(schema_materialization_requested(&["--materialize-schema".to_owned()]).unwrap());

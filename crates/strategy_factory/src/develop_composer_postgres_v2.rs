@@ -1457,7 +1457,9 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    #[test]
+    use rstest::rstest;
+
+    #[rstest]
     fn composer_authority_rejects_public_execute_on_commit() {
         let source = include_str!("develop_composer_postgres_v2.rs");
         let read_authority = source
