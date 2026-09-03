@@ -26,6 +26,117 @@ use vibe_strategy_factory::source_intake::{
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
 const MAX_IDENTITY_BYTES: usize = 192;
 
+#[cfg(feature = "sealed-source-intake-acceptance")]
+const SOURCE_INTAKE_RELATIONS: &[&str] = &[
+    "rd_research_source_provenance_v1",
+    "rd_source_candidates_v1",
+    "rd_source_intake_bindings_v1",
+    "rd_source_intake_receipts_v1",
+    "rd_source_raw_payloads_v1",
+    "rd_source_raw_receipt_links_v1",
+];
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+const SOURCE_INTAKE_RELATION_CUSTODY: &[&str] = &[
+    "rd_research_source_provenance_v1:r:p:rd_owner",
+    "rd_source_candidates_v1:r:p:rd_owner",
+    "rd_source_intake_bindings_v1:r:p:rd_owner",
+    "rd_source_intake_receipts_v1:r:p:rd_owner",
+    "rd_source_raw_payloads_v1:r:p:rd_owner",
+    "rd_source_raw_receipt_links_v1:r:p:rd_owner",
+];
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+const SOURCE_INTAKE_COLUMN_SHAPE: &[&str] = &[
+    "rd_research_source_provenance_v1:1:provenance_identity:text:true:false::",
+    "rd_research_source_provenance_v1:2:receipt_identity:text:true:false::",
+    "rd_research_source_provenance_v1:3:content_digest:text:true:false::",
+    "rd_research_source_provenance_v1:4:provenance_json:jsonb:true:false::",
+    "rd_research_source_provenance_v1:5:predecessor_provenance_identity:text:false:true::s",
+    "rd_research_source_provenance_v1:6:canonical_source_origin:text:false:true::s",
+    "rd_research_source_provenance_v1:7:source_class:text:false:true::s",
+    "rd_research_source_provenance_v1:8:author_or_originating_system:text:false:true::s",
+    "rd_research_source_provenance_v1:9:publication_time_epoch_ms:bigint:false:true::s",
+    "rd_research_source_provenance_v1:10:revision_identity:text:false:true::s",
+    "rd_research_source_provenance_v1:11:raw_content_digest:text:false:true::s",
+    "rd_research_source_provenance_v1:12:retrieval_time_head_digest:text:false:true::s",
+    "rd_research_source_provenance_v1:13:rights_policy_version:text:false:true::s",
+    "rd_research_source_provenance_v1:14:retention_policy_version:text:false:true::s",
+    "rd_research_source_provenance_v1:15:interpretation_status:text:false:true::s",
+    "rd_source_candidates_v1:1:candidate_identity:text:true:false::",
+    "rd_source_candidates_v1:2:provenance_identity:text:true:false::",
+    "rd_source_candidates_v1:3:candidate_json:jsonb:true:false::",
+    "rd_source_intake_bindings_v1:1:request_identity:text:true:false::",
+    "rd_source_intake_bindings_v1:2:binding_identity:text:true:false::",
+    "rd_source_intake_bindings_v1:3:binding_commit_identity:text:true:false::",
+    "rd_source_intake_bindings_v1:4:binding_json:jsonb:true:false::",
+    "rd_source_intake_bindings_v1:5:state:text:true:false::",
+    "rd_source_intake_bindings_v1:6:binding_committed_at_epoch_ms:bigint:true:false::",
+    "rd_source_intake_bindings_v1:7:product_edge_started_receipt_identity:text:false:false::",
+    "rd_source_intake_bindings_v1:8:product_edge_started_json:jsonb:false:false::",
+    "rd_source_intake_bindings_v1:9:invocation_identity:text:false:false::",
+    "rd_source_intake_bindings_v1:10:terminal_receipt_identity:text:false:false::",
+    "rd_source_intake_receipts_v1:1:receipt_identity:text:true:false::",
+    "rd_source_intake_receipts_v1:2:request_identity:text:true:false::",
+    "rd_source_intake_receipts_v1:3:terminal:text:true:false::",
+    "rd_source_intake_receipts_v1:4:response_status:smallint:false:false::",
+    "rd_source_intake_receipts_v1:5:response_header_digest:text:false:false::",
+    "rd_source_intake_receipts_v1:6:content_digest:text:false:false::",
+    "rd_source_intake_receipts_v1:7:receipt_json:jsonb:true:false::",
+    "rd_source_intake_receipts_v1:8:attempt_identity:text:false:true::s",
+    "rd_source_intake_receipts_v1:9:terminal_evidence_identity:text:false:true::s",
+    "rd_source_intake_receipts_v1:10:terminal_evidence_digest:text:false:true::s",
+    "rd_source_intake_receipts_v1:11:connected_address:inet:false:true::s",
+    "rd_source_intake_receipts_v1:12:response_media_type:text:false:true::s",
+    "rd_source_intake_receipts_v1:13:response_size_bytes:bigint:false:true::s",
+    "rd_source_intake_receipts_v1:14:shared_time_head_digest:text:false:true::s",
+    "rd_source_intake_receipts_v1:15:committed_at_epoch_ms:bigint:true:false::",
+    "rd_source_raw_payloads_v1:1:content_digest:text:true:false::",
+    "rd_source_raw_payloads_v1:2:raw_payload:bytea:true:false::",
+    "rd_source_raw_receipt_links_v1:1:receipt_identity:text:true:false::",
+    "rd_source_raw_receipt_links_v1:2:terminal:text:true:true::",
+    "rd_source_raw_receipt_links_v1:3:content_digest:text:true:false::",
+];
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceIntakeRelationFamilyState {
+    FullyAbsent,
+    Complete,
+    Incompatible,
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+struct SourceIntakeRelationFamilyShape {
+    relation_custody: Vec<String>,
+    columns: Vec<String>,
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+fn classify_source_intake_relation_family(
+    observed: &SourceIntakeRelationFamilyShape,
+) -> SourceIntakeRelationFamilyState {
+    if observed.relation_custody.is_empty() {
+        SourceIntakeRelationFamilyState::FullyAbsent
+    } else if observed.relation_custody.len() == SOURCE_INTAKE_RELATION_CUSTODY.len()
+        && observed
+            .relation_custody
+            .iter()
+            .map(String::as_str)
+            .eq(SOURCE_INTAKE_RELATION_CUSTODY.iter().copied())
+        && observed.columns.len() == SOURCE_INTAKE_COLUMN_SHAPE.len()
+        && observed
+            .columns
+            .iter()
+            .map(String::as_str)
+            .eq(SOURCE_INTAKE_COLUMN_SHAPE.iter().copied())
+    {
+        SourceIntakeRelationFamilyState::Complete
+    } else {
+        SourceIntakeRelationFamilyState::Incompatible
+    }
+}
+
 #[async_trait]
 trait SourceIntakeOwnerPort: Send + Sync {
     async fn run(
@@ -95,7 +206,7 @@ pub(super) async fn sealed_acceptance_router(
         .max_connections(8)
         .connect(database_url)
         .await?;
-    install_sealed_source_intake_schema(&owner_pool).await?;
+    require_sealed_source_intake_schema(&owner_pool).await?;
     let environment =
         SealedSourceIntakeEnvironmentV1::new(product_edge, owner_pool, request_proof_digest)
             .map_err(|_| anyhow::anyhow!("invalid sealed Source Intake environment"))?;
@@ -108,39 +219,101 @@ pub(super) async fn sealed_acceptance_router(
 }
 
 #[cfg(feature = "sealed-source-intake-acceptance")]
-async fn install_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> anyhow::Result<()> {
-    // Each acceptance run owns one disposable database. The transaction lock and sentinel make
-    // process restart safe without treating this non-idempotent corpus as a production migrator.
+async fn inspect_source_intake_relation_family(
+    connection: &mut sqlx::PgConnection,
+) -> anyhow::Result<SourceIntakeRelationFamilyShape> {
+    let (relation_custody, columns): (Vec<String>, Vec<String>) = sqlx::query_as(
+        "SELECT
+           ARRAY(
+             SELECT relation.relname||':'||relation.relkind||':'||relation.relpersistence||':'||
+                    pg_catalog.pg_get_userbyid(relation.relowner)
+               FROM pg_catalog.pg_class relation
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+              WHERE namespace.nspname='public' AND relation.relname=ANY($1)
+              ORDER BY relation.relname
+           ),
+           ARRAY(
+             SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||
+                    pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||
+                    attribute.attnotnull||':'||attribute.atthasdef||':'||attribute.attidentity||':'||
+                    attribute.attgenerated
+               FROM pg_catalog.pg_class relation
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+               JOIN pg_catalog.pg_attribute attribute
+                 ON attribute.attrelid=relation.oid
+                AND attribute.attnum>0
+                AND NOT attribute.attisdropped
+              WHERE namespace.nspname='public' AND relation.relname=ANY($1)
+              ORDER BY relation.relname,attribute.attnum
+           )",
+    )
+    .bind(SOURCE_INTAKE_RELATIONS)
+    .fetch_one(connection)
+    .await
+    .context("inspect sealed Source Intake relation family")?;
+    Ok(SourceIntakeRelationFamilyShape {
+        relation_custody,
+        columns,
+    })
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+async fn locked_sealed_source_intake_schema(
+    owner_pool: &sqlx::PgPool,
+    materialize_fully_absent: bool,
+) -> anyhow::Result<()> {
     let mut transaction = owner_pool
         .begin()
         .await
-        .context("begin sealed Source Intake schema bootstrap")?;
+        .context("begin sealed Source Intake schema validation")?;
     sqlx::query(
         "SELECT pg_advisory_xact_lock(hashtextextended('vibe.sealed-source-intake-schema-v1', 0))",
     )
     .execute(&mut *transaction)
     .await
-    .context("lock sealed Source Intake schema bootstrap")?;
-    let installed: bool =
-        sqlx::query_scalar("SELECT to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL")
-            .fetch_one(&mut *transaction)
-            .await
-            .context("inspect sealed Source Intake schema bootstrap")?;
+    .context("lock sealed Source Intake schema validation")?;
 
-    if !installed {
-        for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
-            sqlx::query(*statement)
-                .execute(&mut *transaction)
-                .await
-                .with_context(|| {
-                    format!("apply sealed Source Intake migration statement {index}")
-                })?;
+    let observed_shape = inspect_source_intake_relation_family(&mut transaction).await?;
+    match classify_source_intake_relation_family(&observed_shape) {
+        SourceIntakeRelationFamilyState::Complete => {}
+        SourceIntakeRelationFamilyState::FullyAbsent if materialize_fully_absent => {
+            for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
+                sqlx::query(*statement)
+                    .execute(&mut *transaction)
+                    .await
+                    .with_context(|| {
+                        format!("apply sealed Source Intake migration statement {index}")
+                    })?;
+            }
+            let materialized_shape =
+                inspect_source_intake_relation_family(&mut transaction).await?;
+            anyhow::ensure!(
+                classify_source_intake_relation_family(&materialized_shape)
+                    == SourceIntakeRelationFamilyState::Complete,
+                "sealed Source Intake materialization did not produce the expected relation family"
+            );
+        }
+        SourceIntakeRelationFamilyState::FullyAbsent => {
+            anyhow::bail!("sealed Source Intake relation family is not materialized")
+        }
+        SourceIntakeRelationFamilyState::Incompatible => {
+            anyhow::bail!("sealed Source Intake relation family is partial or malformed")
         }
     }
     transaction
         .commit()
         .await
-        .context("commit sealed Source Intake schema bootstrap")
+        .context("commit sealed Source Intake schema validation")
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+async fn require_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    locked_sealed_source_intake_schema(owner_pool, false).await
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+async fn materialize_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    locked_sealed_source_intake_schema(owner_pool, true).await
 }
 
 #[cfg(feature = "sealed-source-intake-acceptance")]
@@ -149,7 +322,7 @@ pub(super) async fn materialize_schema(database_url: &str) -> anyhow::Result<()>
         .max_connections(1)
         .connect(database_url)
         .await?;
-    install_sealed_source_intake_schema(&pool).await
+    materialize_sealed_source_intake_schema(&pool).await
 }
 
 fn router(state: SourceIntakeApiState) -> Router {
@@ -422,24 +595,87 @@ mod tests {
 
     #[cfg(feature = "sealed-source-intake-acceptance")]
     #[rstest]
-    fn sealed_schema_bootstrap_is_transactional_and_precedes_environment_construction() {
+    fn sealed_runtime_validates_schema_without_materializing() {
         let source = include_str!("source_intake.rs")
             .split("#[cfg(test)]")
             .next()
             .expect("production module");
-        let install_call = source
-            .find("install_sealed_source_intake_schema(&owner_pool).await?")
-            .expect("acceptance schema install call");
+        let validation_call = source
+            .find("require_sealed_source_intake_schema(&owner_pool).await?")
+            .expect("acceptance schema validation call");
         let environment = source
             .find("let environment =")
             .expect("acceptance environment construction");
-        assert!(install_call < environment);
+        assert!(validation_call < environment);
+        let runtime_validation = source
+            .split("async fn require_sealed_source_intake_schema")
+            .nth(1)
+            .expect("runtime validation function")
+            .split("async fn materialize_sealed_source_intake_schema")
+            .next()
+            .expect("runtime validation body");
+        assert!(
+            runtime_validation.contains("locked_sealed_source_intake_schema(owner_pool, false)")
+        );
+        assert!(!runtime_validation.contains("SOURCE_INTAKE_MIGRATION_SQL_V1"));
+    }
+
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    #[rstest]
+    fn sealed_schema_family_decisions_fail_closed() {
+        assert_eq!(
+            classify_source_intake_relation_family(&SourceIntakeRelationFamilyShape {
+                relation_custody: Vec::new(),
+                columns: Vec::new(),
+            }),
+            SourceIntakeRelationFamilyState::FullyAbsent
+        );
+        assert_eq!(
+            classify_source_intake_relation_family(&SourceIntakeRelationFamilyShape {
+                relation_custody: vec![SOURCE_INTAKE_RELATION_CUSTODY[0].to_owned()],
+                columns: vec![SOURCE_INTAKE_COLUMN_SHAPE[0].to_owned()],
+            }),
+            SourceIntakeRelationFamilyState::Incompatible
+        );
+        let complete = SourceIntakeRelationFamilyShape {
+            relation_custody: SOURCE_INTAKE_RELATION_CUSTODY
+                .iter()
+                .map(|shape| (*shape).to_owned())
+                .collect(),
+            columns: SOURCE_INTAKE_COLUMN_SHAPE
+                .iter()
+                .map(|shape| (*shape).to_owned())
+                .collect(),
+        };
+        assert_eq!(
+            classify_source_intake_relation_family(&complete),
+            SourceIntakeRelationFamilyState::Complete
+        );
+        let mut malformed = complete;
+        malformed.columns[0].push_str(":unexpected");
+        assert_eq!(
+            classify_source_intake_relation_family(&malformed),
+            SourceIntakeRelationFamilyState::Incompatible
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    #[rstest]
+    fn sealed_schema_validation_is_transactional_and_materialization_is_explicit() {
+        let source = include_str!("source_intake.rs")
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production module");
         assert!(source.contains("let mut transaction = owner_pool"));
         assert!(source.contains("pg_advisory_xact_lock"));
-        assert!(source.contains("to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL"));
-        assert!(source.contains("if !installed"));
+        assert!(
+            source.contains(
+                "SourceIntakeRelationFamilyState::FullyAbsent if materialize_fully_absent"
+            )
+        );
         assert!(source.contains("for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1"));
         assert!(source.contains(".execute(&mut *transaction)"));
+        assert!(source.contains("relation family is partial or malformed"));
         assert!(source.contains("transaction\n        .commit()"));
     }
 }
