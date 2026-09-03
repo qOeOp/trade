@@ -225,7 +225,8 @@ async fn inspect_source_intake_relation_family(
     let (relation_custody, columns): (Vec<String>, Vec<String>) = sqlx::query_as(
         "SELECT
            ARRAY(
-             SELECT relation.relname||':'||relation.relkind||':'||relation.relpersistence||':'||
+             SELECT relation.relname||':'||relation.relkind::pg_catalog.text||':'||
+                    relation.relpersistence::pg_catalog.text||':'||
                     pg_catalog.pg_get_userbyid(relation.relowner)
                FROM pg_catalog.pg_class relation
                JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -235,8 +236,9 @@ async fn inspect_source_intake_relation_family(
            ARRAY(
              SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||
                     pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||
-                    attribute.attnotnull||':'||attribute.atthasdef||':'||attribute.attidentity||':'||
-                    attribute.attgenerated
+                    attribute.attnotnull||':'||attribute.atthasdef||':'||
+                    attribute.attidentity::pg_catalog.text||':'||
+                    attribute.attgenerated::pg_catalog.text
                FROM pg_catalog.pg_class relation
                JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
                JOIN pg_catalog.pg_attribute attribute
