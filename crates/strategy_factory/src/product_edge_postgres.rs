@@ -275,7 +275,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
         ],
         constraints: &[
-            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):acs:false:false:true:",
+            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):a:c:s:false:false:true:",
             "p:basis_identity:::false:false:true:",
             "u:request_identity:::false:false:true:",
         ],
