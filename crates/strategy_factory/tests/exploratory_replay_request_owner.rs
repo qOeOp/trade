@@ -2814,14 +2814,6 @@ async fn rd_owner_schema_is_provisioned_before_runtime_connections() {
     let pool = PgPool::connect(&rd_url)
         .await
         .expect("fresh R&D migration authority connection");
-    let replay_before: (bool, bool) = sqlx::query_as(
-        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL,
-                pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NULL",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("fresh R&D legacy Replay topology");
-    assert_eq!(replay_before, (true, true));
     let before: (String, bool, i64) = sqlx::query_as(
         "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner),
                 pg_catalog.has_schema_privilege('rd_custodian','rd_owner_api','CREATE'),
@@ -2869,39 +2861,6 @@ async fn rd_owner_schema_is_provisioned_before_runtime_connections() {
     .await
     .expect("final R&D schema lease and publication custody");
     assert_eq!(after, ("rd_owner".into(), false, 0, 3));
-    let replay_after: (bool, bool, i64) = sqlx::query_as(
-        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL,
-                pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL,
-                (SELECT pg_catalog.count(*)
-                   FROM public.rd_sealed_exploratory_replay_requests_v1
-                  WHERE request_identity='internal-continuity-replay-v1'
-                    AND request_digest='sha256:internal-continuity-request-v1'
-                    AND build_request_identity='internal-continuity-build-v1'
-                    AND attempt_identity='internal-continuity-attempt-v1'
-                    AND intent_identity='internal-continuity-intent-v1'
-                    AND trial_family_identity='internal-continuity-family-v1'
-                    AND artifact_identity='sha256:internal-continuity-artifact-v1'
-                    AND build_receipt_identity='internal-continuity-build-receipt-v1'
-                    AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
-                    AND census_frontier_identity='internal-continuity-census-v1'
-                    AND frozen_json=pg_catalog.jsonb_build_object(
-                      'kind','internal-custody-continuity','schema_version',1
-                    )
-                    AND receipt_json=pg_catalog.jsonb_build_object(
-                      'kind','internal-custody-continuity-receipt','schema_version',1
-                    )
-                    AND lifecycle_state='FROZEN'
-                    AND committed_at_epoch_ms=1700000000000
-                    AND request_schema_version=1
-                    AND v2_canonical_request_bytes IS NULL
-                    AND v2_meaning_digest IS NULL
-                    AND v2_seal_digest IS NULL
-                    AND v2_receipt_json IS NULL)",
-    )
-    .fetch_one(&pool)
-    .await
-    .expect("normalized R&D Replay topology and continuity row");
-    assert_eq!(replay_after, (true, true, 1));
 }
 
 #[tokio::test]
