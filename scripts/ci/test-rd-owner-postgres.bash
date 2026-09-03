@@ -268,30 +268,28 @@ for function_name, constant_name in functions.items():
 test_loop = script.rsplit(
     "# The first two filters exercise explicit legacy/origin migration", 1
 )[1]
-if "GRANT CREATE ON SCHEMA public TO rd_owner;" in test_loop:
+migration_loop = test_loop
+if "GRANT CREATE ON SCHEMA public TO rd_owner;" in migration_loop:
     raise SystemExit("ERROR: legacy migration loop exposes raw public CREATE authority")
-if "GRANT rd_custodian TO rd_owner;" in test_loop:
+if "GRANT rd_custodian TO rd_owner;" in migration_loop:
     raise SystemExit("ERROR: legacy migration loop exposes raw custodian membership")
 release = "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')"
-if release not in test_loop or test_loop.index(release) > test_loop.index('if [[ "$test_passed" != true ]]'):
+if release not in migration_loop or migration_loop.index(release) > migration_loop.index('if [[ "$test_passed" != true ]]'):
     raise SystemExit("ERROR: legacy migration lease is not released before test failure exits")
 grant_connect = 'GRANT CONNECT ON DATABASE :"migration_database" TO vibe_test_legacy_migration_caller;'
 revoke_connect = 'REVOKE CONNECT ON DATABASE :"migration_database" FROM vibe_test_legacy_migration_caller;'
-if test_loop.count(grant_connect) != 1 or test_loop.count(revoke_connect) != 1:
+if migration_loop.count(grant_connect) != 1 or migration_loop.count(revoke_connect) != 1:
     raise SystemExit("ERROR: legacy migration caller CONNECT window is not unique")
 if not (
-    test_loop.index(grant_connect) < test_loop.index("test_passed=false")
-    and test_loop.index(release) < test_loop.index(revoke_connect)
-    and test_loop.index(revoke_connect)
-    < test_loop.index('run_authority_migration_for_database "$migration_database"')
+    migration_loop.index(grant_connect) < migration_loop.index("test_passed=false")
+    and migration_loop.index(release) < migration_loop.index(revoke_connect)
+    and migration_loop.index(revoke_connect)
+    < migration_loop.index('run_authority_migration_for_database "$migration_database"')
 ):
     raise SystemExit("ERROR: legacy migration caller CONNECT window is not bounded by release")
 
-fixture_start = script.find(
-    "\nCREATE TABLE public.rd_exploratory_replay_request_custody_v1 ("
-)
 normalization_start = script.find(
-    "\nreadonly legacy_normalization_lease_identity=", fixture_start
+    '\nreadonly legacy_normalization_lease_identity='
 )
 test_provision = script.find(
     '\nprovision_owner_schemas "$test_database"\n', normalization_start
@@ -302,69 +300,129 @@ origin_provision = script.find(
 production_migration = script.find(
     '\nrun_authority_migration_for_database "$test_database"\n', origin_provision
 )
-if min(
-    fixture_start,
-    normalization_start,
-    test_provision,
-    origin_provision,
-    production_migration,
-) < 0 or not (
-    fixture_start
-    < normalization_start
-    < test_provision
-    < origin_provision
-    < production_migration
-):
-    raise SystemExit(
-        "ERROR: legacy normalization must precede owner provision and production migration"
-    )
-
-fixture = script[fixture_start:normalization_start]
-ordered_fixture = (
-    "CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (",
-    "INSERT INTO public.rd_exploratory_replay_request_custody_v1 (",
-    "'internal-continuity-replay-v1'",
-)
-position = -1
-for required in ordered_fixture:
-    position = fixture.find(required, position + 1)
-    if position < 0:
-        raise SystemExit(
-            f"ERROR: shared legacy normalization fixture is missing or reordered: {required}"
-        )
-if "INSERT INTO public.rd_sealed_exploratory_replay_requests_v1" in fixture:
-    raise SystemExit("ERROR: pre-migration continuity row targets absent sealed storage")
+if min(normalization_start, test_provision, origin_provision, production_migration) < 0:
+    raise SystemExit("ERROR: isolated legacy normalization lifecycle is unavailable")
 
 normalization = script[normalization_start:test_provision]
 ordered_normalization = (
-    'legacy-replay-migration:${test_marker}:pre-authority-normalization:v1',
-    'test(=product_edge_postgres::tests::legacy_rd_owner_storage_is_normalized_before_authority_migration)',
-    "vibe_test_legacy_migration_lease.acquire_v1(:'test_marker',:'lease_identity')",
-    'RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
-    'QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
-    'VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_normalization_migration_url"',
-    'VIBE_TEST_LEGACY_MIGRATION_LEASE_IDENTITY="$legacy_normalization_lease_identity"',
+    'legacy-replay-migration:${test_marker}:pre-authority-normalization:v2',
+    'legacy_normalization_cleanup_armed=true',
+    'CREATE DATABASE :"legacy_database" OWNER rd_database_owner;',
+    'CREATE SCHEMA vibe_test_legacy_normalization AUTHORIZATION postgres;',
+    "VALUES (true,:'test_marker',:'legacy_database');",
+    'CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;',
+    'CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (',
+    "'internal-continuity-replay-v1'",
+    'CREATE SCHEMA vibe_test_legacy_normalization_cluster AUTHORIZATION postgres;',
+    "VALUES (true,:'test_marker','READY');",
+    'CREATE FUNCTION vibe_test_legacy_normalization_cluster.acquire_v1(',
+    "OR state_row.phase<>'READY'",
+    "EXECUTE 'GRANT rd_custodian TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE';",
+    "SET phase='LEASED',target_database=requested_target,",
+    'CREATE FUNCTION vibe_test_legacy_normalization_cluster.release_v1(',
+    "EXECUTE 'REVOKE rd_custodian FROM rd_owner';",
+    "SET phase='READY',target_database=NULL,lease_identity=NULL,",
+    'REVOKE CONNECT ON DATABASE :"test_database" FROM rd_owner;',
+    'REVOKE CONNECT ON DATABASE :"origin_current_database" FROM rd_owner;',
+    'SELECT vibe_test_legacy_normalization_cluster.acquire_v1(',
+    'GRANT CREATE ON SCHEMA public TO rd_owner;',
+    'legacy_normalization_concurrent_rejection=0',
+    'RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_normalization_database}"',
     'legacy_normalization_status="$?"',
-    "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')",
-    'if [[ "$legacy_normalization_status" -ne 0 ]]; then',
+    'REVOKE CREATE ON SCHEMA public FROM rd_owner;',
+    'SELECT vibe_test_legacy_normalization_cluster.release_v1(',
+    'GRANT CONNECT ON DATABASE :"test_database" TO rd_owner;',
+    'GRANT CONNECT ON DATABASE :"origin_current_database" TO rd_owner;',
+    'DROP DATABASE :"legacy_database" WITH (FORCE);',
+    'DROP SCHEMA vibe_test_legacy_normalization_cluster CASCADE;',
+    'if [[ "$legacy_normalization_status" -ne 0 ]]',
 )
 position = -1
 for required in ordered_normalization:
     position = normalization.find(required, position + 1)
     if position < 0:
         raise SystemExit(
-            f"ERROR: legacy normalization contract is missing or reordered: {required}"
+            f"ERROR: isolated legacy normalization lifecycle is missing or reordered: {required}"
+        )
+
+if 'WITH TEMPLATE' in normalization or 'TEMPLATE :' in normalization:
+    raise SystemExit("ERROR: legacy normalization database must not be cloned")
+if normalization.count('CREATE DATABASE :"legacy_database"') != 1:
+    raise SystemExit("ERROR: legacy normalization database creation is not unique")
+if normalization.count('DROP DATABASE :"legacy_database" WITH (FORCE)') != 1:
+    raise SystemExit("ERROR: legacy normalization database cleanup is not unique")
+cleanup_function = script.find("\nrecover_legacy_normalization_topology() {")
+cleanup_call = script.find(
+    "\n  if ! recover_legacy_normalization_topology; then",
+    cleanup_function,
+)
+top_level_trap = script.find("\ntrap cleanup EXIT", cleanup_call)
+cleanup_arm = script.find(
+    "\nlegacy_normalization_cleanup_armed=true", normalization_start
+)
+first_database_effect = script.find(
+    'CREATE DATABASE :"legacy_database"', cleanup_arm
+)
+cleanup_disarm = script.find(
+    "\nlegacy_normalization_cleanup_armed=false", first_database_effect
+)
+if min(
+    cleanup_function, cleanup_call, top_level_trap, cleanup_arm,
+    first_database_effect, cleanup_disarm,
+) < 0 or not (
+    cleanup_function < cleanup_call < top_level_trap
+    < cleanup_arm < first_database_effect < cleanup_disarm
+):
+    raise SystemExit(
+        "ERROR: legacy normalization recovery must be armed before its first effect"
+    )
+recovery_body = script[cleanup_function:cleanup_call]
+for recovery_step in (
+    'REVOKE CREATE ON SCHEMA public FROM rd_owner;',
+    'REVOKE rd_custodian FROM rd_owner;',
+    "'GRANT CONNECT ON DATABASE %I TO rd_owner'",
+    'DROP DATABASE IF EXISTS :"legacy_database" WITH (FORCE);',
+    'DROP SCHEMA IF EXISTS vibe_test_legacy_normalization_cluster CASCADE;',
+):
+    if recovery_step not in recovery_body:
+        raise SystemExit(
+            f"ERROR: legacy normalization recovery omits: {recovery_step}"
         )
 if normalization.count(
-    "vibe_test_legacy_migration_lease.acquire_v1(:'test_marker',:'lease_identity')"
-) != 1:
-    raise SystemExit("ERROR: legacy normalization acquire is not unique")
+    'SELECT vibe_test_legacy_normalization_cluster.acquire_v1('
+) != 2:
+    raise SystemExit("ERROR: cluster lease must have one acquire and one concurrent rejection")
 if normalization.count(
-    "vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity')"
+    'SELECT vibe_test_legacy_normalization_cluster.release_v1('
 ) != 1:
-    raise SystemExit("ERROR: legacy normalization release is not unique")
-if "GRANT CONNECT ON DATABASE" in normalization or "REVOKE CONNECT ON DATABASE" in normalization:
-    raise SystemExit("ERROR: legacy normalization changes the existing CONNECT boundary")
+    raise SystemExit("ERROR: cluster lease release is not unique")
+if normalization.count('REVOKE CREATE ON SCHEMA public FROM rd_owner;') != 1:
+    raise SystemExit("ERROR: target CREATE release is not unique")
+if normalization.index(
+    'REVOKE CREATE ON SCHEMA public FROM rd_owner;'
+) > normalization.index(
+    'SELECT vibe_test_legacy_normalization_cluster.release_v1('
+):
+    raise SystemExit("ERROR: target CREATE must be released before cluster membership")
+if 'QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL=' in normalization:
+    raise SystemExit("ERROR: standalone legacy normalization does not use Qualification storage")
+if '/${test_database}"' in normalization:
+    raise SystemExit("ERROR: legacy normalization must not target the shared authority database")
+
+shared_fixture_start = script.find(
+    "\nCREATE ROLE surprise_replay_grantee NOLOGIN;"
+)
+if shared_fixture_start < 0:
+    raise SystemExit("ERROR: shared fixture boundary is unavailable")
+shared_fixture = script[shared_fixture_start:normalization_start]
+if "CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (" in shared_fixture:
+    raise SystemExit("ERROR: shared database is pre-seeded with legacy R&D custody")
+if not (
+    normalization_start < test_provision < origin_provision < production_migration
+):
+    raise SystemExit(
+        "ERROR: isolated legacy normalization must finish before shared production migration"
+    )
 PY
 }
 
@@ -373,7 +431,41 @@ check_migration_authority_boundary() {
   local authority_migration
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   authority_migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+  local required_rd_storage_object
+  for required_rd_storage_object in \
+    "CREATE TABLE IF NOT EXISTS rd_research_request_receipts_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_independence_bases_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_independence_basis_admissions_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_independence_basis_heads_v1" \
+    "rd_sealed_exploratory_replay_requests_v1 (" \
+    "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluation_heads_v1" \
+    "CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1" \
+    "CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1" \
+    "CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1" \
+    "CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1" \
+    "CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2" \
+    "CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2" \
+    "CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2"; do
+    if ! rg -Fq "$required_rd_storage_object" "$authority_migration"; then
+      echo "ERROR: production authority migration omits required R&D storage: $required_rd_storage_object" >&2
+      return 1
+    fi
+  done
+  if rg -Fq 'CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1' "$authority_migration" ||
+    rg -Fq 'CREATE UNIQUE INDEX IF NOT EXISTS rd_complex_strategy_develop_evaluation_successors_v1' "$authority_migration" ||
+    ! rg -Fq 'R&D research intent index manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'R&D complex successor index manifest mismatch' "$authority_migration" ||
+    ! rg -Fq "AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive" "$authority_migration" ||
+    ! rg -Fq "AND index_fact.indnkeyatts=1 AND index_fact.indnatts=1" "$authority_migration"; then
+    echo "ERROR: production authority migration canonical index admission changed." >&2
+    return 1
+  fi
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
+    ! rg -Fq 'R&D research receipt predecessor manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'required R&D storage column manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'required R&D storage constraint manifest mismatch' "$authority_migration" ||
+    ! rg -Uq 'ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT;' "$authority_migration" ||
     ! rg -Fq "test(=product_edge_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq "test(=product_edge_postgres::tests::runtime_diagnostic_manifest_is_empty_for_existing_custody)" "${BASH_SOURCE[0]}" ||
@@ -654,6 +746,7 @@ readonly container="vibe-rd-owner-test-${suffix}"
 readonly volume="vibe-rd-owner-test-${suffix}"
 readonly test_database="vibe_test_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
+readonly legacy_normalization_database="${test_database}_rd_legacy"
 readonly partial_sealed_database="vibe_test_partial_sealed_${suffix//-/_}"
 readonly partial_sealed_routine_database="vibe_test_partial_sealed_routine_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
@@ -669,6 +762,7 @@ primary_socket_dir_created=false
 impersonator_socket_dir_created=false
 nextest_archive_dir=''
 nextest_archive_file=''
+legacy_normalization_cleanup_armed=false
 readonly cleanup_docker_timeout_seconds=10
 
 verify_docker_object_absent() {
@@ -720,6 +814,57 @@ remove_docker_object_for_cleanup() {
   fi
 }
 
+recover_legacy_normalization_topology() {
+  local recovery_failed=false
+  local legacy_database_present
+  if [[ "$legacy_normalization_cleanup_armed" != true ]]; then
+    return 0
+  fi
+
+  legacy_database_present="$(docker exec "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname postgres \
+    --set=legacy_database="$legacy_normalization_database" \
+    --command "SELECT count(*) FROM pg_catalog.pg_database WHERE datname=:'legacy_database'")" ||
+    recovery_failed=true
+  if [[ "$legacy_database_present" == 1 ]] &&
+    ! docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$legacy_normalization_database" << 'SQL'
+REVOKE CREATE ON SCHEMA public FROM rd_owner;
+SQL
+  then
+    recovery_failed=true
+  fi
+  if ! docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres \
+    --set=legacy_database="$legacy_normalization_database" \
+    --set=test_database="$test_database" \
+    --set=origin_current_database="$origin_current_database" << 'SQL'
+REVOKE rd_custodian FROM rd_owner;
+DO $restore_shared_connect$
+DECLARE database_name text;
+BEGIN
+  FOREACH database_name IN ARRAY ARRAY[
+    :'test_database',:'origin_current_database'
+  ] LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_catalog.pg_database WHERE datname=database_name
+    ) THEN
+      EXECUTE pg_catalog.format(
+        'GRANT CONNECT ON DATABASE %I TO rd_owner',database_name
+      );
+    END IF;
+  END LOOP;
+END
+$restore_shared_connect$;
+DROP DATABASE IF EXISTS :"legacy_database" WITH (FORCE);
+DROP SCHEMA IF EXISTS vibe_test_legacy_normalization_cluster CASCADE;
+SQL
+  then
+    recovery_failed=true
+  fi
+  [[ "$recovery_failed" == false ]]
+}
+
 cleanup() {
   local primary_status="${1:-$?}"
   local cleanup_failed=false
@@ -736,6 +881,9 @@ cleanup() {
     cleanup_failed=true
   fi
 
+  if ! recover_legacy_normalization_topology; then
+    cleanup_failed=true
+  fi
   if ! remove_docker_object_for_cleanup container "$container" 3; then
     cleanup_failed=true
   fi
@@ -2127,65 +2275,6 @@ SELECT
   pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
 FROM pg_catalog.generate_series(0,25) ordinal;
 
-CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
-  request_identity text PRIMARY KEY,
-  request_digest text NOT NULL,
-  build_request_identity text NOT NULL,
-  attempt_identity text NOT NULL,
-  intent_identity text NOT NULL,
-  trial_family_identity text NOT NULL,
-  artifact_identity text NOT NULL,
-  build_receipt_identity text NOT NULL,
-  artifact_family_binding_identity text NOT NULL,
-  census_frontier_identity text NOT NULL,
-  frozen_json jsonb NOT NULL,
-  receipt_json jsonb NOT NULL,
-  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
-  committed_at_epoch_ms bigint NOT NULL,
-  request_schema_version smallint NOT NULL DEFAULT 1,
-  v2_canonical_request_bytes bytea,
-  v2_meaning_digest text,
-  v2_seal_digest text,
-  v2_receipt_json jsonb
-);
-ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
-REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
-GRANT SELECT, UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
-GRANT SELECT(request_identity), UPDATE(lifecycle_state)
-  ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
-INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
-  request_identity,
-  request_digest,
-  build_request_identity,
-  attempt_identity,
-  intent_identity,
-  trial_family_identity,
-  artifact_identity,
-  build_receipt_identity,
-  artifact_family_binding_identity,
-  census_frontier_identity,
-  frozen_json,
-  receipt_json,
-  lifecycle_state,
-  committed_at_epoch_ms,
-  request_schema_version
-) VALUES (
-  'internal-continuity-replay-v1',
-  'sha256:internal-continuity-request-v1',
-  'internal-continuity-build-v1',
-  'internal-continuity-attempt-v1',
-  'internal-continuity-intent-v1',
-  'internal-continuity-family-v1',
-  'sha256:internal-continuity-artifact-v1',
-  'internal-continuity-build-receipt-v1',
-  'internal-continuity-family-binding-v1',
-  'internal-continuity-census-v1',
-  pg_catalog.jsonb_build_object('kind','internal-custody-continuity','schema_version',1),
-  pg_catalog.jsonb_build_object('kind','internal-custody-continuity-receipt','schema_version',1),
-  'FROZEN',
-  1700000000000,
-  1
-);
 SQL
 
 legacy_replay_fingerprint() {
@@ -2740,25 +2829,294 @@ SQL
   fi
 }
 
-readonly legacy_normalization_lease_identity="legacy-replay-migration:${test_marker}:pre-authority-normalization:v1"
-readonly legacy_normalization_migration_url="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+readonly legacy_normalization_lease_identity="legacy-replay-migration:${test_marker}:pre-authority-normalization:v2"
 readonly legacy_normalization_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=product_edge_postgres::tests::legacy_rd_owner_storage_is_normalized_before_authority_migration)'
 
+legacy_normalization_cleanup_armed=true
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" \
-  --set=test_marker="$test_marker" \
-  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
-SET SESSION AUTHORIZATION vibe_test_legacy_migration_caller;
-SELECT vibe_test_legacy_migration_lease.acquire_v1(:'test_marker',:'lease_identity');
-RESET SESSION AUTHORIZATION;
+  --username postgres --dbname postgres \
+  --set=legacy_database="$legacy_normalization_database" << 'SQL'
+CREATE DATABASE :"legacy_database" OWNER rd_database_owner;
+REVOKE CONNECT,TEMPORARY ON DATABASE :"legacy_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"legacy_database" TO rd_owner;
 SQL
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$legacy_normalization_database" \
+  --set=test_marker="$test_marker" \
+  --set=legacy_database="$legacy_normalization_database" \
+  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
+CREATE SCHEMA vibe_test_legacy_normalization AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_legacy_normalization FROM PUBLIC;
+CREATE TABLE vibe_test_legacy_normalization.instance_v1 (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  test_marker text NOT NULL,
+  database_name text NOT NULL
+);
+REVOKE ALL ON TABLE vibe_test_legacy_normalization.instance_v1 FROM PUBLIC;
+INSERT INTO vibe_test_legacy_normalization.instance_v1 (
+  singleton,test_marker,database_name
+) VALUES (true,:'test_marker',:'legacy_database');
+
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
+  request_identity text PRIMARY KEY,
+  request_digest text NOT NULL,
+  build_request_identity text NOT NULL,
+  attempt_identity text NOT NULL,
+  intent_identity text NOT NULL,
+  trial_family_identity text NOT NULL,
+  artifact_identity text NOT NULL,
+  build_receipt_identity text NOT NULL,
+  artifact_family_binding_identity text NOT NULL,
+  census_frontier_identity text NOT NULL,
+  frozen_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
+  committed_at_epoch_ms bigint NOT NULL,
+  request_schema_version smallint NOT NULL DEFAULT 1,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
+REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
+GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
+  TO surprise_replay_grantee;
+GRANT SELECT(request_identity),UPDATE(lifecycle_state)
+  ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
+INSERT INTO public.rd_exploratory_replay_request_custody_v1 VALUES (
+  'internal-continuity-replay-v1',
+  'sha256:internal-continuity-request-v1',
+  'internal-continuity-build-v1',
+  'internal-continuity-attempt-v1',
+  'internal-continuity-intent-v1',
+  'internal-continuity-family-v1',
+  'sha256:internal-continuity-artifact-v1',
+  'internal-continuity-build-receipt-v1',
+  'internal-continuity-family-binding-v1',
+  'internal-continuity-census-v1',
+  '{"kind":"internal-custody-continuity","schema_version":1}'::jsonb,
+  '{"kind":"internal-custody-continuity-receipt","schema_version":1}'::jsonb,
+  'FROZEN',
+  1700000000000,
+  2,
+  pg_catalog.decode('00112233445566778899aabbccddeeff','hex'),
+  'sha256:internal-continuity-meaning-v2',
+  'sha256:internal-continuity-seal-v2',
+  '{"kind":"internal-custody-continuity-v2-receipt","schema_version":2}'::jsonb
+);
+
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_marker="$test_marker" \
+  --set=legacy_database="$legacy_normalization_database" \
+  --set=test_database="$test_database" \
+  --set=origin_current_database="$origin_current_database" \
+  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
+CREATE SCHEMA vibe_test_legacy_normalization_cluster AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_legacy_normalization_cluster FROM PUBLIC;
+CREATE TABLE vibe_test_legacy_normalization_cluster.authority_state_v1 (
+  singleton boolean PRIMARY KEY CHECK (singleton),
+  test_marker text NOT NULL,
+  phase text NOT NULL CHECK (phase IN ('READY','LEASED')),
+  target_database text,
+  lease_identity text,
+  acquired_at_epoch_ms bigint,
+  released_at_epoch_ms bigint
+);
+REVOKE ALL ON TABLE vibe_test_legacy_normalization_cluster.authority_state_v1 FROM PUBLIC;
+INSERT INTO vibe_test_legacy_normalization_cluster.authority_state_v1 (
+  singleton,test_marker,phase
+) VALUES (true,:'test_marker','READY');
+
+CREATE FUNCTION vibe_test_legacy_normalization_cluster.acquire_v1(
+  requested_marker text,
+  requested_target text,
+  requested_lease text,
+  shared_database text,
+  origin_database text
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+DECLARE state_row record;
+BEGIN
+  IF session_user<>'postgres' OR current_database()<>'postgres' THEN
+    RAISE EXCEPTION 'legacy normalization cluster lease caller mismatch';
+  END IF;
+  SELECT * INTO STRICT state_row
+    FROM vibe_test_legacy_normalization_cluster.authority_state_v1
+   WHERE singleton FOR UPDATE;
+  IF state_row.test_marker<>requested_marker
+     OR state_row.phase<>'READY'
+     OR state_row.target_database IS NOT NULL
+     OR state_row.lease_identity IS NOT NULL
+     OR requested_target IN (shared_database,origin_database)
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_database
+        WHERE datname=requested_target
+     )
+     OR pg_catalog.has_database_privilege('rd_owner',shared_database,'CONNECT')
+     OR pg_catalog.has_database_privilege('rd_owner',origin_database,'CONNECT')
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_stat_activity
+        WHERE usename='rd_owner'
+          AND datname IN (shared_database,origin_database)
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_auth_members membership
+       JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+       JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+       WHERE granted.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+          OR member.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+     ) THEN
+    RAISE EXCEPTION 'legacy normalization cluster lease unavailable';
+  END IF;
+  EXECUTE 'GRANT rd_custodian TO rd_owner WITH ADMIN FALSE, INHERIT TRUE, SET TRUE';
+  UPDATE vibe_test_legacy_normalization_cluster.authority_state_v1
+     SET phase='LEASED',target_database=requested_target,
+         lease_identity=requested_lease,
+         acquired_at_epoch_ms=pg_catalog.floor(
+           pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp())*1000
+         )::bigint
+   WHERE singleton;
+END
+$function$;
+REVOKE ALL ON FUNCTION
+  vibe_test_legacy_normalization_cluster.acquire_v1(text,text,text,text,text)
+  FROM PUBLIC;
+
+CREATE FUNCTION vibe_test_legacy_normalization_cluster.release_v1(
+  requested_marker text,
+  requested_target text,
+  requested_lease text
+) RETURNS void LANGUAGE plpgsql SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+DECLARE state_row record;
+BEGIN
+  IF session_user<>'postgres' OR current_database()<>'postgres' THEN
+    RAISE EXCEPTION 'legacy normalization cluster release caller mismatch';
+  END IF;
+  SELECT * INTO STRICT state_row
+    FROM vibe_test_legacy_normalization_cluster.authority_state_v1
+   WHERE singleton FOR UPDATE;
+  IF state_row.test_marker<>requested_marker
+     OR state_row.phase<>'LEASED'
+     OR state_row.target_database<>requested_target
+     OR state_row.lease_identity<>requested_lease THEN
+    RAISE EXCEPTION 'legacy normalization cluster release mismatch';
+  END IF;
+  EXECUTE 'REVOKE rd_custodian FROM rd_owner';
+  IF EXISTS (
+    SELECT 1 FROM pg_catalog.pg_auth_members membership
+    JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+    JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+    WHERE granted.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+       OR member.rolname IN ('rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer')
+  ) THEN
+    RAISE EXCEPTION 'legacy normalization cluster membership survived release';
+  END IF;
+  UPDATE vibe_test_legacy_normalization_cluster.authority_state_v1
+     SET phase='READY',target_database=NULL,lease_identity=NULL,
+         released_at_epoch_ms=pg_catalog.floor(
+           pg_catalog.extract(epoch FROM pg_catalog.clock_timestamp())*1000
+         )::bigint
+   WHERE singleton;
+END
+$function$;
+REVOKE ALL ON FUNCTION
+  vibe_test_legacy_normalization_cluster.release_v1(text,text,text)
+  FROM PUBLIC;
+
+REVOKE CONNECT ON DATABASE :"test_database" FROM rd_owner;
+REVOKE CONNECT ON DATABASE :"origin_current_database" FROM rd_owner;
+SELECT vibe_test_legacy_normalization_cluster.acquire_v1(
+  :'test_marker',:'legacy_database',:'lease_identity',
+  :'test_database',:'origin_current_database'
+);
+DO $cluster_lease_readback$
+BEGIN
+  IF pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
+     OR pg_catalog.has_database_privilege(
+       'rd_owner',:'origin_current_database','CONNECT'
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_stat_activity
+        WHERE usename='rd_owner'
+          AND datname IN (:'test_database',:'origin_current_database')
+     )
+     OR (SELECT pg_catalog.count(*)
+           FROM pg_catalog.pg_auth_members membership
+           JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+           JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+           JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+          WHERE granted.rolname='rd_custodian'
+            AND member.rolname='rd_owner'
+            AND grantor.rolname='postgres'
+            AND NOT membership.admin_option
+            AND membership.inherit_option
+            AND membership.set_option)<>1
+     OR NOT EXISTS (
+       SELECT 1
+         FROM vibe_test_legacy_normalization_cluster.authority_state_v1
+        WHERE singleton AND phase='LEASED'
+          AND target_database=:'legacy_database'
+          AND lease_identity=:'lease_identity'
+          AND acquired_at_epoch_ms IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'legacy normalization cluster lease readback mismatch';
+  END IF;
+END
+$cluster_lease_readback$;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$legacy_normalization_database" \
+  --set=test_marker="$test_marker" \
+  --set=legacy_database="$legacy_normalization_database" << 'SQL'
+BEGIN;
+DO $target_lease$
+DECLARE marker_row record;
+BEGIN
+  SELECT * INTO STRICT marker_row
+    FROM vibe_test_legacy_normalization.instance_v1
+   WHERE singleton;
+  IF marker_row.test_marker<>:'test_marker'
+     OR marker_row.database_name<>:'legacy_database'
+     OR marker_row.database_name<>pg_catalog.current_database()
+     OR pg_catalog.has_schema_privilege('rd_owner','public','CREATE') THEN
+    RAISE EXCEPTION 'legacy normalization target marker mismatch';
+  END IF;
+END
+$target_lease$;
+GRANT CREATE ON SCHEMA public TO rd_owner;
+COMMIT;
+SQL
+
+legacy_normalization_concurrent_rejection=0
+if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_marker="$test_marker" \
+  --set=legacy_database="$legacy_normalization_database" \
+  --set=test_database="$test_database" \
+  --set=origin_current_database="$origin_current_database" \
+  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
+SELECT vibe_test_legacy_normalization_cluster.acquire_v1(
+  :'test_marker',:'legacy_database',:'lease_identity',
+  :'test_database',:'origin_current_database'
+);
+SQL
+then
+  legacy_normalization_concurrent_rejection=1
+fi
+
 legacy_normalization_status=0
-if env \
-  RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  VIBE_TEST_LEGACY_MIGRATION_DATABASE_URL="$legacy_normalization_migration_url" \
-  VIBE_TEST_LEGACY_MIGRATION_LEASE_IDENTITY="$legacy_normalization_lease_identity" \
+if [[ "$legacy_normalization_concurrent_rejection" -eq 0 ]] && env \
+  RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_normalization_database}" \
   cargo nextest run \
   --archive-file "$nextest_archive_file" \
   --profile "$nextest_profile" \
@@ -2769,18 +3127,107 @@ else
   legacy_normalization_status="$?"
 fi
 
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" \
+legacy_normalization_cleanup_status=0
+if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$legacy_normalization_database" \
   --set=test_marker="$test_marker" \
   --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
-SET SESSION AUTHORIZATION vibe_test_legacy_migration_caller;
-SELECT vibe_test_legacy_migration_lease.release_v1(:'test_marker',:'lease_identity');
-RESET SESSION AUTHORIZATION;
+BEGIN;
+REVOKE CREATE ON SCHEMA public FROM rd_owner;
+DO $target_release$
+BEGIN
+  IF pg_catalog.has_schema_privilege('rd_owner','public','CREATE') THEN
+    RAISE EXCEPTION 'legacy normalization target CREATE survived release';
+  END IF;
+END
+$target_release$;
+COMMIT;
 SQL
-
-if [[ "$legacy_normalization_status" -ne 0 ]]; then
-  exit "$legacy_normalization_status"
+then
+  :
+else
+  legacy_normalization_cleanup_status="$?"
 fi
+
+legacy_normalization_cluster_cleanup_status=0
+if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_marker="$test_marker" \
+  --set=legacy_database="$legacy_normalization_database" \
+  --set=lease_identity="$legacy_normalization_lease_identity" \
+  --set=test_database="$test_database" \
+  --set=origin_current_database="$origin_current_database" << 'SQL'
+BEGIN;
+SELECT vibe_test_legacy_normalization_cluster.release_v1(
+  :'test_marker',:'legacy_database',:'lease_identity'
+);
+GRANT CONNECT ON DATABASE :"test_database" TO rd_owner;
+GRANT CONNECT ON DATABASE :"origin_current_database" TO rd_owner;
+DO $shared_restored$
+BEGIN
+  IF NOT pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
+     OR NOT pg_catalog.has_database_privilege('rd_owner',:'origin_current_database','CONNECT')
+     OR pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
+     OR NOT EXISTS (
+       SELECT 1
+         FROM vibe_test_legacy_normalization_cluster.authority_state_v1
+        WHERE singleton AND phase='READY'
+          AND target_database IS NULL AND lease_identity IS NULL
+          AND released_at_epoch_ms IS NOT NULL
+     ) THEN
+    RAISE EXCEPTION 'legacy normalization cluster release was not exact';
+  END IF;
+END
+$shared_restored$;
+COMMIT;
+SQL
+then
+  :
+else
+  legacy_normalization_cluster_cleanup_status="$?"
+fi
+
+if [[ "$legacy_normalization_cluster_cleanup_status" -ne 0 ]]; then
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres \
+    --set=test_database="$test_database" \
+    --set=origin_current_database="$origin_current_database" << 'SQL'
+REVOKE rd_custodian FROM rd_owner;
+GRANT CONNECT ON DATABASE :"test_database" TO rd_owner;
+GRANT CONNECT ON DATABASE :"origin_current_database" TO rd_owner;
+DO $failed_release_cleanup$
+BEGIN
+  IF pg_catalog.pg_has_role('rd_owner','rd_custodian','MEMBER')
+     OR NOT pg_catalog.has_database_privilege('rd_owner',:'test_database','CONNECT')
+     OR NOT pg_catalog.has_database_privilege(
+       'rd_owner',:'origin_current_database','CONNECT'
+     ) THEN
+    RAISE EXCEPTION 'legacy normalization failed-release cleanup mismatch';
+  END IF;
+END
+$failed_release_cleanup$;
+SQL
+fi
+
+legacy_normalization_drop_status=0
+if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=legacy_database="$legacy_normalization_database" << 'SQL'
+REVOKE CONNECT ON DATABASE :"legacy_database" FROM rd_owner;
+DROP DATABASE :"legacy_database" WITH (FORCE);
+DROP SCHEMA vibe_test_legacy_normalization_cluster CASCADE;
+SQL
+then
+  :
+else
+  legacy_normalization_drop_status="$?"
+fi
+
+if [[ "$legacy_normalization_status" -ne 0 ]]; then exit "$legacy_normalization_status"; fi
+if [[ "$legacy_normalization_cleanup_status" -ne 0 ]]; then exit "$legacy_normalization_cleanup_status"; fi
+if [[ "$legacy_normalization_cluster_cleanup_status" -ne 0 ]]; then exit "$legacy_normalization_cluster_cleanup_status"; fi
+if [[ "$legacy_normalization_drop_status" -ne 0 ]]; then exit "$legacy_normalization_drop_status"; fi
+legacy_normalization_cleanup_armed=false
 
 provision_owner_schemas "$test_database"
 provision_owner_schemas "$origin_current_database"

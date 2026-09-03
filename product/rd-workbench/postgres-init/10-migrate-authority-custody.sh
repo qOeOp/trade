@@ -512,6 +512,1310 @@ BEGIN
 END
 $qualification_basis_reads$;
 
+DO $rd_research_receipt_predecessor$
+DECLARE relation_oid oid := pg_catalog.to_regclass('public.rd_research_request_receipts_v1');
+DECLARE column_names text[];
+DECLARE old_base constant text[] := ARRAY[
+  'request_identity','semantic_digest','receipt_json','intent_json','view_json',
+  'committed_at_epoch_ms'
+];
+DECLARE fresh_base constant text[] := ARRAY[
+  'request_identity','semantic_digest','request_json','receipt_json','intent_json',
+  'view_json','committed_at_epoch_ms'
+];
+DECLARE additive_tail constant text[] := ARRAY[
+  'request_json','artifact_evidence_digest','artifact_evidence_json',
+  'source_ancestry_locator_json','source_ancestry_evidence_digest'
+];
+DECLARE fresh_tail constant text[] := ARRAY[
+  'artifact_evidence_digest','artifact_evidence_json',
+  'source_ancestry_locator_json','source_ancestry_evidence_digest'
+];
+BEGIN
+  IF relation_oid IS NULL THEN RETURN; END IF;
+  SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum)
+    INTO column_names
+    FROM pg_catalog.pg_attribute attribute
+   WHERE attribute.attrelid=relation_oid
+     AND attribute.attnum>0 AND NOT attribute.attisdropped;
+  IF NOT (
+       (column_names[1:6]=old_base
+        AND column_names[7:pg_catalog.array_length(column_names,1)]
+            =additive_tail[1:pg_catalog.array_length(column_names,1)-6])
+       OR
+       (column_names[1:7]=fresh_base
+        AND column_names[8:pg_catalog.array_length(column_names,1)]
+            =fresh_tail[1:pg_catalog.array_length(column_names,1)-7])
+     )
+     OR pg_catalog.array_length(column_names,1) NOT BETWEEN 6 AND 11
+     OR NOT EXISTS (
+       SELECT 1
+         FROM pg_catalog.pg_class relation
+         JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+        WHERE relation.oid=relation_oid
+          AND relation.relkind='r' AND relation.relpersistence='p'
+          AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+          AND owner.rolname IN ('postgres','rd_owner','rd_custodian')
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+             WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact
+             WHERE rewrite_fact.ev_class=relation.oid
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_policy policy_fact
+             WHERE policy_fact.polrelid=relation.oid
+          )
+     )
+     OR EXISTS (
+       SELECT 1 FROM pg_catalog.pg_attribute attribute
+       LEFT JOIN pg_catalog.pg_attrdef default_fact
+         ON default_fact.adrelid=attribute.attrelid
+        AND default_fact.adnum=attribute.attnum
+       WHERE attribute.attrelid=relation_oid
+         AND attribute.attnum>0 AND NOT attribute.attisdropped
+         AND (
+           default_fact.oid IS NOT NULL
+           OR attribute.atttypid<>CASE attribute.attname
+             WHEN 'committed_at_epoch_ms' THEN 'pg_catalog.int8'::pg_catalog.regtype
+             WHEN 'request_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             WHEN 'receipt_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             WHEN 'intent_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             WHEN 'view_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             WHEN 'artifact_evidence_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             WHEN 'source_ancestry_locator_json' THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+             ELSE 'pg_catalog.text'::pg_catalog.regtype
+           END
+           OR attribute.attnotnull IS DISTINCT FROM
+              (attribute.attname IN (
+                'request_identity','semantic_digest','receipt_json','committed_at_epoch_ms'
+              ))
+         )
+     )
+     OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_constraint
+          WHERE conrelid=relation_oid)<>1
+     OR NOT EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+        WHERE constraint_fact.conrelid=relation_oid
+          AND constraint_fact.contype='p'
+          AND constraint_fact.conkey=ARRAY[
+            (SELECT attnum FROM pg_catalog.pg_attribute
+              WHERE attrelid=relation_oid AND attname='request_identity')
+          ]::smallint[]
+     ) THEN
+    RAISE EXCEPTION 'R&D research receipt predecessor manifest mismatch';
+  END IF;
+END
+$rd_research_receipt_predecessor$;
+
+CREATE TABLE IF NOT EXISTS rd_research_request_receipts_v1 (
+        request_identity TEXT PRIMARY KEY,
+        semantic_digest TEXT NOT NULL,
+        request_json JSONB,
+        receipt_json JSONB NOT NULL,
+        intent_json JSONB,
+        view_json JSONB,
+        committed_at_epoch_ms BIGINT NOT NULL
+    );
+
+ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_json JSONB;
+
+ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT;
+
+ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB;
+
+ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB;
+
+ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT;
+
+DO $rd_research_intent_index$
+DECLARE index_oid oid :=
+  pg_catalog.to_regclass('public.rd_research_intent_identity_v1');
+BEGIN
+  IF index_oid IS NULL THEN
+    CREATE UNIQUE INDEX rd_research_intent_identity_v1
+      ON public.rd_research_request_receipts_v1
+      ((intent_json->>'intent_identity'))
+      WHERE intent_json IS NOT NULL;
+    index_oid:=pg_catalog.to_regclass('public.rd_research_intent_identity_v1');
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class index_relation
+      JOIN pg_catalog.pg_namespace index_namespace
+        ON index_namespace.oid=index_relation.relnamespace
+      JOIN pg_catalog.pg_index index_fact
+        ON index_fact.indexrelid=index_relation.oid
+      JOIN pg_catalog.pg_class table_relation
+        ON table_relation.oid=index_fact.indrelid
+      JOIN pg_catalog.pg_namespace table_namespace
+        ON table_namespace.oid=table_relation.relnamespace
+      JOIN pg_catalog.pg_am access_method
+        ON access_method.oid=index_relation.relam
+     WHERE index_relation.oid=index_oid
+       AND index_namespace.nspname='public'
+       AND index_relation.relname='rd_research_intent_identity_v1'
+       AND index_relation.relkind='i'
+       AND index_relation.relpersistence='p'
+       AND index_relation.reloptions IS NULL
+       AND access_method.amname='btree'
+       AND table_namespace.nspname='public'
+       AND table_relation.relname='rd_research_request_receipts_v1'
+       AND index_fact.indisunique
+       AND NOT index_fact.indisprimary
+       AND NOT index_fact.indisexclusion
+       AND NOT index_fact.indnullsnotdistinct
+       AND NOT index_fact.indisclustered
+       AND NOT index_fact.indisreplident
+       AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive
+       AND index_fact.indnkeyatts=1 AND index_fact.indnatts=1
+       AND index_fact.indkey::text='0'
+       AND index_fact.indoption[0]=0
+       AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)
+           ='(intent_json ->> ''intent_identity''::text)'
+       AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)
+           ='(intent_json IS NOT NULL)'
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+          WHERE constraint_fact.conindid=index_fact.indexrelid
+       )
+  ) THEN
+    RAISE EXCEPTION 'R&D research intent index manifest mismatch';
+  END IF;
+END
+$rd_research_intent_index$;
+
+CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(requested_intent_identity text)
+    RETURNS jsonb LANGUAGE plpgsql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $function$
+    DECLARE sealed record; source_handoff jsonb;
+    BEGIN
+      SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
+             view_json, artifact_evidence_digest, artifact_evidence_json,
+             source_ancestry_locator_json, source_ancestry_evidence_digest
+        INTO sealed
+        FROM public.rd_research_request_receipts_v1
+       WHERE intent_json->>'intent_identity' = requested_intent_identity;
+      IF NOT FOUND OR sealed.artifact_evidence_json IS NULL OR sealed.artifact_evidence_digest IS NULL
+         OR (sealed.source_ancestry_locator_json IS NULL) <> (sealed.source_ancestry_evidence_digest IS NULL)
+      THEN RETURN NULL; END IF;
+      IF sealed.source_ancestry_evidence_digest IS NOT NULL THEN
+        SELECT rd_owner_api.peek_source_intake_research_handoff_v1(
+          sealed.source_ancestry_locator_json->>'request_identity',
+          sealed.source_ancestry_locator_json->>'attempt_identity',
+          sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+        ) INTO source_handoff;
+        IF source_handoff IS NULL THEN RETURN NULL; END IF;
+      END IF;
+      IF (sealed.source_ancestry_evidence_digest IS NOT NULL AND (
+              sealed.source_ancestry_evidence_digest !~ '^sha256:[0-9a-f]{64}$'
+              OR (SELECT pg_catalog.array_agg(key ORDER BY key)
+                  FROM pg_catalog.jsonb_object_keys(sealed.source_ancestry_locator_json) keys(key))
+                 <> ARRAY['attempt_identity','request_identity','terminal_receipt_identity']::text[]
+              OR sealed.source_ancestry_locator_json->>'attempt_identity' = ''
+              OR sealed.source_ancestry_locator_json->>'request_identity' = ''
+              OR sealed.source_ancestry_locator_json->>'terminal_receipt_identity' = ''
+              OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
+              OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
+                 <> sealed.source_ancestry_evidence_digest
+              OR (source_handoff->>'request_identity')
+                 <> sealed.source_ancestry_locator_json->>'request_identity'
+              OR (source_handoff->>'attempt_identity')
+                 <> sealed.source_ancestry_locator_json->>'attempt_identity'
+              OR (source_handoff->>'terminal_receipt_identity')
+                 <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+              OR sealed.request_json#>>'{request,goal,sources,0,locator}'
+                 <> 'urn:doi:' || (source_handoff#>>'{binding,normalized_doi}')
+              OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
+                 <> (source_handoff#>>'{provenance,content_digest}')
+              OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
+                 <> 'epoch-ms:' || (source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}')
+              OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
+                 <> (source_handoff#>>'{provenance,license_basis}')
+              OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
+                 <> (source_handoff#>>'{provenance,interpretation,bounded_explanation}')))
+         OR sealed.artifact_evidence_json->>'schema_version' <> '1'
+         OR sealed.request_json->>'schema_version' <> '1'
+         OR sealed.request_json->'request'->>'request_identity' <> sealed.request_identity
+         OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+         OR sealed.receipt_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.receipt_json->>'disposition' <> 'ACCEPTED'
+         OR sealed.intent_json->>'request_identity' <> sealed.request_identity
+         OR sealed.intent_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.view_json->>'request_identity' <> sealed.request_identity
+         OR sealed.view_json->>'intent_identity' <> requested_intent_identity
+         OR sealed.view_json->>'availability' <> 'AVAILABLE'
+         OR sealed.view_json->>'phase' <> 'INTENT_FROZEN'
+         OR sealed.artifact_evidence_json->>'request_identity' <> sealed.request_identity
+         OR sealed.artifact_evidence_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.artifact_evidence_json->>'intent_identity' <> requested_intent_identity
+         OR sealed.artifact_evidence_json->>'receipt_identity' <> sealed.receipt_json->>'receipt_identity'
+         OR sealed.artifact_evidence_json->>'view_identity' <> sealed.view_json->>'projection_identity'
+         OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
+         OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
+         OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
+         OR sealed.artifact_evidence_json->'source_ancestry_locator'
+            IS DISTINCT FROM sealed.source_ancestry_locator_json
+         OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
+            IS DISTINCT FROM sealed.source_ancestry_evidence_digest
+         OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
+              WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
+                'rd-current-research-artifact-evidence-v1-' ||
+                (sealed.receipt_json->>'receipt_identity') || ':' ||
+                (sealed.intent_json->>'intent_identity') || ':' ||
+                (sealed.view_json->>'projection_identity')
+              ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
+                rd_owner_api.derive_source_intake_identity_v1(
+                  'rd.current-research-artifact-evidence-identity.v1', ARRAY[
+                    sealed.receipt_json->>'receipt_identity',
+                    sealed.intent_json->>'intent_identity',
+                    sealed.view_json->>'projection_identity',
+                    sealed.source_ancestry_locator_json->>'request_identity',
+                    sealed.source_ancestry_locator_json->>'attempt_identity',
+                    sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
+                    sealed.source_ancestry_evidence_digest
+                  ]::text[]
+                ), 8)
+            END)
+      THEN RETURN NULL; END IF;
+      RETURN pg_catalog.jsonb_build_object(
+        'evidence_digest', sealed.artifact_evidence_digest,
+        'evidence', sealed.artifact_evidence_json
+      );
+    END
+    $function$;
+
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(
+      requested_intent_identity text, requested_evidence_identity text, requested_evidence_digest text
+    ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+    SET search_path = pg_catalog
+    AS $function$
+    DECLARE sealed record; source_handoff jsonb;
+    BEGIN
+      IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+      SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json,
+             view_json, artifact_evidence_digest, artifact_evidence_json,
+             source_ancestry_locator_json, source_ancestry_evidence_digest
+        INTO sealed
+        FROM public.rd_research_request_receipts_v1
+       WHERE intent_json->>'intent_identity' = requested_intent_identity
+       FOR SHARE;
+      IF NOT FOUND OR sealed.artifact_evidence_json IS NULL
+         OR (sealed.source_ancestry_locator_json IS NULL) <> (sealed.source_ancestry_evidence_digest IS NULL)
+      THEN RETURN NULL; END IF;
+      IF sealed.source_ancestry_evidence_digest IS NOT NULL THEN
+        SELECT rd_owner_api.lock_source_intake_research_handoff_v1(
+          sealed.source_ancestry_locator_json->>'request_identity',
+          sealed.source_ancestry_locator_json->>'attempt_identity',
+          sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+        ) INTO source_handoff;
+        IF source_handoff IS NULL THEN RETURN NULL; END IF;
+      END IF;
+      IF (sealed.source_ancestry_evidence_digest IS NOT NULL AND (
+              sealed.source_ancestry_evidence_digest !~ '^sha256:[0-9a-f]{64}$'
+              OR (SELECT pg_catalog.array_agg(key ORDER BY key)
+                  FROM pg_catalog.jsonb_object_keys(sealed.source_ancestry_locator_json) keys(key))
+                 <> ARRAY['attempt_identity','request_identity','terminal_receipt_identity']::text[]
+              OR sealed.source_ancestry_locator_json->>'attempt_identity' = ''
+              OR sealed.source_ancestry_locator_json->>'request_identity' = ''
+              OR sealed.source_ancestry_locator_json->>'terminal_receipt_identity' = ''
+              OR pg_catalog.jsonb_array_length(sealed.request_json#>'{request,goal,sources}') <> 1
+              OR sealed.request_json#>>'{request,goal,sources,0,source_cut}'
+                 <> sealed.source_ancestry_evidence_digest
+              OR (source_handoff->>'request_identity')
+                 <> sealed.source_ancestry_locator_json->>'request_identity'
+              OR (source_handoff->>'attempt_identity')
+                 <> sealed.source_ancestry_locator_json->>'attempt_identity'
+              OR (source_handoff->>'terminal_receipt_identity')
+                 <> sealed.source_ancestry_locator_json->>'terminal_receipt_identity'
+              OR sealed.request_json#>>'{request,goal,sources,0,locator}'
+                 <> 'urn:doi:' || (source_handoff#>>'{binding,normalized_doi}')
+              OR sealed.request_json#>>'{request,goal,sources,0,content_digest}'
+                 <> (source_handoff#>>'{provenance,content_digest}')
+              OR sealed.request_json#>>'{request,goal,sources,0,observed_at}'
+                 <> 'epoch-ms:' || (source_handoff#>>'{provenance,retrieval_time,decision_cut_epoch_ms}')
+              OR sealed.request_json#>>'{request,goal,sources,0,license_basis}'
+                 <> (source_handoff#>>'{provenance,license_basis}')
+              OR sealed.request_json#>>'{request,goal,sources,0,interpretation}'
+                 <> (source_handoff#>>'{provenance,interpretation,bounded_explanation}')))
+         OR sealed.artifact_evidence_json->>'schema_version' <> '1'
+         OR sealed.request_json->>'schema_version' <> '1'
+         OR sealed.artifact_evidence_digest <> requested_evidence_digest
+         OR sealed.artifact_evidence_json->>'evidence_identity' <> requested_evidence_identity
+         OR sealed.request_json->'request'->>'request_identity' <> sealed.request_identity
+         OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+         OR sealed.receipt_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.receipt_json->>'disposition' <> 'ACCEPTED'
+         OR sealed.intent_json->>'request_identity' <> sealed.request_identity
+         OR sealed.intent_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.view_json->>'request_identity' <> sealed.request_identity
+         OR sealed.view_json->>'intent_identity' <> requested_intent_identity
+         OR sealed.view_json->>'availability' <> 'AVAILABLE'
+         OR sealed.view_json->>'phase' <> 'INTENT_FROZEN'
+         OR sealed.artifact_evidence_json->>'request_identity' <> sealed.request_identity
+         OR sealed.artifact_evidence_json->>'semantic_digest' <> sealed.semantic_digest
+         OR sealed.artifact_evidence_json->>'intent_identity' <> requested_intent_identity
+         OR sealed.artifact_evidence_json->>'receipt_identity' <> sealed.receipt_json->>'receipt_identity'
+         OR sealed.artifact_evidence_json->>'view_identity' <> sealed.view_json->>'projection_identity'
+         OR sealed.artifact_evidence_json->>'projection_at_epoch_ms' <> sealed.view_json->>'projection_at_epoch_ms'
+         OR sealed.artifact_evidence_json->>'valid_through_epoch_ms' <> sealed.view_json->>'valid_through_epoch_ms'
+         OR sealed.artifact_evidence_json->'source_admission' <> sealed.request_json->'request'->'admission'
+         OR sealed.artifact_evidence_json->'source_ancestry_locator'
+            IS DISTINCT FROM sealed.source_ancestry_locator_json
+         OR sealed.artifact_evidence_json->>'source_ancestry_evidence_digest'
+            IS DISTINCT FROM sealed.source_ancestry_evidence_digest
+         OR sealed.artifact_evidence_json->>'evidence_identity' <> (CASE
+              WHEN sealed.source_ancestry_evidence_digest IS NULL THEN
+                'rd-current-research-artifact-evidence-v1-' ||
+                (sealed.receipt_json->>'receipt_identity') || ':' ||
+                (sealed.intent_json->>'intent_identity') || ':' ||
+                (sealed.view_json->>'projection_identity')
+              ELSE 'rd-current-research-artifact-evidence-v1-' || pg_catalog.substr(
+                rd_owner_api.derive_source_intake_identity_v1(
+                  'rd.current-research-artifact-evidence-identity.v1', ARRAY[
+                    sealed.receipt_json->>'receipt_identity',
+                    sealed.intent_json->>'intent_identity',
+                    sealed.view_json->>'projection_identity',
+                    sealed.source_ancestry_locator_json->>'request_identity',
+                    sealed.source_ancestry_locator_json->>'attempt_identity',
+                    sealed.source_ancestry_locator_json->>'terminal_receipt_identity',
+                    sealed.source_ancestry_evidence_digest
+                  ]::text[]
+                ), 8)
+            END)
+      THEN RETURN NULL; END IF;
+      RETURN pg_catalog.jsonb_build_object(
+        'owner_cut_epoch_ms', pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint,
+        'evidence_digest', sealed.artifact_evidence_digest,
+        'evidence', sealed.artifact_evidence_json
+      );
+    END
+    $function$;
+
+CREATE TABLE IF NOT EXISTS rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS rd_independence_basis_admissions_v1 (basis_identity TEXT PRIMARY KEY REFERENCES rd_independence_bases_v1(basis_identity) ON DELETE CASCADE, request_identity TEXT NOT NULL UNIQUE, request_semantic_digest TEXT NOT NULL, admission_json JSONB NOT NULL, admission_lineage_digest TEXT NOT NULL, custody_digest TEXT NOT NULL, custody_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+
+DO $migration$
+DECLARE public_oid oid;
+DECLARE internal_oid oid;
+DECLARE sealed_oid oid;
+DECLARE candidate_oid oid;
+DECLARE candidate_is_current boolean;
+DECLARE public_is_current boolean := false;
+DECLARE public_is_legacy boolean := false;
+DECLARE current_candidate_count integer;
+BEGIN
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_request_custody_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_sealed_exploratory_replay_requests_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_requests_v1')
+  );
+  public_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1');
+  internal_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1');
+  sealed_oid := pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1');
+
+  FOREACH candidate_oid IN ARRAY ARRAY[public_oid,internal_oid,sealed_oid] LOOP
+    CONTINUE WHEN candidate_oid IS NULL;
+    SELECT relation.relkind='r'
+       AND relation.relpersistence='p'
+       AND (
+         SELECT pg_catalog.count(*)=19
+            AND pg_catalog.bool_and(CASE attribute.attname
+              WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'lifecycle_state' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+              ELSE false
+            END)
+           FROM pg_catalog.pg_attribute attribute
+          WHERE attribute.attrelid=candidate_oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+       )
+       AND EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+          WHERE constraint_entry.conrelid=candidate_oid
+            AND constraint_entry.contype='p'
+            AND constraint_entry.conkey=ARRAY[(
+              SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+               WHERE attribute.attrelid=candidate_oid AND attribute.attname='request_identity'
+            )]::smallint[]
+       )
+      INTO candidate_is_current
+      FROM pg_catalog.pg_class relation WHERE relation.oid=candidate_oid;
+
+    IF candidate_oid=public_oid THEN
+      public_is_current := candidate_is_current;
+    ELSIF NOT candidate_is_current THEN
+      RAISE EXCEPTION 'unknown exploratory Replay table shape: %', candidate_oid::pg_catalog.regclass;
+    END IF;
+  END LOOP;
+
+  IF public_oid IS NOT NULL THEN
+    SELECT relation.relkind='r'
+       AND relation.relpersistence='p'
+       AND (
+         SELECT pg_catalog.count(*)=13
+            AND pg_catalog.bool_and(CASE attribute.attname
+              WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'handoff_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'research_view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+              WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+              WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+              ELSE false
+            END)
+           FROM pg_catalog.pg_attribute attribute
+          WHERE attribute.attrelid=public_oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+       )
+       AND EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+          WHERE constraint_entry.conrelid=public_oid
+            AND constraint_entry.contype='p'
+            AND constraint_entry.conkey=ARRAY[(
+              SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+               WHERE attribute.attrelid=public_oid AND attribute.attname='replay_request_identity'
+            )]::smallint[]
+       )
+       AND EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+          WHERE constraint_entry.conrelid=public_oid
+            AND constraint_entry.contype='u'
+            AND constraint_entry.conkey=ARRAY[(
+              SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+               WHERE attribute.attrelid=public_oid AND attribute.attname='run_attempt_identity'
+            )]::smallint[]
+       )
+      INTO public_is_legacy
+      FROM pg_catalog.pg_class relation WHERE relation.oid=public_oid;
+
+    IF NOT public_is_current AND NOT public_is_legacy THEN
+      RAISE EXCEPTION 'unknown exploratory Replay table shape: %', public_oid::pg_catalog.regclass;
+    END IF;
+  END IF;
+
+  current_candidate_count :=
+    CASE WHEN public_is_current THEN 1 ELSE 0 END
+    + CASE WHEN internal_oid IS NOT NULL THEN 1 ELSE 0 END
+    + CASE WHEN sealed_oid IS NOT NULL THEN 1 ELSE 0 END;
+  IF current_candidate_count>1 THEN
+    RAISE EXCEPTION 'ambiguous duplicate current exploratory Replay tables';
+  ELSIF public_is_current THEN
+    ALTER TABLE public.rd_exploratory_replay_requests_v1
+      RENAME TO rd_sealed_exploratory_replay_requests_v1;
+  ELSIF internal_oid IS NOT NULL THEN
+    ALTER TABLE public.rd_exploratory_replay_request_custody_v1
+      RENAME TO rd_sealed_exploratory_replay_requests_v1;
+  ELSIF sealed_oid IS NULL THEN
+    CREATE TABLE public.rd_sealed_exploratory_replay_requests_v1 (
+      request_identity TEXT PRIMARY KEY,
+      request_digest TEXT NOT NULL,
+      build_request_identity TEXT NOT NULL,
+      attempt_identity TEXT NOT NULL,
+      intent_identity TEXT NOT NULL,
+      trial_family_identity TEXT NOT NULL,
+      artifact_identity TEXT NOT NULL,
+      build_receipt_identity TEXT NOT NULL,
+      artifact_family_binding_identity TEXT NOT NULL,
+      census_frontier_identity TEXT NOT NULL,
+      frozen_json JSONB NOT NULL,
+      receipt_json JSONB NOT NULL,
+      lifecycle_state TEXT NOT NULL DEFAULT 'FROZEN',
+      committed_at_epoch_ms BIGINT NOT NULL,
+      request_schema_version SMALLINT NOT NULL DEFAULT 1,
+      v2_canonical_request_bytes BYTEA,
+      v2_meaning_digest TEXT,
+      v2_seal_digest TEXT,
+      v2_receipt_json JSONB
+    );
+  END IF;
+END
+$migration$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_sealed_exploratory_replay_requests_v1(artifact_identity, request_identity);
+
+DO $acl$
+DECLARE grantee_name text;
+DECLARE column_name text;
+BEGIN
+  FOR grantee_name IN
+    SELECT role.rolname
+      FROM pg_catalog.pg_class relation
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+        relation.relacl,
+        pg_catalog.acldefault('r', relation.relowner)
+      )) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND acl.grantee<>relation.relowner
+     GROUP BY role.rolname
+  LOOP
+    EXECUTE pg_catalog.format(
+      'REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+      grantee_name
+    );
+  END LOOP;
+
+  FOR column_name IN
+    SELECT attribute.attname
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+       AND acl.grantee=0
+     GROUP BY attribute.attname
+  LOOP
+    EXECUTE pg_catalog.format(
+      'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC',
+      column_name
+    );
+  END LOOP;
+
+  FOR grantee_name,column_name IN
+    SELECT role.rolname,attribute.attname
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+     WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
+       AND attribute.attnum>0
+       AND NOT attribute.attisdropped
+       AND acl.grantee<>0
+       AND acl.grantee<>relation.relowner
+     GROUP BY role.rolname,attribute.attname
+  LOOP
+    EXECUTE pg_catalog.format(
+      'REVOKE ALL (%I) ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM %I',
+      column_name,
+      grantee_name
+    );
+  END LOOP;
+END
+$acl$;
+
+DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text);
+
+DROP FUNCTION IF EXISTS rd_owner_api.resolve_exploratory_replay_request_v2(text,text);
+
+DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text);
+
+DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v1(text,text,text);
+
+DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text);
+
+CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+DECLARE sealed record;
+DECLARE locked_outbox record;
+DECLARE locked_trial_family_outbox record;
+DECLARE locked_artifact_family_outbox record;
+DECLARE owner_cut bigint;
+DECLARE result_availability text := 'AVAILABLE';
+BEGIN
+  IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+  SELECT * INTO sealed
+    FROM public.rd_sealed_exploratory_replay_requests_v1
+   WHERE request_identity = requested_request_identity
+     AND (requested_request_digest = '' OR request_digest = requested_request_digest)
+   FOR SHARE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF sealed.lifecycle_state = 'REVOKED'
+     AND (requested_request_digest <> '' OR requested_receipt_identity <> '') THEN
+    RETURN pg_catalog.jsonb_build_object('schema_version',1,'availability','STALE');
+  END IF;
+  IF sealed.lifecycle_state = 'REVOKED' THEN
+    result_availability := 'STALE';
+  END IF;
+  IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+     OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
+     OR sealed.frozen_json->>'schema_version' <> '1'
+     OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
+     OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
+     OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+     OR sealed.frozen_json->'proposal'->>'request_identity' <> sealed.request_identity
+     OR sealed.frozen_json->'proposal'->>'build_request_identity' <> sealed.build_request_identity
+     OR sealed.frozen_json->'proposal'->>'attempt_identity' <> sealed.attempt_identity
+     OR sealed.frozen_json->'proposal'->>'intent_identity' <> sealed.intent_identity
+     OR sealed.frozen_json->'proposal'->>'trial_family_identity' <> sealed.trial_family_identity
+     OR sealed.frozen_json->'proposal'->>'artifact_identity' <> sealed.artifact_identity
+     OR sealed.frozen_json->'proposal'->>'build_receipt_identity' <> sealed.build_receipt_identity
+     OR sealed.frozen_json->'proposal'->>'artifact_family_binding_identity' <> sealed.artifact_family_binding_identity
+     OR sealed.frozen_json->'proposal'->>'census_frontier_identity' <> sealed.census_frontier_identity
+     OR sealed.receipt_json->>'schema_version' <> '1'
+     OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+     OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
+     OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+  THEN RETURN NULL; END IF;
+
+  SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+         committed_at_epoch_ms
+    INTO STRICT locked_trial_family_outbox
+    FROM public.rd_owner_outbox_v1
+   WHERE aggregate_identity=sealed.trial_family_identity
+     AND event_kind='TRIAL_FAMILY_FROZEN_V1'
+   FOR SHARE;
+  SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+         committed_at_epoch_ms
+    INTO STRICT locked_artifact_family_outbox
+    FROM public.rd_owner_outbox_v1
+   WHERE aggregate_identity=sealed.artifact_identity
+     AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+   FOR SHARE;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM public.rd_research_request_receipts_v1 research
+     WHERE research.intent_json->>'intent_identity'=sealed.intent_identity
+       AND research.intent_json->>'semantic_digest'=sealed.frozen_json->>'intent_semantic_digest'
+       AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+       AND research.receipt_json->>'disposition'='ACCEPTED'
+       AND research.view_json->>'availability'='AVAILABLE'
+       AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+       AND research.view_json->>'attempt_identity'=sealed.attempt_identity
+       AND research.view_json->>'artifact_identity'=sealed.artifact_identity
+       AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+       AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.rd_trial_families_v1 family
+    JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
+     WHERE family.trial_family_identity=sealed.trial_family_identity
+       AND family.intent_identity=sealed.intent_identity
+       AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+       AND head.frontier_identity=sealed.census_frontier_identity
+       AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
+     WHERE binding.binding_identity=sealed.artifact_family_binding_identity
+       AND binding.artifact_identity=sealed.artifact_identity
+       AND binding.build_receipt_identity=sealed.build_receipt_identity
+       AND binding.intent_identity=sealed.intent_identity
+       AND binding.trial_family_identity=sealed.trial_family_identity
+       AND binding.binding_digest=sealed.frozen_json->>'artifact_family_binding_digest'
+       AND binding.binding_receipt_json->>'receipt_identity'=sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt
+     WHERE attempt.build_request_identity=sealed.build_request_identity
+       AND attempt.attempt_identity=sealed.attempt_identity
+       AND attempt.attempt_json->>'state'='TERMINAL'
+       AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
+       AND attempt.attempt_json->'receipt'->>'artifact_identity'=sealed.artifact_identity
+       AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=sealed.build_receipt_identity
+  ) OR NOT EXISTS (
+    SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact
+     WHERE artifact.artifact_digest=sealed.artifact_identity
+       AND artifact.intent_identity=sealed.intent_identity
+       AND artifact.attempt_identity=sealed.attempt_identity
+       AND artifact.build_receipt_json->>'build_receipt_identity'=sealed.build_receipt_identity
+       AND artifact.build_receipt_json->>'wasm_digest'=sealed.frozen_json->'proposal'->>'exact_code_bytes_digest'
+       AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=sealed.frozen_json->>'exact_code_bytes_sha256_digest'
+       AND artifact.build_receipt_json->>'source_capsule_digest'=sealed.frozen_json->>'source_capsule_digest'
+       AND artifact.build_receipt_json->>'build_recipe_digest'=sealed.frozen_json->>'build_recipe_digest'
+       AND artifact.build_receipt_json->>'dependency_identity'=sealed.frozen_json->>'dependency_identity'
+       AND artifact.artifact_review_json->>'review_identity'=sealed.frozen_json->>'artifact_review_identity'
+  ) OR NOT EXISTS (
+    SELECT 1
+      FROM public.rd_owner_outbox_v1 family_outbox
+      JOIN public.rd_trial_families_v1 family
+        ON family.trial_family_identity=family_outbox.aggregate_identity
+      JOIN public.rd_trial_family_members_v1 member
+        ON member.trial_family_identity=family.trial_family_identity
+       AND member.ordinal=0
+      JOIN public.rd_trial_family_heads_v1 head
+        ON head.trial_family_identity=family.trial_family_identity
+     WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
+       AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+       AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
+       AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
+       AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+       AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
+       AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
+       AND family_outbox.payload_json=pg_catalog.jsonb_build_object(
+         'schema_version',1,
+         'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+         'intent_identity',sealed.intent_identity,
+         'trial_family_identity',sealed.trial_family_identity,
+         'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+         'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+         'census_frontier_identity',head.frontier_identity,
+         'census_frontier_digest',head.frontier_digest
+       )
+  ) OR NOT EXISTS (
+    SELECT 1
+      FROM public.rd_owner_outbox_v1 artifact_outbox
+      JOIN public.rd_artifact_trial_family_bindings_v1 binding
+        ON binding.artifact_identity=artifact_outbox.aggregate_identity
+     WHERE artifact_outbox.aggregate_identity=sealed.artifact_identity
+       AND artifact_outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+       AND artifact_outbox.payload_digest=sealed.frozen_json->>'artifact_family_outbox_digest'
+       AND artifact_outbox.event_identity=sealed.frozen_json->>'artifact_family_outbox_event_identity'
+       AND artifact_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
+       AND artifact_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
+       AND artifact_outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
+       AND artifact_outbox.payload_json=pg_catalog.jsonb_build_object(
+         'schema_version',1,
+         'artifact_identity',sealed.artifact_identity,
+         'build_receipt_identity',sealed.build_receipt_identity,
+         'trial_family_identity',sealed.trial_family_identity,
+         'binding_identity',sealed.artifact_family_binding_identity,
+         'binding_receipt_identity',sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+       )
+  ) THEN RETURN NULL; END IF;
+
+  SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+         committed_at_epoch_ms
+    INTO STRICT locked_outbox
+    FROM public.rd_owner_outbox_v1
+   WHERE aggregate_identity=sealed.request_identity
+     AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'
+   FOR SHARE;
+  owner_cut := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
+  RETURN pg_catalog.jsonb_build_object(
+    'schema_version',1,
+    'availability',result_availability,
+    'owner_cut_epoch_ms',owner_cut,
+    'frozen',sealed.frozen_json,
+    'receipt',sealed.receipt_json,
+    'outbox',pg_catalog.jsonb_build_object(
+      'event_identity',locked_outbox.event_identity,
+      'aggregate_identity',locked_outbox.aggregate_identity,
+      'event_kind',locked_outbox.event_kind,
+      'payload_digest',locked_outbox.payload_digest,
+      'payload_json',locked_outbox.payload_json,
+      'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms
+    ),
+    'trial_family_outbox',pg_catalog.jsonb_build_object(
+      'event_identity',locked_trial_family_outbox.event_identity,
+      'aggregate_identity',locked_trial_family_outbox.aggregate_identity,
+      'event_kind',locked_trial_family_outbox.event_kind,
+      'payload_digest',locked_trial_family_outbox.payload_digest,
+      'payload_json',locked_trial_family_outbox.payload_json,
+      'committed_at_epoch_ms',locked_trial_family_outbox.committed_at_epoch_ms
+    ),
+    'artifact_family_outbox',pg_catalog.jsonb_build_object(
+      'event_identity',locked_artifact_family_outbox.event_identity,
+      'aggregate_identity',locked_artifact_family_outbox.aggregate_identity,
+      'event_kind',locked_artifact_family_outbox.event_kind,
+      'payload_digest',locked_artifact_family_outbox.payload_digest,
+      'payload_json',locked_artifact_family_outbox.payload_json,
+      'committed_at_epoch_ms',locked_artifact_family_outbox.committed_at_epoch_ms
+    )
+  );
+EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+END
+$function$;
+
+CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM public.rd_sealed_exploratory_replay_requests_v1
+     WHERE request_identity=requested_request_identity
+       AND request_schema_version=1
+       AND coalesce(frozen_json->>'request_schema_version','1')='1'
+  ) THEN RETURN NULL; END IF;
+  RETURN rd_owner_api.verify_exploratory_replay_request_internal_v1(
+    requested_request_identity,
+    requested_request_digest,
+    requested_receipt_identity
+  );
+END
+$function$;
+
+CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+DECLARE base jsonb;
+DECLARE sealed record;
+DECLARE locked_v2_outbox record;
+BEGIN
+  SELECT * INTO STRICT sealed
+    FROM public.rd_sealed_exploratory_replay_requests_v1
+   WHERE request_identity=requested_request_identity
+     AND request_schema_version=2
+     AND frozen_json->>'request_schema_version'='2'
+     AND v2_meaning_digest=requested_meaning_digest
+     AND v2_seal_digest=requested_seal_digest
+     AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity
+   FOR SHARE;
+
+  IF sealed.v2_canonical_request_bytes IS NULL
+     OR sealed.v2_meaning_digest IS NULL
+     OR sealed.v2_seal_digest IS NULL
+     OR sealed.v2_receipt_json IS NULL
+     OR sealed.v2_receipt_json->>'schema_version' <> '2'
+     OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+     OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+     OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+     OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+  THEN RETURN NULL; END IF;
+
+  base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
+    requested_request_identity,
+    '',
+    ''
+  );
+  IF base IS NULL
+     OR base->>'availability' NOT IN ('AVAILABLE','STALE')
+  THEN RETURN NULL; END IF;
+
+  SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+         committed_at_epoch_ms
+    INTO STRICT locked_v2_outbox
+    FROM public.rd_owner_outbox_v1
+   WHERE aggregate_identity=sealed.request_identity
+     AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'
+   FOR SHARE;
+
+  IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+       'schema_version',2,
+       'request_identity',sealed.request_identity,
+       'meaning_digest',sealed.v2_meaning_digest,
+       'seal_digest',sealed.v2_seal_digest,
+       'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+       'lineage_request_digest',sealed.request_digest,
+       'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+     )
+     OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+  THEN RETURN NULL; END IF;
+
+  RETURN base || pg_catalog.jsonb_build_object(
+    'schema_version',2,
+    'v2_canonical_request_base64',pg_catalog.replace(
+      pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+      pg_catalog.chr(10),
+      ''
+    ),
+    'v2_meaning_digest',sealed.v2_meaning_digest,
+    'v2_seal_digest',sealed.v2_seal_digest,
+    'v2_receipt',sealed.v2_receipt_json,
+    'v2_outbox',pg_catalog.jsonb_build_object(
+      'event_identity',locked_v2_outbox.event_identity,
+      'aggregate_identity',locked_v2_outbox.aggregate_identity,
+      'event_kind',locked_v2_outbox.event_kind,
+      'payload_digest',locked_v2_outbox.payload_digest,
+      'payload_json',locked_v2_outbox.payload_json,
+      'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+    )
+  );
+EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+END
+$function$;
+
+CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+DECLARE stored_receipt_identity text;
+DECLARE stored_seal_digest text;
+BEGIN
+  SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
+    INTO STRICT stored_receipt_identity,stored_seal_digest
+    FROM public.rd_sealed_exploratory_replay_requests_v1
+   WHERE request_identity=requested_request_identity
+     AND request_schema_version=2
+     AND frozen_json->>'request_schema_version'='2'
+     AND v2_meaning_digest=requested_meaning_digest
+   FOR SHARE;
+  IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
+  RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+    requested_request_identity,
+    requested_meaning_digest,
+    stored_receipt_identity,
+    stored_seal_digest
+  );
+EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+END
+$function$;
+
+CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+BEGIN
+  RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+    requested_request_identity,
+    requested_meaning_digest,
+    requested_receipt_identity,
+    requested_seal_digest
+  );
+END
+$function$;
+
+CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1 (evaluation_identity TEXT PRIMARY KEY, evaluation_digest TEXT NOT NULL, lineage_identity TEXT NOT NULL, predecessor_evaluation_identity TEXT, ir_digest TEXT NOT NULL, pit_readback_digest TEXT NOT NULL, fact_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+
+CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluation_heads_v1 (lineage_identity TEXT PRIMARY KEY, evaluation_identity TEXT NOT NULL REFERENCES rd_complex_strategy_develop_evaluations_v1(evaluation_identity), evaluation_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+
+DO $rd_complex_successor_index$
+DECLARE index_oid oid := pg_catalog.to_regclass(
+  'public.rd_complex_strategy_develop_evaluation_successors_v1'
+);
+BEGIN
+  IF index_oid IS NULL THEN
+    CREATE UNIQUE INDEX rd_complex_strategy_develop_evaluation_successors_v1
+      ON public.rd_complex_strategy_develop_evaluations_v1
+      (predecessor_evaluation_identity)
+      WHERE predecessor_evaluation_identity IS NOT NULL;
+    index_oid:=pg_catalog.to_regclass(
+      'public.rd_complex_strategy_develop_evaluation_successors_v1'
+    );
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class index_relation
+      JOIN pg_catalog.pg_namespace index_namespace
+        ON index_namespace.oid=index_relation.relnamespace
+      JOIN pg_catalog.pg_index index_fact
+        ON index_fact.indexrelid=index_relation.oid
+      JOIN pg_catalog.pg_class table_relation
+        ON table_relation.oid=index_fact.indrelid
+      JOIN pg_catalog.pg_namespace table_namespace
+        ON table_namespace.oid=table_relation.relnamespace
+      JOIN pg_catalog.pg_am access_method
+        ON access_method.oid=index_relation.relam
+     WHERE index_relation.oid=index_oid
+       AND index_namespace.nspname='public'
+       AND index_relation.relname=
+           'rd_complex_strategy_develop_evaluation_successors_v1'
+       AND index_relation.relkind='i'
+       AND index_relation.relpersistence='p'
+       AND index_relation.reloptions IS NULL
+       AND access_method.amname='btree'
+       AND table_namespace.nspname='public'
+       AND table_relation.relname=
+           'rd_complex_strategy_develop_evaluations_v1'
+       AND index_fact.indisunique
+       AND NOT index_fact.indisprimary
+       AND NOT index_fact.indisexclusion
+       AND NOT index_fact.indnullsnotdistinct
+       AND NOT index_fact.indisclustered
+       AND NOT index_fact.indisreplident
+       AND index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive
+       AND index_fact.indnkeyatts=1 AND index_fact.indnatts=1
+       AND index_fact.indexprs IS NULL
+       AND index_fact.indkey::text=(
+         SELECT attribute.attnum::text
+           FROM pg_catalog.pg_attribute attribute
+          WHERE attribute.attrelid=table_relation.oid
+            AND attribute.attname='predecessor_evaluation_identity'
+       )
+       AND index_fact.indoption[0]=0
+       AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)
+           ='predecessor_evaluation_identity'
+       AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)
+           ='(predecessor_evaluation_identity IS NOT NULL)'
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+          WHERE constraint_fact.conindid=index_fact.indexrelid
+       )
+  ) THEN
+    RAISE EXCEPTION 'R&D complex successor index manifest mismatch';
+  END IF;
+END
+$rd_complex_successor_index$;
+
+DO $required_rd_storage_manifest$
+DECLARE object record;
+DECLARE relation_oid oid;
+DECLARE column_names text[];
+DECLARE expected_names text[];
+DECLARE constraint_count integer;
+BEGIN
+  FOR object IN
+    SELECT * FROM (VALUES
+      ('rd_research_request_receipts_v1',11),
+      ('rd_independence_bases_v1',9),
+      ('rd_independence_basis_admissions_v1',8),
+      ('rd_independence_basis_heads_v1',6),
+      ('rd_complex_strategy_develop_evaluations_v1',9),
+      ('rd_complex_strategy_develop_evaluation_heads_v1',4)
+    ) required(relation_name,column_count)
+  LOOP
+    relation_oid:=pg_catalog.to_regclass('public.'||object.relation_name);
+    IF relation_oid IS NULL THEN
+      RAISE EXCEPTION 'required R&D storage relation missing: %',object.relation_name;
+    END IF;
+    SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum)
+      INTO column_names
+      FROM pg_catalog.pg_attribute attribute
+     WHERE attribute.attrelid=relation_oid
+       AND attribute.attnum>0 AND NOT attribute.attisdropped;
+    expected_names:=CASE object.relation_name
+      WHEN 'rd_independence_bases_v1' THEN ARRAY[
+        'basis_identity','request_identity','principal','request_scope_json',
+        'lineage_digest','basis_digest','basis_json','receipt_json',
+        'committed_at_epoch_ms'
+      ]
+      WHEN 'rd_independence_basis_admissions_v1' THEN ARRAY[
+        'basis_identity','request_identity','request_semantic_digest',
+        'admission_json','admission_lineage_digest','custody_digest',
+        'custody_json','committed_at_epoch_ms'
+      ]
+      WHEN 'rd_independence_basis_heads_v1' THEN ARRAY[
+        'principal_scope_key','principal','request_scope_json','basis_identity',
+        'lineage_digest','committed_at_epoch_ms'
+      ]
+      WHEN 'rd_complex_strategy_develop_evaluations_v1' THEN ARRAY[
+        'evaluation_identity','evaluation_digest','lineage_identity',
+        'predecessor_evaluation_identity','ir_digest','pit_readback_digest',
+        'fact_json','receipt_json','committed_at_epoch_ms'
+      ]
+      WHEN 'rd_complex_strategy_develop_evaluation_heads_v1' THEN ARRAY[
+        'lineage_identity','evaluation_identity','evaluation_digest',
+        'committed_at_epoch_ms'
+      ]
+      ELSE NULL::text[]
+    END;
+    IF pg_catalog.array_length(column_names,1)<>object.column_count
+       OR (
+         object.relation_name='rd_research_request_receipts_v1'
+         AND column_names NOT IN (
+           ARRAY[
+             'request_identity','semantic_digest','request_json','receipt_json',
+             'intent_json','view_json','committed_at_epoch_ms',
+             'artifact_evidence_digest','artifact_evidence_json',
+             'source_ancestry_locator_json','source_ancestry_evidence_digest'
+           ],
+           ARRAY[
+             'request_identity','semantic_digest','receipt_json','intent_json',
+             'view_json','committed_at_epoch_ms','request_json',
+             'artifact_evidence_digest','artifact_evidence_json',
+             'source_ancestry_locator_json','source_ancestry_evidence_digest'
+           ]
+         )
+       )
+       OR (
+         object.relation_name<>'rd_research_request_receipts_v1'
+         AND column_names<>expected_names
+       )
+       OR EXISTS (
+         SELECT 1
+           FROM pg_catalog.pg_attribute attribute
+           LEFT JOIN pg_catalog.pg_attrdef default_fact
+             ON default_fact.adrelid=attribute.attrelid
+            AND default_fact.adnum=attribute.attnum
+          WHERE attribute.attrelid=relation_oid
+            AND attribute.attnum>0 AND NOT attribute.attisdropped
+            AND (
+              default_fact.oid IS NOT NULL
+              OR attribute.atttypid<>CASE
+                WHEN attribute.attname='committed_at_epoch_ms'
+                  THEN 'pg_catalog.int8'::pg_catalog.regtype
+                WHEN attribute.attname LIKE '%_json'
+                  THEN 'pg_catalog.jsonb'::pg_catalog.regtype
+                ELSE 'pg_catalog.text'::pg_catalog.regtype
+              END
+              OR attribute.attnotnull IS DISTINCT FROM CASE
+                WHEN object.relation_name='rd_research_request_receipts_v1'
+                  THEN attribute.attname IN (
+                    'request_identity','semantic_digest','receipt_json',
+                    'committed_at_epoch_ms'
+                  )
+                WHEN object.relation_name='rd_complex_strategy_develop_evaluations_v1'
+                  THEN attribute.attname<>'predecessor_evaluation_identity'
+                ELSE true
+              END
+            )
+       )
+       OR NOT EXISTS (
+         SELECT 1
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid=relation_oid
+            AND relation.relkind='r' AND relation.relpersistence='p'
+            AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+            AND owner.rolname IN ('postgres','rd_owner','rd_custodian')
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+               WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact
+               WHERE rewrite_fact.ev_class=relation.oid
+            )
+            AND NOT EXISTS (
+              SELECT 1 FROM pg_catalog.pg_policy policy_fact
+               WHERE policy_fact.polrelid=relation.oid
+            )
+       ) THEN
+      RAISE EXCEPTION 'required R&D storage column manifest mismatch: %',
+        object.relation_name;
+    END IF;
+
+    SELECT pg_catalog.count(*) INTO constraint_count
+      FROM pg_catalog.pg_constraint
+     WHERE conrelid=relation_oid;
+    IF constraint_count<>CASE object.relation_name
+         WHEN 'rd_independence_bases_v1' THEN 2
+         WHEN 'rd_independence_basis_admissions_v1' THEN 3
+         WHEN 'rd_independence_basis_heads_v1' THEN 2
+         WHEN 'rd_complex_strategy_develop_evaluation_heads_v1' THEN 2
+         ELSE 1
+       END
+       OR EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+          WHERE constraint_fact.conrelid=relation_oid
+            AND (
+              constraint_fact.condeferrable
+              OR constraint_fact.condeferred
+              OR NOT constraint_fact.convalidated
+            )
+       )
+       OR NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+          WHERE constraint_fact.conrelid=relation_oid
+            AND constraint_fact.contype='p'
+            AND constraint_fact.conkey=ARRAY[
+              (SELECT attnum FROM pg_catalog.pg_attribute
+                WHERE attrelid=relation_oid AND attname=CASE object.relation_name
+                  WHEN 'rd_research_request_receipts_v1' THEN 'request_identity'
+                  WHEN 'rd_independence_bases_v1' THEN 'basis_identity'
+                  WHEN 'rd_independence_basis_admissions_v1' THEN 'basis_identity'
+                  WHEN 'rd_independence_basis_heads_v1' THEN 'principal_scope_key'
+                  WHEN 'rd_complex_strategy_develop_evaluations_v1' THEN 'evaluation_identity'
+                  ELSE 'lineage_identity'
+                END)
+            ]::smallint[]
+       )
+       OR (
+         object.relation_name IN (
+           'rd_independence_bases_v1','rd_independence_basis_admissions_v1'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+            WHERE constraint_fact.conrelid=relation_oid
+              AND constraint_fact.contype='u'
+              AND constraint_fact.conkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=relation_oid AND attname='request_identity')
+              ]::smallint[]
+         )
+       )
+       OR (
+         object.relation_name='rd_independence_basis_admissions_v1'
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+            WHERE constraint_fact.conrelid=relation_oid
+              AND constraint_fact.contype='f'
+              AND constraint_fact.confrelid=
+                  'public.rd_independence_bases_v1'::pg_catalog.regclass
+              AND constraint_fact.confdeltype='c'
+              AND constraint_fact.confupdtype='a'
+              AND constraint_fact.confmatchtype='s'
+              AND constraint_fact.conkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=relation_oid AND attname='basis_identity')
+              ]::smallint[]
+              AND constraint_fact.confkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=constraint_fact.confrelid
+                    AND attname='basis_identity')
+              ]::smallint[]
+         )
+       )
+       OR (
+         object.relation_name='rd_independence_basis_heads_v1'
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+            WHERE constraint_fact.conrelid=relation_oid
+              AND constraint_fact.contype='f'
+              AND constraint_fact.confrelid=
+                  'public.rd_independence_bases_v1'::pg_catalog.regclass
+              AND constraint_fact.confdeltype='a'
+              AND constraint_fact.confupdtype='a'
+              AND constraint_fact.confmatchtype='s'
+              AND constraint_fact.conkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=relation_oid AND attname='basis_identity')
+              ]::smallint[]
+              AND constraint_fact.confkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=constraint_fact.confrelid
+                    AND attname='basis_identity')
+              ]::smallint[]
+         )
+       )
+       OR (
+         object.relation_name='rd_complex_strategy_develop_evaluation_heads_v1'
+         AND NOT EXISTS (
+           SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+            WHERE constraint_fact.conrelid=relation_oid
+              AND constraint_fact.contype='f'
+              AND constraint_fact.confrelid=
+                  'public.rd_complex_strategy_develop_evaluations_v1'::pg_catalog.regclass
+              AND constraint_fact.confdeltype='a'
+              AND constraint_fact.confupdtype='a'
+              AND constraint_fact.confmatchtype='s'
+              AND constraint_fact.conkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=relation_oid AND attname='evaluation_identity')
+              ]::smallint[]
+              AND constraint_fact.confkey=ARRAY[
+                (SELECT attnum FROM pg_catalog.pg_attribute
+                  WHERE attrelid=constraint_fact.confrelid
+                    AND attname='evaluation_identity')
+              ]::smallint[]
+         )
+       ) THEN
+      RAISE EXCEPTION 'required R&D storage constraint manifest mismatch: %',
+        object.relation_name;
+    END IF;
+  END LOOP;
+END
+$required_rd_storage_manifest$;
+
 DROP FUNCTION IF EXISTS rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,text,jsonb);
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(
   requested_basis_identity text,

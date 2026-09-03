@@ -741,6 +741,52 @@ impl PostgresResearchGoalOwnerV1 {
                  'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)',
                  'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
                ]::text[])
+             ), required_indexes(name,table_name,key_definition,predicate_definition) AS (
+               VALUES
+                 ('rd_research_intent_identity_v1','rd_research_request_receipts_v1','(intent_json ->> ''intent_identity''::text)','(intent_json IS NOT NULL)'),
+                 ('rd_complex_strategy_develop_evaluation_successors_v1','rd_complex_strategy_develop_evaluations_v1','predecessor_evaluation_identity','(predecessor_evaluation_identity IS NOT NULL)')
+             ), index_state AS (
+               SELECT required.*,index_relation.oid,
+                      index_fact.indexrelid IS NOT NULL
+                      AND index_namespace.nspname='public'
+                      AND index_relation.relkind='i'
+                      AND index_relation.relpersistence='p'
+                      AND index_relation.reloptions IS NULL
+                      AND pg_catalog.pg_get_userbyid(index_relation.relowner)='rd_custodian'
+                      AND access_method.amname='btree'
+                      AND table_namespace.nspname='public'
+                      AND table_relation.relname=required.table_name
+                      AND index_fact.indisunique
+                      AND NOT index_fact.indisprimary
+                      AND NOT index_fact.indisexclusion
+                      AND NOT index_fact.indnullsnotdistinct
+                      AND NOT index_fact.indisclustered
+                      AND NOT index_fact.indisreplident
+                      AND index_fact.indisvalid
+                      AND index_fact.indisready
+                      AND index_fact.indislive
+                      AND index_fact.indnkeyatts=1
+                      AND index_fact.indnatts=1
+                      AND index_fact.indoption[0]=0
+                      AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)=required.key_definition
+                      AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)=required.predicate_definition
+                      AND NOT EXISTS (
+                        SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+                         WHERE constraint_fact.conindid=index_fact.indexrelid
+                      ) AS manifest_current
+                 FROM required_indexes required
+                 LEFT JOIN pg_catalog.pg_class index_relation
+                   ON index_relation.oid=pg_catalog.to_regclass('public.'||required.name)
+                 LEFT JOIN pg_catalog.pg_namespace index_namespace
+                   ON index_namespace.oid=index_relation.relnamespace
+                 LEFT JOIN pg_catalog.pg_index index_fact
+                   ON index_fact.indexrelid=index_relation.oid
+                 LEFT JOIN pg_catalog.pg_class table_relation
+                   ON table_relation.oid=index_fact.indrelid
+                 LEFT JOIN pg_catalog.pg_namespace table_namespace
+                   ON table_namespace.oid=table_relation.relnamespace
+                 LEFT JOIN pg_catalog.pg_am access_method
+                   ON access_method.oid=index_relation.relam
              ), relation_state AS (
                SELECT required.name,relation.*,
                       NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal) AS no_user_triggers,
@@ -825,6 +871,8 @@ impl PostgresResearchGoalOwnerV1 {
                UNION ALL SELECT 'relation','relation:public.'||name,'sealed_columns_owner_private' FROM relation_state WHERE name='rd_sealed_exploratory_replay_requests_v1' AND oid IS NOT NULL AND NOT columns_owner_private
                UNION ALL SELECT 'relation','relation:public.'||name,'closed_relation_seal' FROM relation_state WHERE oid IS NOT NULL AND NOT closed_seal_current
                UNION ALL SELECT 'relation','relation:public.'||name,'exact_acl_manifest' FROM relation_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
+               UNION ALL SELECT 'index','index:public.'||name,'exists' FROM index_state WHERE oid IS NULL
+               UNION ALL SELECT 'index','index:public.'||name,'canonical_manifest' FROM index_state WHERE oid IS NOT NULL AND NOT manifest_current
                UNION ALL SELECT 'routine','routine:'||signature,'exists' FROM routine_state WHERE oid IS NULL
                UNION ALL SELECT 'routine','routine:'||signature,'custodian_owner' FROM routine_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(proowner) IS DISTINCT FROM 'rd_custodian'
                UNION ALL SELECT 'routine','routine:'||signature,'source_seal' FROM routine_state WHERE oid IS NOT NULL AND NOT source_seal_current
@@ -3747,6 +3795,35 @@ mod tests {
         .await
         .expect("legacy R&D Replay storage topology");
         assert_eq!(before, (true, true));
+        let legacy_oid: i64 = sqlx::query_scalar(
+            "SELECT 'public.rd_exploratory_replay_request_custody_v1'::regclass::oid::bigint",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy R&D Replay relation identity");
+        let legacy_acl_present: bool = sqlx::query_scalar(
+            "SELECT has_table_privilege('surprise_replay_grantee','public.rd_exploratory_replay_request_custody_v1','SELECT,UPDATE')
+                AND EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_attribute attribute
+                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                  WHERE attribute.attrelid='public.rd_exploratory_replay_request_custody_v1'::regclass
+                    AND attribute.attname='request_identity'
+                    AND acl.grantee='surprise_replay_grantee'::regrole
+                    AND acl.privilege_type='SELECT' AND NOT acl.is_grantable
+                )
+                AND EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_attribute attribute
+                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                  WHERE attribute.attrelid='public.rd_exploratory_replay_request_custody_v1'::regclass
+                    AND attribute.attname='lifecycle_state'
+                    AND acl.grantee='surprise_replay_grantee'::regrole
+                    AND acl.privilege_type='UPDATE' AND NOT acl.is_grantable
+                )",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy R&D Replay ACL sentinel");
+        assert!(legacy_acl_present);
 
         PostgresResearchGoalOwnerV1::migrate_rd_storage(&pool)
             .await
@@ -3759,13 +3836,62 @@ mod tests {
         .await
         .expect("sealed R&D Replay storage topology");
         assert_eq!(after, (true, true));
+        let sealed_oid: i64 = sqlx::query_scalar(
+            "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::regclass::oid::bigint",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("sealed R&D Replay relation identity");
+        assert_eq!(sealed_oid, legacy_oid);
         let continuity_row_retained: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity='internal-continuity-replay-v1' AND request_digest='sha256:internal-continuity-request-v1' AND attempt_identity='internal-continuity-attempt-v1' AND lifecycle_state='FROZEN' AND committed_at_epoch_ms=1700000000000)",
+            "SELECT EXISTS (
+               SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1
+                WHERE request_identity='internal-continuity-replay-v1'
+                  AND request_digest='sha256:internal-continuity-request-v1'
+                  AND build_request_identity='internal-continuity-build-v1'
+                  AND attempt_identity='internal-continuity-attempt-v1'
+                  AND intent_identity='internal-continuity-intent-v1'
+                  AND trial_family_identity='internal-continuity-family-v1'
+                  AND artifact_identity='sha256:internal-continuity-artifact-v1'
+                  AND build_receipt_identity='internal-continuity-build-receipt-v1'
+                  AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
+                  AND census_frontier_identity='internal-continuity-census-v1'
+                  AND frozen_json='{\"kind\":\"internal-custody-continuity\",\"schema_version\":1}'::jsonb
+                  AND receipt_json='{\"kind\":\"internal-custody-continuity-receipt\",\"schema_version\":1}'::jsonb
+                  AND lifecycle_state='FROZEN'
+                  AND committed_at_epoch_ms=1700000000000
+                  AND request_schema_version=2
+                  AND v2_canonical_request_bytes=decode('00112233445566778899aabbccddeeff','hex')
+                  AND v2_meaning_digest='sha256:internal-continuity-meaning-v2'
+                  AND v2_seal_digest='sha256:internal-continuity-seal-v2'
+                  AND v2_receipt_json='{\"kind\":\"internal-custody-continuity-v2-receipt\",\"schema_version\":2}'::jsonb
+             )",
         )
         .fetch_one(&pool)
         .await
         .expect("normalized R&D Replay continuity row");
         assert!(continuity_row_retained);
+        let sealed_acl_exact: bool = sqlx::query_scalar(
+            "SELECT pg_get_userbyid(relation.relowner)='rd_owner'
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
+                    relation.relacl,pg_catalog.acldefault('r',relation.relowner)
+                  )) acl WHERE acl.grantee<>relation.relowner
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_attribute attribute
+                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                  WHERE attribute.attrelid=relation.oid
+                    AND attribute.attnum>0 AND NOT attribute.attisdropped
+                    AND acl.grantee<>relation.relowner
+                )
+               FROM pg_catalog.pg_class relation
+              WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::regclass",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("sealed R&D Replay owner-private ACL");
+        assert!(sealed_acl_exact);
     }
 
     #[tokio::test]
