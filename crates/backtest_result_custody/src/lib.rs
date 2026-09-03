@@ -197,6 +197,9 @@ async fn validate_topology(
         "SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
                FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='backtest_owner_api')
+        AND (SELECT pg_catalog.count(*)=1 AND pg_catalog.bool_and(procedure.oid=pg_catalog.to_regprocedure($2))
+               FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+              WHERE namespace.nspname='backtest_owner_api')
         AND (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND relation.relkind='r' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
                FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
               WHERE namespace.nspname='public' AND relation.relname IN ('backtest_replay_results_v2','backtest_replay_result_receipts_v1','backtest_replay_result_outbox_v1'))
