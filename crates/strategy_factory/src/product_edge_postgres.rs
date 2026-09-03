@@ -212,6 +212,127 @@ pub(crate) fn reseal_current_research_artifact_evidence_for_test(
     ))
 }
 
+const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_research_request_receipts_v1",
+        columns: &[
+            crate::schema_materialization::required("request_identity", "text"),
+            crate::schema_materialization::required("semantic_digest", "text"),
+            crate::schema_materialization::optional("request_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::optional("intent_json", "jsonb"),
+            crate::schema_materialization::optional("view_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+            crate::schema_materialization::optional("artifact_evidence_digest", "text"),
+            crate::schema_materialization::optional("artifact_evidence_json", "jsonb"),
+            crate::schema_materialization::optional("source_ancestry_locator_json", "jsonb"),
+            crate::schema_materialization::optional("source_ancestry_evidence_digest", "text"),
+        ],
+        constraints: &["p:request_identity:::false:false:true:"],
+        indexes: &[
+            crate::schema_materialization::primary_index("request_identity"),
+            crate::schema_materialization::IndexSpec {
+                keys: "#expression#",
+                unique: true,
+                primary: false,
+                expression: Some("(intent_json ->> 'intent_identity'::text)"),
+                predicate: Some("(intent_json IS NOT NULL)"),
+            },
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_independence_bases_v1",
+        columns: &[
+            crate::schema_materialization::required("basis_identity", "text"),
+            crate::schema_materialization::required("request_identity", "text"),
+            crate::schema_materialization::required("principal", "text"),
+            crate::schema_materialization::required("request_scope_json", "jsonb"),
+            crate::schema_materialization::required("lineage_digest", "text"),
+            crate::schema_materialization::required("basis_digest", "text"),
+            crate::schema_materialization::required("basis_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "p:basis_identity:::false:false:true:",
+            "u:request_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("basis_identity"),
+            crate::schema_materialization::unique_index("request_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_independence_basis_admissions_v1",
+        columns: &[
+            crate::schema_materialization::required("basis_identity", "text"),
+            crate::schema_materialization::required("request_identity", "text"),
+            crate::schema_materialization::required("request_semantic_digest", "text"),
+            crate::schema_materialization::required("admission_json", "jsonb"),
+            crate::schema_materialization::required("admission_lineage_digest", "text"),
+            crate::schema_materialization::required("custody_digest", "text"),
+            crate::schema_materialization::required("custody_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):acs:false:false:true:",
+            "p:basis_identity:::false:false:true:",
+            "u:request_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("basis_identity"),
+            crate::schema_materialization::unique_index("request_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_independence_basis_heads_v1",
+        columns: &[
+            crate::schema_materialization::required("principal_scope_key", "text"),
+            crate::schema_materialization::required("principal", "text"),
+            crate::schema_materialization::required("request_scope_json", "jsonb"),
+            crate::schema_materialization::required("basis_identity", "text"),
+            crate::schema_materialization::required("lineage_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):aas:false:false:true:",
+            "p:principal_scope_key:::false:false:true:",
+        ],
+        indexes: &[crate::schema_materialization::primary_index(
+            "principal_scope_key",
+        )],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_sealed_exploratory_replay_requests_v1",
+        columns: &[
+            crate::schema_materialization::required("request_identity", "text"),
+            crate::schema_materialization::required("request_digest", "text"),
+            crate::schema_materialization::required("build_request_identity", "text"),
+            crate::schema_materialization::required("attempt_identity", "text"),
+            crate::schema_materialization::required("intent_identity", "text"),
+            crate::schema_materialization::required("trial_family_identity", "text"),
+            crate::schema_materialization::required("artifact_identity", "text"),
+            crate::schema_materialization::required("build_receipt_identity", "text"),
+            crate::schema_materialization::required("artifact_family_binding_identity", "text"),
+            crate::schema_materialization::required("census_frontier_identity", "text"),
+            crate::schema_materialization::required("frozen_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::defaulted("lifecycle_state", "text", "'FROZEN'::text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+            crate::schema_materialization::defaulted("request_schema_version", "smallint", "1"),
+            crate::schema_materialization::optional("v2_canonical_request_bytes", "bytea"),
+            crate::schema_materialization::optional("v2_meaning_digest", "text"),
+            crate::schema_materialization::optional("v2_seal_digest", "text"),
+            crate::schema_materialization::optional("v2_receipt_json", "jsonb"),
+        ],
+        constraints: &["p:request_identity:::false:false:true:"],
+        indexes: &[
+            crate::schema_materialization::primary_index("request_identity"),
+            crate::schema_materialization::unique_index("artifact_identity,request_identity"),
+        ],
+    },
+];
+
 impl PostgresResearchGoalOwnerV1 {
     fn verify_admission_v2(
         &self,
@@ -493,15 +614,18 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
-        if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+        if crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
             .await
             .map_err(|e| storage(&e))?
         {
-            return Err(ResearchGoalOwnerError::Storage(
-                "pre-cutover R&D schema materialization is unavailable".to_owned(),
-            ));
+            Self::migrate_rd_storage(&pool).await?;
+            Self::verify_public_relation_shapes(&pool, true).await
+        } else {
+            Self::verify_public_relation_shapes(&pool, false).await?;
+            crate::replay_policy_catalog_postgres_v2::migrate(&pool)
+                .await
+                .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))
         }
-        Self::migrate_rd_storage(&pool).await
     }
 
     pub async fn connect(
@@ -513,7 +637,10 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
-        Self::migrate_rd_storage(&pool).await?;
+        Self::verify_public_relation_shapes(&pool, false).await?;
+        crate::replay_policy_catalog_postgres_v2::migrate(&pool)
+            .await
+            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let qualification = PostgresQualificationOwnerV1::connect(qualification_database_url)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
@@ -554,7 +681,7 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        crate::schema_materialization::materialize_or_require_existing_public_table(
+        crate::schema_materialization::materialize_public_table(
             pool,
             "rd_research_request_receipts_v1",
             "
@@ -840,13 +967,9 @@ impl PostgresResearchGoalOwnerV1 {
                 "CREATE TABLE IF NOT EXISTS rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             ),
         ] {
-            crate::schema_materialization::materialize_or_require_existing_public_table(
-                pool,
-                relation_name,
-                statement,
-            )
-            .await
-            .map_err(|e| storage(&e))?;
+            crate::schema_materialization::materialize_public_table(pool, relation_name, statement)
+                .await
+                .map_err(|e| storage(&e))?;
         }
         migrate_trial_family(pool)
             .await
@@ -940,6 +1063,28 @@ impl PostgresResearchGoalOwnerV1 {
                 .map_err(|e| storage(&e))?;
         }
         publication.commit().await.map_err(|e| storage(&e))?;
+        Ok(())
+    }
+
+    async fn verify_public_relation_shapes(
+        pool: &PgPool,
+        materialization: bool,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        for tables in [
+            RD_CORE_TABLES,
+            crate::trial_family_postgres::TABLES,
+            crate::complex_strategy_develop_evaluation::TABLES,
+        ] {
+            if materialization {
+                crate::schema_materialization::verify_materialized_public_tables(pool, tables)
+                    .await
+                    .map_err(|e| storage(&e))?;
+            } else {
+                crate::schema_materialization::require_existing_public_tables(pool, tables)
+                    .await
+                    .map_err(|e| storage(&e))?;
+            }
+        }
         Ok(())
     }
 

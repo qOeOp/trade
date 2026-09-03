@@ -21,6 +21,76 @@ const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
+macro_rules! table {
+    ($name:literal, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
+        crate::schema_materialization::PublicTableSpec {
+            name: $name,
+            columns: &[$(crate::schema_materialization::required($column, $data_type)),*],
+            constraints: &[$($constraint),*],
+            indexes: &[$(table!(@index $kind $keys)),*],
+        }
+    };
+    (@index primary $keys:literal) => { crate::schema_materialization::primary_index($keys) };
+    (@index unique $keys:literal) => { crate::schema_materialization::unique_index($keys) };
+}
+
+pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
+    table!("rd_trial_families_v1", [
+        ("trial_family_identity", "text"), ("intent_identity", "text"),
+        ("root_digest", "text"), ("root_json", "jsonb"),
+        ("root_receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
+    ], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
+    [primary "trial_family_identity", unique "intent_identity"]),
+    table!("rd_trial_family_members_v1", [
+        ("member_identity", "text"), ("trial_family_identity", "text"),
+        ("ordinal", "integer"), ("fact_identity", "text"), ("member_digest", "text"),
+        ("member_json", "jsonb"), ("membership_receipt_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "p:member_identity:::false:false:true:", "u:fact_identity:::false:false:true:",
+        "u:trial_family_identity,ordinal:::false:false:true:"
+    ], [primary "member_identity", unique "fact_identity", unique "trial_family_identity,ordinal"]),
+    table!("rd_trial_family_heads_v1", [
+        ("trial_family_identity", "text"), ("frontier_identity", "text"),
+        ("frontier_digest", "text"), ("frontier_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
+    ], [primary "trial_family_identity", unique "frontier_identity"]),
+    table!("rd_trial_family_attempt_cuts_v2", [
+        ("census_frontier_identity", "text"), ("trial_family_identity", "text"),
+        ("attempt_ordinal", "integer"), ("attempt_frontier_identity", "text"),
+        ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
+        ("attempt_frontier_json", "jsonb"), ("candidate_set_frontier_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "p:census_frontier_identity:::false:false:true:",
+        "u:attempt_frontier_identity:::false:false:true:",
+        "u:candidate_set_frontier_identity:::false:false:true:",
+        "u:trial_family_identity,attempt_ordinal:::false:false:true:"
+    ], [primary "census_frontier_identity", unique "attempt_frontier_identity", unique "candidate_set_frontier_identity", unique "trial_family_identity,attempt_ordinal"]),
+    table!("rd_artifact_trial_family_bindings_v1", [
+        ("binding_identity", "text"), ("artifact_identity", "text"),
+        ("build_receipt_identity", "text"), ("intent_identity", "text"),
+        ("trial_family_identity", "text"), ("binding_digest", "text"),
+        ("binding_json", "jsonb"), ("binding_receipt_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
+        "u:build_receipt_identity:::false:false:true:"
+    ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),
+    table!("rd_owner_outbox_v1", [
+        ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
+        ("payload_digest", "text"), ("payload_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], ["p:event_identity:::false:false:true:", "u:aggregate_identity,event_kind:::false:false:true:"],
+    [primary "event_identity", unique "aggregate_identity,event_kind", unique "aggregate_identity,event_kind"]),
+];
+
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     for (relation_name, statement) in [
         (
@@ -48,13 +118,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
             "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
         ),
     ] {
-        crate::schema_materialization::materialize_or_require_existing_public_table(
-            pool,
-            relation_name,
-            statement,
-        )
-        .await
-        .map_err(storage)?;
+        crate::schema_materialization::materialize_public_table(pool, relation_name, statement)
+            .await
+            .map_err(storage)?;
     }
     crate::replay_policy_catalog_postgres_v2::migrate(pool)
         .await

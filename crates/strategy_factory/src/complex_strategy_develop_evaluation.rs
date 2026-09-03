@@ -155,6 +155,50 @@ struct DevelopEvaluationOutboxV1<'a> {
     receipt_identity: &'a str,
 }
 
+pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_complex_strategy_develop_evaluations_v1",
+        columns: &[
+            crate::schema_materialization::required("evaluation_identity", "text"),
+            crate::schema_materialization::required("evaluation_digest", "text"),
+            crate::schema_materialization::required("lineage_identity", "text"),
+            crate::schema_materialization::optional("predecessor_evaluation_identity", "text"),
+            crate::schema_materialization::required("ir_digest", "text"),
+            crate::schema_materialization::required("pit_readback_digest", "text"),
+            crate::schema_materialization::required("fact_json", "jsonb"),
+            crate::schema_materialization::required("receipt_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &["p:evaluation_identity:::false:false:true:"],
+        indexes: &[
+            crate::schema_materialization::primary_index("evaluation_identity"),
+            crate::schema_materialization::IndexSpec {
+                keys: "predecessor_evaluation_identity",
+                unique: true,
+                primary: false,
+                expression: None,
+                predicate: Some("(predecessor_evaluation_identity IS NOT NULL)"),
+            },
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_complex_strategy_develop_evaluation_heads_v1",
+        columns: &[
+            crate::schema_materialization::required("lineage_identity", "text"),
+            crate::schema_materialization::required("evaluation_identity", "text"),
+            crate::schema_materialization::required("evaluation_digest", "text"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:evaluation_identity:public.rd_complex_strategy_develop_evaluations_v1(evaluation_identity):aas:false:false:true:",
+            "p:lineage_identity:::false:false:true:",
+        ],
+        indexes: &[crate::schema_materialization::primary_index(
+            "lineage_identity",
+        )],
+    },
+];
+
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ComplexStrategyDevelopEvaluationError> {
     for (relation_name, statement) in [
         (
@@ -171,13 +215,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ComplexStrategyDevelopE
         ),
     ] {
         if let Some(relation_name) = relation_name {
-            crate::schema_materialization::materialize_or_require_existing_public_table(
-                pool,
-                relation_name,
-                statement,
-            )
-            .await
-            .map_err(storage)?;
+            crate::schema_materialization::materialize_public_table(pool, relation_name, statement)
+                .await
+                .map_err(storage)?;
         } else {
             sqlx::query(statement)
                 .execute(pool)

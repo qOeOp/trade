@@ -23,6 +23,100 @@ const CATALOG_TABLES_V2: [&str; 4] = [
     "rd_replay_policy_catalog_revocations_v2",
     "rd_replay_policy_catalog_audit_v2",
 ];
+const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTableSpec] = &[
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_replay_policy_catalog_records_v2",
+        columns: &[
+            crate::schema_materialization::required("catalog_record_id", "text"),
+            crate::schema_materialization::required("catalog_version", "numeric(20,0)"),
+            crate::schema_materialization::required("owner_identity", "text"),
+            crate::schema_materialization::optional("predecessor_record_id", "text"),
+            crate::schema_materialization::required("policy_grammar_parser_id", "text"),
+            crate::schema_materialization::required("policy_grammar_parser_digest", "bytea"),
+            crate::schema_materialization::required("policy_canonical_bytes", "bytea"),
+            crate::schema_materialization::required("policy_digest", "bytea"),
+            crate::schema_materialization::required("catalog_record_digest", "bytea"),
+            crate::schema_materialization::required("created_by", "text"),
+            crate::schema_materialization::required("created_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "c:catalog_record_digest:::false:false:true:(octet_length(catalog_record_digest) = 32)",
+            "c:catalog_version:::false:false:true:((catalog_version > (0)::numeric) AND (catalog_version <= '18446744073709551615'::numeric))",
+            "c:policy_digest:::false:false:true:(octet_length(policy_digest) = 32)",
+            "c:policy_grammar_parser_digest:::false:false:true:(octet_length(policy_grammar_parser_digest) = 32)",
+            "f:predecessor_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "p:catalog_record_id:::false:false:true:",
+            "u:catalog_record_digest:::false:false:true:",
+            "u:catalog_version:::false:false:true:",
+            "u:predecessor_record_id:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("catalog_record_id"),
+            crate::schema_materialization::unique_index("catalog_record_digest"),
+            crate::schema_materialization::unique_index("catalog_version"),
+            crate::schema_materialization::unique_index("predecessor_record_id"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_replay_policy_catalog_head_v2",
+        columns: &[
+            crate::schema_materialization::defaulted("singleton", "boolean", "true"),
+            crate::schema_materialization::required("catalog_record_id", "text"),
+            crate::schema_materialization::required("catalog_version", "numeric(20,0)"),
+            crate::schema_materialization::required("advanced_by", "text"),
+            crate::schema_materialization::required("advanced_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "c:singleton:::false:false:true:singleton",
+            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "p:singleton:::false:false:true:",
+            "u:catalog_record_id:::false:false:true:",
+            "u:catalog_version:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("singleton"),
+            crate::schema_materialization::unique_index("catalog_record_id"),
+            crate::schema_materialization::unique_index("catalog_version"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_replay_policy_catalog_revocations_v2",
+        columns: &[
+            crate::schema_materialization::required("catalog_record_id", "text"),
+            crate::schema_materialization::required("catalog_version", "numeric(20,0)"),
+            crate::schema_materialization::required("revoked_by", "text"),
+            crate::schema_materialization::required("revoked_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "p:catalog_record_id:::false:false:true:",
+            "u:catalog_version:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("catalog_record_id"),
+            crate::schema_materialization::unique_index("catalog_version"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_replay_policy_catalog_audit_v2",
+        columns: &[
+            crate::schema_materialization::required("command_identity", "text"),
+            crate::schema_materialization::required("administrator_identity", "text"),
+            crate::schema_materialization::required("authentication_fact_digest", "text"),
+            crate::schema_materialization::required("command_kind", "text"),
+            crate::schema_materialization::optional("predecessor_record_id", "text"),
+            crate::schema_materialization::optional("predecessor_head_record_id", "text"),
+            crate::schema_materialization::optional("result_record_id", "text"),
+            crate::schema_materialization::required("content_identity", "text"),
+            crate::schema_materialization::required("audit_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &["p:command_identity:::false:false:true:"],
+        indexes: &[crate::schema_materialization::primary_index(
+            "command_identity",
+        )],
+    },
+];
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErrorV2> {
     if crate::schema_materialization::pre_cutover_materialization_is_admitted(pool)
@@ -47,14 +141,16 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ReplayPolicyCatalogErro
                 "CREATE TABLE IF NOT EXISTS rd_replay_policy_catalog_audit_v2 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, predecessor_record_id TEXT, predecessor_head_record_id TEXT, result_record_id TEXT, content_identity TEXT NOT NULL, audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             ),
         ] {
-            crate::schema_materialization::materialize_or_require_existing_public_table(
-                pool,
-                relation_name,
-                statement,
-            )
-            .await
-            .map_err(unavailable)?;
+            crate::schema_materialization::materialize_public_table(pool, relation_name, statement)
+                .await
+                .map_err(unavailable)?;
         }
+        crate::schema_materialization::verify_materialized_public_tables(
+            pool,
+            CATALOG_PUBLIC_TABLE_SPECS_V2,
+        )
+        .await
+        .map_err(unavailable)?;
         return Ok(());
     }
     verify_catalog_storage_authority(pool).await

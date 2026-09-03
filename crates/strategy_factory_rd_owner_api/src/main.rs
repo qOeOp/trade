@@ -151,6 +151,7 @@ async fn main() -> anyhow::Result<()> {
         let database_url = required_env("RD_OWNER_DATABASE_URL")?;
         PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
         PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
+        vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         source_intake::materialize_schema(&database_url).await?;
         return Ok(());
@@ -1586,6 +1587,14 @@ mod tests {
             ])
             .is_err()
         );
+        let materializer = include_str!("main.rs")
+            .split("if schema_materialization_requested(&arguments)?")
+            .nth(1)
+            .expect("materialization mode")
+            .split("return Ok(())")
+            .next()
+            .expect("materialization boundary");
+        assert!(materializer.contains("PostgresDevelopComposerStoreV2::materialize_schema"));
     }
 
     #[tokio::test]

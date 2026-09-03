@@ -48,8 +48,8 @@ services:
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
       RUST_LOG: info
     depends_on:
-      postgres:
-        condition: service_healthy
+      authority-custody-migrate:
+        condition: service_completed_successfully
     expose:
       - 8080
     volumes:
@@ -63,7 +63,6 @@ services:
       - no-new-privileges:true
 
   schema-materialize:
-    profiles: ["authority-admin"]
     build:
       context: ../..
       dockerfile: product/rd-workbench/Dockerfile.owner
@@ -78,7 +77,6 @@ services:
       - no-new-privileges:true
 
   authority-custody-migrate:
-    profiles: ["authority-admin"]
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
