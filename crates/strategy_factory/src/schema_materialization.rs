@@ -193,10 +193,12 @@ async fn require_existing_public_table(
         "SELECT attribute.attname,
                 pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) AS data_type,
                 attribute.attnotnull,
+                attribute.attcollation=attribute_type.typcollation AS collation_is_canonical,
                 pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid,true) AS default_expression
            FROM pg_catalog.pg_class relation
            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
            JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+           JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid
            LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum
           WHERE namespace.nspname='public' AND relation.relname=$1
           ORDER BY attribute.attnum",
@@ -210,6 +212,7 @@ async fn require_existing_public_table(
             actual.get::<String, _>("attname") != expected.name
                 || actual.get::<String, _>("data_type") != expected.data_type
                 || actual.get::<bool, _>("attnotnull") != expected.not_null
+                || !actual.get::<bool, _>("collation_is_canonical")
                 || actual
                     .get::<Option<String>, _>("default_expression")
                     .as_deref()
@@ -268,6 +271,14 @@ async fn require_existing_public_table(
                   AND pg_catalog.pg_get_userbyid(index_relation.relowner)='rd_owner'
                   AND index_method.amname='btree'
                   AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_key(collation_oid,ordinality)
+                    JOIN pg_catalog.pg_attribute index_attribute ON index_attribute.attrelid=index_relation.oid AND index_attribute.attnum=collation_key.ordinality
+                    JOIN pg_catalog.pg_type index_type ON index_type.oid=index_attribute.atttypid
+                    WHERE collation_key.collation_oid<>index_attribute.attcollation
+                       OR index_attribute.attcollation<>index_type.typcollation
+                  )
                   AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AS options_are_exact
            FROM pg_catalog.pg_index index_fact
            JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid
@@ -352,6 +363,9 @@ mod tests {
             "constraint manifest",
             "index manifest",
             "pg_catalog.aclexplode",
+            "attribute.attcollation=attribute_type.typcollation",
+            "index_attribute.attcollation<>index_type.typcollation",
+            "collation_key.collation_oid<>index_attribute.attcollation",
         ] {
             assert!(runtime.contains(required), "missing {required}");
         }

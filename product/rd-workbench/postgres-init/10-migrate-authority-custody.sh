@@ -754,6 +754,40 @@ GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,te
 
 -- Catalog and Composer are private object-owner domains.  This cutover preserves relation OIDs and
 -- bytes: known public relations are locked and moved; unknown partial families abort the transaction.
+DO $private_owner_cutover_gate$
+DECLARE
+  catalog_names constant text[] := ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'];
+  composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_outbox_v2'];
+  relation_name text;
+  catalog_public_count integer;
+  catalog_private_count integer;
+  composer_public_count integer;
+  composer_private_count integer;
+  catalog_public_exact boolean;
+  catalog_private_exact boolean;
+  composer_public_exact boolean;
+  composer_private_exact boolean;
+BEGIN
+  SELECT count(*),COALESCE(bool_and(c.relkind='r'),false) INTO catalog_public_count,catalog_public_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(catalog_names);
+  SELECT count(*),COALESCE(bool_and(c.relkind='r'),false) INTO catalog_private_count,catalog_private_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='replay_policy_catalog_private' AND c.relname=ANY(catalog_names);
+  SELECT count(*),COALESCE(bool_and(c.relkind='r'),false) INTO composer_public_count,composer_public_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(composer_names);
+  SELECT count(*),COALESCE(bool_and(c.relkind='r'),false) INTO composer_private_count,composer_private_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='composer_private' AND c.relname=ANY(composer_names);
+  IF NOT (
+    (catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count=9 AND composer_public_exact AND composer_private_count=0)
+    OR
+    (catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count=9 AND composer_private_exact)
+  ) THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'; END IF;
+  FOREACH relation_name IN ARRAY catalog_names LOOP
+    IF catalog_public_count=4 THEN EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE',relation_name);
+    ELSE EXECUTE pg_catalog.format('LOCK TABLE replay_policy_catalog_private.%I IN ACCESS EXCLUSIVE MODE',relation_name); END IF;
+  END LOOP;
+  FOREACH relation_name IN ARRAY composer_names LOOP
+    IF composer_public_count=9 THEN EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE',relation_name);
+    ELSE EXECUTE pg_catalog.format('LOCK TABLE composer_private.%I IN ACCESS EXCLUSIVE MODE',relation_name); END IF;
+  END LOOP;
+END
+$private_owner_cutover_gate$;
+
 CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner;
 CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_api AUTHORIZATION replay_policy_catalog_owner;
 CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
@@ -783,24 +817,14 @@ DECLARE
   catalog_names constant text[] := ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'];
   composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_outbox_v2'];
   relation_name text;
-  public_count integer;
-  private_count integer;
 BEGIN
-  SELECT count(*) INTO public_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(catalog_names);
-  SELECT count(*) INTO private_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='replay_policy_catalog_private' AND c.relname=ANY(catalog_names);
-  IF public_count<>0 AND public_count<>4 OR private_count<>0 AND private_count<>4 OR public_count+private_count NOT IN (0,4) THEN RAISE EXCEPTION 'unknown Replay Policy Catalog relation family'; END IF;
   FOREACH relation_name IN ARRAY catalog_names LOOP
     IF pg_catalog.to_regclass('public.'||relation_name) IS NOT NULL THEN
-      EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', relation_name);
       EXECUTE pg_catalog.format('ALTER TABLE public.%I SET SCHEMA replay_policy_catalog_private', relation_name);
     END IF;
   END LOOP;
-  SELECT count(*) INTO public_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(composer_names);
-  SELECT count(*) INTO private_count FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='composer_private' AND c.relname=ANY(composer_names);
-  IF public_count<>0 AND public_count<>9 OR private_count<>0 AND private_count<>9 OR public_count+private_count NOT IN (0,9) THEN RAISE EXCEPTION 'unknown Composer relation family'; END IF;
   FOREACH relation_name IN ARRAY composer_names LOOP
     IF pg_catalog.to_regclass('public.'||relation_name) IS NOT NULL THEN
-      EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE', relation_name);
       EXECUTE pg_catalog.format('ALTER TABLE public.%I SET SCHEMA composer_private', relation_name);
     END IF;
   END LOOP;

@@ -27,6 +27,17 @@ grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$package_dir/postgres-i
 grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'DO $private_owner_cutover_gate$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count=9 AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count=9 AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+cutover_gate_line=$(grep -nF 'DO $private_owner_cutover_gate$' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
+private_schema_line=$(grep -nF 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
+test "$cutover_gate_line" -lt "$private_schema_line"
+if grep -Eq 'public_count\+private_count NOT IN \(0,(4|9)\)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "Catalog/Composer cutover must reject an absent materialized family" >&2
+  exit 1
+fi
 grep -Fq 'ALTER TABLE public.%I SET SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
