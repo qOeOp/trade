@@ -2865,7 +2865,7 @@ async fn rd_owner_schema_is_provisioned_before_runtime_connections() {
 
 #[tokio::test]
 #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
-async fn rd_owner_schema_permission_failure_is_atomic() {
+async fn rd_owner_schema_third_party_create_grant_fails_atomically() {
     let rd_url = std::env::var("RD_OWNER_SCHEMA_LEASE_FAILURE_TEST_DATABASE_URL")
         .expect("disposable R&D schema permission failure URL");
     let qualification_url = std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
@@ -2877,19 +2877,22 @@ async fn rd_owner_schema_permission_failure_is_atomic() {
 
     PostgresResearchGoalOwnerV1::connect(&rd_url, &qualification_url)
         .await
-        .expect_err("missing public schema CREATE must fail before canonical migration DDL");
+        .expect_err("third-party schema CREATE must fail before canonical migration DDL");
 
     let after = rd_owner_migration_topology_fingerprint(&pool).await;
     assert_eq!(after, before);
-    let leaked_schema_create: bool = sqlx::query_scalar(
+    let schema_create: (bool, bool) = sqlx::query_as(
         "SELECT pg_catalog.has_schema_privilege(
-           'rd_custodian','rd_owner_api','CREATE'
-         )",
+                  'rd_custodian','rd_owner_api','CREATE'
+                ),
+                pg_catalog.has_schema_privilege(
+                  'surprise_replay_grantee','rd_owner_api','CREATE'
+                )",
     )
     .fetch_one(&pool)
     .await
     .expect("R&D permission failure schema lease readback");
-    assert!(!leaked_schema_create);
+    assert_eq!(schema_create, (false, true));
 }
 
 async fn rd_owner_migration_topology_fingerprint(pool: &PgPool) -> String {

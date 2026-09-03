@@ -86,6 +86,22 @@ const RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL: &str = "WITH protected_
            OR member.rolname IN (
                 'rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer'
               )
+     ), admitted_schema_acl(role_name,privilege_type,is_grantable,grantor_name) AS (
+       VALUES
+         ('rd_owner','CREATE',false,'rd_owner'),
+         ('rd_owner','USAGE',false,'rd_owner'),
+         ('product_edge_owner','USAGE',false,'rd_owner'),
+         ('qualification_writer','USAGE',false,'rd_owner'),
+         ('backtest_owner','USAGE',false,'rd_owner')
+     ), actual_schema_acl AS (
+       SELECT COALESCE(grantee.rolname::text,'PUBLIC'),acl.privilege_type,
+              acl.is_grantable,pg_catalog.pg_get_userbyid(acl.grantor)::text
+         FROM pg_catalog.pg_namespace namespace
+         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+           namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner)
+         )) acl
+         LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+        WHERE namespace.nspname='rd_owner_api'
      )
      SELECT SESSION_USER='rd_owner'
         AND CURRENT_USER='rd_owner'
@@ -115,7 +131,38 @@ const RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL: &str = "WITH protected_
         AND NOT pg_catalog.has_schema_privilege(
           'rd_custodian','rd_owner_api','CREATE'
         )
-        AND pg_catalog.has_schema_privilege('rd_owner','public','CREATE')";
+        AND pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
+        AND NOT EXISTS (
+          SELECT * FROM actual_schema_acl
+          EXCEPT SELECT * FROM admitted_schema_acl
+        )
+        AND NOT EXISTS (
+          SELECT * FROM admitted_schema_acl
+          EXCEPT SELECT * FROM actual_schema_acl
+        )";
+
+const RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL: &str =
+    "WITH expected(role_name,privilege_type,is_grantable,grantor_name) AS (
+       VALUES
+         ('rd_owner','CREATE',false,'rd_owner'),
+         ('rd_owner','USAGE',false,'rd_owner'),
+         ('product_edge_owner','USAGE',false,'rd_owner'),
+         ('qualification_writer','USAGE',false,'rd_owner'),
+         ('backtest_owner','USAGE',false,'rd_owner')
+       UNION ALL
+       SELECT 'rd_custodian','CREATE',false,'rd_owner' WHERE $1
+     ), actual AS (
+       SELECT COALESCE(grantee.rolname::text,'PUBLIC'),acl.privilege_type,
+              acl.is_grantable,pg_catalog.pg_get_userbyid(acl.grantor)::text
+         FROM pg_catalog.pg_namespace namespace
+         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+           namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner)
+         )) acl
+         LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+        WHERE namespace.nspname='rd_owner_api'
+     )
+     SELECT NOT EXISTS (SELECT * FROM expected EXCEPT SELECT * FROM actual)
+        AND NOT EXISTS (SELECT * FROM actual EXCEPT SELECT * FROM expected)";
 
 impl Debug for PostgresResearchGoalOwnerV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -1264,28 +1311,13 @@ impl PostgresResearchGoalOwnerV1 {
         if !exact_before {
             return Err(existing_rd_storage_unavailable());
         }
+        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, false).await?;
 
         sqlx::query("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
             .execute(&mut **transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let exact_lease: bool = sqlx::query_scalar(
-            "SELECT pg_catalog.has_schema_privilege(
-                      'rd_custodian','rd_owner_api','CREATE'
-                    )
-                AND (SELECT pg_catalog.count(*)=1
-                       FROM pg_catalog.pg_namespace namespace
-                       CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
-                      WHERE namespace.nspname='rd_owner_api'
-                        AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
-                        AND acl.privilege_type='CREATE' AND NOT acl.is_grantable)",
-        )
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(|e| storage(&e))?;
-        if !exact_lease {
-            return Err(existing_rd_storage_unavailable());
-        }
+        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, true).await?;
         Ok(())
     }
 
@@ -1296,26 +1328,32 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(&mut **transaction)
             .await
             .map_err(|e| storage(&e))?;
-        let exact_final_acl: bool = sqlx::query_scalar(
+        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, false).await?;
+        let exact_final_owner: bool = sqlx::query_scalar(
             "SELECT pg_catalog.pg_get_userbyid((
-                      SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
-                       WHERE namespace.nspname='rd_owner_api'
-                    ))='rd_owner'
-                AND NOT pg_catalog.has_schema_privilege(
-                  'rd_custodian','rd_owner_api','CREATE'
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_namespace namespace
-                  CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
-                   WHERE namespace.nspname='rd_owner_api'
-                     AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
-                     AND acl.privilege_type='CREATE'
-                )",
+               SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
+                WHERE namespace.nspname='rd_owner_api'
+             ))='rd_owner'",
         )
         .fetch_one(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
-        if !exact_final_acl {
+        if !exact_final_owner {
+            return Err(existing_rd_storage_unavailable());
+        }
+        Ok(())
+    }
+
+    async fn require_exact_rd_owner_api_schema_publication_acl(
+        transaction: &mut Transaction<'_, Postgres>,
+        custodian_create_lease: bool,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        let exact: bool = sqlx::query_scalar(RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL)
+            .bind(custodian_create_lease)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        if !exact {
             return Err(existing_rd_storage_unavailable());
         }
         Ok(())
@@ -3048,6 +3086,47 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[rstest]
+    fn rd_owner_api_schema_acl_manifests_are_closed_before_and_after_publication() {
+        for admitted_role in [
+            "rd_owner",
+            "product_edge_owner",
+            "qualification_writer",
+            "backtest_owner",
+        ] {
+            assert!(
+                RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(admitted_role),
+                "missing admitted schema role {admitted_role}"
+            );
+            assert!(
+                RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains(admitted_role),
+                "missing publication schema role {admitted_role}"
+            );
+        }
+        assert!(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(
+            "SELECT * FROM actual_schema_acl\n          EXCEPT SELECT * FROM admitted_schema_acl"
+        ));
+        assert!(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(
+            "SELECT * FROM admitted_schema_acl\n          EXCEPT SELECT * FROM actual_schema_acl"
+        ));
+        assert!(
+            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
+                .contains("SELECT * FROM expected EXCEPT SELECT * FROM actual")
+        );
+        assert!(
+            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
+                .contains("SELECT * FROM actual EXCEPT SELECT * FROM expected")
+        );
+        assert!(
+            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
+                .contains("SELECT 'rd_custodian','CREATE',false,'rd_owner' WHERE $1")
+        );
+        assert!(
+            !RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains("surprise_replay_grantee")
+        );
+        assert!(!RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains("surprise_replay_grantee"));
     }
 
     #[rstest]

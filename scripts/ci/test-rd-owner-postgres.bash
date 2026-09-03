@@ -351,6 +351,8 @@ if function_match is None:
     raise SystemExit("ERROR: R&D fresh migration boundary is unavailable")
 body = function_match.group(1)
 ordered_contract = (
+    "test(=rd_owner_schema_third_party_create_grant_fails_atomically)",
+    "GRANT CREATE ON SCHEMA rd_owner_api TO surprise_replay_grantee;",
     "GRANT rd_custodian TO rd_owner\n"
     "  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;",
     "AND member.rolname='rd_owner'",
@@ -381,6 +383,8 @@ if body.count("GRANT rd_custodian TO rd_owner") != 1:
     raise SystemExit("ERROR: R&D fresh migration lease grant is not unique")
 if body.count("REVOKE rd_custodian FROM rd_owner") != 1:
     raise SystemExit("ERROR: R&D fresh migration lease cleanup is not unique")
+if body.count("GRANT CREATE ON SCHEMA rd_owner_api TO surprise_replay_grantee") != 1:
+    raise SystemExit("ERROR: R&D schema ACL third-party negative is not unique")
 PY
 }
 
@@ -2224,7 +2228,7 @@ provision_owner_schemas() {
   local rd_schema_lease_failure_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${rd_schema_lease_failure_database}"
   local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
-  local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & (test(=rd_owner_schema_is_provisioned_before_runtime_connections) | test(=rd_owner_schema_permission_failure_is_atomic))'
+  local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & (test(=rd_owner_schema_is_provisioned_before_runtime_connections) | test(=rd_owner_schema_third_party_create_grant_fails_atomically))'
   local artifact_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)'
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -2321,8 +2325,11 @@ GRANT CREATE ON SCHEMA public TO rd_owner;
 SQL
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$rd_schema_lease_failure_database" << 'SQL'
-REVOKE CREATE ON SCHEMA public FROM PUBLIC, rd_owner;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+GRANT CREATE ON SCHEMA public TO rd_owner;
 CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
+GRANT CREATE ON SCHEMA rd_owner_api TO surprise_replay_grantee;
 SQL
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
