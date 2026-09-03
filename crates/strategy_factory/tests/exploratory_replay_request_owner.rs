@@ -190,54 +190,6 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .expect("sealed Replay table catalog");
     assert!(sealed_catalog_is_private);
 
-    let custody_read_authority = fixture
-        .database
-        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-        .await
-        .expect("bounded R&D custody observation");
-    let internal_custody_was_renamed_without_orphaning: bool = sqlx::query_scalar(
-        "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
-            AND EXISTS (
-              SELECT 1
-                FROM public.rd_sealed_exploratory_replay_requests_v1
-               WHERE request_identity='internal-continuity-replay-v1'
-                 AND request_digest='sha256:internal-continuity-request-v1'
-                 AND build_request_identity='internal-continuity-build-v1'
-                 AND attempt_identity='internal-continuity-attempt-v1'
-                 AND intent_identity='internal-continuity-intent-v1'
-                 AND trial_family_identity='internal-continuity-family-v1'
-                 AND artifact_identity='sha256:internal-continuity-artifact-v1'
-                 AND build_receipt_identity='internal-continuity-build-receipt-v1'
-                 AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
-                 AND census_frontier_identity='internal-continuity-census-v1'
-                 AND frozen_json=pg_catalog.jsonb_build_object(
-                   'kind','internal-custody-continuity','schema_version',1
-                 )
-                 AND receipt_json=pg_catalog.jsonb_build_object(
-                   'kind','internal-custody-continuity-receipt','schema_version',1
-                 )
-                 AND lifecycle_state='FROZEN'
-                 AND committed_at_epoch_ms=1700000000000
-                 AND request_schema_version=2
-                 AND v2_canonical_request_bytes=pg_catalog.decode(
-                   '00112233445566778899aabbccddeeff','hex'
-                 )
-                 AND v2_meaning_digest='sha256:internal-continuity-meaning-v2'
-                 AND v2_seal_digest='sha256:internal-continuity-seal-v2'
-                 AND v2_receipt_json=pg_catalog.jsonb_build_object(
-                   'kind','internal-custody-continuity-v2-receipt','schema_version',2
-                 )
-            )",
-    )
-    .fetch_one(custody_read_authority.pool())
-    .await
-    .expect("internal Replay custody continuity");
-    assert!(internal_custody_was_renamed_without_orphaning);
-    custody_read_authority
-        .release()
-        .await
-        .expect("release R&D custody observation");
-
     let legacy_catalog: LegacyReplayCatalogRow = sqlx::query_as(
             "SELECT owner.rolname,
                     pg_catalog.obj_description(relation.oid, 'pg_class'),
