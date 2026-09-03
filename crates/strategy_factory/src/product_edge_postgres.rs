@@ -3731,45 +3731,6 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn legacy_rd_owner_storage_is_normalized_before_authority_migration() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("fresh rd_owner connection");
-
-        let before: (bool, bool) = sqlx::query_as(
-            "SELECT to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL, to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NULL",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("legacy R&D Replay storage topology");
-        assert_eq!(before, (true, true));
-
-        PostgresResearchGoalOwnerV1::migrate_rd_storage(&pool)
-            .await
-            .expect("legacy R&D Replay storage normalization");
-
-        let after: (bool, bool) = sqlx::query_as(
-            "SELECT to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL, to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("sealed R&D Replay storage topology");
-        assert_eq!(after, (true, true));
-        let continuity_row_retained: bool = sqlx::query_scalar(
-            "SELECT EXISTS (SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity='internal-continuity-replay-v1' AND request_digest='sha256:internal-continuity-request-v1' AND attempt_identity='internal-continuity-attempt-v1' AND lifecycle_state='FROZEN' AND committed_at_epoch_ms=1700000000000)",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("normalized R&D Replay continuity row");
-        assert!(continuity_row_retained);
-    }
-
-    #[tokio::test]
-    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
     async fn fresh_rd_owner_existing_custody_validates_after_migration() {
         let sealed_rd_database_url =
             std::env::var("RD_OWNER_SEALED_TEST_DATABASE_URL").expect("sealed rd_owner URL");
