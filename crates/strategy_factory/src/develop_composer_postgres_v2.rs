@@ -1312,7 +1312,7 @@ impl PostgresDevelopComposerStoreV2 {
         read_cut_epoch_ms: u64,
         native_join: &AuthenticatedComposerNativeJoinV1,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(&self.read_pool, request_identity).await {
+        let record = match load_record(self, request_identity).await {
             Ok(Some(record)) => record,
             Ok(None) => {
                 return Ok(unavailable_response(
