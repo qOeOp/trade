@@ -272,6 +272,11 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     assert!(legacy_catalog.8);
     assert!(legacy_catalog.9);
 
+    let custody_read_authority = fixture
+        .database
+        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
+        .await
+        .expect("bounded legacy Replay custody observation");
     let legacy_is_exact: bool = sqlx::query_scalar(
         "SELECT pg_catalog.count(*)=26
              AND pg_catalog.sum(committed_at_epoch_ms)=325
@@ -294,10 +299,14 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
                FROM public.rd_exploratory_replay_requests_v1 legacy
            ) checked",
     )
-    .fetch_one(rd_pool)
+    .fetch_one(custody_read_authority.pool())
     .await
     .expect("legacy Replay rows");
     assert!(legacy_is_exact);
+    custody_read_authority
+        .release()
+        .await
+        .expect("release legacy Replay custody observation");
 
     let sealed_v1 = fixture
         .owner
@@ -398,17 +407,26 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .await,
         [1, 1, 1]
     );
+    let custody_read_authority = fixture
+        .database
+        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
+        .await
+        .expect("bounded retained legacy Replay observation");
     assert_eq!(
         sqlx::query_scalar::<_, i64>(
             "SELECT COUNT(*) FROM public.rd_exploratory_replay_requests_v1",
         )
-        .fetch_one(rd_pool)
+        .fetch_one(custody_read_authority.pool())
         .await
         .unwrap(),
         26
     );
 
-    let legacy_before = legacy_replay_fingerprint(rd_pool).await;
+    let legacy_before = legacy_replay_fingerprint(custody_read_authority.pool()).await;
+    custody_read_authority
+        .release()
+        .await
+        .expect("release retained legacy Replay observation");
     let direct_ddl_denied = sqlx::query(
         "CREATE TABLE public.rd_runtime_legacy_replay_fault_must_be_denied_v1
          (sentinel BOOLEAN PRIMARY KEY)",
@@ -566,7 +584,17 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .execute(rd_pool)
         .await
         .expect("remove duplicate internal Replay test candidate");
-    assert_eq!(legacy_replay_fingerprint(rd_pool).await, legacy_before);
+    let custody_read_authority = fixture
+        .database
+        .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
+        .await
+        .expect("bounded final legacy Replay observation");
+    let legacy_after = legacy_replay_fingerprint(custody_read_authority.pool()).await;
+    custody_read_authority
+        .release()
+        .await
+        .expect("release final legacy Replay observation");
+    assert_eq!(legacy_after, legacy_before);
 }
 
 #[tokio::test]
