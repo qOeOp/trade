@@ -42,6 +42,16 @@ struct LegacyMigrationAuthorityReadback {
 }
 
 impl LegacyMigrationAuthorityReadback {
+    fn admits_fresh_bootstrap(self) -> bool {
+        self.session_is_rd_owner
+            && self.rd_owner_is_exact
+            && self.custodian_is_exact
+            && self.relation_count == 0
+            && self.protected_membership_count == 1
+            && self.exact_lease_membership_count == 1
+            && self.public_create_grant_count == 1
+    }
+
     fn is_exact(self) -> bool {
         self.session_is_rd_owner
             && self.rd_owner_is_exact
@@ -67,6 +77,26 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     }
 
     let legacy = read_legacy_migration_authority(pool).await?;
+    if legacy.admits_fresh_bootstrap() {
+        let mut transaction = pool.begin().await.map_err(storage)?;
+
+        for statement in [
+            "CREATE TABLE rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
+            "CREATE TABLE rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
+            "CREATE TABLE rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
+        ] {
+            sqlx::query(statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(storage)?;
+        }
+        transaction.commit().await.map_err(storage)?;
+        return Ok(());
+    }
+
     if !legacy.is_exact() {
         return Err(TrialFamilyError::Unavailable(
             "TrialFamily authority topology is unavailable".to_owned(),
