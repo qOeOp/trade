@@ -739,7 +739,8 @@ impl PostgresResearchGoalOwnerV1 {
                  'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',
                  'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)',
                  'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)',
-                 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)'
+                 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',
+                 'rd_owner_api.resolve_develop_composer_database_identity_v2()'
                ]::text[])
              ), required_indexes(name,table_name,key_definition,predicate_definition) AS (
                VALUES
@@ -830,12 +831,25 @@ impl PostgresResearchGoalOwnerV1 {
                            NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
                          WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN
                            NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                         WHEN 'rd_owner_api.resolve_develop_composer_database_identity_v2()' THEN
+                           routine.prosecdef AND NOT routine.proisstrict AND routine.provolatile='i'
+                           AND routine.proparallel='s'
+                           AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
+                           AND routine.proretset AND routine.prorettype='pg_catalog.record'::pg_catalog.regtype
+                           AND routine.proargtypes=''::pg_catalog.oidvector
+                           AND pg_catalog.pg_get_function_result(routine.oid)='TABLE(system_identifier text, database_name text, database_oid bigint)'
                          ELSE routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
                        END AS execution_manifest_current,
-                      (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
-                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-                          JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
-                         WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable) IS NOT DISTINCT FROM
+                      (SELECT count(*)=pg_catalog.cardinality(CASE required.signature
+                                  WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                                  WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+                                  WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
+                                  WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
+                                  WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
+                                  ELSE ARRAY['rd_custodian','rd_owner']::text[]
+                                END)
+                          AND pg_catalog.bool_and(acl.grantor=routine.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
+                          AND pg_catalog.array_agg(COALESCE(role.rolname::text,'PUBLIC') ORDER BY COALESCE(role.rolname::text,'PUBLIC')) IS NOT DISTINCT FROM
                        CASE required.signature
                          WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
                          WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
@@ -843,7 +857,9 @@ impl PostgresResearchGoalOwnerV1 {
                          WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
                          WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
                          ELSE ARRAY['rd_custodian','rd_owner']::text[]
-                       END AS acl_manifest_current
+                       END
+                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+                          LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) AS acl_manifest_current
                  FROM required_routines required
                  LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
              ), diagnostics(kind,locator,invariant) AS (
@@ -868,7 +884,7 @@ impl PostgresResearchGoalOwnerV1 {
                UNION ALL SELECT 'relation','relation:public.'||name,'exists' FROM relation_state WHERE oid IS NULL
                UNION ALL SELECT 'relation','relation:public.'||name,'ordinary_persistent_without_row_security_or_extensions' FROM relation_state WHERE oid IS NOT NULL AND NOT (relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND no_user_triggers AND no_rewrites AND no_policies)
                UNION ALL SELECT 'relation','relation:public.'||name,'custodian_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM 'rd_custodian'
-               UNION ALL SELECT 'relation','relation:public.'||name,'sealed_columns_owner_private' FROM relation_state WHERE name='rd_sealed_exploratory_replay_requests_v1' AND oid IS NOT NULL AND NOT columns_owner_private
+               UNION ALL SELECT 'relation','relation:public.'||name,'columns_owner_private' FROM relation_state WHERE oid IS NOT NULL AND NOT columns_owner_private
                UNION ALL SELECT 'relation','relation:public.'||name,'closed_relation_seal' FROM relation_state WHERE oid IS NOT NULL AND NOT closed_seal_current
                UNION ALL SELECT 'relation','relation:public.'||name,'exact_acl_manifest' FROM relation_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
                UNION ALL SELECT 'index','index:public.'||name,'exists' FROM index_state WHERE oid IS NULL
@@ -1252,6 +1268,35 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| storage(&e))?;
         sqlx::query(
+            "CREATE OR REPLACE FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+             RETURNS TABLE(system_identifier text, database_name text, database_oid bigint)
+             LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+             SET search_path = pg_catalog
+             AS $function$
+             SELECT (pg_catalog.pg_control_system()).system_identifier::text,
+                    pg_catalog.current_database()::text,
+                    database.oid::bigint
+               FROM pg_catalog.pg_database AS database
+              WHERE database.datname=pg_catalog.current_database()
+             $function$",
+        )
+        .execute(&mut *publication)
+        .await
+        .map_err(|e| storage(&e))?;
+        sqlx::query(
+            "DO $seal$
+             BEGIN
+               EXECUTE pg_catalog.format(
+                 'COMMENT ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() IS %L',
+                 'vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('rd_owner_api.resolve_develop_composer_database_identity_v2()')))
+               );
+             END
+             $seal$",
+        )
+        .execute(&mut *publication)
+        .await
+        .map_err(|e| storage(&e))?;
+        sqlx::query(
             "
             CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(
               requested_basis_identity text,
@@ -1317,6 +1362,9 @@ impl PostgresResearchGoalOwnerV1 {
             "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian",
             "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_custodian",
             "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian",
+            "ALTER FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() OWNER TO rd_custodian",
+            "REVOKE ALL ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, rd_fact_writer",
+            "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() TO rd_owner",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer",
             "REVOKE ALL ON TABLE rd_independence_bases_v1, rd_owner_outbox_v1 FROM qualification_owner, qualification_writer",
@@ -3305,9 +3353,11 @@ mod tests {
         assert!(validation.contains(
             "NOT EXISTS (\n                        SELECT 1 FROM pg_catalog.pg_attribute attribute\n                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
         ));
-        assert!(validation.contains(
-            "name='rd_sealed_exploratory_replay_requests_v1' AND oid IS NOT NULL AND NOT columns_owner_private"
-        ));
+        assert!(
+            validation.contains(
+                "FROM relation_state WHERE oid IS NOT NULL AND NOT columns_owner_private"
+            )
+        );
         assert!(validation.contains("acl.grantee<>relation.relowner"));
         assert!(validation.contains(
             "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable"
@@ -3758,6 +3808,8 @@ mod tests {
     async fn runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl() {
         let rd_database_url =
             std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+        let relation_name = std::env::var("RD_OWNER_COLUMN_ACL_FAULT_RELATION")
+            .unwrap_or_else(|_| "rd_sealed_exploratory_replay_requests_v1".into());
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .connect(&rd_database_url)
@@ -3771,10 +3823,59 @@ mod tests {
             diagnostics,
             vec![ExistingRdStorageDiagnostic {
                 kind: "relation".into(),
-                locator: "relation:public.rd_sealed_exploratory_replay_requests_v1".into(),
-                invariant: "sealed_columns_owner_private".into(),
+                locator: format!("relation:public.{relation_name}"),
+                invariant: "columns_owner_private".into(),
             }]
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an injected R&D routine ACL drift"]
+    async fn runtime_diagnostic_manifest_locates_routine_acl_drift() {
+        let rd_database_url =
+            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+        let signature = std::env::var("RD_OWNER_ROUTINE_ACL_FAULT_SIGNATURE")
+            .expect("faulted R&D routine signature");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&rd_database_url)
+            .await
+            .expect("runtime rd_owner connection");
+
+        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
+            .await
+            .expect("read-only R&D storage diagnostics");
+        assert_eq!(
+            diagnostics,
+            vec![ExistingRdStorageDiagnostic {
+                kind: "routine".into(),
+                locator: format!("routine:{signature}"),
+                invariant: "exact_acl_manifest".into(),
+            }]
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an injected Composer identity helper metadata drift"]
+    async fn runtime_diagnostic_manifest_locates_composer_helper_metadata_drift() {
+        let rd_database_url =
+            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+        let invariant = std::env::var("COMPOSER_HELPER_FAULT_INVARIANT")
+            .expect("faulted Composer helper invariant");
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&rd_database_url)
+            .await
+            .expect("runtime rd_owner connection");
+
+        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
+            .await
+            .expect("read-only R&D storage diagnostics");
+        assert!(diagnostics.contains(&ExistingRdStorageDiagnostic {
+            kind: "routine".into(),
+            locator: "routine:rd_owner_api.resolve_develop_composer_database_identity_v2()".into(),
+            invariant,
+        }));
     }
 
     #[rstest]

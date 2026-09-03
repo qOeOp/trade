@@ -3383,12 +3383,280 @@ run_authority_migration_for_database "$test_database"
 run_authority_migration_for_database "$origin_current_database"
 revoke_runtime_schema_create "$test_database"
 revoke_runtime_schema_create "$origin_current_database"
+
+acl_fault_relation_fingerprint() {
+  local fixture_database="$1"
+  local relation_name="$2"
+  if [[ ! "$relation_name" =~ ^[a-z0-9_]+$ ]]; then
+    echo "ERROR: invalid ACL fingerprint relation: ${relation_name}" >&2
+    return 1
+  fi
+  {
+    docker exec "$container" pg_dump --schema-only --quote-all-identifiers \
+      --username postgres --dbname "$fixture_database" --table="public.${relation_name}"
+    docker exec "$container" pg_dump --data-only --quote-all-identifiers \
+      --username postgres --dbname "$fixture_database" --table="public.${relation_name}"
+    docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+      --set ON_ERROR_STOP=1 --username postgres --dbname "$fixture_database" \
+      --set=relation_name="$relation_name" << 'SQL'
+SELECT 'relation:'||relation.oid::text||':'||pg_catalog.pg_get_userbyid(relation.relowner)||':'||
+       relation.relkind::text||':'||relation.relpersistence::text||':'||
+       COALESCE(relation.relacl::text,'<NULL>')
+  FROM pg_catalog.pg_class relation
+ WHERE relation.oid=pg_catalog.to_regclass('public.'||:'relation_name');
+SELECT 'attribute:'||attribute.attnum::text||':'||attribute.attname||':'||
+       COALESCE(attribute.attacl::text,'<NULL>')
+  FROM pg_catalog.pg_attribute attribute
+ WHERE attribute.attrelid=pg_catalog.to_regclass('public.'||:'relation_name')
+   AND attribute.attnum>0 AND NOT attribute.attisdropped
+ ORDER BY attribute.attnum;
+SQL
+  } | sed -e '/^\\restrict /d' -e '/^\\unrestrict /d' | sha256sum | awk '{print $1}'
+}
+
+acl_fault_routine_fingerprint() {
+  local fixture_database="$1"
+  local routine_signature="$2"
+  docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$fixture_database" \
+    --set=routine_signature="$routine_signature" << 'SQL' |
+SELECT pg_catalog.pg_get_functiondef(routine.oid),
+       pg_catalog.pg_get_userbyid(routine.proowner),routine.prosecdef,
+       routine.proisstrict,routine.provolatile,routine.proparallel,
+       COALESCE(routine.proconfig::text,'<NULL>'),COALESCE(routine.proacl::text,'<NULL>'),
+       COALESCE(pg_catalog.obj_description(routine.oid,'pg_proc'),'<NULL>')
+  FROM pg_catalog.pg_proc routine
+ WHERE routine.oid=pg_catalog.to_regprocedure(:'routine_signature');
+SQL
+    sha256sum | awk '{print $1}'
+}
+
+verify_routine_acl_fails_closed() {
+  local fixture_database="$1"
+  local routine_signature="$2"
+  local grantee="$3"
+  local grant_option="$4"
+  local validator_filter="$5"
+  local diagnostic_filter='package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_routine_acl_drift)'
+  local injection_status=0
+  local negative_status=0
+  local cleanup_status=0
+  local fingerprint_before
+  local fingerprint_after
+
+  if [[ ! "$grantee" =~ ^[a-z0-9_]+$ ]] && [[ "$grantee" != 'PUBLIC' ]]; then
+    echo "ERROR: invalid routine ACL grantee: ${grantee}" >&2
+    return 1
+  fi
+  if [[ "$grant_option" != '' && "$grant_option" != ' WITH GRANT OPTION' ]]; then
+    echo "ERROR: invalid routine ACL grant option" >&2
+    return 1
+  fi
+  fingerprint_before="$(acl_fault_routine_fingerprint \
+    "$fixture_database" "$routine_signature")" || return "$?"
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" \
+    --set=routine_signature="$routine_signature" --set=grantee="$grantee" \
+    --set=grant_option="$grant_option" << 'SQL'; then
+SELECT pg_catalog.set_config('vibe_test.routine_signature',:'routine_signature',false);
+SELECT pg_catalog.set_config('vibe_test.grantee',:'grantee',false);
+SELECT pg_catalog.set_config('vibe_test.grant_option',:'grant_option',false);
+DO $routine_acl_injection$
+DECLARE grantee_sql text;
+BEGIN
+  grantee_sql := CASE pg_catalog.current_setting('vibe_test.grantee')
+    WHEN 'PUBLIC' THEN 'PUBLIC'
+    ELSE pg_catalog.format('%I',pg_catalog.current_setting('vibe_test.grantee'))
+  END;
+  EXECUTE pg_catalog.format(
+    'GRANT EXECUTE ON FUNCTION %s TO %s%s',
+    pg_catalog.to_regprocedure(pg_catalog.current_setting('vibe_test.routine_signature')),
+    grantee_sql,
+    pg_catalog.current_setting('vibe_test.grant_option')
+  );
+END
+$routine_acl_injection$;
+SQL
+    :
+  else
+    injection_status="$?"
+  fi
+
+  if [[ "$injection_status" -eq 0 ]] && env \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    BACKTEST_RUNTIME_STARTUP_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    RD_OWNER_ROUTINE_ACL_FAULT_SIGNATURE="$routine_signature" \
+    cargo nextest run --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" "${nextest_execution_args[@]}" \
+    -E "(${diagnostic_filter}) | (${validator_filter})"; then
+    :
+  else
+    negative_status="$?"
+  fi
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" \
+    --set=routine_signature="$routine_signature" --set=grantee="$grantee" << 'SQL'; then
+SELECT pg_catalog.set_config('vibe_test.routine_signature',:'routine_signature',false);
+SELECT pg_catalog.set_config('vibe_test.grantee',:'grantee',false);
+DO $routine_acl_cleanup$
+DECLARE grantee_sql text;
+BEGIN
+  grantee_sql := CASE pg_catalog.current_setting('vibe_test.grantee')
+    WHEN 'PUBLIC' THEN 'PUBLIC'
+    ELSE pg_catalog.format('%I',pg_catalog.current_setting('vibe_test.grantee'))
+  END;
+  EXECUTE pg_catalog.format(
+    'REVOKE ALL ON FUNCTION %s FROM %s',
+    pg_catalog.to_regprocedure(pg_catalog.current_setting('vibe_test.routine_signature')),
+    grantee_sql
+  );
+END
+$routine_acl_cleanup$;
+SQL
+    :
+  else
+    cleanup_status="$?"
+  fi
+
+  if fingerprint_after="$(acl_fault_routine_fingerprint \
+    "$fixture_database" "$routine_signature")"; then
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      echo "ERROR: routine ACL probe changed ${routine_signature} catalog" >&2
+      cleanup_status=1
+    fi
+  else
+    cleanup_status="$?"
+  fi
+
+  if [[ "$injection_status" -ne 0 ]]; then return "$injection_status"; fi
+  if [[ "$cleanup_status" -ne 0 ]]; then return "$cleanup_status"; fi
+  return "$negative_status"
+}
+
+verify_composer_helper_metadata_fails_closed() {
+  local fixture_database="$1"
+  local fault_kind="$2"
+  local expected_invariant
+  local injection_status=0
+  local negative_status=0
+  local cleanup_status=0
+  local fingerprint_before
+  local fingerprint_after
+  local helper_signature='rd_owner_api.resolve_develop_composer_database_identity_v2()'
+
+  case "$fault_kind" in
+    owner) expected_invariant='custodian_owner' ;;
+    source) expected_invariant='source_seal' ;;
+    search_path) expected_invariant='execution_manifest' ;;
+    *)
+      echo "ERROR: invalid Composer helper fault kind: ${fault_kind}" >&2
+      return 1
+      ;;
+  esac
+  fingerprint_before="$(acl_fault_routine_fingerprint \
+    "$fixture_database" "$helper_signature")" || return "$?"
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" --set=fault_kind="$fault_kind" << 'SQL'; then
+SELECT pg_catalog.set_config('vibe_test.fault_kind',:'fault_kind',false);
+DO $composer_helper_fault$
+BEGIN
+  CASE pg_catalog.current_setting('vibe_test.fault_kind')
+    WHEN 'owner' THEN
+      ALTER FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() OWNER TO rd_owner;
+    WHEN 'source' THEN
+      CREATE OR REPLACE FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+      RETURNS TABLE(system_identifier text, database_name text, database_oid bigint)
+      LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+      SET search_path=pg_catalog
+      AS 'SELECT ''fault'',pg_catalog.current_database()::text,database.oid::bigint FROM pg_catalog.pg_database database WHERE database.datname=pg_catalog.current_database()';
+    WHEN 'search_path' THEN
+      ALTER FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+        SET search_path=public;
+  END CASE;
+END
+$composer_helper_fault$;
+SQL
+    :
+  else
+    injection_status="$?"
+  fi
+
+  if [[ "$injection_status" -eq 0 ]] && env \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
+    COMPOSER_HELPER_FAULT_INVARIANT="$expected_invariant" \
+    cargo nextest run --archive-file "$nextest_archive_file" \
+    --profile "$nextest_profile" "${nextest_execution_args[@]}" \
+    -E 'package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_composer_helper_metadata_drift)'; then
+    :
+  else
+    negative_status="$?"
+  fi
+
+  if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$fixture_database" << 'SQL'; then
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+RETURNS TABLE(system_identifier text, database_name text, database_oid bigint)
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path=pg_catalog
+AS $function$
+SELECT (pg_catalog.pg_control_system()).system_identifier::text,
+       pg_catalog.current_database()::text,
+       database.oid::bigint
+  FROM pg_catalog.pg_database AS database
+ WHERE database.datname=pg_catalog.current_database()
+$function$;
+ALTER FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+  OWNER TO rd_custodian;
+REVOKE ALL ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+  FROM PUBLIC, product_edge_owner, operator_authorization_owner,
+       operator_authorization_writer, qualification_owner, qualification_writer,
+       backtest_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+  TO rd_owner;
+DO $composer_helper_reseal$
+BEGIN
+  EXECUTE pg_catalog.format(
+    'COMMENT ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() IS %L',
+    'vibe-source-md5:'||pg_catalog.md5((SELECT routine.prosrc FROM pg_catalog.pg_proc routine WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.resolve_develop_composer_database_identity_v2()')))
+  );
+END
+$composer_helper_reseal$;
+SQL
+    :
+  else
+    cleanup_status="$?"
+  fi
+
+  if fingerprint_after="$(acl_fault_routine_fingerprint \
+    "$fixture_database" "$helper_signature")"; then
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      echo "ERROR: Composer helper ${fault_kind} probe changed target catalog" >&2
+      cleanup_status=1
+    fi
+  else
+    cleanup_status="$?"
+  fi
+
+  if [[ "$injection_status" -ne 0 ]]; then return "$injection_status"; fi
+  if [[ "$cleanup_status" -ne 0 ]]; then return "$cleanup_status"; fi
+  return "$negative_status"
+}
+
 verify_sealed_column_acl_fails_closed() {
   local fixture_database="$1"
   local negative_runtime_filter='(package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl)) | (package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_rd_owner_rejects_nonowner_sealed_column_acl))'
   local injection_status=0
   local negative_runtime_status=0
   local cleanup_status=0
+  local fingerprint_before
+  local fingerprint_after
+
+  fingerprint_before="$(acl_fault_relation_fingerprint \
+    "$fixture_database" rd_sealed_exploratory_replay_requests_v1)" || return "$?"
 
   if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'; then
@@ -3484,6 +3752,16 @@ SQL
     cleanup_status="$?"
   fi
 
+  if fingerprint_after="$(acl_fault_relation_fingerprint \
+    "$fixture_database" rd_sealed_exploratory_replay_requests_v1)"; then
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      echo "ERROR: sealed column ACL probe changed target catalog or data" >&2
+      cleanup_status=1
+    fi
+  else
+    cleanup_status="$?"
+  fi
+
   if [[ "$injection_status" -ne 0 ]]; then
     return "$injection_status"
   fi
@@ -3503,12 +3781,17 @@ verify_owner_column_acl_fails_closed() {
   local injection_status=0
   local negative_status=0
   local cleanup_status=0
+  local fingerprint_before
+  local fingerprint_after
 
   case "$database_url_variable" in
     QUALIFICATION_*) runtime_role='qualification_writer' ;;
     PRODUCT_EDGE_*) runtime_role='product_edge_owner' ;;
     *) runtime_role='rd_owner' ;;
   esac
+
+  fingerprint_before="$(acl_fault_relation_fingerprint \
+    "$fixture_database" "$relation_name")" || return "$?"
 
   if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" \
@@ -3531,6 +3814,7 @@ SQL
   fi
 
   if [[ "$injection_status" -eq 0 ]] && env \
+    RD_OWNER_COLUMN_ACL_FAULT_RELATION="$relation_name" \
     "${database_url_variable}=postgresql://${runtime_role}:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
     cargo nextest run \
     --archive-file "$nextest_archive_file" \
@@ -3572,6 +3856,16 @@ SQL
     cleanup_status="$?"
   fi
 
+  if fingerprint_after="$(acl_fault_relation_fingerprint \
+    "$fixture_database" "$relation_name")"; then
+    if [[ "$fingerprint_after" != "$fingerprint_before" ]]; then
+      echo "ERROR: Owner column ACL probe changed ${relation_name} catalog or data" >&2
+      cleanup_status=1
+    fi
+  else
+    cleanup_status="$?"
+  fi
+
   if [[ "$injection_status" -ne 0 ]]; then return "$injection_status"; fi
   if [[ "$cleanup_status" -ne 0 ]]; then return "$cleanup_status"; fi
   return "$negative_status"
@@ -3595,6 +3889,7 @@ WITH required_relation(name) AS (
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) attribute_acl WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute_acl.grantee<>relation.relowner)
     AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
       'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
       'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),
@@ -3617,6 +3912,7 @@ WITH required_relation(name) AS (
     ('artifact.custodian-membership', NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')),
     ('artifact.api-schema', pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian' AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE') AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')),
     ('artifact.api-schema-acl', (SELECT pg_catalog.count(*)=6 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 FROM pg_catalog.pg_namespace namespace, LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl WHERE namespace.nspname='rd_owner_api')),
+    ('composer.database-identity-helper', NOT pg_catalog.has_function_privilege(session_user,'pg_catalog.pg_control_system()','EXECUTE') AND NOT pg_catalog.pg_has_role(session_user,'pg_monitor','MEMBER') AND (SELECT system_identifier<>'' AND database_name=pg_catalog.current_database() AND database_oid=(SELECT oid::bigint FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) FROM rd_owner_api.resolve_develop_composer_database_identity_v2())),
     ('artifact.relations', (SELECT exact FROM relation_manifest)),
     ('artifact.reservation-routine', EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)') AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian' AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[] AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AND (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname) FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]))
 )
@@ -3666,6 +3962,76 @@ if verify_sealed_column_acl_fails_closed "$test_database"; then
   :
 else
   negative_runtime_status="$?"
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_routine_acl_fails_closed \
+    "$test_database" rd_owner_api.verify_exploratory_replay_request_internal_v1\(text,text,text\) \
+    PUBLIC '' \
+    'package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=runtime_replay_lock_binding_rejects_acl_drift)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_routine_acl_fails_closed \
+    "$test_database" rd_owner_api.lock_exploratory_replay_request_v2\(text,text,text,text\) \
+    vibe_test_legacy_replay_fault_writer '' \
+    'package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=runtime_replay_lock_binding_rejects_acl_drift)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_routine_acl_fails_closed \
+    "$test_database" rd_owner_api.resolve_exploratory_replay_request_v2\(text,text\) \
+    vibe_test_legacy_replay_fault_writer ' WITH GRANT OPTION' \
+    'package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=runtime_replay_resolution_binding_rejects_acl_drift)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_routine_acl_fails_closed \
+    "$test_database" rd_owner_api.resolve_develop_composer_database_identity_v2\(\) \
+    vibe_test_legacy_replay_fault_writer ' WITH GRANT OPTION' \
+    'package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_routine_acl_drift)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+for composer_helper_fault_kind in owner source search_path; do
+  if [[ "$negative_runtime_status" -eq 0 ]]; then
+    if verify_composer_helper_metadata_fails_closed \
+      "$test_database" "$composer_helper_fault_kind"; then
+      :
+    else
+      negative_runtime_status="$?"
+    fi
+  fi
+done
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_owner_column_acl_fails_closed \
+    "$test_database" rd_research_request_receipts_v1 request_json \
+    RD_OWNER_RUNTIME_STARTUP_DATABASE_URL \
+    'package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
+fi
+if [[ "$negative_runtime_status" -eq 0 ]]; then
+  if verify_owner_column_acl_fails_closed \
+    "$test_database" rd_artifact_build_attempts_v1 attempt_json \
+    ARTIFACT_COLUMN_ACL_TEST_DATABASE_URL \
+    'package(vibe-strategy-factory) & test(=artifact_build_postgres::postgres_freshness_tests::existing_topology_rejects_nonowner_column_acl)'; then
+    :
+  else
+    negative_runtime_status="$?"
+  fi
 fi
 if [[ "$negative_runtime_status" -eq 0 ]]; then
   if verify_owner_column_acl_fails_closed \

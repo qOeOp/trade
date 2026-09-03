@@ -1654,6 +1654,118 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
+    async fn composer_read_startup_rejects_private_schema_acl_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        sqlx::query("GRANT USAGE ON SCHEMA composer_private TO rd_owner")
+            .execute(topology_admin_pool)
+            .await
+            .expect("inject Composer private schema ACL");
+
+        let validation = validate_existing_develop_composer_read_authority_v2(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await;
+
+        sqlx::query("REVOKE USAGE ON SCHEMA composer_private FROM rd_owner")
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore Composer private schema ACL");
+        assert_eq!(
+            validation,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
+    async fn composer_read_startup_rejects_private_column_acl_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        sqlx::query(
+            "GRANT SELECT (design_identity) ON composer_private.rd_develop_designs_v2 TO rd_owner",
+        )
+        .execute(topology_admin_pool)
+        .await
+        .expect("inject Composer private column ACL");
+
+        let validation = validate_existing_develop_composer_read_authority_v2(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await;
+
+        sqlx::query(
+            "REVOKE SELECT (design_identity) ON composer_private.rd_develop_designs_v2 FROM rd_owner",
+        )
+        .execute(topology_admin_pool)
+        .await
+        .expect("restore Composer private column ACL");
+        assert_eq!(
+            validation,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
+    async fn composer_read_startup_rejects_writer_membership_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        sqlx::query("GRANT rd_owner TO rd_fact_writer")
+            .execute(topology_admin_pool)
+            .await
+            .expect("inject Composer writer membership");
+
+        let validation = validate_existing_develop_composer_read_authority_v2(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await;
+
+        sqlx::query("REVOKE rd_owner FROM rd_fact_writer")
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore Composer writer membership");
+        assert_eq!(
+            validation,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
+    async fn composer_read_startup_rejects_writer_capability_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable Owner topology");
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        sqlx::query("ALTER ROLE rd_fact_writer CREATEDB")
+            .execute(topology_admin_pool)
+            .await
+            .expect("inject Composer writer capability");
+
+        let validation = validate_existing_develop_composer_read_authority_v2(
+            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+        )
+        .await;
+
+        sqlx::query("ALTER ROLE rd_fact_writer NOCREATEDB")
+            .execute(topology_admin_pool)
+            .await
+            .expect("restore Composer writer capability");
+        assert_eq!(
+            validation,
+            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+        );
+    }
+
+    #[tokio::test]
     async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
         assert!(
             bootstrap_deployment_store_admission_from_lookup(|_| None)

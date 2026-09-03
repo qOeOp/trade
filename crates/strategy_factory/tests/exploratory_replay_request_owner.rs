@@ -24,6 +24,11 @@ use vibe_product_edge::{
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeInvocationClaimRequestV1, ProductEdgePostgresOwnerV1,
 };
+use vibe_rd_exploratory_replay_custody::{
+    ExploratoryReplayCustodyError,
+    ExploratoryReplayRecoverySelectorV2 as CustodyRecoverySelectorV2,
+    resolve_sealed_exploratory_replay_request_v2,
+};
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -85,6 +90,46 @@ struct ReplayFixture {
     proposal: ExploratoryReplayRequestProposalV1,
     proposal_v2: ExploratoryReplayRequestProposalV2,
     valid_through_epoch_ms: u64,
+}
+
+#[tokio::test]
+#[ignore = "requires an injected Replay lock or helper routine ACL drift"]
+async fn runtime_replay_lock_binding_rejects_acl_drift() {
+    let rd_url =
+        std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+    let qualification_url = std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL")
+        .expect("runtime Qualification URL");
+    let backtest_url =
+        std::env::var("BACKTEST_RUNTIME_STARTUP_DATABASE_URL").expect("runtime Backtest URL");
+
+    assert!(
+        PostgresResearchGoalOwnerV1::connect_with_backtest_existing(
+            &rd_url,
+            &qualification_url,
+            &backtest_url,
+        )
+        .await
+        .is_err()
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires an injected Replay resolve or helper routine ACL drift"]
+async fn runtime_replay_resolution_binding_rejects_acl_drift() {
+    let rd_url =
+        std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
+    let pool = PgPool::connect(&rd_url)
+        .await
+        .expect("runtime rd_owner connection");
+    let selector = CustodyRecoverySelectorV2 {
+        request_identity: "acl-drift-probe".into(),
+        meaning_digest: format!("blake3:{}", "a".repeat(64)),
+    };
+
+    assert!(matches!(
+        resolve_sealed_exploratory_replay_request_v2(&pool, &selector).await,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
 }
 
 #[tokio::test]

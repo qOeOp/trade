@@ -29,6 +29,8 @@ END
 $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+REVOKE ALL ON FUNCTION pg_catalog.pg_control_system() FROM PUBLIC, rd_custodian, rd_owner;
+GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO rd_custodian;
 ALTER ROLE product_edge_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE replay_policy_catalog_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE composer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
@@ -113,8 +115,8 @@ CREATE SCHEMA IF NOT EXISTS operator_authorization_api AUTHORIZATION operator_au
 ALTER SCHEMA operator_authorization_private OWNER TO operator_authorization_owner;
 ALTER SCHEMA operator_authorization_api OWNER TO operator_authorization_owner;
 REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
-REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner, portfolio_owner;
-GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner;
+REVOKE ALL ON SCHEMA operator_authorization_api FROM PUBLIC, rd_owner, product_edge_owner, product_edge_custodian, portfolio_owner;
+GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_owner, product_edge_custodian;
 REVOKE CREATE ON SCHEMA public FROM rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA public TO rd_owner, product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
@@ -377,8 +379,8 @@ BEGIN
 END
 $function$;
 ALTER FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) OWNER TO operator_authorization_owner;
-REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) FROM PUBLIC, rd_owner;
-GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) TO product_edge_owner, operator_authorization_writer;
+REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) FROM PUBLIC, rd_owner, product_edge_custodian;
+GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text, text) TO product_edge_owner, product_edge_custodian, operator_authorization_writer;
 
 CREATE TABLE IF NOT EXISTS public.product_edge_operation_manifests_v1 (manifest_identity TEXT PRIMARY KEY, operation TEXT NOT NULL, operation_schema TEXT NOT NULL, target_owner TEXT NOT NULL, manifest_digest TEXT NOT NULL, manifest_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_bindings_v1 (binding_identity TEXT PRIMARY KEY, deployment_identity TEXT NOT NULL, generation BIGINT NOT NULL, predecessor_binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE(deployment_identity, generation));
@@ -1506,6 +1508,18 @@ BEGIN
     requested_seal_digest
   );
 END
+$function$;
+
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
+RETURNS TABLE(system_identifier text, database_name text, database_oid bigint)
+LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+SELECT (pg_catalog.pg_control_system()).system_identifier::text,
+       pg_catalog.current_database()::text,
+       database.oid::bigint
+  FROM pg_catalog.pg_database AS database
+ WHERE database.datname=pg_catalog.current_database()
 $function$;
 
 CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1 (evaluation_identity TEXT PRIMARY KEY, evaluation_digest TEXT NOT NULL, lineage_identity TEXT NOT NULL, predecessor_evaluation_identity TEXT, ir_digest TEXT NOT NULL, pit_readback_digest TEXT NOT NULL, fact_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
@@ -4479,7 +4493,8 @@ BEGIN
     ('rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)',ARRAY['rd_custodian','rd_owner']::text[]),
     ('rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',ARRAY['backtest_owner','rd_custodian']::text[]),
     ('rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)',ARRAY['rd_custodian','rd_owner']::text[]),
-    ('rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',ARRAY['backtest_owner','rd_custodian']::text[])
+    ('rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',ARRAY['backtest_owner','rd_custodian']::text[]),
+    ('rd_owner_api.resolve_develop_composer_database_identity_v2()',ARRAY['rd_custodian','rd_owner']::text[])
   )
   SELECT pg_catalog.bool_and(
     (SELECT pg_catalog.array_agg(COALESCE(role.rolname::text,'PUBLIC') ORDER BY COALESCE(role.rolname::text,'PUBLIC'))
@@ -4489,6 +4504,34 @@ BEGIN
   ) INTO exact
   FROM expected JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(expected.signature);
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'R&D Replay routine ACL manifest mismatch'; END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc routine
+    WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.resolve_develop_composer_database_identity_v2()')
+      AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
+      AND routine.prosecdef AND NOT routine.proisstrict AND routine.provolatile='i'
+      AND routine.proparallel='s' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[]
+      AND routine.proretset AND routine.prorettype='pg_catalog.record'::pg_catalog.regtype
+      AND routine.proargtypes=''::pg_catalog.oidvector
+      AND pg_catalog.pg_get_function_result(routine.oid)='TABLE(system_identifier text, database_name text, database_oid bigint)'
+      AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+  ) THEN RAISE EXCEPTION 'Composer database identity helper manifest mismatch'; END IF;
+  IF pg_catalog.has_function_privilege('rd_owner','pg_catalog.pg_control_system()','EXECUTE')
+     OR pg_catalog.pg_has_role('rd_owner','pg_monitor','MEMBER')
+     OR NOT pg_catalog.has_function_privilege('rd_custodian','pg_catalog.pg_control_system()','EXECUTE')
+     OR (SELECT pg_catalog.count(*)<>2
+           OR pg_catalog.count(*) FILTER (
+             WHERE acl.grantor=routine.proowner AND acl.grantee=routine.proowner
+               AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+           )<>1
+           OR pg_catalog.count(*) FILTER (
+             WHERE acl.grantor=routine.proowner
+               AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+               AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable
+           )<>1
+         FROM pg_catalog.pg_proc routine,
+              LATERAL pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+         WHERE routine.oid=pg_catalog.to_regprocedure('pg_catalog.pg_control_system()'))
+  THEN RAISE EXCEPTION 'Composer database identity helper underlying capability mismatch'; END IF;
 END
 $runtime_acl_seal_readback$;
 DO $catalog_composer_readback$

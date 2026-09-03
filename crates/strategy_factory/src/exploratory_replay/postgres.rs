@@ -1626,11 +1626,10 @@ async fn validate_backtest_binding_v2(
              AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
-             )
+             AND (SELECT count(*)=2
+                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=owner.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                    FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl)
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
            JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
@@ -1728,18 +1727,10 @@ async fn validate_backtest_binding(
              AND pg_catalog.strpos(procedure.prosrc,'rd_owner_api.verify_exploratory_replay_request_internal_v1') > 0
              AND backtest.rolcanlogin
              AND NOT (backtest.rolsuper OR backtest.rolcreatedb OR backtest.rolcreaterole OR backtest.rolreplication OR backtest.rolbypassrls)
-             AND EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.grantee=backtest.oid
-                  AND acl.grantor=owner.oid
-                  AND acl.privilege_type='EXECUTE'
-                  AND NOT acl.is_grantable
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,backtest.oid)
-             )
+             AND (SELECT count(*)=2
+                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=owner.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=backtest.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                    FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl)
              AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
              AND EXISTS (
                SELECT 1
@@ -1758,11 +1749,10 @@ async fn validate_backtest_binding(
                   AND helper_language.lanname='plpgsql'
                   AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                   AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.privilege_type='EXECUTE'
-                       AND helper_acl.grantee NOT IN (helper_owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner'))
-                  )
+                  AND (SELECT count(*)=2
+                         AND count(*) FILTER (WHERE helper_acl.grantor=helper_owner.oid AND helper_acl.grantee=helper_owner.oid AND helper_acl.privilege_type='EXECUTE' AND NOT helper_acl.is_grantable)=1
+                         AND count(*) FILTER (WHERE helper_acl.grantor=helper_owner.oid AND helper_acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND helper_acl.privilege_type='EXECUTE' AND NOT helper_acl.is_grantable)=1
+                         FROM pg_catalog.aclexplode(COALESCE(helper.proacl,pg_catalog.acldefault('f',helper.proowner))) helper_acl)
              )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner

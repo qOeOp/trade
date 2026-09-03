@@ -309,6 +309,10 @@ impl OperatorAuthorizationIssuerPostgresV1 {
             "CREATE TABLE IF NOT EXISTS operator_authorization_private.operator_authorization_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE INDEX IF NOT EXISTS operator_authorization_issuance_scope_v1 ON operator_authorization_private.operator_authorization_issuances_v1(scope_digest, authorization_identity)",
             "CREATE INDEX IF NOT EXISTS operator_authorization_outbox_aggregate_v1 ON operator_authorization_private.operator_authorization_owner_outbox_v1(aggregate_identity, event_kind)",
+            "REVOKE ALL ON SCHEMA operator_authorization_api FROM product_edge_custodian",
+            "GRANT USAGE ON SCHEMA operator_authorization_api TO product_edge_custodian",
+            "REVOKE ALL ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text,text) FROM product_edge_custodian",
+            "GRANT EXECUTE ON FUNCTION operator_authorization_api.lock_current_authorization_v1(text,text) TO product_edge_custodian",
         ] {
             sqlx::query(statement)
                 .execute(&self.pool)
@@ -5268,6 +5272,7 @@ mod tests {
 
         for (role, expected) in [
             ("product_edge_owner", true),
+            ("product_edge_custodian", true),
             ("operator_authorization_writer", true),
             ("rd_owner", false),
         ] {

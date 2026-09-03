@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, fmt::Display};
 
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{AssertSqlSafe, PgPool, Postgres, Row, Transaction};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::develop_composer_operation_v2::{
@@ -22,6 +22,9 @@ const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)";
+const DATABASE_IDENTITY_FUNCTION_V2: &str =
+    "rd_owner_api.resolve_develop_composer_database_identity_v2()";
+const DATABASE_IDENTITY_QUERY_V2: &str = "SELECT system_identifier, database_name, database_oid FROM rd_owner_api.resolve_develop_composer_database_identity_v2()";
 const COMMIT_FUNCTION_SOURCE_V2: &str = "DECLARE ordinal integer;
 BEGIN
   IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required' USING ERRCODE='42501'; END IF;
@@ -715,6 +718,13 @@ async fn verify_composer_read_authority_in_transaction(
              LEFT JOIN pg_catalog.pg_roles fact_writer ON fact_writer.rolname='rd_fact_writer'
             WHERE procedure.oid=pg_catalog.to_regprocedure($1)
               AND procedure.proname='lock_accepted_develop_composer_v2'
+         ), private_namespace AS (
+           SELECT namespace.oid, namespace.nspowner, namespace.nspacl
+             FROM pg_catalog.pg_namespace namespace
+             JOIN pg_catalog.pg_roles owner
+               ON owner.oid=namespace.nspowner
+              AND owner.rolname='composer_owner'
+            WHERE namespace.nspname='composer_private'
          ), required(table_name) AS (
            VALUES
              ('rd_develop_designs_v2'),
@@ -730,8 +740,7 @@ async fn verify_composer_read_authority_in_transaction(
            SELECT relation.oid, relation.relowner, relation.relacl, target.proowner
              FROM required
              CROSS JOIN target
-             JOIN pg_catalog.pg_namespace namespace
-               ON namespace.nspname='composer_private'
+             JOIN private_namespace namespace ON true
              JOIN pg_catalog.pg_class relation
                ON relation.relnamespace=namespace.oid
               AND relation.relname=required.table_name
@@ -740,6 +749,26 @@ async fn verify_composer_read_authority_in_transaction(
          SELECT count(*)=9
             AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
             AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')
+            AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+            AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_fact_writer' OR member.rolname='rd_fact_writer')
+            AND (
+              SELECT count(*)=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=private_namespace.nspowner
+                     AND acl.privilege_type IN ('USAGE','CREATE')
+                     AND NOT acl.is_grantable
+                 )=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee<>private_namespace.nspowner
+                      OR acl.privilege_type NOT IN ('USAGE','CREATE')
+                      OR acl.is_grantable
+                 )=0
+                FROM private_namespace
+                CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+                  private_namespace.nspacl,
+                  pg_catalog.acldefault('n',private_namespace.nspowner)
+                )) acl
+            )
             AND (
               SELECT count(*)=2
                  AND bool_and(procedure.oid IN (
@@ -800,6 +829,15 @@ async fn verify_composer_read_authority_in_transaction(
                        pg_catalog.acldefault('r', relowner)
                      )) acl
                WHERE acl.grantee<>relowner
+            ))
+            AND NOT bool_or(EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+               WHERE attribute.attrelid=relations.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND acl.grantee<>relations.relowner
             ))
             AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relations.oid AND NOT trigger_fact.tgisinternal))
             AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid=relations.oid))
@@ -1186,12 +1224,79 @@ struct ComposerDatabaseFingerprintV2 {
     database_oid: i64,
 }
 
-async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
-    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
-        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+async fn verify_database_identity_authority(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT language.lanname='sql'
+            AND procedure.prokind='f'
+            AND procedure.proretset
+            AND procedure.prosecdef
+            AND procedure.provolatile='i'
+            AND procedure.proparallel='s'
+            AND NOT procedure.proisstrict
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+            AND procedure.pronargs=0
+            AND procedure.prorettype='record'::pg_catalog.regtype
+            AND procedure.proallargtypes=ARRAY[
+                  'text'::pg_catalog.regtype::oid,
+                  'text'::pg_catalog.regtype::oid,
+                  'bigint'::pg_catalog.regtype::oid
+                ]::oid[]
+            AND procedure.proargmodes=ARRAY['t'::\"char\",'t'::\"char\",'t'::\"char\"]
+            AND procedure.proargnames=ARRAY[
+                  'system_identifier','database_name','database_oid'
+                ]::text[]
+            AND (
+              SELECT count(*)=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=procedure.proowner
+                     AND acl.privilege_type='EXECUTE'
+                     AND NOT acl.is_grantable
+                 )=1
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=rd_owner.oid
+                     AND acl.privilege_type='EXECUTE'
+                     AND NOT acl.is_grantable
+                 )=1
+                 AND count(*) FILTER (
+                   WHERE acl.grantee NOT IN (procedure.proowner,rd_owner.oid)
+                      OR acl.privilege_type<>'EXECUTE'
+                      OR acl.is_grantable
+                 )=0
+                FROM pg_catalog.aclexplode(COALESCE(
+                       procedure.proacl,
+                       pg_catalog.acldefault('f',procedure.proowner)
+                     )) acl
+            )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_namespace namespace
+             ON namespace.oid=procedure.pronamespace
+            AND namespace.nspname='rd_owner_api'
+           JOIN pg_catalog.pg_roles owner
+             ON owner.oid=procedure.proowner
+            AND owner.rolname='rd_custodian'
+           JOIN pg_catalog.pg_roles rd_owner ON rd_owner.rolname='rd_owner'
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
     )
+    .bind(DATABASE_IDENTITY_FUNCTION_V2)
     .fetch_one(pool)
     .await?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer database identity authority is unavailable".to_owned(),
+        ))
+    }
+}
+
+async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
+    verify_database_identity_authority(pool).await?;
+    let (system_identifier, database_name, database_oid): (String, String, i64) =
+        sqlx::query_as(DATABASE_IDENTITY_QUERY_V2)
+            .fetch_one(pool)
+            .await?;
     Ok(ComposerDatabaseFingerprintV2 {
         system_identifier,
         database_name,
@@ -1203,11 +1308,10 @@ async fn verify_transaction_database(
     transaction: &mut Transaction<'_, Postgres>,
     expected: &ComposerDatabaseFingerprintV2,
 ) -> Result<(), sqlx::Error> {
-    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
-        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
-    )
-    .fetch_one(&mut **transaction)
-    .await?;
+    let (system_identifier, database_name, database_oid): (String, String, i64) =
+        sqlx::query_as(DATABASE_IDENTITY_QUERY_V2)
+            .fetch_one(&mut **transaction)
+            .await?;
     let actual = ComposerDatabaseFingerprintV2 {
         system_identifier,
         database_name,
@@ -1223,20 +1327,83 @@ async fn verify_transaction_database(
     }
 }
 
+async fn verify_transaction_database_for_writer(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected: &ComposerDatabaseFingerprintV2,
+    mismatch_message: &'static str,
+) -> Result<(), sqlx::Error> {
+    let (database_name, database_oid): (String, i64) = sqlx::query_as(
+        "SELECT pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    if database_name == expected.database_name && database_oid == expected.database_oid {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(mismatch_message.to_owned()))
+    }
+}
+
+fn snapshot_import_statement(snapshot: &str) -> Result<AssertSqlSafe<String>, sqlx::Error> {
+    if snapshot.is_empty()
+        || snapshot.len() > 256
+        || !snapshot
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
+    {
+        return Err(sqlx::Error::Protocol(
+            "Composer physical database witness is unavailable".to_owned(),
+        ));
+    }
+
+    Ok(AssertSqlSafe(format!(
+        "SET TRANSACTION SNAPSHOT '{snapshot}'"
+    )))
+}
+
+async fn begin_verified_writer_transaction<'a>(
+    read_pool: &PgPool,
+    mutation_pool: &'a PgPool,
+    expected: &ComposerDatabaseFingerprintV2,
+    mismatch_message: &'static str,
+) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
+    let mut witness = read_pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *witness)
+        .await?;
+    verify_transaction_database(&mut witness, expected).await?;
+    let snapshot: String = sqlx::query_scalar("SELECT pg_catalog.pg_export_snapshot()")
+        .fetch_one(&mut *witness)
+        .await?;
+
+    let mut transaction = mutation_pool.begin().await?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(snapshot_import_statement(&snapshot)?)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| sqlx::Error::Protocol(mismatch_message.to_owned()))?;
+    verify_transaction_database_for_writer(&mut transaction, expected, mismatch_message).await?;
+    witness.rollback().await?;
+    Ok(transaction)
+}
+
 async fn verify_same_database(
     read_pool: &PgPool,
     mutation_pool: &PgPool,
 ) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
     let read_identity = database_fingerprint(read_pool).await?;
-    let mutation_identity = database_fingerprint(mutation_pool).await?;
-
-    if read_identity == mutation_identity {
-        Ok(read_identity)
-    } else {
-        Err(sqlx::Error::Protocol(
-            "Composer read and mutation connections target different databases".to_owned(),
-        ))
-    }
+    let mutation_transaction = begin_verified_writer_transaction(
+        read_pool,
+        mutation_pool,
+        &read_identity,
+        "Composer read and mutation connections target different databases",
+    )
+    .await?;
+    mutation_transaction.rollback().await?;
+    Ok(read_identity)
 }
 
 #[derive(Clone)]
@@ -1265,8 +1432,13 @@ impl PostgresDevelopComposerStoreV2 {
         let database_fingerprint = verify_same_database(&read_pool, &mutation_pool).await?;
 
         Self::migrate(&read_pool).await?;
-        let mut transaction = mutation_pool.begin().await?;
-        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
+        let mut transaction = begin_verified_writer_transaction(
+            &read_pool,
+            &mutation_pool,
+            &database_fingerprint,
+            "Composer connection physical database changed after startup",
+        )
+        .await?;
         verify_composer_writer_authority_in_transaction(&mut transaction).await?;
         verify_composer_commit_authority_in_transaction(&mut transaction).await?;
         transaction.rollback().await?;
@@ -1285,9 +1457,13 @@ impl PostgresDevelopComposerStoreV2 {
     }
 
     async fn begin_mutation_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
-        let mut transaction = self.mutation_pool.begin().await?;
-        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
-        Ok(transaction)
+        begin_verified_writer_transaction(
+            &self.read_pool,
+            &self.mutation_pool,
+            &self.database_fingerprint,
+            "Composer connection physical database changed after startup",
+        )
+        .await
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -1656,7 +1832,12 @@ async fn persist_record(
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
-    verify_transaction_database(transaction, database_fingerprint).await?;
+    verify_transaction_database_for_writer(
+        transaction,
+        database_fingerprint,
+        "Composer connection physical database changed after startup",
+    )
+    .await?;
     verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
@@ -1791,7 +1972,7 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 mod tests {
     use rstest::rstest;
 
-    use super::ComposerReadAuthorityIssueV2;
+    use super::{ComposerReadAuthorityIssueV2, snapshot_import_statement};
 
     #[rstest]
     fn composer_read_authority_issue_stages_are_stable() {
@@ -1840,5 +2021,69 @@ mod tests {
         assert!(commit_authority.contains("SESSION_USER='rd_fact_writer'"));
         assert!(commit_authority.contains("SELECT count(*)=2"));
         assert!(commit_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
+    }
+
+    #[rstest]
+    fn composer_default_validator_closes_private_acl_and_writer_role_drift() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        let read_authority = source
+            .split("async fn verify_composer_read_authority_in_transaction")
+            .nth(1)
+            .expect("Composer read authority")
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .next()
+            .expect("bounded Composer read authority");
+
+        assert!(read_authority.contains("owner.rolname='composer_owner'"));
+        assert!(read_authority.contains("namespace.nspname='composer_private'"));
+        assert!(read_authority.contains("pg_catalog.acldefault('n',private_namespace.nspowner)"));
+        assert!(read_authority.contains("pg_catalog.pg_attribute attribute"));
+        assert!(read_authority.contains("pg_catalog.aclexplode(attribute.attacl)"));
+        assert!(read_authority.contains("role.rolname='rd_fact_writer'"));
+        assert!(read_authority.contains("NOT role.rolsuper"));
+        assert!(read_authority.contains("granted.rolname='rd_fact_writer'"));
+        assert!(read_authority.contains("member.rolname='rd_fact_writer'"));
+    }
+
+    #[rstest]
+    fn composer_database_identity_helper_is_read_side_only() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        assert!(source.contains("rd_owner_api.resolve_develop_composer_database_identity_v2()"));
+        assert!(!source.contains(&["pg_catalog.pg_control", "_system()"].concat()));
+
+        let helper_authority = source
+            .split("async fn verify_database_identity_authority")
+            .nth(1)
+            .expect("Composer database identity authority")
+            .split("async fn database_fingerprint")
+            .next()
+            .expect("bounded Composer database identity authority");
+        assert!(helper_authority.contains("procedure.provolatile='i'"));
+        assert!(!helper_authority.contains("procedure.provolatile='s'"));
+        assert!(helper_authority.contains("procedure.proparallel='s'"));
+        assert!(helper_authority.contains("procedure.prosecdef"));
+        assert!(helper_authority.contains("procedure.proconfig=ARRAY['search_path=pg_catalog']"));
+        assert!(helper_authority.contains("owner.rolname='rd_custodian'"));
+        assert!(helper_authority.contains("count(*)=2"));
+        assert!(helper_authority.contains("acl.grantee=rd_owner.oid"));
+        assert!(helper_authority.contains("NOT acl.is_grantable"));
+
+        let writer_identity = source
+            .split("async fn verify_transaction_database_for_writer")
+            .nth(1)
+            .expect("Composer writer transaction identity")
+            .split("async fn verify_same_database")
+            .next()
+            .expect("bounded Composer writer transaction identity");
+        assert!(!writer_identity.contains("DATABASE_IDENTITY_QUERY_V2"));
+        assert!(writer_identity.contains("pg_catalog.current_database()"));
+    }
+
+    #[rstest]
+    #[case("")]
+    #[case("00000003-0000001B-1'; SELECT true; --")]
+    #[case("snapshot with spaces")]
+    fn composer_database_witness_rejects_unsafe_snapshot_identity(#[case] snapshot: &str) {
+        assert!(snapshot_import_statement(snapshot).is_err());
     }
 }

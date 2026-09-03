@@ -1297,6 +1297,24 @@ impl ProductEdgePostgresOwnerV1 {
                      FROM pg_catalog.pg_namespace namespace,
                           LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
                     WHERE namespace.nspname='product_edge_api')
+               AND (SELECT count(*)=4
+                          AND pg_catalog.pg_get_userbyid(namespace.nspowner)='operator_authorization_owner'
+                          AND count(*) FILTER (WHERE acl.grantor=namespace.nspowner AND acl.grantee=namespace.nspowner AND acl.privilege_type IN ('CREATE','USAGE') AND NOT acl.is_grantable)=2
+                          AND count(*) FILTER (WHERE acl.grantor=namespace.nspowner AND acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                          AND count(*) FILTER (WHERE acl.grantor=namespace.nspowner AND acl.grantee=pg_catalog.to_regrole('product_edge_custodian')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
+                     FROM pg_catalog.pg_namespace namespace,
+                          LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
+                    WHERE namespace.nspname='operator_authorization_api')
+               AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine
+                            JOIN pg_catalog.pg_roles owner ON owner.oid=routine.proowner
+                           WHERE routine.oid=pg_catalog.to_regprocedure('operator_authorization_api.lock_current_authorization_v1(text,text)')
+                             AND owner.rolname='operator_authorization_owner'
+                             AND (SELECT count(*)=4
+                                      AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=owner.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                                      AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('operator_authorization_writer')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                                      AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                                      AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('product_edge_custodian')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                                 FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl))
                AND NOT pg_catalog.has_schema_privilege(session_user, 'public', 'CREATE')
                AND NOT pg_catalog.has_database_privilege(
                  session_user,
@@ -5674,6 +5692,15 @@ mod tests {
         assert!(!validation.contains(
             "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND NOT acl.is_grantable)=4"
         ));
+        assert!(validation.contains(
+            "pg_catalog.pg_get_userbyid(namespace.nspowner)='operator_authorization_owner'"
+        ));
+        assert!(validation.contains(
+            "acl.grantor=namespace.nspowner AND acl.grantee=pg_catalog.to_regrole('product_edge_custodian')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable"
+        ));
+        assert!(validation.contains(
+            "acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('product_edge_custodian')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable"
+        ));
     }
 
     #[rstest]
@@ -6483,6 +6510,13 @@ mod tests {
             function_catalog.5,
             Some(vec!["search_path=pg_catalog".into()])
         );
+        let custodian_oa_capability: (bool, bool, bool) = sqlx::query_as(
+            "SELECT has_schema_privilege('product_edge_custodian','operator_authorization_api','USAGE'), NOT has_schema_privilege('product_edge_custodian','operator_authorization_api','CREATE'), has_function_privilege('product_edge_custodian','operator_authorization_api.lock_current_authorization_v1(text,text)','EXECUTE')",
+        )
+        .fetch_one(pe_pool)
+        .await
+        .unwrap();
+        assert_eq!(custodian_oa_capability, (true, true, true));
 
         for (role, wrapper, generic, direct_oa) in [
             ("portfolio_owner", true, false, false),
