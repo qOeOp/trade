@@ -3496,7 +3496,7 @@ mod tests {
         .fetch_one(&owner.pool)
         .await
         .unwrap();
-        assert_eq!(catalog.0, "rd_owner");
+        assert_eq!(catalog.0, "rd_custodian");
         assert!(catalog.1);
         assert_eq!(catalog.2, "v");
         assert_eq!(catalog.3, "u");
@@ -3517,7 +3517,7 @@ mod tests {
             .fetch_one(&owner.pool)
             .await
             .unwrap();
-        assert_eq!(basis_catalog.0, "rd_owner");
+        assert_eq!(basis_catalog.0, "rd_custodian");
         assert!(basis_catalog.1);
         assert_eq!(basis_catalog.2, "v");
         assert_eq!(basis_catalog.3, "u");
@@ -3533,6 +3533,13 @@ mod tests {
             basis_privileges,
             (true, true, false, false, false, false, true)
         );
+        let trial_family_relations: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname IN ('rd_trial_families_v1','rd_trial_family_members_v1','rd_trial_family_heads_v1','rd_trial_family_attempt_cuts_v2','rd_artifact_trial_family_bindings_v1')",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(trial_family_relations, 5);
     }
 
     #[tokio::test]
