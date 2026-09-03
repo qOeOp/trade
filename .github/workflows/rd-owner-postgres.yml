@@ -62,7 +62,7 @@ jobs:
           build-type: test
           free-disk-space: "true"
           free-disk-space-max-build: "true"
-          minimum-free-space-gb: "110"
+          minimum-free-space-gb: "80"
           rust-cache-enabled: "true"
           rust-cache-workspaces: ". -> target/rd-owner-postgres"
           rust-cache-on-failure: "true"
