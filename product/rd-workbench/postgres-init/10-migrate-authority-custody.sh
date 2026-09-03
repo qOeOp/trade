@@ -498,9 +498,14 @@ BEGIN
     WHERE schemaname = 'public' AND tablename LIKE 'rd_%'
       AND tablename NOT IN ('rd_source_intake_bindings_v1','rd_source_intake_receipts_v1','rd_source_raw_payloads_v1','rd_source_raw_receipt_links_v1','rd_research_source_provenance_v1','rd_source_candidates_v1','rd_legacy_prepared_attempt_drain_receipts_v1','rd_exploratory_replay_requests_v1')
   LOOP
-    EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_custodian', object.schemaname, object.tablename);
-    EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
-    EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner', object.schemaname, object.tablename);
+    IF object.tablename='rd_sealed_exploratory_replay_requests_v1' THEN
+      EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_owner', object.schemaname, object.tablename);
+      EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
+    ELSE
+      EXECUTE format('ALTER TABLE %I.%I OWNER TO rd_custodian', object.schemaname, object.tablename);
+      EXECUTE format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner', object.schemaname, object.tablename);
+      EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I.%I TO rd_owner', object.schemaname, object.tablename);
+    END IF;
   END LOOP;
   FOR object IN SELECT sequence_schema AS schemaname, sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public' AND sequence_name LIKE 'rd_%' LOOP
     EXECUTE format('ALTER SEQUENCE %I.%I OWNER TO rd_custodian', object.schemaname, object.sequence_name);
@@ -1079,6 +1084,7 @@ END
 $migration$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS rd_exploratory_replay_artifact_request_v1 ON public.rd_sealed_exploratory_replay_requests_v1(artifact_identity, request_identity);
+ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1 OWNER TO rd_owner;
 
 DO $acl$
 DECLARE grantee_name text;
@@ -4329,8 +4335,13 @@ BEGIN
     SELECT relation.oid,namespace.nspname AS schema_name,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname='public' AND relation.relkind IN ('r','p') AND relation.relname LIKE 'rd\_%' ESCAPE '\' AND relation.relname<>'rd_exploratory_replay_requests_v1'
   LOOP
-    EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
-    EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN
+      EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_owner',object.schema_name,object.relname);
+      EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    ELSE
+      EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_custodian',object.schema_name,object.relname);
+      EXECUTE pg_catalog.format('REVOKE ALL ON TABLE %I.%I FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, portfolio_owner',object.schema_name,object.relname);
+    END IF;
     FOR column_acl IN
       SELECT attribute.attname AS column_name,acl.grantee,pg_catalog.pg_get_userbyid(acl.grantee) AS grantee_name
       FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl

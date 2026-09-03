@@ -807,7 +807,7 @@ impl PostgresResearchGoalOwnerV1 {
                                                END
                                AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
                                AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
-                                     WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]
+                                     WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
                                      ELSE ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
                                    END
                                AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
@@ -899,7 +899,7 @@ impl PostgresResearchGoalOwnerV1 {
                            FROM pg_catalog.aclexplode(routine.proacl) acl))
                UNION ALL SELECT 'relation','relation:public.'||name,'exists' FROM relation_state WHERE oid IS NULL
                UNION ALL SELECT 'relation','relation:public.'||name,'ordinary_persistent_without_row_security_or_extensions' FROM relation_state WHERE oid IS NOT NULL AND NOT (relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND no_user_triggers AND no_rewrites AND no_policies)
-               UNION ALL SELECT 'relation','relation:public.'||name,'custodian_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM 'rd_custodian'
+               UNION ALL SELECT 'relation','relation:public.'||name,'canonical_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM CASE name WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 'rd_owner' ELSE 'rd_custodian' END
                UNION ALL SELECT 'relation','relation:public.'||name,'columns_owner_private' FROM relation_state WHERE oid IS NOT NULL AND NOT columns_owner_private
                UNION ALL SELECT 'relation','relation:public.'||name,'closed_relation_seal' FROM relation_state WHERE oid IS NOT NULL AND NOT closed_seal_current
                UNION ALL SELECT 'relation','relation:public.'||name,'exact_acl_manifest' FROM relation_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
@@ -3364,7 +3364,7 @@ mod tests {
         assert!(validation.contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7"));
         assert!(
             validation
-                .contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN NULL::text[]")
+                .contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]")
         );
         assert!(validation.contains(
             "NOT EXISTS (\n                        SELECT 1 FROM pg_catalog.pg_attribute attribute\n                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
@@ -3421,7 +3421,7 @@ mod tests {
             .next()
             .expect("runtime custody cutover boundary");
         assert!(runtime_custody_cutover.contains(
-            "IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN\n      NULL;\n    ELSIF object.relname='rd_source_intake_bindings_v1' THEN"
+            "IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN\n      EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_owner',object.schema_name,object.relname);"
         ));
     }
 

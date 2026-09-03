@@ -158,7 +158,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
     let sealed_catalog_is_private: bool = sqlx::query_scalar(
-        "SELECT owner.rolname='rd_custodian'
+        "SELECT owner.rolname='rd_owner'
             AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.aclexplode(COALESCE(
@@ -652,7 +652,7 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
     .expect("Origin current Replay relation names");
     assert!(names_are_exact);
     let sealed_is_owner_private: bool = sqlx::query_scalar(
-        "SELECT owner.rolname='rd_custodian'
+        "SELECT owner.rolname='rd_owner'
             AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.aclexplode(COALESCE(
