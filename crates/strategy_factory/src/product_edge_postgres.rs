@@ -743,8 +743,8 @@ impl PostgresResearchGoalOwnerV1 {
                ]::text[])
              ), required_indexes(name,table_name,key_definition,predicate_definition) AS (
                VALUES
-                 ('rd_research_intent_identity_v1','rd_research_request_receipts_v1','(intent_json ->> ''intent_identity''::text)','(intent_json IS NOT NULL)'),
-                 ('rd_complex_strategy_develop_evaluation_successors_v1','rd_complex_strategy_develop_evaluations_v1','predecessor_evaluation_identity','(predecessor_evaluation_identity IS NOT NULL)')
+                 ('rd_research_intent_identity_v1','rd_research_request_receipts_v1','(intent_json ->> ''intent_identity''::text)','intent_json IS NOT NULL'),
+                 ('rd_complex_strategy_develop_evaluation_successors_v1','rd_complex_strategy_develop_evaluations_v1','predecessor_evaluation_identity','predecessor_evaluation_identity IS NOT NULL')
              ), index_state AS (
                SELECT required.*,index_relation.oid,
                       index_fact.indexrelid IS NOT NULL

@@ -676,7 +676,7 @@ BEGIN
        AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)
            ='(intent_json ->> ''intent_identity''::text)'
        AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)
-           ='(intent_json IS NOT NULL)'
+           ='intent_json IS NOT NULL'
        AND NOT EXISTS (
          SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
           WHERE constraint_fact.conindid=index_fact.indexrelid
@@ -1555,7 +1555,7 @@ BEGIN
        AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)
            ='predecessor_evaluation_identity'
        AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)
-           ='(predecessor_evaluation_identity IS NOT NULL)'
+           ='predecessor_evaluation_identity IS NOT NULL'
        AND NOT EXISTS (
          SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
           WHERE constraint_fact.conindid=index_fact.indexrelid
