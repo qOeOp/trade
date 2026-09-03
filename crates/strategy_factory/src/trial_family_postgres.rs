@@ -70,9 +70,6 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
         .fetch_one(pool).await.map_err(storage)?;
 
     if exact {
-        crate::replay_policy_catalog_postgres_v2::migrate(pool)
-            .await
-            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
         return Ok(());
     }
 
