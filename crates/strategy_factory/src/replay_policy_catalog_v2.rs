@@ -3,7 +3,6 @@
 //! This module contains no selection fallback and no administration surface. PostgreSQL custody is
 //! the only authority that may create records or resolve the current head for family formation.
 
-use rstest::rstest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -209,6 +208,8 @@ fn require_ascii_identity(
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,

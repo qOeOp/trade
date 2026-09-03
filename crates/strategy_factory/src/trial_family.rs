@@ -2209,7 +2209,7 @@ mod tests {
             "rd.trial-family.census-member.v2",
             &MemberMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
                 attempt_ordinal: malformed_member.members[malformed_index].attempt_ordinal,
                 ordinal: malformed_member.members[malformed_index].ordinal,
                 member_kind: malformed_member.members[malformed_index].member_kind,
@@ -2227,7 +2227,7 @@ mod tests {
             "rd.trial-family.membership-receipt.v2",
             &MembershipReceiptMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
                 member_identity: &malformed_member.members[malformed_index].member_identity,
                 member_digest: &malformed_member.members[malformed_index].member_digest,
                 committed_at_epoch_ms: malformed_epoch_ms,
@@ -2255,7 +2255,7 @@ mod tests {
             "rd.trial-family.census-frontier.v2",
             &CensusFrontierMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
                 root_digest: &malformed_member.legacy_family.root.root_digest,
                 member_digests: &rebuilt_member_digests,
                 consumed_trial_budget: malformed_member.census_frontier.consumed_trial_budget,
