@@ -1286,7 +1286,7 @@ const OWNER_TOPOLOGY_ADMIN_AUTHORITY_QUERY: &str =
                AND (SELECT count(*)=4 AND bool_and(
                       CASE constraint_fact.conname
                         WHEN 'authority_state_v1_singleton_pk' THEN
-                          constraint_fact.contype='p' AND constraint_fact.conkey::text='1'
+                          constraint_fact.contype='p' AND constraint_fact.conkey=ARRAY[1]::smallint[]
                         WHEN 'authority_state_v1_singleton_check' THEN
                           constraint_fact.contype='c'
                           AND pg_catalog.pg_get_expr(

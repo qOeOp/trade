@@ -496,7 +496,7 @@ check_migration_authority_boundary() {
     ! rg -Fq 'GRANT SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'REVOKE SELECT(request_identity) ON TABLE public.rd_sealed_exploratory_replay_requests_v1' "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'return "$negative_runtime_status"' "${BASH_SOURCE[0]}" ||
-    ! rg -Uq 'verify_runtime_startup\(\) \{(?s:.*?)-E "\$runtime_diagnostic_filter"(?s:.*?)-E "\$runtime_startup_filter"(?s:.*?)\n\}' "${BASH_SOURCE[0]}" ||
+    ! rg -Uq 'verify_runtime_startup\(\) \{(?s:.*?)-E "\$runtime_diagnostic_filter"(?s:.*?)artifact_runtime_manifest_failures "\$fixture_database"(?s:.*?)-E "\$runtime_startup_filter"(?s:.*?)\n\}' "${BASH_SOURCE[0]}" ||
     [[ "$(rg -Fc 'verify_runtime_startup "$test_database"' "${BASH_SOURCE[0]}")" -ne 3 ]] ||
     ! rg -Uq 'verify_runtime_startup "\$test_database"\nnegative_runtime_status=0(?s:.*?)if verify_sealed_column_acl_fails_closed "\$test_database"(?s:.*?)if verify_runtime_startup "\$test_database"' "${BASH_SOURCE[0]}" ||
     ! rg -Fq "wait_for_primary_after_failed_authority_migration" "${BASH_SOURCE[0]}" ||

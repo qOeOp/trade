@@ -565,7 +565,9 @@ async fn load_record_via_sealed_routine_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, DevelopComposerSealedReadErrorV2> {
-    verify_composer_read_authority_in_transaction(transaction).await?;
+    verify_composer_read_authority_in_transaction(transaction)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     let Some(row) = sqlx::query(
         "SELECT *
            FROM composer_owner_api.lock_accepted_develop_composer_v2($1)",
@@ -620,9 +622,29 @@ async fn load_record_via_sealed_routine_in_transaction(
     }))
 }
 
+enum ComposerReadAuthorityIssueV2 {
+    Base,
+    Columns,
+    Dependency,
+    ConstraintOptions,
+    IndexOptions,
+}
+
+impl ComposerReadAuthorityIssueV2 {
+    const fn stage(&self) -> &'static str {
+        match self {
+            Self::Base => "base",
+            Self::Columns => "columns",
+            Self::Dependency => "dependency",
+            Self::ConstraintOptions => "constraint-options",
+            Self::IndexOptions => "index-options",
+        }
+    }
+}
+
 async fn verify_composer_read_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), DevelopComposerSealedReadErrorV2> {
+) -> Result<(), ComposerReadAuthorityIssueV2> {
     let authority_is_exact: bool = sqlx::query_scalar(
         "WITH target AS (
            SELECT procedure.oid,
@@ -810,12 +832,12 @@ async fn verify_composer_read_authority_in_transaction(
     .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    .map_err(|_| ComposerReadAuthorityIssueV2::Base)?;
     if !authority_is_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(ComposerReadAuthorityIssueV2::Base);
     }
     let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::Columns)?;
     let expected_column_shape = [
         "rd_develop_artifact_modules_v2:1:artifact_identity:bytea:true:",
         "rd_develop_artifact_modules_v2:2:ordinal:integer:true:",
@@ -854,22 +876,22 @@ async fn verify_composer_read_authority_in_transaction(
         .map(String::as_str)
         .ne(expected_column_shape)
     {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(ComposerReadAuthorityIssueV2::Columns);
     }
-    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey::text) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_build_receipts_v2','u','4 5'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,constraint_fact.conkey::text,target.relname,constraint_fact.confkey::text) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_build_receipts_v2','4','rd_develop_artifacts_v2','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey) NOT IN (VALUES ('rd_develop_designs_v2','p',ARRAY[1]::smallint[]),('rd_develop_plans_v2','p',ARRAY[1]::smallint[]),('rd_develop_plans_v2','u',ARRAY[2]::smallint[]),('rd_develop_artifacts_v2','p',ARRAY[1]::smallint[]),('rd_develop_artifacts_v2','u',ARRAY[2]::smallint[]),('rd_develop_artifact_modules_v2','p',ARRAY[1,2]::smallint[]),('rd_develop_build_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[2]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[3]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[4,5]::smallint[]),('rd_develop_composer_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_host_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_operations_v2','p',ARRAY[1]::smallint[]),('rd_develop_operations_v2','u',ARRAY[3]::smallint[]),('rd_develop_operations_v2','u',ARRAY[4]::smallint[]),('rd_develop_operations_v2','u',ARRAY[5]::smallint[]),('rd_develop_outbox_v2','p',ARRAY[1]::smallint[]))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,constraint_fact.conkey,target.relname,constraint_fact.confkey) NOT IN (VALUES ('rd_develop_plans_v2',ARRAY[2]::smallint[],'rd_develop_designs_v2',ARRAY[1]::smallint[]),('rd_develop_artifacts_v2',ARRAY[2]::smallint[],'rd_develop_plans_v2',ARRAY[1]::smallint[]),('rd_develop_artifact_modules_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_build_receipts_v2',ARRAY[4]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_composer_receipts_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_host_receipts_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_operations_v2',ARRAY[5]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_outbox_v2',ARRAY[1]::smallint[],'rd_develop_operations_v2',ARRAY[1]::smallint[]))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::Dependency)?;
     if !dependency_shape_is_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(ComposerReadAuthorityIssueV2::Dependency);
     }
-    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR constraint_fact.connoinherit OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT CASE WHEN constraint_fact.contype IN ('p','u','f') THEN constraint_fact.connoinherit WHEN constraint_fact.contype='c' THEN NOT constraint_fact.connoinherit ELSE false END OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::ConstraintOptions)?;
     if !constraint_options_are_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(ComposerReadAuthorityIssueV2::ConstraintOptions);
     }
     let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::IndexOptions)?;
     if !index_options_are_exact {
-        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+        return Err(ComposerReadAuthorityIssueV2::IndexOptions);
     }
     Ok(())
 }
@@ -1254,8 +1276,11 @@ impl PostgresDevelopComposerStoreV2 {
         verify_transaction_database(&mut transaction, &database_fingerprint).await?;
         verify_composer_read_authority_in_transaction(&mut transaction)
             .await
-            .map_err(|_| {
-                sqlx::Error::Protocol("Composer authority topology is unavailable".to_owned())
+            .map_err(|issue| {
+                sqlx::Error::Protocol(format!(
+                    "Composer authority topology is unavailable: {}",
+                    issue.stage()
+                ))
             })?;
         transaction.rollback().await
     }
@@ -1731,6 +1756,29 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+
+    use super::ComposerReadAuthorityIssueV2;
+
+    #[rstest]
+    fn composer_read_authority_issue_stages_are_stable() {
+        assert_eq!(
+            [
+                ComposerReadAuthorityIssueV2::Base,
+                ComposerReadAuthorityIssueV2::Columns,
+                ComposerReadAuthorityIssueV2::Dependency,
+                ComposerReadAuthorityIssueV2::ConstraintOptions,
+                ComposerReadAuthorityIssueV2::IndexOptions,
+            ]
+            .map(|issue| issue.stage()),
+            [
+                "base",
+                "columns",
+                "dependency",
+                "constraint-options",
+                "index-options",
+            ]
+        );
+    }
 
     #[rstest]
     fn composer_authority_rejects_public_execute_on_commit() {
