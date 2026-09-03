@@ -1697,13 +1697,13 @@ BEGIN
     SELECT pg_catalog.count(*) INTO constraint_count
       FROM pg_catalog.pg_constraint
      WHERE conrelid=relation_oid;
-    IF constraint_count<>CASE object.relation_name
+    IF constraint_count<>(CASE object.relation_name
          WHEN 'rd_independence_bases_v1' THEN 2
          WHEN 'rd_independence_basis_admissions_v1' THEN 3
          WHEN 'rd_independence_basis_heads_v1' THEN 2
          WHEN 'rd_complex_strategy_develop_evaluation_heads_v1' THEN 2
          ELSE 1
-       END
+       END)
        OR EXISTS (
          SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
           WHERE constraint_fact.conrelid=relation_oid
