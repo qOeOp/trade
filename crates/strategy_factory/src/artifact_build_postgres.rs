@@ -25,8 +25,8 @@ use crate::{
     },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
-        attempt_json_digest, form_receipt, require_existing_topology, verify_drain_in_transaction,
-        verify_live_predicates_in_transaction,
+        attempt_json_digest, form_receipt, migrate as migrate_legacy_drain,
+        verify_drain_in_transaction, verify_live_predicates_in_transaction,
     },
     product_edge::{
         FrozenResearchGoalIntent, ResearchNextLegalAction, ResearchViewAvailability,
@@ -44,22 +44,6 @@ use crate::{
     trial_family::{TrialFamilyError, TrialFamilyResolutionV1},
     trial_family_postgres::{migrate as migrate_trial_family, persist_artifact_binding},
 };
-
-const CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL: &str = "SELECT EXISTS (
-       SELECT 1
-         FROM pg_catalog.pg_proc routine
-        WHERE routine.oid=pg_catalog.to_regprocedure('pg_catalog.pg_control_system()')
-          AND (SELECT count(*)=2
-                      AND count(*) FILTER (WHERE acl.grantor=routine.proowner
-                                            AND acl.grantee=routine.proowner
-                                            AND acl.privilege_type='EXECUTE'
-                                            AND NOT acl.is_grantable)=1
-                      AND count(*) FILTER (WHERE acl.grantor=routine.proowner
-                                            AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
-                                            AND acl.privilege_type='EXECUTE'
-                                            AND NOT acl.is_grantable)=1
-                 FROM pg_catalog.aclexplode(routine.proacl) acl)
-     )";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -188,6 +172,37 @@ struct LegacyRequestMeaningV1<'a> {
 }
 
 impl PostgresArtifactBuildOwnerV1 {
+    /// Materializes Artifact tables during the bounded pre-cutover deployment phase.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), ArtifactBuildError> {
+        let database_endpoint_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                database_url,
+            )?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+            .await
+            .map_err(storage)?
+        {
+            return Err(ArtifactBuildError::Storage(
+                "pre-cutover Artifact schema materialization is unavailable".to_owned(),
+            ));
+        }
+        let owner = Self {
+            pool,
+            database_endpoint_resource_fingerprint,
+            sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(
+                "/schema-materialization-no-sandbox",
+            )),
+            attempt_timeout_ms: 0,
+            clock: Arc::new(current_epoch_ms),
+        };
+        owner.migrate().await
+    }
+
     pub async fn connect(
         database_url: &str,
         sandbox_socket: &str,
@@ -214,75 +229,24 @@ impl PostgresArtifactBuildOwnerV1 {
         Ok(owner)
     }
 
-    /// Connects the runtime Artifact Owner to deployment-provisioned custody.
-    /// This path performs no DDL and fails closed on authority or manifest drift.
-    pub async fn connect_existing(
-        database_url: &str,
-        sandbox_socket: &str,
-        attempt_timeout_ms: u64,
-    ) -> Result<Self, ArtifactBuildError> {
-        let database_endpoint_resource_fingerprint =
-            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
-                database_url,
-            )?;
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
-            .connect(database_url)
+    async fn migrate(&self) -> Result<(), ArtifactBuildError> {
+        for (relation_name, statement) in [
+            (
+                "rd_artifact_build_attempts_v1",
+                "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL)",
+            ),
+            (
+                "rd_strategy_artifacts_v1",
+                "CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1 (artifact_digest TEXT PRIMARY KEY, intent_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL UNIQUE, identity_json JSONB NOT NULL, wasm_bytes BYTEA NOT NULL, source_capsule BYTEA NOT NULL, build_recipe BYTEA NOT NULL, build_receipt_json JSONB NOT NULL, artifact_review_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            ),
+        ] {
+            crate::schema_materialization::materialize_or_require_existing_public_table(
+                &self.pool,
+                relation_name,
+                statement,
+            )
             .await
             .map_err(storage)?;
-        let topology_is_exact: bool = sqlx::query_scalar(
-            "WITH required(name) AS (VALUES ('rd_artifact_build_attempts_v1'),('rd_strategy_artifacts_v1'))
-             SELECT session_user='rd_owner'
-               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
-               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-               AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
-               AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
-               AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
-               AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-               AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
-               AND pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian'
-               AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
-               AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
-               AND (SELECT count(*)=6 AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 FROM pg_catalog.pg_namespace namespace, LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl WHERE namespace.nspname='rd_owner_api' GROUP BY namespace.nspowner)
-               AND (SELECT count(*)=2 AND bool_and(pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian' AND relation.relkind='r' AND relation.relpersistence='p' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) attribute_acl WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute_acl.grantee<>relation.relowner) AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text) AND (SELECT count(*)=11 AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[] AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[] FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)) FROM required JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||required.name))
-               AND EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)') AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian' AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[] AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AND (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname) FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[])",
-        )
-        .fetch_one(&pool)
-        .await
-        .map_err(storage)?;
-
-        let control_system_acl_is_exact: bool =
-            sqlx::query_scalar(CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL)
-                .fetch_one(&pool)
-                .await
-                .map_err(storage)?;
-
-        if !topology_is_exact || !control_system_acl_is_exact {
-            return Err(ArtifactBuildError::Storage(
-                "existing Artifact custody or runtime authority is unavailable".into(),
-            ));
-        }
-        require_existing_topology(&pool).await?;
-        let owner = Self {
-            pool,
-            database_endpoint_resource_fingerprint,
-            sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
-            attempt_timeout_ms,
-            clock: Arc::new(current_epoch_ms),
-        };
-        owner.assert_activation_safe().await?;
-        Ok(owner)
-    }
-
-    async fn migrate(&self) -> Result<(), ArtifactBuildError> {
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1 (artifact_digest TEXT PRIMARY KEY, intent_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL UNIQUE, identity_json JSONB NOT NULL, wasm_bytes BYTEA NOT NULL, source_capsule BYTEA NOT NULL, build_recipe BYTEA NOT NULL, build_receipt_json JSONB NOT NULL, artifact_review_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        ] {
-            sqlx::query(statement)
-                .execute(&self.pool)
-                .await
-                .map_err(storage)?;
         }
         require_rd_owner_api_schema(&self.pool)
             .await
@@ -351,7 +315,7 @@ impl PostgresArtifactBuildOwnerV1 {
         .map_err(storage)?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_custodian",
+            "ALTER FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_owner",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner",
             "REVOKE ALL ON TABLE rd_artifact_build_attempts_v1 FROM product_edge_owner",
@@ -361,16 +325,9 @@ impl PostgresArtifactBuildOwnerV1 {
                 .await
                 .map_err(storage)?;
         }
-        let session_is_rd_owner: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner'")
-            .fetch_one(&self.pool)
+        migrate_trial_family(&self.pool)
             .await
-            .map_err(storage)?;
-
-        if session_is_rd_owner {
-            migrate_trial_family(&self.pool)
-                .await
-                .map_err(|e| trial_family_storage(&e))?;
-        }
+            .map_err(|e| trial_family_storage(&e))?;
         Ok(())
     }
 
@@ -2118,7 +2075,6 @@ pub async fn drain_legacy_prepared_attempts_v1(
         .connect(database_url)
         .await
         .map_err(storage)?;
-    require_existing_topology(&pool).await?;
     let mut transaction = pool.begin().await.map_err(storage)?;
     crate::legacy_prepared_attempt_drain::lock_product_edge_effects_for_drain_in_transaction(
         &mut transaction,
@@ -2134,6 +2090,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
             "legacy PREPARED drain target database mismatch".into(),
         ));
     }
+    migrate_legacy_drain(&mut transaction).await?;
 
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
@@ -2395,399 +2352,10 @@ mod postgres_freshness_tests {
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
         ProductEdgeInvocationClaimRequestV1, ProductEdgePostgresOwnerV1,
     };
-
     use vibe_testkit::postgres::{
         CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation, ProtectedOwnerTestRoleV1,
+        DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation,
     };
-
-    #[rstest]
-    fn existing_artifact_acl_manifest_rejects_same_count_privilege_substitution() {
-        let expected = ["DELETE", "INSERT", "SELECT", "UPDATE"];
-        let same_count_substitution = ["DELETE", "INSERT", "TRUNCATE", "UPDATE"];
-        assert_eq!(expected.len(), same_count_substitution.len());
-        assert_ne!(expected, same_count_substitution);
-
-        let source = include_str!("artifact_build_postgres.rs");
-        let validation = source
-            .split("pub async fn connect_existing")
-            .nth(1)
-            .expect("existing Artifact connection")
-            .split("async fn migrate")
-            .next()
-            .expect("existing Artifact connection boundary");
-        assert!(validation.contains(
-            "ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]"
-        ));
-        assert!(validation.contains("ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]"));
-        assert!(validation.contains("'acl',COALESCE(relation.relacl::text,'<NULL>')"));
-        assert!(validation.contains("array_agg(role.rolname::text ORDER BY role.rolname)"));
-        assert!(validation.contains("GROUP BY namespace.nspowner"));
-        assert!(validation.contains("CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL"));
-        assert!(
-            CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL
-                .contains("FROM pg_catalog.aclexplode(routine.proacl) acl")
-        );
-        assert!(CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL.contains("count(*)=2"));
-        assert!(
-            CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL
-                .contains("acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid")
-        );
-        assert!(CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL.contains("acl.privilege_type='EXECUTE'"));
-        assert!(CONTROL_SYSTEM_ACL_IS_CUSTODIAN_ONLY_SQL.contains("NOT acl.is_grantable"));
-        assert!(!validation.contains("array_agg(role.rolname ORDER BY role.rolname)"));
-        assert!(
-            !validation.contains(
-                "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable)=4"
-            )
-        );
-    }
-
-    #[rstest]
-    fn runtime_entrypoints_validate_legacy_drain_topology_before_state_access() {
-        let source = include_str!("artifact_build_postgres.rs");
-        let connect_existing = source
-            .split("pub async fn connect_existing")
-            .nth(1)
-            .expect("existing Artifact connection")
-            .split("async fn migrate")
-            .next()
-            .expect("existing Artifact connection boundary");
-        let drain = source
-            .split("pub async fn drain_legacy_prepared_attempts_v1")
-            .nth(1)
-            .expect("legacy drain entrypoint")
-            .split("fn is_sha256_digest")
-            .next()
-            .expect("legacy drain entrypoint boundary");
-
-        assert!(connect_existing.contains("require_existing_topology(&pool).await?"));
-        assert!(
-            drain.find("require_existing_topology(&pool).await?") < drain.find("pool.begin()"),
-            "drain topology must fail closed before transaction locks or writes"
-        );
-        assert!(!drain.contains("migrate_legacy_drain"));
-
-        for ddl in [
-            "CREATE ",
-            "ALTER ",
-            "DROP ",
-            "CREATE TRIGGER",
-            "REVOKE ",
-            "GRANT ",
-        ] {
-            assert!(!drain.contains(ddl), "drain runtime contains {ddl}");
-        }
-    }
-
-    #[rstest]
-    fn artifact_migration_reserves_trial_family_authority_for_rd_owner_session() {
-        let source = include_str!("artifact_build_postgres.rs");
-        let migration = source
-            .split("async fn migrate(&self)")
-            .nth(1)
-            .expect("Artifact migration")
-            .split("async fn assert_activation_safe")
-            .next()
-            .expect("Artifact migration boundary");
-
-        assert!(migration.contains("SELECT SESSION_USER='rd_owner'"));
-        assert!(migration.contains("if session_is_rd_owner"));
-        assert!(migration.contains("migrate_trial_family(&self.pool)"));
-    }
-
-    #[tokio::test]
-    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
-    async fn artifact_schema_is_provisioned_by_topology_admin() {
-        let database_url = std::env::var("RD_ARTIFACT_ADMIN_DATABASE_URL")
-            .expect("disposable Artifact migration URL");
-        PostgresArtifactBuildOwnerV1::connect(&database_url, "/tmp/unused-sandbox.sock", 600_000)
-            .await
-            .expect("canonical Artifact schema migration");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the admitted disposable Owner topology"]
-    async fn legacy_drain_topology_faults_fail_before_receipt_or_outbox_mutation() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        let _mutation = database.mutation();
-        let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
-        let rd_pool = PgPool::connect(database_url).await.unwrap();
-        require_existing_topology(&rd_pool).await.unwrap();
-        let target_database_resource_fingerprint =
-            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
-                database_url,
-            )
-            .unwrap();
-        let state_before: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
-                    (SELECT count(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
-        )
-        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-        .fetch_one(&rd_pool)
-        .await
-        .unwrap();
-
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        sqlx::query(
-            "ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1
-             RENAME TO rd_legacy_prepared_attempt_drain_receipts_v1_missing_fault",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        authority.release().await.unwrap();
-        let missing = drain_legacy_prepared_attempts_v1(
-            database_url,
-            &target_database_resource_fingerprint,
-            &format!("sha256:{}", "1".repeat(64)),
-            1,
-            &format!("sha256:{}", "2".repeat(64)),
-            None,
-        )
-        .await;
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        sqlx::query(
-            "ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1_missing_fault
-             RENAME TO rd_legacy_prepared_attempt_drain_receipts_v1",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        sqlx::query(
-            "DROP TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1
-             ON public.rd_legacy_prepared_attempt_drain_receipts_v1",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        authority.release().await.unwrap();
-        assert!(
-            matches!(missing, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
-        );
-
-        let partial = drain_legacy_prepared_attempts_v1(
-            database_url,
-            &target_database_resource_fingerprint,
-            &format!("sha256:{}", "1".repeat(64)),
-            1,
-            &format!("sha256:{}", "2".repeat(64)),
-            None,
-        )
-        .await;
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        sqlx::query(
-            "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1
-             BEFORE UPDATE OR DELETE ON public.rd_legacy_prepared_attempt_drain_receipts_v1
-             FOR EACH ROW EXECUTE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        authority.release().await.unwrap();
-        assert!(
-            matches!(partial, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
-        );
-
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        sqlx::query(
-            "GRANT SELECT ON public.rd_legacy_prepared_attempt_drain_receipts_v1 TO PUBLIC",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        authority.release().await.unwrap();
-        let drifted = drain_legacy_prepared_attempts_v1(
-            database_url,
-            &target_database_resource_fingerprint,
-            &format!("sha256:{}", "1".repeat(64)),
-            1,
-            &format!("sha256:{}", "2".repeat(64)),
-            None,
-        )
-        .await;
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        sqlx::query(
-            "REVOKE SELECT ON public.rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC",
-        )
-        .execute(authority.pool())
-        .await
-        .unwrap();
-        authority.release().await.unwrap();
-        assert!(
-            matches!(drifted, Err(ArtifactBuildError::Storage(message)) if message == "legacy PREPARED drain topology is unavailable")
-        );
-
-        require_existing_topology(&rd_pool).await.unwrap();
-        let state_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
-                    (SELECT count(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
-        )
-        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-        .fetch_one(&rd_pool)
-        .await
-        .unwrap();
-        assert_eq!(state_before, state_after);
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the admitted disposable Owner topology"]
-    async fn legacy_prepared_drain_rejects_nonowner_column_acl_and_restores() {
-        const FINGERPRINT_SQL: &str = "WITH relation AS (
-          SELECT relation.* FROM pg_catalog.pg_class relation
-           WHERE relation.oid=pg_catalog.to_regclass(
-             'public.rd_legacy_prepared_attempt_drain_receipts_v1'
-           )
-        ), facts(fact) AS (
-          SELECT 'relation:'||relation.relowner::text||':'||
-                 COALESCE(relation.relacl::text,'<NULL>') FROM relation
-          UNION ALL
-          SELECT 'column:'||attribute.attnum::text||':'||attribute.attname||':'||
-                 COALESCE(attribute.attacl::text,'<NULL>')
-            FROM relation
-            JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid
-           WHERE attribute.attnum>0 AND NOT attribute.attisdropped
-          UNION ALL
-          SELECT 'trigger:'||trigger_fact.tgname||':'||trigger_fact.tgtype::text||':'||
-                 trigger_fact.tgenabled::text||':'||trigger_fact.tgfoid::text
-            FROM relation
-            JOIN pg_catalog.pg_trigger trigger_fact ON trigger_fact.tgrelid=relation.oid
-           WHERE NOT trigger_fact.tgisinternal
-          UNION ALL
-          SELECT 'routine:'||routine.proowner::text||':'||routine.prosrc||':'||
-                 COALESCE(routine.proacl::text,'<NULL>')
-            FROM pg_catalog.pg_proc routine
-           WHERE routine.oid=pg_catalog.to_regprocedure(
-             'public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'
-           )
-        ) SELECT pg_catalog.md5(pg_catalog.string_agg(fact,E'\\n' ORDER BY fact)) FROM facts";
-        const WRITE_COUNTS_SQL: &str = "SELECT
-          (SELECT count(*) FROM public.rd_legacy_prepared_attempt_drain_receipts_v1),
-          (SELECT count(*) FROM public.rd_owner_outbox_v1 WHERE event_kind=$1)";
-        const GRANT_SQL: &str = "GRANT SELECT (receipt_identity)
-          ON public.rd_legacy_prepared_attempt_drain_receipts_v1 TO PUBLIC";
-        const REVOKE_SQL: &str = "REVOKE SELECT (receipt_identity)
-          ON public.rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC";
-
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        let _mutation = database.mutation();
-        let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
-        let rd_pool = PgPool::connect(database_url).await.unwrap();
-        require_existing_topology(&rd_pool).await.unwrap();
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        let before_fingerprint: String = sqlx::query_scalar(FINGERPRINT_SQL)
-            .fetch_one(authority.pool())
-            .await
-            .unwrap();
-        let before_writes: (i64, i64) = sqlx::query_as(WRITE_COUNTS_SQL)
-            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-            .fetch_one(&rd_pool)
-            .await
-            .unwrap();
-        sqlx::query(GRANT_SQL)
-            .execute(authority.pool())
-            .await
-            .unwrap();
-        authority.release().await.unwrap();
-
-        let runtime_result = require_existing_topology(&rd_pool).await;
-        let connect_result = PostgresArtifactBuildOwnerV1::connect_existing(
-            database_url,
-            "/tmp/vibe-legacy-drain-column-acl-test.sock",
-            u64::MAX,
-        )
-        .await;
-        let during_writes = sqlx::query_as::<_, (i64, i64)>(WRITE_COUNTS_SQL)
-            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-            .fetch_one(&rd_pool)
-            .await;
-
-        let authority = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::RdCustodian)
-            .await
-            .unwrap();
-        let cleanup_result = sqlx::query(REVOKE_SQL).execute(authority.pool()).await;
-        let after_fingerprint = sqlx::query_scalar::<_, String>(FINGERPRINT_SQL)
-            .fetch_one(authority.pool())
-            .await;
-        let release_result = authority.release().await;
-
-        cleanup_result.expect("column ACL cleanup must succeed");
-        release_result.expect("release legacy drain cleanup authority");
-        assert!(matches!(
-            runtime_result,
-            Err(ArtifactBuildError::Storage(message))
-                if message == "legacy PREPARED drain topology is unavailable"
-        ));
-        assert!(matches!(
-            connect_result,
-            Err(ArtifactBuildError::Storage(_))
-        ));
-        assert_eq!(
-            during_writes.expect("business write counts during column ACL fault"),
-            before_writes
-        );
-        assert_eq!(
-            after_fingerprint.expect("post-cleanup legacy drain fingerprint"),
-            before_fingerprint
-        );
-        let membership_fault = database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::ComposerOwner)
-            .await
-            .expect("third-party protected membership fault authority")
-            .inject_composer_writer_edge()
-            .await
-            .expect("inject third-party protected membership");
-        let membership_runtime_result = require_existing_topology(&rd_pool).await;
-        let membership_connect_result = PostgresArtifactBuildOwnerV1::connect_existing(
-            database_url,
-            "/tmp/vibe-legacy-drain-membership-test.sock",
-            u64::MAX,
-        )
-        .await;
-        let membership_writes = sqlx::query_as::<_, (i64, i64)>(WRITE_COUNTS_SQL)
-            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-            .fetch_one(&rd_pool)
-            .await
-            .expect("business write counts during protected membership fault");
-        assert!(matches!(
-            membership_runtime_result,
-            Err(ArtifactBuildError::Storage(message))
-                if message == "legacy PREPARED drain topology is unavailable"
-        ));
-        assert!(matches!(
-            membership_connect_result,
-            Err(ArtifactBuildError::Storage(_))
-        ));
-        assert_eq!(membership_writes, before_writes);
-        membership_fault
-            .restore()
-            .await
-            .expect("restore third-party protected membership");
-        require_existing_topology(&rd_pool).await.unwrap();
-    }
 
     #[tokio::test]
     #[ignore = "requires an explicitly supplied read-only attempt-custody database URL"]
@@ -2847,7 +2415,7 @@ mod postgres_freshness_tests {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
         let database_url = test_database.database_url().to_string();
-        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
+        let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2947,7 +2515,7 @@ mod postgres_freshness_tests {
             .bind(serde_json::to_value(&nonterminal).unwrap()).bind(&build_request_identity)
             .execute(&owner.pool).await.unwrap();
         assert!(matches!(
-            PostgresArtifactBuildOwnerV1::connect_existing(
+            PostgresArtifactBuildOwnerV1::connect(
                 &database_url,
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,
@@ -2980,7 +2548,7 @@ mod postgres_freshness_tests {
             PgPool::connect(test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner))
                 .await
                 .unwrap();
-        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
+        let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -2996,7 +2564,7 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect_existing(
+        let research_owner = PostgresResearchGoalOwnerV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
@@ -3143,14 +2711,19 @@ mod postgres_freshness_tests {
         Err(ArtifactBuildError::Storage(message))
             if message == "legacy PREPARED drain target database resource mismatch"
         ));
-        require_existing_topology(&owner.pool).await.unwrap();
-        let rejected_outbox_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1")
-                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-                .fetch_one(&owner.pool)
-                .await
-                .unwrap();
-        assert_eq!(rejected_outbox_count, 0);
+        let rejected_database_catalog: (bool, bool, i64, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
+                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
+                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(rejected_database_catalog, (true, true, 0, 0, 0));
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -3175,7 +2748,17 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        require_existing_topology(&owner.pool).await.unwrap();
+        let rolled_back_catalog: (bool, bool, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
+                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
+                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1')",
+        )
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(rolled_back_catalog, (true, true, 0, 0));
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -3188,14 +2771,9 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        let count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1")
-                .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
-                .fetch_one(&owner.pool)
-                .await
-                .unwrap();
-        assert_eq!(count, 0);
-        require_existing_topology(&owner.pool).await.unwrap();
+        let counts: (bool, i64) = sqlx::query_as("SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
+            .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND).fetch_one(&owner.pool).await.unwrap();
+        assert_eq!(counts, (true, 0));
         let first = drain_legacy_prepared_attempts_v1(
             &database_url,
             &target_database_resource_fingerprint,
@@ -3217,7 +2795,7 @@ mod postgres_freshness_tests {
         .await
         .unwrap();
         assert_eq!(first, replay);
-        let restarted = PostgresArtifactBuildOwnerV1::connect_existing(
+        let restarted = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -3255,7 +2833,7 @@ mod postgres_freshness_tests {
                 .await
                 .unwrap();
         assert!(matches!(
-            PostgresArtifactBuildOwnerV1::connect_existing(
+            PostgresArtifactBuildOwnerV1::connect(
                 &alias_database_url,
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,
@@ -3316,7 +2894,7 @@ mod postgres_freshness_tests {
         let test_database = test_database().await;
         let _mutation = test_database.mutation();
         let database_url = test_database.database_url().to_string();
-        let owner = PostgresArtifactBuildOwnerV1::connect_existing(
+        let owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -3448,10 +3026,9 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner =
-            PostgresResearchGoalOwnerV1::connect_existing(&database_url, &database_url)
-                .await
-                .unwrap();
+        let research_owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
+            .await
+            .unwrap();
         let accepted = research_owner
             .submit_v2(research_request(
                 &research_request_identity,
@@ -3490,7 +3067,7 @@ mod postgres_freshness_tests {
                 .unwrap()
                 .semantic_digest;
 
-        let mut owner = PostgresArtifactBuildOwnerV1::connect_existing(
+        let mut owner = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -3924,13 +3501,13 @@ mod postgres_freshness_tests {
             &suffix,
         )
         .await;
-        let research_owner = PostgresResearchGoalOwnerV1::connect_existing(
+        let research_owner = PostgresResearchGoalOwnerV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
         )
         .await
         .unwrap();
-        let artifact_owner = PostgresArtifactBuildOwnerV1::connect_existing(
+        let artifact_owner = PostgresArtifactBuildOwnerV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
             "/tmp/unused-rd-sandbox.sock",
             u64::MAX,
@@ -4662,7 +4239,7 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         let deployment_identity = format!("product-edge-deployment-{suffix}");
-        let edge = ProductEdgePostgresOwnerV1::connect_existing(
+        let edge = ProductEdgePostgresOwnerV1::connect(
             product_edge_database_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
@@ -4883,22 +4460,6 @@ mod postgres_freshness_tests {
         extended["caller_authority"] = serde_json::json!(true);
         assert!(
             serde_json::from_value::<StoredArtifactBuildInvocationSnapshotV1>(extended).is_err()
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires an injected non-owner Artifact column ACL"]
-    async fn existing_topology_rejects_nonowner_column_acl() {
-        let database_url = std::env::var("ARTIFACT_COLUMN_ACL_TEST_DATABASE_URL")
-            .expect("Artifact column ACL test URL");
-        assert!(
-            PostgresArtifactBuildOwnerV1::connect_existing(
-                &database_url,
-                "/tmp/vibe-artifact-column-acl-test.sock",
-                u64::MAX,
-            )
-            .await
-            .is_err()
         );
     }
 }

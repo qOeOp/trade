@@ -16,7 +16,11 @@ distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner`
 ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
 The separately supplied `rd_fact_writer` LOGIN alone receives non-grantable `EXECUTE` on the Catalog
 administration and Composer commit routines. All routines use `search_path=pg_catalog,pg_temp` inside the
-caller's existing transaction. Reads never create custody; migration preserves existing OIDs, rows and bytes.
+caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
+`rd_owner` still owns `public`; only after they finish may the custody migration transfer the database/schema
+to `rd_database_owner` and revoke `rd_owner` schema `CREATE`. Runtime startup never reacquires that lease:
+missing pre-materialized legacy tables fail closed. Reads never create custody; cutover preserves existing OIDs,
+rows and bytes.
 
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
 

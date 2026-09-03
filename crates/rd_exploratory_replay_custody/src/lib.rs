@@ -383,19 +383,19 @@ async fn validate_resolution_binding(
              AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
              AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
              AND procedure.proargtypes='25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_custodian'
+             AND owner.rolname='rd_owner'
              AND language.lanname='plpgsql'
              AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND (SELECT count(*)=2
-                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=owner.oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
-                    AND count(*) FILTER (WHERE acl.grantor=owner.oid AND acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
-                    FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl)
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.privilege_type='EXECUTE' AND acl.grantee <> owner.oid
+             )
              AND EXISTS (
                SELECT 1 FROM pg_catalog.pg_proc helper
                JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                WHERE helper.oid=pg_catalog.to_regprocedure($2)
-                 AND helper_owner.rolname='rd_custodian'
+                 AND helper_owner.rolname='rd_owner'
                  AND NOT helper.prosecdef
                  AND helper.provolatile='v'
                  AND helper.proparallel='u'
@@ -403,10 +403,10 @@ async fn validate_resolution_binding(
                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-                 AND (SELECT count(*)=2
-                        AND count(*) FILTER (WHERE helper_acl.grantor=helper_owner.oid AND helper_acl.grantee=helper_owner.oid AND helper_acl.privilege_type='EXECUTE' AND NOT helper_acl.is_grantable)=1
-                        AND count(*) FILTER (WHERE helper_acl.grantor=helper_owner.oid AND helper_acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND helper_acl.privilege_type='EXECUTE' AND NOT helper_acl.is_grantable)=1
-                        FROM pg_catalog.aclexplode(COALESCE(helper.proacl,pg_catalog.acldefault('f',helper.proowner))) helper_acl)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
+                    WHERE helper_acl.privilege_type='EXECUTE' AND helper_acl.grantee<>helper_owner.oid
+                 )
              )
            FROM pg_catalog.pg_proc procedure
            JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner

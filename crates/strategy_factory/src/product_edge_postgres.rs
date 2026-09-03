@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Row};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -54,7 +54,6 @@ use vibe_data::owner::pit_snapshot::PitSnapshotOwnerReadback;
 use crate::source_intake::{
     SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1, SourceIntakePolicyEvidencePort,
     SourceIntakePolicyEvidenceQueryV1, SourceIntakePolicyEvidenceResultV1,
-    validate_existing_source_intake_object_topology, validate_existing_source_intake_topology,
 };
 
 #[derive(Clone)]
@@ -65,101 +64,6 @@ pub struct PostgresResearchGoalOwnerV1 {
     source_policy: Option<Arc<dyn SourceIntakePolicyEvidencePort>>,
     source_submission: Option<Arc<SourceBoundResearchSubmissionV1>>,
 }
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExistingRdStorageDiagnostic {
-    kind: String,
-    locator: String,
-    invariant: String,
-}
-
-const RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL: &str = "WITH protected_memberships AS (
-       SELECT membership.*,granted.rolname AS granted_role,
-              member.rolname AS member_role,grantor.rolname AS grantor_role
-         FROM pg_catalog.pg_auth_members membership
-         JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
-         JOIN pg_catalog.pg_roles member ON member.oid=membership.member
-         JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
-        WHERE granted.rolname IN (
-                'rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer'
-              )
-           OR member.rolname IN (
-                'rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer'
-              )
-     ), admitted_schema_acl(role_name,privilege_type,is_grantable,grantor_name) AS (
-       VALUES
-         ('rd_owner','CREATE',false,'rd_owner'),
-         ('rd_owner','USAGE',false,'rd_owner')
-     ), actual_schema_acl AS (
-       SELECT COALESCE(grantee.rolname::text,'PUBLIC'),acl.privilege_type,
-              acl.is_grantable,pg_catalog.pg_get_userbyid(acl.grantor)::text
-         FROM pg_catalog.pg_namespace namespace
-         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
-           namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner)
-         )) acl
-         LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
-        WHERE namespace.nspname='rd_owner_api'
-     )
-     SELECT SESSION_USER='rd_owner'
-        AND CURRENT_USER='rd_owner'
-        AND EXISTS (
-          SELECT 1 FROM pg_catalog.pg_roles role
-           WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit
-             AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
-             AND NOT role.rolreplication AND NOT role.rolbypassrls
-        )
-        AND EXISTS (
-          SELECT 1 FROM pg_catalog.pg_roles role
-           WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin
-             AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
-             AND NOT role.rolreplication AND NOT role.rolbypassrls
-        )
-        AND (SELECT pg_catalog.count(*)=1 FROM protected_memberships)
-        AND (SELECT pg_catalog.count(*)=1 FROM protected_memberships
-              WHERE granted_role='rd_custodian' AND member_role='rd_owner'
-                AND grantor_role='postgres' AND NOT admin_option
-                AND inherit_option AND set_option)
-        AND pg_catalog.pg_get_userbyid((
-          SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
-           WHERE namespace.nspname='rd_owner_api'
-        ))='rd_owner'
-        AND pg_catalog.has_schema_privilege('rd_owner','rd_owner_api','USAGE')
-        AND pg_catalog.has_schema_privilege('rd_owner','rd_owner_api','CREATE')
-        AND NOT pg_catalog.has_schema_privilege(
-          'rd_custodian','rd_owner_api','CREATE'
-        )
-        AND pg_catalog.has_schema_privilege('rd_owner','public','CREATE')
-        AND NOT EXISTS (
-          SELECT * FROM actual_schema_acl
-          EXCEPT SELECT * FROM admitted_schema_acl
-        )
-        AND NOT EXISTS (
-          SELECT * FROM admitted_schema_acl
-          EXCEPT SELECT * FROM actual_schema_acl
-        )";
-
-const RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL: &str =
-    "WITH expected(role_name,privilege_type,is_grantable,grantor_name) AS (
-       VALUES
-         ('rd_owner','CREATE',false,'rd_owner'),
-         ('rd_owner','USAGE',false,'rd_owner'),
-         ('product_edge_owner','USAGE',false,'rd_owner'),
-         ('qualification_writer','USAGE',false,'rd_owner'),
-         ('backtest_owner','USAGE',false,'rd_owner')
-       UNION ALL
-       SELECT 'rd_custodian','CREATE',false,'rd_owner' WHERE $1
-     ), actual AS (
-       SELECT COALESCE(grantee.rolname::text,'PUBLIC'),acl.privilege_type,
-              acl.is_grantable,pg_catalog.pg_get_userbyid(acl.grantor)::text
-         FROM pg_catalog.pg_namespace namespace
-         CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
-           namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner)
-         )) acl
-         LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
-        WHERE namespace.nspname='rd_owner_api'
-     )
-     SELECT NOT EXISTS (SELECT * FROM expected EXCEPT SELECT * FROM actual)
-        AND NOT EXISTS (SELECT * FROM actual EXCEPT SELECT * FROM expected)";
 
 impl Debug for PostgresResearchGoalOwnerV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -582,6 +486,24 @@ impl PostgresResearchGoalOwnerV1 {
         .await
     }
 
+    /// Materializes the public R&D schema before deployment custody is cut over.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), ResearchGoalOwnerError> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await
+            .map_err(|error| storage(&error))?;
+        if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+            .await
+            .map_err(|error| storage(&error))?
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "pre-cutover R&D schema materialization is unavailable".to_owned(),
+            ));
+        }
+        Self::migrate_rd_storage(&pool).await
+    }
+
     pub async fn connect(
         database_url: &str,
         qualification_database_url: &str,
@@ -591,70 +513,10 @@ impl PostgresResearchGoalOwnerV1 {
             .connect(database_url)
             .await
             .map_err(|e| storage(&e))?;
-
-        let rd_objects_current = Self::existing_rd_storage_object_diagnostics(&pool)
-            .await
-            .map_err(|_| existing_rd_storage_unavailable())?
-            .is_empty();
-        let source_objects_current = validate_existing_source_intake_object_topology(&pool)
-            .await
-            .is_ok();
-
-        if rd_objects_current && source_objects_current {
-            let qualification =
-                PostgresQualificationOwnerV1::connect_existing(qualification_database_url)
-                    .await
-                    .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-            return Ok(Self {
-                pool,
-                qualification,
-                backtest: None,
-                source_policy: None,
-                source_submission: None,
-            });
-        }
-
-        if Self::sealed_rd_storage_is_present(&pool)
-            .await
-            .map_err(|_| existing_rd_storage_unavailable())?
-        {
-            return Err(existing_rd_storage_unavailable());
-        }
-
         Self::migrate_rd_storage(&pool).await?;
         let qualification = PostgresQualificationOwnerV1::connect(qualification_database_url)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-        Ok(Self {
-            pool,
-            qualification,
-            backtest: None,
-            source_policy: None,
-            source_submission: None,
-        })
-    }
-
-    /// Connects the runtime Owner to custody installed by the deployment migration.
-    ///
-    /// This path performs read-only topology and authority validation. It never runs migration
-    /// DDL, so missing or incomplete custody remains unavailable to the runtime role.
-    pub async fn connect_existing(
-        database_url: &str,
-        qualification_database_url: &str,
-    ) -> Result<Self, ResearchGoalOwnerError> {
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
-            .connect(database_url)
-            .await
-            .map_err(|e| storage(&e))?;
-        Self::validate_existing_rd_storage(&pool).await?;
-        validate_existing_source_intake_topology(&pool)
-            .await
-            .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
-        let qualification =
-            PostgresQualificationOwnerV1::connect_existing(qualification_database_url)
-                .await
-                .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         Ok(Self {
             pool,
             qualification,
@@ -681,297 +543,10 @@ impl PostgresResearchGoalOwnerV1 {
         Ok(owner)
     }
 
-    /// Connects the runtime Owner and Backtest read capability without migration authority.
-    pub async fn connect_with_backtest_existing(
-        database_url: &str,
-        qualification_database_url: &str,
-        backtest_database_url: &str,
-    ) -> Result<Self, ResearchGoalOwnerError> {
-        let mut owner = Self::connect_existing(database_url, qualification_database_url).await?;
-        owner.backtest = Some(
-            crate::exploratory_replay::postgres::bind_backtest_read(
-                &owner.pool,
-                backtest_database_url,
-            )
-            .await
-            .map_err(json_storage)?,
-        );
-        Ok(owner)
-    }
-
-    async fn validate_existing_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
-        let diagnostics = Self::existing_rd_storage_diagnostics(pool)
-            .await
-            .map_err(|_| existing_rd_storage_unavailable())?;
-        if !diagnostics.is_empty() {
-            return Err(existing_rd_storage_unavailable());
-        }
-        Ok(())
-    }
-
-    async fn existing_rd_storage_diagnostics(
-        pool: &PgPool,
-    ) -> Result<Vec<ExistingRdStorageDiagnostic>, sqlx::Error> {
-        sqlx::query(
-            "WITH required_relations(name) AS (
-               SELECT * FROM pg_catalog.unnest(ARRAY[
-                 'rd_research_request_receipts_v1',
-                 'rd_independence_bases_v1',
-                 'rd_independence_basis_admissions_v1',
-                 'rd_independence_basis_heads_v1',
-                 'rd_trial_families_v1',
-                 'rd_trial_family_members_v1',
-                 'rd_trial_family_heads_v1',
-                 'rd_trial_family_attempt_cuts_v2',
-                 'rd_artifact_trial_family_bindings_v1',
-                 'rd_owner_outbox_v1',
-                 'rd_sealed_exploratory_replay_requests_v1',
-                 'rd_complex_strategy_develop_evaluations_v1',
-                 'rd_complex_strategy_develop_evaluation_heads_v1'
-               ]::text[])
-             ), required_routines(signature) AS (
-               SELECT * FROM pg_catalog.unnest(ARRAY[
-                 'rd_owner_api.derive_source_intake_identity_v1(text,text[])',
-                 'rd_owner_api.peek_current_research_for_artifact_v1(text)',
-                 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)',
-                 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)',
-                 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)',
-                 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)',
-                 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)',
-                 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)',
-                 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)',
-                 'rd_owner_api.resolve_develop_composer_database_identity_v2()'
-               ]::text[])
-             ), required_indexes(name,table_name,key_definition,predicate_definition) AS (
-               VALUES
-                 ('rd_research_intent_identity_v1','rd_research_request_receipts_v1','(intent_json ->> ''intent_identity''::text)','intent_json IS NOT NULL'),
-                 ('rd_complex_strategy_develop_evaluation_successors_v1','rd_complex_strategy_develop_evaluations_v1','predecessor_evaluation_identity','predecessor_evaluation_identity IS NOT NULL')
-             ), index_state AS (
-               SELECT required.*,index_relation.oid,
-                      index_fact.indexrelid IS NOT NULL
-                      AND index_namespace.nspname='public'
-                      AND index_relation.relkind='i'
-                      AND index_relation.relpersistence='p'
-                      AND index_relation.reloptions IS NULL
-                      AND pg_catalog.pg_get_userbyid(index_relation.relowner)='rd_custodian'
-                      AND access_method.amname='btree'
-                      AND table_namespace.nspname='public'
-                      AND table_relation.relname=required.table_name
-                      AND index_fact.indisunique
-                      AND NOT index_fact.indisprimary
-                      AND NOT index_fact.indisexclusion
-                      AND NOT index_fact.indnullsnotdistinct
-                      AND NOT index_fact.indisclustered
-                      AND NOT index_fact.indisreplident
-                      AND index_fact.indisvalid
-                      AND index_fact.indisready
-                      AND index_fact.indislive
-                      AND index_fact.indnkeyatts=1
-                      AND index_fact.indnatts=1
-                      AND index_fact.indoption[0]=0
-                      AND pg_catalog.pg_get_indexdef(index_fact.indexrelid,1,true)=required.key_definition
-                      AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid,true)=required.predicate_definition
-                      AND NOT EXISTS (
-                        SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
-                         WHERE constraint_fact.conindid=index_fact.indexrelid
-                      ) AS manifest_current
-                 FROM required_indexes required
-                 LEFT JOIN pg_catalog.pg_class index_relation
-                   ON index_relation.oid=pg_catalog.to_regclass('public.'||required.name)
-                 LEFT JOIN pg_catalog.pg_namespace index_namespace
-                   ON index_namespace.oid=index_relation.relnamespace
-                 LEFT JOIN pg_catalog.pg_index index_fact
-                   ON index_fact.indexrelid=index_relation.oid
-                 LEFT JOIN pg_catalog.pg_class table_relation
-                   ON table_relation.oid=index_fact.indrelid
-                 LEFT JOIN pg_catalog.pg_namespace table_namespace
-                   ON table_namespace.oid=table_relation.relnamespace
-                 LEFT JOIN pg_catalog.pg_am access_method
-                   ON access_method.oid=index_relation.relam
-             ), relation_state AS (
-               SELECT required.name,relation.*,
-                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal) AS no_user_triggers,
-                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid) AS no_rewrites,
-                      NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid) AS no_policies,
-                      NOT EXISTS (
-                        SELECT 1 FROM pg_catalog.pg_attribute attribute
-                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-                        WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
-                          AND acl.grantee<>relation.relowner
-                      ) AS columns_owner_private,
-                      pg_catalog.obj_description(relation.oid,'pg_class') IS NOT DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text) AS closed_seal_current,
-                      CASE WHEN relation.oid IS NULL THEN false ELSE (SELECT count(*) = CASE required.name
-                                                 WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7
-                                                 WHEN 'rd_owner_outbox_v1' THEN 12
-                                                 ELSE 11
-                                               END
-                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
-                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
-                                     WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
-                                     ELSE ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
-                                   END
-                               AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM CASE required.name
-                                     WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]
-                                     ELSE NULL::text[]
-                                   END
-                          FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl) END AS acl_manifest_current
-                 FROM required_relations required
-                 LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.' || required.name)
-             ), routine_state AS (
-               SELECT required.signature,routine.*,
-                      pg_catalog.obj_description(routine.oid,'pg_proc') IS NOT DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AS source_seal_current,
-                      CASE required.signature
-                         WHEN 'rd_owner_api.derive_source_intake_identity_v1(text,text[])' THEN
-                           NOT routine.prosecdef AND routine.proisstrict AND routine.provolatile='i'
-                           AND routine.proparallel='s'
-                           AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog, pg_temp']::text[]
-                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN
-                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN
-                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN
-                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                         WHEN 'rd_owner_api.resolve_develop_composer_database_identity_v2()' THEN
-                           routine.prosecdef AND NOT routine.proisstrict AND routine.provolatile='i'
-                           AND routine.proparallel='s'
-                           AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                           AND routine.proretset AND routine.prorettype='pg_catalog.record'::pg_catalog.regtype
-                           AND routine.proargtypes=''::pg_catalog.oidvector
-                           AND pg_catalog.pg_get_function_result(routine.oid)='TABLE(system_identifier text, database_name text, database_oid bigint)'
-                         ELSE routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]
-                       END AS execution_manifest_current,
-                      (SELECT count(*)=pg_catalog.cardinality(CASE required.signature
-                                  WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                                  WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                                  WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
-                                  WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                                  WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                                  ELSE ARRAY['rd_custodian','rd_owner']::text[]
-                                END)
-                          AND pg_catalog.bool_and(acl.grantor=routine.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
-                          AND pg_catalog.array_agg(COALESCE(role.rolname::text,'PUBLIC') ORDER BY COALESCE(role.rolname::text,'PUBLIC')) IS NOT DISTINCT FROM
-                       CASE required.signature
-                         WHEN 'rd_owner_api.peek_current_research_for_artifact_v1(text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)' THEN ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)' THEN ARRAY['qualification_writer','rd_custodian','rd_owner']::text[]
-                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                         WHEN 'rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)' THEN ARRAY['backtest_owner','rd_custodian']::text[]
-                         ELSE ARRAY['rd_custodian','rd_owner']::text[]
-                       END
-                          FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-                          LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) AS acl_manifest_current
-                 FROM required_routines required
-                 LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
-             ), diagnostics(kind,locator,invariant) AS (
-               SELECT 'role','role:rd_owner','session_identity_and_login_capabilities' WHERE NOT (
-                 session_user='rd_owner' AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls))
-               UNION ALL SELECT 'role','role:rd_owner','membership_isolation' WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
-               UNION ALL SELECT 'role','role:protected_owner','membership_isolation' WHERE EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
-               UNION ALL SELECT 'database','database:'||pg_catalog.current_database(),'runtime_connect_without_create_or_temporary' WHERE NOT (pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CONNECT') AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY'))
-               UNION ALL SELECT 'schema','schema:public','runtime_create_denied' WHERE pg_catalog.has_schema_privilege(session_user,'public','CREATE')
-               UNION ALL SELECT 'role','role:rd_custodian','nologin_custodian_capabilities' WHERE NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)
-               UNION ALL SELECT 'role','role:rd_owner->role:rd_custodian','membership_denied' WHERE pg_catalog.pg_has_role(session_user,pg_catalog.to_regrole('rd_custodian'),'MEMBER')
-               UNION ALL SELECT 'schema','schema:rd_owner_api','custodian_owner' WHERE pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api')) IS DISTINCT FROM 'rd_custodian'
-               UNION ALL SELECT 'schema','schema:rd_owner_api','runtime_usage_without_create' WHERE NOT (pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE') AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE'))
-               UNION ALL SELECT 'schema','schema:rd_owner_api','exact_acl_manifest' WHERE NOT (SELECT count(*)=6
-                          AND count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2
-                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
-                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
-                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
-                          AND count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1
-                     FROM pg_catalog.pg_namespace namespace,
-                          LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl
-                    WHERE namespace.nspname='rd_owner_api'
-                    GROUP BY namespace.nspowner)
-               UNION ALL SELECT 'routine','routine:pg_catalog.pg_control_system()','underlying_exact_acl_manifest' WHERE NOT EXISTS (
-                 SELECT 1
-                   FROM pg_catalog.pg_proc routine
-                  WHERE routine.oid=pg_catalog.to_regprocedure('pg_catalog.pg_control_system()')
-                    AND (SELECT count(*)=2
-                                AND count(*) FILTER (WHERE acl.grantor=routine.proowner
-                                                      AND acl.grantee=routine.proowner
-                                                      AND acl.privilege_type='EXECUTE'
-                                                      AND NOT acl.is_grantable)=1
-                                AND count(*) FILTER (WHERE acl.grantor=routine.proowner
-                                                      AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
-                                                      AND acl.privilege_type='EXECUTE'
-                                                      AND NOT acl.is_grantable)=1
-                           FROM pg_catalog.aclexplode(routine.proacl) acl))
-               UNION ALL SELECT 'relation','relation:public.'||name,'exists' FROM relation_state WHERE oid IS NULL
-               UNION ALL SELECT 'relation','relation:public.'||name,'ordinary_persistent_without_row_security_or_extensions' FROM relation_state WHERE oid IS NOT NULL AND NOT (relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND no_user_triggers AND no_rewrites AND no_policies)
-               UNION ALL SELECT 'relation','relation:public.'||name,'canonical_owner' FROM relation_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(relowner) IS DISTINCT FROM CASE name WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 'rd_owner' ELSE 'rd_custodian' END
-               UNION ALL SELECT 'relation','relation:public.'||name,'columns_owner_private' FROM relation_state WHERE oid IS NOT NULL AND NOT columns_owner_private
-               UNION ALL SELECT 'relation','relation:public.'||name,'closed_relation_seal' FROM relation_state WHERE oid IS NOT NULL AND NOT closed_seal_current
-               UNION ALL SELECT 'relation','relation:public.'||name,'exact_acl_manifest' FROM relation_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
-               UNION ALL SELECT 'index','index:public.'||name,'exists' FROM index_state WHERE oid IS NULL
-               UNION ALL SELECT 'index','index:public.'||name,'canonical_manifest' FROM index_state WHERE oid IS NOT NULL AND NOT manifest_current
-               UNION ALL SELECT 'routine','routine:'||signature,'exists' FROM routine_state WHERE oid IS NULL
-               UNION ALL SELECT 'routine','routine:'||signature,'custodian_owner' FROM routine_state WHERE oid IS NOT NULL AND pg_catalog.pg_get_userbyid(proowner) IS DISTINCT FROM 'rd_custodian'
-               UNION ALL SELECT 'routine','routine:'||signature,'source_seal' FROM routine_state WHERE oid IS NOT NULL AND NOT source_seal_current
-               UNION ALL SELECT 'routine','routine:'||signature,'execution_manifest' FROM routine_state WHERE oid IS NOT NULL AND NOT execution_manifest_current
-               UNION ALL SELECT 'routine','routine:'||signature,'exact_acl_manifest' FROM routine_state WHERE oid IS NOT NULL AND NOT acl_manifest_current
-             )
-             SELECT kind,locator,invariant FROM diagnostics ORDER BY kind,locator,invariant",
-        )
-        .fetch_all(pool)
-        .await
-        .map(|rows| {
-            rows.into_iter()
-                .map(|row| ExistingRdStorageDiagnostic {
-                    kind: row.get("kind"),
-                    locator: row.get("locator"),
-                    invariant: row.get("invariant"),
-                })
-                .collect()
-            })
-    }
-
-    async fn existing_rd_storage_object_diagnostics(
-        pool: &PgPool,
-    ) -> Result<Vec<ExistingRdStorageDiagnostic>, sqlx::Error> {
-        Self::existing_rd_storage_diagnostics(pool)
-            .await
-            .map(|diagnostics| {
-                diagnostics
-                    .into_iter()
-                    .filter(|diagnostic| !is_rd_runtime_authority_diagnostic(diagnostic))
-                    .collect()
-            })
-    }
-
-    async fn sealed_rd_storage_is_present(pool: &PgPool) -> Result<bool, sqlx::Error> {
-        sqlx::query_scalar(
-            "SELECT COALESCE(
-                 pg_catalog.pg_get_userbyid((
-                   SELECT namespace.nspowner
-                     FROM pg_catalog.pg_namespace namespace
-                    WHERE namespace.nspname='rd_owner_api'
-                 ))='rd_custodian', false
-               ) OR EXISTS (
-                 SELECT 1
-                   FROM pg_catalog.pg_class relation
-                   JOIN pg_catalog.pg_namespace namespace
-                     ON namespace.oid=relation.relnamespace
-                  WHERE namespace.nspname='public'
-                    AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
-               ) OR EXISTS (
-                 SELECT 1
-                   FROM pg_catalog.pg_proc routine
-                   JOIN pg_catalog.pg_namespace namespace
-                     ON namespace.oid=routine.pronamespace
-                  WHERE namespace.nspname IN ('public','rd_owner_api')
-                    AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
-               )",
-        )
-        .fetch_one(pool)
-        .await
-    }
-
     async fn migrate_rd_storage(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
-        Self::require_rd_owner_api_schema_create_lease_preconditions(pool).await?;
 
         for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1 {
             sqlx::query(*statement)
@@ -979,7 +554,9 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        sqlx::query(
+        crate::schema_materialization::materialize_or_require_existing_public_table(
+            pool,
+            "rd_research_request_receipts_v1",
             "
             CREATE TABLE IF NOT EXISTS rd_research_request_receipts_v1 (
                 request_identity TEXT PRIMARY KEY,
@@ -992,7 +569,6 @@ impl PostgresResearchGoalOwnerV1 {
             )
             ",
         )
-        .execute(pool)
         .await
         .map_err(|e| storage(&e))?;
         sqlx::query("ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_json JSONB")
@@ -1237,6 +813,8 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
+            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_owner",
             "REVOKE ALL ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) TO product_edge_owner",
@@ -1248,25 +826,31 @@ impl PostgresResearchGoalOwnerV1 {
                 .map_err(|e| storage(&e))?;
         }
 
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS rd_independence_basis_admissions_v1 (basis_identity TEXT PRIMARY KEY REFERENCES rd_independence_bases_v1(basis_identity) ON DELETE CASCADE, request_identity TEXT NOT NULL UNIQUE, request_semantic_digest TEXT NOT NULL, admission_json JSONB NOT NULL, admission_lineage_digest TEXT NOT NULL, custody_digest TEXT NOT NULL, custody_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        for (relation_name, statement) in [
+            (
+                "rd_independence_bases_v1",
+                "CREATE TABLE IF NOT EXISTS rd_independence_bases_v1 (basis_identity TEXT PRIMARY KEY, request_identity TEXT NOT NULL UNIQUE, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, lineage_digest TEXT NOT NULL, basis_digest TEXT NOT NULL, basis_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            ),
+            (
+                "rd_independence_basis_admissions_v1",
+                "CREATE TABLE IF NOT EXISTS rd_independence_basis_admissions_v1 (basis_identity TEXT PRIMARY KEY REFERENCES rd_independence_bases_v1(basis_identity) ON DELETE CASCADE, request_identity TEXT NOT NULL UNIQUE, request_semantic_digest TEXT NOT NULL, admission_json JSONB NOT NULL, admission_lineage_digest TEXT NOT NULL, custody_digest TEXT NOT NULL, custody_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            ),
+            (
+                "rd_independence_basis_heads_v1",
+                "CREATE TABLE IF NOT EXISTS rd_independence_basis_heads_v1 (principal_scope_key TEXT PRIMARY KEY, principal TEXT NOT NULL, request_scope_json JSONB NOT NULL, basis_identity TEXT NOT NULL REFERENCES rd_independence_bases_v1(basis_identity), lineage_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            ),
         ] {
-            sqlx::query(statement)
-                .execute(pool)
-                .await
-                .map_err(|e| storage(&e))?;
-        }
-        let session_is_rd_owner: bool = sqlx::query_scalar("SELECT SESSION_USER='rd_owner'")
-            .fetch_one(pool)
+            crate::schema_materialization::materialize_or_require_existing_public_table(
+                pool,
+                relation_name,
+                statement,
+            )
             .await
             .map_err(|e| storage(&e))?;
-        if session_is_rd_owner {
-            migrate_trial_family(pool)
-                .await
-                .map_err(|e| trial_family_storage(&e))?;
         }
+        migrate_trial_family(pool)
+            .await
+            .map_err(|e| trial_family_storage(&e))?;
         crate::exploratory_replay::postgres::migrate(pool)
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
@@ -1274,7 +858,6 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let mut publication = pool.begin().await.map_err(|e| storage(&e))?;
-        Self::acquire_rd_owner_api_schema_create_lease(&mut publication).await?;
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS rd_owner_outbox_aggregate_kind_v1 ON public.rd_owner_outbox_v1 (aggregate_identity, event_kind)")
             .execute(&mut *publication)
             .await
@@ -1283,35 +866,6 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(&mut *publication)
             .await
             .map_err(|e| storage(&e))?;
-        sqlx::query(
-            "CREATE OR REPLACE FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2()
-             RETURNS TABLE(system_identifier text, database_name text, database_oid bigint)
-             LANGUAGE sql IMMUTABLE PARALLEL SAFE SECURITY DEFINER
-             SET search_path = pg_catalog
-             AS $function$
-             SELECT (pg_catalog.pg_control_system()).system_identifier::text,
-                    pg_catalog.current_database()::text,
-                    database.oid::bigint
-               FROM pg_catalog.pg_database AS database
-              WHERE database.datname=pg_catalog.current_database()
-             $function$",
-        )
-        .execute(&mut *publication)
-        .await
-        .map_err(|e| storage(&e))?;
-        sqlx::query(
-            "DO $seal$
-             BEGIN
-               EXECUTE pg_catalog.format(
-                 'COMMENT ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() IS %L',
-                 'vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=pg_catalog.to_regprocedure('rd_owner_api.resolve_develop_composer_database_identity_v2()')))
-               );
-             END
-             $seal$",
-        )
-        .execute(&mut *publication)
-        .await
-        .map_err(|e| storage(&e))?;
         sqlx::query(
             "
             CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(
@@ -1375,12 +929,7 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian",
-            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_custodian",
-            "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian",
-            "ALTER FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() OWNER TO rd_custodian",
-            "REVOKE ALL ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, rd_fact_writer",
-            "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_develop_composer_database_identity_v2() TO rd_owner",
+            "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_owner",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer",
             "REVOKE ALL ON TABLE rd_independence_bases_v1, rd_owner_outbox_v1 FROM qualification_owner, qualification_writer",
@@ -1390,73 +939,7 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
-        Self::release_rd_owner_api_schema_create_lease(&mut publication).await?;
         publication.commit().await.map_err(|e| storage(&e))?;
-        Ok(())
-    }
-
-    async fn require_rd_owner_api_schema_create_lease_preconditions(
-        pool: &PgPool,
-    ) -> Result<(), ResearchGoalOwnerError> {
-        let exact: bool = sqlx::query_scalar(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL)
-            .fetch_one(pool)
-            .await
-            .map_err(|e| storage(&e))?;
-
-        if !exact {
-            return Err(existing_rd_storage_unavailable());
-        }
-        Ok(())
-    }
-
-    async fn acquire_rd_owner_api_schema_create_lease(
-        transaction: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), ResearchGoalOwnerError> {
-        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, false).await?;
-
-        sqlx::query("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
-            .execute(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
-        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, true).await?;
-        Ok(())
-    }
-
-    async fn release_rd_owner_api_schema_create_lease(
-        transaction: &mut Transaction<'_, Postgres>,
-    ) -> Result<(), ResearchGoalOwnerError> {
-        sqlx::query("REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian")
-            .execute(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
-        Self::require_exact_rd_owner_api_schema_publication_acl(transaction, false).await?;
-        let exact_final_owner: bool = sqlx::query_scalar(
-            "SELECT pg_catalog.pg_get_userbyid((
-               SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
-                WHERE namespace.nspname='rd_owner_api'
-             ))='rd_owner'",
-        )
-        .fetch_one(&mut **transaction)
-        .await
-        .map_err(|e| storage(&e))?;
-        if !exact_final_owner {
-            return Err(existing_rd_storage_unavailable());
-        }
-        Ok(())
-    }
-
-    async fn require_exact_rd_owner_api_schema_publication_acl(
-        transaction: &mut Transaction<'_, Postgres>,
-        custodian_create_lease: bool,
-    ) -> Result<(), ResearchGoalOwnerError> {
-        let exact: bool = sqlx::query_scalar(RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL)
-            .bind(custodian_create_lease)
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|e| storage(&e))?;
-        if !exact {
-            return Err(existing_rd_storage_unavailable());
-        }
         Ok(())
     }
 
@@ -1684,32 +1167,6 @@ impl PostgresResearchGoalOwnerV1 {
         transaction.commit().await.map_err(|e| storage(&e))?;
         custody.into_v2_result_with_policy_current(read_cut, policy_current)
     }
-}
-
-fn is_rd_runtime_authority_diagnostic(diagnostic: &ExistingRdStorageDiagnostic) -> bool {
-    matches!(
-        (
-            diagnostic.kind.as_str(),
-            diagnostic.locator.as_str(),
-            diagnostic.invariant.as_str(),
-        ),
-        (
-            "role",
-            "role:rd_owner",
-            "session_identity_and_login_capabilities" | "membership_isolation"
-        ) | ("database", _, "runtime_connect_without_create_or_temporary")
-            | ("schema", "schema:public", "runtime_create_denied")
-            | (
-                "role",
-                "role:rd_owner->role:rd_custodian",
-                "membership_denied"
-            )
-            | (
-                "schema",
-                "schema:rd_owner_api",
-                "runtime_usage_without_create"
-            )
-    )
 }
 
 fn assemble_peeked_source_intake_research_request_v1(
@@ -2812,11 +2269,9 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 .await
             {
                 Ok(policy) => policy,
-                Err(e) => {
+                Err(_) => {
                     transaction.rollback().await.map_err(|e| storage(&e))?;
-                    return Err(ResearchGoalOwnerError::Storage(format!(
-                        "Replay Policy Catalog unavailable before submission: {e}"
-                    )));
+                    return Ok(unresolved_result_v2(&request_identity));
                 }
             };
         canonical_policy.replay_execution_policy_v2 = Some(replay_policy);
@@ -3001,12 +2456,6 @@ fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
 
-fn existing_rd_storage_unavailable() -> ResearchGoalOwnerError {
-    ResearchGoalOwnerError::Storage(
-        "existing R&D Owner custody or runtime authority is unavailable".into(),
-    )
-}
-
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
 }
@@ -3050,45 +2499,6 @@ mod tests {
         outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,
     }
 
-    async fn partial_sealed_topology_fingerprint(pool: &PgPool) -> String {
-        sqlx::query_scalar(
-            "WITH facts(fact) AS (
-               SELECT 'namespace:'||namespace.nspname||':'||
-                      pg_catalog.pg_get_userbyid(namespace.nspowner)||':'||
-                      COALESCE(namespace.nspacl::text,'<NULL>')
-                 FROM pg_catalog.pg_namespace namespace
-                WHERE namespace.nspname IN ('public','rd_owner_api')
-               UNION ALL
-               SELECT 'relation:'||namespace.nspname||'.'||relation.relname||':'||
-                      relation.relkind::text||':'||
-                      pg_catalog.pg_get_userbyid(relation.relowner)||':'||
-                      COALESCE(relation.relacl::text,'<NULL>')||':'||
-                      COALESCE(pg_catalog.obj_description(relation.oid,'pg_class'),'<NULL>')
-                 FROM pg_catalog.pg_class relation
-                 JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-                WHERE namespace.nspname IN ('public','rd_owner_api')
-               UNION ALL
-               SELECT 'routine:'||namespace.nspname||'.'||routine.proname||'('||
-                      pg_catalog.pg_get_function_identity_arguments(routine.oid)||'):'||
-                      pg_catalog.pg_get_userbyid(routine.proowner)||':'||
-                      routine.prosecdef::text||':'||routine.proisstrict::text||':'||
-                      routine.provolatile::text||':'||routine.proparallel::text||':'||
-                      COALESCE(routine.proconfig::text,'<NULL>')||':'||
-                      COALESCE(routine.proacl::text,'<NULL>')||':'||
-                      pg_catalog.md5(routine.prosrc)
-                 FROM pg_catalog.pg_proc routine
-                 JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
-                WHERE namespace.nspname IN ('public','rd_owner_api')
-             )
-             SELECT pg_catalog.md5(COALESCE(
-               pg_catalog.string_agg(fact,E'\\n' ORDER BY fact),''
-             )) FROM facts",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("partial-sealed topology fingerprint")
-    }
-
     #[rstest]
     fn research_bootstrap_uses_only_the_canonical_source_identity_prerequisite() {
         assert_eq!(SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1.len(), 3);
@@ -3129,318 +2539,6 @@ mod tests {
                     .find("rd_owner_api.derive_source_intake_identity_v1(")
                     .expect("dependent research SQL")
         );
-        assert!(migration.contains("SELECT SESSION_USER='rd_owner'"));
-        assert!(migration.contains("if session_is_rd_owner"));
-        assert!(source.contains("array_agg(role.rolname::text ORDER BY role.rolname)"));
-    }
-
-    #[rstest]
-    fn rd_owner_api_schema_create_is_a_transaction_bounded_publication_lease() {
-        let source = include_str!("product_edge_postgres.rs");
-        let migration = source
-            .split("async fn migrate_rd_storage")
-            .nth(1)
-            .expect("R&D storage migration")
-            .split("pub async fn commit_exploratory_replay_request_v1")
-            .next()
-            .expect("R&D storage migration boundary");
-        let preflight = migration
-            .find("Self::require_rd_owner_api_schema_create_lease_preconditions(pool)")
-            .expect("schema lease preflight");
-        let first_ddl = migration
-            .find("for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1")
-            .expect("first canonical migration DDL");
-        let publication = migration
-            .find("let mut publication = pool.begin()")
-            .expect("publication transaction");
-        let lease = migration
-            .find("Self::acquire_rd_owner_api_schema_create_lease(&mut publication)")
-            .expect("schema CREATE lease");
-        let first_transfer = migration
-            .find("ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian")
-            .expect("first custodian ownership transfer");
-        let final_transfer = migration
-            .find("ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian")
-            .expect("final custodian ownership transfer");
-        let revoke = migration
-            .find("Self::release_rd_owner_api_schema_create_lease(&mut publication)")
-            .expect("schema CREATE lease release");
-        let commit = migration
-            .find("publication.commit()")
-            .expect("publication commit");
-
-        assert!(preflight < first_ddl);
-        assert!(publication < lease);
-        assert!(lease < first_transfer);
-        assert!(first_transfer < final_transfer);
-        assert!(final_transfer < revoke);
-        assert!(revoke < commit);
-        assert_eq!(
-            migration
-                .matches("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
-                .count(),
-            1
-        );
-        assert_eq!(
-            migration
-                .matches("REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian")
-                .count(),
-            1
-        );
-    }
-
-    #[rstest]
-    fn rd_owner_api_schema_acl_manifests_are_closed_before_and_after_publication() {
-        assert!(
-            RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL
-                .contains("('rd_owner','CREATE',false,'rd_owner')")
-        );
-        assert!(
-            RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL
-                .contains("('rd_owner','USAGE',false,'rd_owner')")
-        );
-
-        for publication_role in [
-            "product_edge_owner",
-            "qualification_writer",
-            "backtest_owner",
-        ] {
-            assert!(
-                !RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(publication_role),
-                "publication-only schema role admitted at entry: {publication_role}"
-            );
-            assert!(
-                RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains(publication_role),
-                "missing publication schema role {publication_role}"
-            );
-        }
-        assert!(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(
-            "SELECT * FROM actual_schema_acl\n          EXCEPT SELECT * FROM admitted_schema_acl"
-        ));
-        assert!(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(
-            "SELECT * FROM admitted_schema_acl\n          EXCEPT SELECT * FROM actual_schema_acl"
-        ));
-        assert!(
-            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
-                .contains("SELECT * FROM expected EXCEPT SELECT * FROM actual")
-        );
-        assert!(
-            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
-                .contains("SELECT * FROM actual EXCEPT SELECT * FROM expected")
-        );
-        assert!(
-            RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL
-                .contains("SELECT 'rd_custodian','CREATE',false,'rd_owner' WHERE $1")
-        );
-        assert!(
-            !RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains("surprise_replay_grantee")
-        );
-        assert!(!RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains("surprise_replay_grantee"));
-    }
-
-    #[rstest]
-    fn existing_connection_path_contains_no_migration_or_ddl() {
-        let source = include_str!("product_edge_postgres.rs");
-        let existing = source
-            .split("pub async fn connect_existing")
-            .nth(1)
-            .expect("existing R&D Owner connection")
-            .split("pub async fn connect_with_backtest(")
-            .next()
-            .expect("existing connection boundary");
-        assert!(!existing.contains("migrate_rd_storage"));
-        assert!(existing.contains("validate_existing_source_intake_topology(&pool)"));
-        assert!(!existing.contains("CREATE "));
-        assert!(!existing.contains("ALTER "));
-        assert!(!existing.contains("DROP "));
-
-        let existing_with_backtest = source
-            .split("pub async fn connect_with_backtest_existing")
-            .nth(1)
-            .expect("existing R&D Owner Backtest connection")
-            .split("async fn validate_existing_rd_storage")
-            .next()
-            .expect("existing Backtest connection boundary");
-        assert!(existing_with_backtest.contains("Self::connect_existing"));
-        assert!(!existing_with_backtest.contains("Self::connect("));
-        assert!(!existing_with_backtest.contains("migrate_rd_storage"));
-    }
-
-    #[rstest]
-    fn migration_connection_reuses_complete_sealed_custody_without_ddl() {
-        let source = include_str!("product_edge_postgres.rs");
-        let connect = source
-            .split("pub async fn connect(")
-            .nth(1)
-            .expect("R&D Owner migration connection")
-            .split("pub async fn connect_existing")
-            .next()
-            .expect("migration connection boundary");
-
-        let object_validation = connect
-            .find("Self::existing_rd_storage_object_diagnostics(&pool)")
-            .expect("R&D object manifest validation");
-        let source_validation = connect
-            .find("validate_existing_source_intake_object_topology(&pool)")
-            .expect("Source Intake object manifest validation");
-        let sealed_stop = connect
-            .find("Self::sealed_rd_storage_is_present(&pool)")
-            .expect("partial sealed custody stop");
-        let migration = connect
-            .find("Self::migrate_rd_storage(&pool)")
-            .expect("fresh or legacy migration");
-
-        assert!(object_validation < sealed_stop);
-        assert!(source_validation < sealed_stop);
-        assert!(sealed_stop < migration);
-        assert!(connect.contains("PostgresQualificationOwnerV1::connect_existing"));
-        assert!(connect.contains("return Err(existing_rd_storage_unavailable())"));
-    }
-
-    #[rstest]
-    fn partial_sealed_detection_covers_every_custodian_owned_rd_object() {
-        let source = include_str!("product_edge_postgres.rs");
-        let detection = source
-            .split("async fn sealed_rd_storage_is_present")
-            .nth(1)
-            .expect("sealed R&D storage detection")
-            .split("async fn migrate_rd_storage")
-            .next()
-            .expect("sealed detection boundary");
-
-        assert!(detection.contains("namespace.nspname='public'"));
-        assert!(detection.contains("namespace.nspname IN ('public','rd_owner_api')"));
-        assert_eq!(
-            detection
-                .matches("pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'")
-                .count(),
-            1
-        );
-        assert_eq!(
-            detection
-                .matches("pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'")
-                .count(),
-            1
-        );
-        assert!(!detection.contains("rd_research_request_receipts_v1"));
-        assert!(!detection.contains("rd_source_intake_bindings_v1"));
-        assert!(!detection.contains("derive_source_intake_identity_v1"));
-    }
-
-    #[rstest]
-    fn object_manifest_projection_discards_only_runtime_identity_diagnostics() {
-        let runtime = ExistingRdStorageDiagnostic {
-            kind: "role".into(),
-            locator: "role:rd_owner".into(),
-            invariant: "session_identity_and_login_capabilities".into(),
-        };
-        let object = ExistingRdStorageDiagnostic {
-            kind: "routine".into(),
-            locator: "routine:rd_owner_api.example()".into(),
-            invariant: "source_seal".into(),
-        };
-
-        assert!(is_rd_runtime_authority_diagnostic(&runtime));
-        assert!(!is_rd_runtime_authority_diagnostic(&object));
-    }
-
-    #[rstest]
-    fn existing_connection_acl_manifest_admits_only_catalog_outbox_insert() {
-        let expected = ["DELETE", "INSERT", "SELECT", "UPDATE"];
-        let same_count_substitution = ["DELETE", "INSERT", "TRUNCATE", "UPDATE"];
-        assert_eq!(expected.len(), same_count_substitution.len());
-        assert_ne!(expected, same_count_substitution);
-
-        let source = include_str!("product_edge_postgres.rs");
-        let validation = source
-            .split("async fn validate_existing_rd_storage")
-            .nth(1)
-            .expect("existing storage validation")
-            .split("async fn migrate_rd_storage")
-            .next()
-            .expect("existing storage validation boundary");
-
-        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN 12"));
-        assert!(validation.contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN 7"));
-        assert!(
-            validation
-                .contains("WHEN 'rd_sealed_exploratory_replay_requests_v1' THEN ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]")
-        );
-        assert!(validation.contains(
-            "NOT EXISTS (\n                        SELECT 1 FROM pg_catalog.pg_attribute attribute\n                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl"
-        ));
-        assert!(
-            validation.contains(
-                "FROM relation_state WHERE oid IS NOT NULL AND NOT columns_owner_private"
-            )
-        );
-        assert!(validation.contains("acl.grantee<>relation.relowner"));
-        assert!(validation.contains("GROUP BY namespace.nspowner"));
-        assert!(
-            validation
-                .contains("routine:pg_catalog.pg_control_system()','underlying_exact_acl_manifest")
-        );
-        assert!(validation.contains("AND (SELECT count(*)=2"));
-        assert!(validation.contains("FROM pg_catalog.aclexplode(routine.proacl) acl"));
-        assert!(validation.contains("acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid"));
-        assert!(validation.contains("acl.privilege_type='EXECUTE'"));
-        assert!(validation.contains("NOT acl.is_grantable"));
-        assert!(validation.contains(
-            "acl.grantee=pg_catalog.to_regrole('replay_policy_catalog_owner')::oid AND NOT acl.is_grantable"
-        ));
-        assert!(validation.contains(
-            "ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]"
-        ));
-        assert!(validation.contains("ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]"));
-        assert!(validation.contains("WHEN 'rd_owner_outbox_v1' THEN ARRAY['INSERT']::text[]"));
-        assert!(validation.contains("ELSE NULL::text[]"));
-        assert!(validation.contains("'acl',COALESCE(relation.relacl::text,'<NULL>')"));
-        for invoker_signature in [
-            "WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)' THEN",
-            "WHEN 'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)' THEN",
-            "WHEN 'rd_owner_api.resolve_exploratory_replay_request_v2(text,text)' THEN",
-        ] {
-            assert!(validation.contains(&format!(
-                "{invoker_signature}\n                           NOT routine.prosecdef AND routine.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']::text[]"
-            )));
-        }
-        assert!(
-            !validation.contains(
-                "count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) <> 4"
-            )
-        );
-
-        let authority_migration = include_str!(
-            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
-        );
-        let runtime_custody_cutover = authority_migration
-            .split("DO $runtime_custody_cutover$")
-            .nth(1)
-            .expect("runtime custody cutover")
-            .split("$runtime_custody_cutover$;")
-            .next()
-            .expect("runtime custody cutover boundary");
-        assert!(runtime_custody_cutover.contains(
-            "IF object.relname='rd_sealed_exploratory_replay_requests_v1' THEN\n      EXECUTE pg_catalog.format('ALTER TABLE %I.%I OWNER TO rd_owner',object.schema_name,object.relname);"
-        ));
-    }
-
-    #[rstest]
-    fn catalog_resolution_failure_is_unavailable_before_submission() {
-        let source = include_str!("product_edge_postgres.rs");
-        let catalog_resolution = source
-            .split("let replay_policy =")
-            .nth(1)
-            .expect("Replay Policy Catalog resolution")
-            .split("canonical_policy.replay_execution_policy_v2")
-            .next()
-            .expect("Replay Policy Catalog resolution boundary");
-
-        assert!(catalog_resolution.contains("transaction.rollback()"));
-        assert!(catalog_resolution.contains("return Err(ResearchGoalOwnerError::Storage"));
-        assert!(catalog_resolution.contains("unavailable before submission"));
-        assert!(!catalog_resolution.contains("unresolved_result_v2"));
-        assert!(!catalog_resolution.contains("decide_commit_v2"));
     }
 
     #[async_trait]
@@ -3811,257 +2909,23 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn runtime_diagnostic_manifest_is_empty_for_existing_custody() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("runtime rd_owner connection");
-
-        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
-            .await
-            .expect("read-only R&D storage diagnostics");
-        assert!(
-            diagnostics.is_empty(),
-            "existing R&D storage diagnostic manifest must be empty: {diagnostics:#?}"
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn runtime_diagnostic_manifest_locates_nonowner_sealed_column_acl() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
-        let relation_name = std::env::var("RD_OWNER_COLUMN_ACL_FAULT_RELATION")
-            .unwrap_or_else(|_| "rd_sealed_exploratory_replay_requests_v1".into());
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("runtime rd_owner connection");
-
-        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
-            .await
-            .expect("read-only R&D storage diagnostics");
-        assert_eq!(
-            diagnostics,
-            vec![ExistingRdStorageDiagnostic {
-                kind: "relation".into(),
-                locator: format!("relation:public.{relation_name}"),
-                invariant: "columns_owner_private".into(),
-            }]
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires an injected R&D routine ACL drift"]
-    async fn runtime_diagnostic_manifest_locates_routine_acl_drift() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
-        let signature = std::env::var("RD_OWNER_ROUTINE_ACL_FAULT_SIGNATURE")
-            .expect("faulted R&D routine signature");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("runtime rd_owner connection");
-
-        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
-            .await
-            .expect("read-only R&D storage diagnostics");
-        assert_eq!(
-            diagnostics,
-            vec![ExistingRdStorageDiagnostic {
-                kind: "routine".into(),
-                locator: format!("routine:{signature}"),
-                invariant: "exact_acl_manifest".into(),
-            }]
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires an injected Composer identity helper metadata drift"]
-    async fn runtime_diagnostic_manifest_locates_composer_helper_metadata_drift() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").expect("runtime rd_owner URL");
-        let invariant = std::env::var("COMPOSER_HELPER_FAULT_INVARIANT")
-            .expect("faulted Composer helper invariant");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("runtime rd_owner connection");
-
-        let diagnostics = PostgresResearchGoalOwnerV1::existing_rd_storage_diagnostics(&pool)
-            .await
-            .expect("read-only R&D storage diagnostics");
-        assert!(diagnostics.contains(&ExistingRdStorageDiagnostic {
-            kind: "routine".into(),
-            locator: "routine:rd_owner_api.resolve_develop_composer_database_identity_v2()".into(),
-            invariant,
-        }));
-    }
-
-    #[rstest]
-    #[tokio::test]
-    #[ignore = "requires an injected non-owner Qualification column ACL"]
-    async fn qualification_existing_topology_rejects_nonowner_column_acl() {
-        let database_url = std::env::var("QUALIFICATION_COLUMN_ACL_TEST_DATABASE_URL")
-            .expect("Qualification column ACL test URL");
-        assert!(
-            PostgresQualificationOwnerV1::connect_existing(&database_url)
-                .await
-                .is_err()
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn legacy_rd_owner_storage_is_normalized_before_authority_migration() {
-        let rd_database_url =
-            std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("fresh rd_owner connection");
-
-        let before: (bool, bool) = sqlx::query_as(
-            "SELECT to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL, to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NULL",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("legacy R&D Replay storage topology");
-        assert_eq!(before, (true, true));
-        let legacy_oid: i64 = sqlx::query_scalar(
-            "SELECT 'public.rd_exploratory_replay_request_custody_v1'::regclass::oid::bigint",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("legacy R&D Replay relation identity");
-        let legacy_acl_present: bool = sqlx::query_scalar(
-            "SELECT has_table_privilege('surprise_replay_grantee','public.rd_exploratory_replay_request_custody_v1','SELECT,UPDATE')
-                AND EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_attribute attribute
-                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-                  WHERE attribute.attrelid='public.rd_exploratory_replay_request_custody_v1'::regclass
-                    AND attribute.attname='request_identity'
-                    AND acl.grantee='surprise_replay_grantee'::regrole
-                    AND acl.privilege_type='SELECT' AND NOT acl.is_grantable
-                )
-                AND EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_attribute attribute
-                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-                  WHERE attribute.attrelid='public.rd_exploratory_replay_request_custody_v1'::regclass
-                    AND attribute.attname='lifecycle_state'
-                    AND acl.grantee='surprise_replay_grantee'::regrole
-                    AND acl.privilege_type='UPDATE' AND NOT acl.is_grantable
-                )",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("legacy R&D Replay ACL sentinel");
-        assert!(legacy_acl_present);
-
-        PostgresResearchGoalOwnerV1::migrate_rd_storage(&pool)
-            .await
-            .expect("legacy R&D Replay storage normalization");
-
-        let after: (bool, bool) = sqlx::query_as(
-            "SELECT to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL, to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("sealed R&D Replay storage topology");
-        assert_eq!(after, (true, true));
-        let sealed_oid: i64 = sqlx::query_scalar(
-            "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::regclass::oid::bigint",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("sealed R&D Replay relation identity");
-        assert_eq!(sealed_oid, legacy_oid);
-        let continuity_row_retained: bool = sqlx::query_scalar(
-            "SELECT EXISTS (
-               SELECT 1 FROM public.rd_sealed_exploratory_replay_requests_v1
-                WHERE request_identity='internal-continuity-replay-v1'
-                  AND request_digest='sha256:internal-continuity-request-v1'
-                  AND build_request_identity='internal-continuity-build-v1'
-                  AND attempt_identity='internal-continuity-attempt-v1'
-                  AND intent_identity='internal-continuity-intent-v1'
-                  AND trial_family_identity='internal-continuity-family-v1'
-                  AND artifact_identity='sha256:internal-continuity-artifact-v1'
-                  AND build_receipt_identity='internal-continuity-build-receipt-v1'
-                  AND artifact_family_binding_identity='internal-continuity-family-binding-v1'
-                  AND census_frontier_identity='internal-continuity-census-v1'
-                  AND frozen_json='{\"kind\":\"internal-custody-continuity\",\"schema_version\":1}'::jsonb
-                  AND receipt_json='{\"kind\":\"internal-custody-continuity-receipt\",\"schema_version\":1}'::jsonb
-                  AND lifecycle_state='FROZEN'
-                  AND committed_at_epoch_ms=1700000000000
-                  AND request_schema_version=2
-                  AND v2_canonical_request_bytes=decode('00112233445566778899aabbccddeeff','hex')
-                  AND v2_meaning_digest='sha256:internal-continuity-meaning-v2'
-                  AND v2_seal_digest='sha256:internal-continuity-seal-v2'
-                  AND v2_receipt_json='{\"kind\":\"internal-custody-continuity-v2-receipt\",\"schema_version\":2}'::jsonb
-             )",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("normalized R&D Replay continuity row");
-        assert!(continuity_row_retained);
-        let sealed_acl_exact: bool = sqlx::query_scalar(
-            "SELECT pg_get_userbyid(relation.relowner)='rd_owner'
-                AND NOT EXISTS (
-                  SELECT 1 FROM pg_catalog.aclexplode(COALESCE(
-                    relation.relacl,pg_catalog.acldefault('r',relation.relowner)
-                  )) acl WHERE acl.grantee<>relation.relowner
-                )
-                AND NOT EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_attribute attribute
-                  CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-                  WHERE attribute.attrelid=relation.oid
-                    AND attribute.attnum>0 AND NOT attribute.attisdropped
-                    AND acl.grantee<>relation.relowner
-                )
-               FROM pg_catalog.pg_class relation
-              WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::regclass",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("sealed R&D Replay owner-private ACL");
-        assert!(sealed_acl_exact);
-    }
-
-    #[tokio::test]
-    #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
-    async fn fresh_rd_owner_existing_custody_validates_after_migration() {
-        let sealed_rd_database_url =
-            std::env::var("RD_OWNER_SEALED_TEST_DATABASE_URL").expect("sealed rd_owner URL");
+    async fn fresh_rd_owner_migrates_before_qualification_writer_validates() {
         let rd_database_url =
             std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
         let qualification_database_url =
             std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
                 .expect("fresh qualification_writer URL");
 
-        let _sealed_owner = PostgresResearchGoalOwnerV1::connect(
-            &sealed_rd_database_url,
-            &qualification_database_url,
-        )
-        .await
-        .expect("complete sealed R&D storage must be reused without migration");
-        let owner =
-            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
-                .await
-                .expect("fresh R&D storage migration and Qualification validation must be atomic in startup order");
+        let owner = PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+            .await
+            .expect("fresh R&D storage migration and Qualification validation must be atomic in startup order");
         let catalog: (String, bool, String, String, bool, Option<Vec<String>>) = sqlx::query_as(
             "SELECT role.rolname, procedure.prosecdef, procedure.provolatile::text, procedure.proparallel::text, procedure.proisstrict, procedure.proconfig FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)')",
         )
         .fetch_one(&owner.pool)
         .await
         .unwrap();
-        assert_eq!(catalog.0, "rd_custodian");
+        assert_eq!(catalog.0, "rd_owner");
         assert!(catalog.1);
         assert_eq!(catalog.2, "v");
         assert_eq!(catalog.3, "u");
@@ -4082,7 +2946,7 @@ mod tests {
             .fetch_one(&owner.pool)
             .await
             .unwrap();
-        assert_eq!(basis_catalog.0, "rd_custodian");
+        assert_eq!(basis_catalog.0, "rd_owner");
         assert!(basis_catalog.1);
         assert_eq!(basis_catalog.2, "v");
         assert_eq!(basis_catalog.3, "u");
@@ -4097,122 +2961,6 @@ mod tests {
         assert_eq!(
             basis_privileges,
             (true, true, false, false, false, false, true)
-        );
-        let trial_family_relations: i64 = sqlx::query_scalar(
-            "SELECT count(*) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname IN ('rd_trial_families_v1','rd_trial_family_members_v1','rd_trial_family_heads_v1','rd_trial_family_attempt_cuts_v2','rd_artifact_trial_family_bindings_v1')",
-        )
-        .fetch_one(&owner.pool)
-        .await
-        .unwrap();
-        assert_eq!(trial_family_relations, 5);
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the isolated partial-sealed R&D PostgreSQL fixture"]
-    async fn partial_sealed_non_anchor_objects_fail_before_ddl() {
-        let rd_database_url = std::env::var("RD_OWNER_PARTIAL_SEALED_TEST_DATABASE_URL")
-            .expect("partial-sealed rd_owner URL");
-        let routine_database_url =
-            std::env::var("RD_OWNER_PARTIAL_SEALED_ROUTINE_TEST_DATABASE_URL")
-                .expect("partial-sealed routine-only rd_owner URL");
-        let qualification_database_url =
-            std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
-                .expect("fresh qualification_writer URL");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&rd_database_url)
-            .await
-            .expect("partial-sealed R&D connection");
-
-        let fixture: (bool, bool, bool, bool, bool, i64) = sqlx::query_as(
-            "SELECT
-               pg_catalog.pg_get_userbyid((
-                 SELECT namespace.nspowner
-                   FROM pg_catalog.pg_namespace namespace
-                  WHERE namespace.nspname='rd_owner_api'
-               ))='rd_owner',
-               pg_catalog.to_regclass('public.rd_research_request_receipts_v1') IS NULL,
-               pg_catalog.to_regclass('public.rd_source_intake_bindings_v1') IS NULL,
-               pg_catalog.to_regprocedure(
-                 'rd_owner_api.derive_source_intake_identity_v1(text,text[])'
-               ) IS NULL,
-               pg_catalog.pg_get_userbyid((
-                 SELECT relation.relowner
-                   FROM pg_catalog.pg_class relation
-                  WHERE relation.oid=pg_catalog.to_regclass('public.rd_source_candidates_v1')
-               ))='rd_custodian',
-               (SELECT pg_catalog.count(*)
-                  FROM pg_catalog.pg_class relation
-                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-                 WHERE namespace.nspname='public'
-                   AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian')",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("partial-sealed fixture identity");
-        assert_eq!(fixture, (true, true, true, true, true, 1));
-
-        let before = partial_sealed_topology_fingerprint(&pool).await;
-        let error =
-            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
-                .await
-                .expect_err("partial sealed custody must fail before migration");
-        assert_eq!(error, existing_rd_storage_unavailable());
-        assert_eq!(partial_sealed_topology_fingerprint(&pool).await, before);
-
-        let routine_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&routine_database_url)
-            .await
-            .expect("partial-sealed routine-only R&D connection");
-        let routine_fixture: (bool, bool, bool, bool, i64, i64, i64) = sqlx::query_as(
-            "SELECT
-               pg_catalog.pg_get_userbyid((
-                 SELECT namespace.nspowner
-                   FROM pg_catalog.pg_namespace namespace
-                  WHERE namespace.nspname='rd_owner_api'
-               ))='rd_owner',
-               pg_catalog.to_regclass('public.rd_research_request_receipts_v1') IS NULL,
-               pg_catalog.to_regclass('public.rd_source_intake_bindings_v1') IS NULL,
-               pg_catalog.pg_get_userbyid((
-                 SELECT routine.proowner
-                   FROM pg_catalog.pg_proc routine
-                  WHERE routine.oid=pg_catalog.to_regprocedure(
-                    'public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'
-                  )
-               ))='rd_custodian',
-               (SELECT pg_catalog.count(*)
-                  FROM pg_catalog.pg_class relation
-                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-                 WHERE namespace.nspname='public'
-                   AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'),
-               (SELECT pg_catalog.count(*)
-                  FROM pg_catalog.pg_proc routine
-                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
-                 WHERE namespace.nspname='rd_owner_api'
-                   AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'),
-               (SELECT pg_catalog.count(*)
-                  FROM pg_catalog.pg_proc routine
-                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
-                 WHERE namespace.nspname='public'
-                   AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian')",
-        )
-        .fetch_one(&routine_pool)
-        .await
-        .expect("partial-sealed routine-only fixture identity");
-        assert_eq!(routine_fixture, (true, true, true, true, 0, 0, 1));
-
-        let routine_before = partial_sealed_topology_fingerprint(&routine_pool).await;
-        let routine_error = PostgresResearchGoalOwnerV1::connect(
-            &routine_database_url,
-            &qualification_database_url,
-        )
-        .await
-        .expect_err("partial sealed public routine must fail before migration");
-        assert_eq!(routine_error, existing_rd_storage_unavailable());
-        assert_eq!(
-            partial_sealed_topology_fingerprint(&routine_pool).await,
-            routine_before
         );
     }
 
@@ -4234,7 +2982,7 @@ mod tests {
             .as_nanos();
         let request_identity = format!("research-request-v2-read-cut-{suffix}");
         let admission = bootstrap_admission(&database_url, &request_identity, suffix).await;
-        let owner = PostgresResearchGoalOwnerV1::connect_existing(&database_url, &database_url)
+        let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
             .await
             .unwrap();
         let accepted = owner
@@ -4437,7 +3185,7 @@ mod tests {
             .await
             .unwrap();
         let deployment_identity = format!("product-edge-deployment-{suffix}");
-        let edge = ProductEdgePostgresOwnerV1::connect_existing(
+        let edge = ProductEdgePostgresOwnerV1::connect(
             database_url,
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {

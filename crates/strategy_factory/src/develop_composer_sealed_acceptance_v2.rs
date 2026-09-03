@@ -28,6 +28,18 @@ pub fn default_unavailable_response(request_identity: &str) -> DevelopComposerOp
     }
 }
 
+pub fn submitted_or_unknown_response(request_identity: &str) -> DevelopComposerOperationResponseV2 {
+    DevelopComposerOperationResponseV2 {
+        schema_version: 2,
+        request_identity: request_identity.to_owned(),
+        disposition: DevelopComposerOperationDispositionV2::SubmittedOrUnknown,
+        receipt_identity: None,
+        artifact: None,
+        coordinate: Some("storage.commit".to_owned()),
+        reason: Some("commit outcome is unknown; resolve the same request identity".to_owned()),
+    }
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 mod sealed {
     use crate::{
@@ -117,21 +129,8 @@ mod sealed {
     }
 
     impl SealedDevelopComposerAcceptanceV2 {
-        #[doc(hidden)]
         pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-            let rd_owner_database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")?;
-            Self::connect_with_writer(&rd_owner_database_url, database_url).await
-        }
-
-        pub async fn connect_with_writer(
-            rd_owner_database_url: &str,
-            rd_fact_writer_database_url: &str,
-        ) -> anyhow::Result<Self> {
-            let store = PostgresDevelopComposerStoreV2::connect(
-                rd_owner_database_url,
-                rd_fact_writer_database_url,
-            )
-            .await?;
+            let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
             let (request, evidence) = fixed_corpus()?;
             Ok(Self {
                 store,

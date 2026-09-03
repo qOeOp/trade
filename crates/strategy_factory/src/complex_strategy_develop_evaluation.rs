@@ -156,15 +156,34 @@ struct DevelopEvaluationOutboxV1<'a> {
 }
 
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ComplexStrategyDevelopEvaluationError> {
-    for statement in [
-        "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1 (evaluation_identity TEXT PRIMARY KEY, evaluation_digest TEXT NOT NULL, lineage_identity TEXT NOT NULL, predecessor_evaluation_identity TEXT, ir_digest TEXT NOT NULL, pit_readback_digest TEXT NOT NULL, fact_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluation_heads_v1 (lineage_identity TEXT PRIMARY KEY, evaluation_identity TEXT NOT NULL REFERENCES rd_complex_strategy_develop_evaluations_v1(evaluation_identity), evaluation_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE UNIQUE INDEX IF NOT EXISTS rd_complex_strategy_develop_evaluation_successors_v1 ON rd_complex_strategy_develop_evaluations_v1 (predecessor_evaluation_identity) WHERE predecessor_evaluation_identity IS NOT NULL",
+    for (relation_name, statement) in [
+        (
+            Some("rd_complex_strategy_develop_evaluations_v1"),
+            "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1 (evaluation_identity TEXT PRIMARY KEY, evaluation_digest TEXT NOT NULL, lineage_identity TEXT NOT NULL, predecessor_evaluation_identity TEXT, ir_digest TEXT NOT NULL, pit_readback_digest TEXT NOT NULL, fact_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            Some("rd_complex_strategy_develop_evaluation_heads_v1"),
+            "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluation_heads_v1 (lineage_identity TEXT PRIMARY KEY, evaluation_identity TEXT NOT NULL REFERENCES rd_complex_strategy_develop_evaluations_v1(evaluation_identity), evaluation_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            None,
+            "CREATE UNIQUE INDEX IF NOT EXISTS rd_complex_strategy_develop_evaluation_successors_v1 ON rd_complex_strategy_develop_evaluations_v1 (predecessor_evaluation_identity) WHERE predecessor_evaluation_identity IS NOT NULL",
+        ),
     ] {
-        sqlx::query(statement)
-            .execute(pool)
+        if let Some(relation_name) = relation_name {
+            crate::schema_materialization::materialize_or_require_existing_public_table(
+                pool,
+                relation_name,
+                statement,
+            )
             .await
             .map_err(storage)?;
+        } else {
+            sqlx::query(statement)
+                .execute(pool)
+                .await
+                .map_err(storage)?;
+        }
     }
     Ok(())
 }

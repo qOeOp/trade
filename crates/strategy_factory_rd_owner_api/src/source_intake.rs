@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+#[cfg(feature = "sealed-source-intake-acceptance")]
+use anyhow::Context;
 use async_trait::async_trait;
 use axum::{
     Json, Router,
@@ -14,11 +16,11 @@ use sha2::{Digest, Sha256};
 use vibe_product_edge::ProductEdgePostgresOwnerV1;
 #[cfg(feature = "sealed-source-intake-acceptance")]
 use vibe_strategy_factory::source_intake::{
-    SealedSourceIntakeAuditV1, SealedSourceIntakeEnvironmentV1,
+    SOURCE_INTAKE_MIGRATION_SQL_V1, SealedSourceIntakeAuditV1, SealedSourceIntakeEnvironmentV1,
 };
 use vibe_strategy_factory::source_intake::{
     SourceIntakeOperationRequestV1, SourceIntakeOwnerErrorV1, SourceIntakeOwnerV1,
-    SourceIntakeTerminalAtomV1, validate_existing_source_intake_topology,
+    SourceIntakeTerminalAtomV1,
 };
 
 const MAX_REQUEST_BYTES: usize = 256 * 1024;
@@ -72,7 +74,6 @@ pub(super) async fn production_router(
         .max_connections(8)
         .connect(database_url)
         .await?;
-    validate_existing_source_intake_topology(&owner_pool).await?;
     Ok(router(SourceIntakeApiState {
         owner: Arc::new(SourceIntakeOwnerV1::production(
             product_edge,
@@ -94,7 +95,7 @@ pub(super) async fn sealed_acceptance_router(
         .max_connections(8)
         .connect(database_url)
         .await?;
-    validate_existing_source_intake_topology(&owner_pool).await?;
+    install_sealed_source_intake_schema(&owner_pool).await?;
     let environment =
         SealedSourceIntakeEnvironmentV1::new(product_edge, owner_pool, request_proof_digest)
             .map_err(|_| anyhow::anyhow!("invalid sealed Source Intake environment"))?;
@@ -104,6 +105,51 @@ pub(super) async fn sealed_acceptance_router(
         token_digest,
         sealed_audit,
     }))
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+async fn install_sealed_source_intake_schema(owner_pool: &sqlx::PgPool) -> anyhow::Result<()> {
+    // Each acceptance run owns one disposable database. The transaction lock and sentinel make
+    // process restart safe without treating this non-idempotent corpus as a production migrator.
+    let mut transaction = owner_pool
+        .begin()
+        .await
+        .context("begin sealed Source Intake schema bootstrap")?;
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(hashtextextended('vibe.sealed-source-intake-schema-v1', 0))",
+    )
+    .execute(&mut *transaction)
+    .await
+    .context("lock sealed Source Intake schema bootstrap")?;
+    let installed: bool =
+        sqlx::query_scalar("SELECT to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL")
+            .fetch_one(&mut *transaction)
+            .await
+            .context("inspect sealed Source Intake schema bootstrap")?;
+
+    if !installed {
+        for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1.iter().enumerate() {
+            sqlx::query(*statement)
+                .execute(&mut *transaction)
+                .await
+                .with_context(|| {
+                    format!("apply sealed Source Intake migration statement {index}")
+                })?;
+        }
+    }
+    transaction
+        .commit()
+        .await
+        .context("commit sealed Source Intake schema bootstrap")
+}
+
+#[cfg(feature = "sealed-source-intake-acceptance")]
+pub(super) async fn materialize_schema(database_url: &str) -> anyhow::Result<()> {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(1)
+        .connect(database_url)
+        .await?;
+    install_sealed_source_intake_schema(&pool).await
 }
 
 fn router(state: SourceIntakeApiState) -> Router {
@@ -376,29 +422,24 @@ mod tests {
 
     #[cfg(feature = "sealed-source-intake-acceptance")]
     #[rstest]
-    fn sealed_source_intake_startup_is_read_only_and_precedes_environment_construction() {
+    fn sealed_schema_bootstrap_is_transactional_and_precedes_environment_construction() {
         let source = include_str!("source_intake.rs")
             .split("#[cfg(test)]")
             .next()
             .expect("production module");
-        let validation = source
-            .rfind("validate_existing_source_intake_topology(&owner_pool).await?")
-            .expect("acceptance topology validation");
+        let install_call = source
+            .find("install_sealed_source_intake_schema(&owner_pool).await?")
+            .expect("acceptance schema install call");
         let environment = source
             .find("let environment =")
             .expect("acceptance environment construction");
-        assert!(validation < environment);
-        assert_eq!(
-            source
-                .matches("validate_existing_source_intake_topology(&owner_pool).await?")
-                .count(),
-            2
-        );
-        assert!(!source.contains("SOURCE_INTAKE_MIGRATION_SQL_V1"));
-        assert!(!source.contains("sqlx::query("));
-        assert!(!source.contains(".execute("));
-        assert!(!source.contains("CREATE "));
-        assert!(!source.contains("ALTER "));
-        assert!(!source.contains("DROP "));
+        assert!(install_call < environment);
+        assert!(source.contains("let mut transaction = owner_pool"));
+        assert!(source.contains("pg_advisory_xact_lock"));
+        assert!(source.contains("to_regclass('public.rd_source_intake_bindings_v1') IS NOT NULL"));
+        assert!(source.contains("if !installed"));
+        assert!(source.contains("for (index, statement) in SOURCE_INTAKE_MIGRATION_SQL_V1"));
+        assert!(source.contains(".execute(&mut *transaction)"));
+        assert!(source.contains("transaction\n        .commit()"));
     }
 }

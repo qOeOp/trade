@@ -1,5 +1,3 @@
-use std::fmt::Display;
-
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -879,7 +877,6 @@ pub(crate) fn admit_stored_legacy_family_without_frontier(
         stored_root.policy.clone(),
         stored_root.created_at_epoch_ms,
     )?;
-
     if expected.root != stored_root.into()
         || expected.root_receipt != stored_root_receipt.into()
         || expected.initial_intent_member != stored_member.into()
@@ -947,11 +944,10 @@ pub(crate) fn form_initial_family(
 ) -> Result<TrialFamilyReadbackV1, TrialFamilyError> {
     require_identity(intent_identity, "INTENT_IDENTITY_INVALID")?;
     require_sha256(intent_digest, "INTENT_DIGEST_INVALID")?;
-
     if let Some(binding) = policy.replay_execution_policy_v2.as_ref() {
         let replay_policy = binding
             .verify()
-            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+            .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
         if replay_policy.cost.identity.as_str() != policy.cost_model_identity
             || replay_policy.slippage.identity.as_str() != policy.slippage_model_identity
             || replay_policy.capacity.identity.as_str() != policy.capacity_model_identity
@@ -1095,7 +1091,6 @@ pub(crate) fn append_attempt_to_census_v2(
     let expected_consumed_budget = attempt_ordinal
         .checked_add(1)
         .ok_or(TrialFamilyError::InvalidPolicy("TRIAL_BUDGET_OVERFLOW"))?;
-
     if append.consumed_trial_budget != expected_consumed_budget
         || append.consumed_trial_budget > legacy_family.root.policy.trial_budget
     {
@@ -1103,7 +1098,6 @@ pub(crate) fn append_attempt_to_census_v2(
             "CONSUMED_TRIAL_BUDGET_INVALID",
         ));
     }
-
     for (identity, digest) in [
         (&append.intent_identity, &append.intent_digest),
         (&append.request_identity, &append.request_digest),
@@ -1320,7 +1314,6 @@ fn form_candidate_set_frontier_v2(
         &proposal.generation_rule_digest,
         "CANDIDATE_GENERATION_RULE_DIGEST_INVALID",
     )?;
-
     if usize::try_from(proposal.expected_cardinality).map_err(unavailable)?
         != proposal.candidates.len()
         || proposal.candidates.len() > MAX_FRONTIER_MEMBERS
@@ -1331,7 +1324,6 @@ fn form_candidate_set_frontier_v2(
     }
     let mut identities = std::collections::BTreeSet::new();
     let mut digests = std::collections::BTreeSet::new();
-
     for candidate in &proposal.candidates {
         require_identity(&candidate.candidate_identity, "CANDIDATE_IDENTITY_INVALID")?;
         require_sha256(&candidate.candidate_digest, "CANDIDATE_DIGEST_INVALID")?;
@@ -1524,7 +1516,6 @@ pub(crate) fn verify_census_v2(
     }
 
     let mut terminal_member_digests = Vec::new();
-
     for (index, (member, receipt)) in readback
         .members
         .iter()
@@ -1555,7 +1546,6 @@ pub(crate) fn verify_census_v2(
             },
         };
         let expected_terminal = expected_kind == TrialFamilyCensusMemberKindV2::Result;
-
         if member.schema_version != 2
             || member.trial_family_identity != family_identity
             || member.ordinal != ordinal
@@ -1584,7 +1574,6 @@ pub(crate) fn verify_census_v2(
                 terminal_disposition: member.terminal_disposition,
             },
         )?;
-
         if member.member_digest != expected_member_digest
             || member.member_identity
                 != identity("rd-trial-family-member-v2", &expected_member_digest)
@@ -1603,7 +1592,6 @@ pub(crate) fn verify_census_v2(
                 committed_at_epoch_ms: receipt.committed_at_epoch_ms,
             },
         )?;
-
         if receipt.receipt_identity
             != identity(
                 "rd-trial-family-membership-receipt-v2",
@@ -1614,12 +1602,10 @@ pub(crate) fn verify_census_v2(
                 "V2 membership receipt digest mismatch".to_string(),
             ));
         }
-
         if expected_terminal {
             terminal_member_digests.push(member.member_digest.clone());
         }
     }
-
     if terminal_member_digests.is_empty()
         || readback.members.len() != terminal_member_digests.len() * 3
         || terminal_member_digests != readback.attempt_frontier.terminal_member_digests
@@ -1641,7 +1627,6 @@ pub(crate) fn verify_census_v2(
             consumed_trial_budget: readback.attempt_frontier.consumed_trial_budget,
         },
     )?;
-
     if readback.attempt_frontier.frontier_digest != attempt_digest
         || readback.attempt_frontier.frontier_identity
             != identity("rd-trial-family-attempt-frontier-v2", &attempt_digest)
@@ -1669,7 +1654,6 @@ pub(crate) fn verify_census_v2(
             candidates: candidate.candidates.clone(),
         },
     )?;
-
     if &expected_candidate != candidate {
         return Err(TrialFamilyError::Unavailable(
             "candidate-set frontier digest mismatch".to_string(),
@@ -1694,7 +1678,6 @@ pub(crate) fn verify_census_v2(
             candidate_set_frontier_digest: &candidate.frontier_digest,
         },
     )?;
-
     if readback.census_frontier.member_digests != member_digests
         || readback.census_frontier.frontier_digest != census_digest
         || readback.census_frontier.frontier_identity
@@ -1968,7 +1951,7 @@ fn canonical_digest(domain: &str, value: &impl Serialize) -> Result<String, Tria
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
-fn unavailable(error: impl Display) -> TrialFamilyError {
+fn unavailable(error: impl std::fmt::Display) -> TrialFamilyError {
     TrialFamilyError::Unavailable(error.to_string())
 }
 
@@ -2080,7 +2063,7 @@ mod tests {
         }
     }
 
-    #[rstest]
+    #[test]
     fn v2_census_orders_complete_attempts_and_preserves_every_terminal_fact() {
         let mut expanded_policy = policy();
         expanded_policy.trial_budget = 4;
@@ -2098,7 +2081,6 @@ mod tests {
             TrialFamilyAttemptTerminalDispositionV2::Unknown,
         ];
         let mut census = None;
-
         for (ordinal, disposition) in dispositions.iter().copied().enumerate() {
             let ordinal = u32::try_from(ordinal).unwrap();
             census = Some(
@@ -2117,7 +2099,6 @@ mod tests {
             census.members[0].member_kind,
             TrialFamilyCensusMemberKindV2::Intent
         );
-
         for (ordinal, disposition) in dispositions.iter().copied().enumerate() {
             let base = ordinal * 3;
             assert_eq!(
@@ -2141,7 +2122,7 @@ mod tests {
         verify_census_v2(&census).unwrap();
     }
 
-    #[rstest]
+    #[test]
     fn v2_census_fails_closed_on_budget_cardinality_duplicates_and_tamper() {
         let family = form_initial_family(
             "rd-research-intent-v2-test",
@@ -2209,7 +2190,7 @@ mod tests {
             "rd.trial-family.census-member.v2",
             &MemberMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
                 attempt_ordinal: malformed_member.members[malformed_index].attempt_ordinal,
                 ordinal: malformed_member.members[malformed_index].ordinal,
                 member_kind: malformed_member.members[malformed_index].member_kind,
@@ -2227,7 +2208,7 @@ mod tests {
             "rd.trial-family.membership-receipt.v2",
             &MembershipReceiptMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
                 member_identity: &malformed_member.members[malformed_index].member_identity,
                 member_digest: &malformed_member.members[malformed_index].member_digest,
                 committed_at_epoch_ms: malformed_epoch_ms,
@@ -2255,7 +2236,7 @@ mod tests {
             "rd.trial-family.census-frontier.v2",
             &CensusFrontierMeaningV2 {
                 schema_version: 2,
-                trial_family_identity: malformed_member.legacy_family.root.trial_family_identity(),
+                trial_family_identity: &malformed_member.legacy_family.root.trial_family_identity(),
                 root_digest: &malformed_member.legacy_family.root.root_digest,
                 member_digests: &rebuilt_member_digests,
                 consumed_trial_budget: malformed_member.census_frontier.consumed_trial_budget,
@@ -2342,7 +2323,7 @@ mod tests {
         assert!(admit_stored_artifact_binding(family, &mutated_binding, &receipt_json).is_err());
     }
 
-    #[rstest]
+    #[test]
     fn immutable_origin_family_without_replay_policy_preserves_exact_identity_and_digests() {
         const ROOT: &str = r#"{"schema_version":1,"trial_family_identity":"rd-trial-family-v1-151e77bcc8bf5146c9f5a6d061847ae05bce328f39d86707e7cde1f2fe6239c6","policy":{"trial_budget":2,"stop_rule":"stop after the bounded falsifier","pit_rule_identity":"pit-rule-v1","cost_model_identity":"cost-model-v1","slippage_model_identity":"slippage-model-v1","capacity_model_identity":"capacity-model-v1","semantic_predecessor_frontier":[],"protected_feedback_frontier":"qualification-frontier-v1","independence_disposition":"INDEPENDENT","independence_basis_identity":"independence-basis-v1","frozen_falsifier_binding":"sha256:23f583c91a02854638dc3756401c935385cb9faf59dbcf4906a624439f4b9639"},"policy_digest":"sha256:a246d8c988c5f1bea8c3b062397fec82380a46fadd865debfc3d9bd1618f1a84","created_at_epoch_ms":42,"root_digest":"sha256:22217e853f2cf610380a08a3f752472178475575cf917ad286f1e0f07090dc4c"}"#;
         const ROOT_RECEIPT: &str = r#"{"schema_version":1,"receipt_identity":"rd-trial-family-root-receipt-v1-22217e853f2cf610380a08a3f752472178475575cf917ad286f1e0f07090dc4c","trial_family_identity":"rd-trial-family-v1-151e77bcc8bf5146c9f5a6d061847ae05bce328f39d86707e7cde1f2fe6239c6","intent_identity":"rd-research-intent-v2-origin-fixture","root_digest":"sha256:22217e853f2cf610380a08a3f752472178475575cf917ad286f1e0f07090dc4c","committed_at_epoch_ms":42}"#;
@@ -2364,7 +2345,6 @@ mod tests {
             family.census_frontier.frontier_digest(),
             "sha256:b4f124b56c2deab11b786c6c3bdecf32cba42d3ef7426e07fa0a6d290967125f"
         );
-
         for carrier in [
             serde_json::to_value(&family.root).unwrap(),
             serde_json::to_value(&family.root_receipt).unwrap(),

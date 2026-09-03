@@ -30,9 +30,22 @@ adapters and their deployment authority are separately available.
 Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL` and `RD_OWNER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD` and `RD_OWNER_DB_PASSWORD` respectively. Do not commit it.
 
 Operator Authorization and Product Edge genesis are explicit administrative
-operations and never run as part of service startup. Before the first Owner
-start on either a fresh or existing named volume, run the idempotent custody
-migration. It creates/updates only PostgreSQL roles, ownership, and grants; it
+operations and never run as part of service startup. On a fresh named volume,
+first run the bounded schema materializer. It reuses the Owner's Rust migrations
+while `rd_owner` still owns `public`, creates no business fact, and exits before
+the custody boundary changes:
+
+```bash
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  --profile authority-admin run --rm schema-materialize
+```
+
+Then, before the first Owner start on either a fresh or existing named volume,
+run the idempotent custody migration. It creates/updates only PostgreSQL roles,
+ownership, and grants; it
 also performs the single-transaction Catalog/Composer private-owner cutover.
 The database/public schema custodian and both object owners are NOLOGIN roles.
 `rd_owner` uses only fixed lock/read APIs; mutation requires an explicitly supplied

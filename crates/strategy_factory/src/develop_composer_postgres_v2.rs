@@ -6,7 +6,7 @@ use std::{collections::BTreeSet, fmt::Display};
 
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
-use sqlx::{AssertSqlSafe, PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::develop_composer_operation_v2::{
@@ -22,11 +22,6 @@ const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)";
-const DATABASE_IDENTITY_FUNCTION_V2: &str =
-    "rd_owner_api.resolve_develop_composer_database_identity_v2()";
-const DATABASE_IDENTITY_QUERY_V2: &str = "SELECT system_identifier, database_name, database_oid FROM rd_owner_api.resolve_develop_composer_database_identity_v2()";
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-const ACCEPTANCE_POST_WRITE_DISCONNECT_V2: &str = "post_write_disconnect";
 const COMMIT_FUNCTION_SOURCE_V2: &str = "DECLARE ordinal integer;
 BEGIN
   IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required' USING ERRCODE='42501'; END IF;
@@ -55,23 +50,6 @@ const COMPOSER_TABLES_V2: [&str; 9] = [
     "rd_develop_operations_v2",
     "rd_develop_outbox_v2",
 ];
-const COMPOSER_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL: &str = "WITH family AS (
-       SELECT relation.oid
-         FROM pg_catalog.pg_class relation
-         JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-        WHERE namespace.nspname='composer_private'
-          AND relation.relname=ANY($1)
-     )
-     SELECT NOT EXISTS (
-       SELECT 1
-         FROM pg_catalog.pg_depend dependency
-         JOIN pg_catalog.pg_rewrite rewrite_fact
-           ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
-          AND dependency.objid=rewrite_fact.oid
-        WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
-          AND dependency.refobjid IN (SELECT oid FROM family)
-          AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
-     )";
 const SEALED_READ_FUNCTION_SOURCE_V2: &str = "BEGIN
   LOCK TABLE
     composer_private.rd_develop_designs_v2,
@@ -201,40 +179,6 @@ impl Display for DevelopComposerSealedReadErrorV2 {
 }
 
 impl std::error::Error for DevelopComposerSealedReadErrorV2 {}
-
-/// Validates the deployment-installed Composer read custody using only the R&D Owner credential.
-///
-/// This opens no writer connection, performs no migration or DDL, and exposes no positive readback.
-/// Missing, malformed, or over-privileged authority is reported uniformly as unavailable.
-pub async fn validate_existing_develop_composer_read_authority_v2(
-    rd_owner_database_url: &str,
-) -> Result<(), DevelopComposerSealedReadErrorV2> {
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(1)
-        .connect(rd_owner_database_url)
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    verify_pool_role(&pool, "rd_owner")
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    let database_fingerprint = database_fingerprint(&pool)
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    let mut transaction = pool
-        .begin()
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    verify_transaction_database(&mut transaction, &database_fingerprint)
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    verify_composer_read_authority_in_transaction(&mut transaction)
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-    transaction
-        .rollback()
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
-}
 
 /// R&D-sealed canonical Composer package readback.
 ///
@@ -404,7 +348,8 @@ where
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .begin_read_transaction()
+            .pool
+            .begin()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let record = load_record_via_sealed_routine_in_transaction(
@@ -547,26 +492,9 @@ pub struct SealedDevelopComposerAcceptanceReadPortV2 {
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 impl SealedDevelopComposerAcceptanceReadPortV2 {
-    #[doc(hidden)]
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-        let rd_owner_database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")?;
-        Self::connect_with_writer(&rd_owner_database_url, database_url).await
-    }
-
-    pub async fn connect_with_writer(
-        rd_owner_database_url: &str,
-        rd_fact_writer_database_url: &str,
-    ) -> anyhow::Result<Self> {
-        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect_with_writer(
-            rd_owner_database_url,
-            rd_fact_writer_database_url,
-        )
-        .await?;
-        let store = PostgresDevelopComposerStoreV2::connect(
-            rd_owner_database_url,
-            rd_fact_writer_database_url,
-        )
-        .await?;
+        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect(database_url).await?;
+        let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
         Ok(Self { owner, store })
     }
 }
@@ -583,7 +511,8 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .begin_read_transaction()
+            .pool
+            .begin()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let readback = self
@@ -621,9 +550,7 @@ async fn load_record_via_sealed_routine_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, DevelopComposerSealedReadErrorV2> {
-    verify_composer_read_authority_in_transaction(transaction)
-        .await
-        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    verify_composer_read_authority_in_transaction(transaction).await?;
     let Some(row) = sqlx::query(
         "SELECT *
            FROM composer_owner_api.lock_accepted_develop_composer_v2($1)",
@@ -678,29 +605,9 @@ async fn load_record_via_sealed_routine_in_transaction(
     }))
 }
 
-enum ComposerReadAuthorityIssueV2 {
-    Base,
-    Columns,
-    Dependency,
-    ConstraintOptions,
-    IndexOptions,
-}
-
-impl ComposerReadAuthorityIssueV2 {
-    const fn stage(&self) -> &'static str {
-        match self {
-            Self::Base => "base",
-            Self::Columns => "columns",
-            Self::Dependency => "dependency",
-            Self::ConstraintOptions => "constraint-options",
-            Self::IndexOptions => "index-options",
-        }
-    }
-}
-
 async fn verify_composer_read_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), ComposerReadAuthorityIssueV2> {
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
     let authority_is_exact: bool = sqlx::query_scalar(
         "WITH target AS (
            SELECT procedure.oid,
@@ -737,13 +644,6 @@ async fn verify_composer_read_authority_in_transaction(
              LEFT JOIN pg_catalog.pg_roles fact_writer ON fact_writer.rolname='rd_fact_writer'
             WHERE procedure.oid=pg_catalog.to_regprocedure($1)
               AND procedure.proname='lock_accepted_develop_composer_v2'
-         ), private_namespace AS (
-           SELECT namespace.oid, namespace.nspowner, namespace.nspacl
-             FROM pg_catalog.pg_namespace namespace
-             JOIN pg_catalog.pg_roles owner
-               ON owner.oid=namespace.nspowner
-              AND owner.rolname='composer_owner'
-            WHERE namespace.nspname='composer_private'
          ), required(table_name) AS (
            VALUES
              ('rd_develop_designs_v2'),
@@ -759,37 +659,16 @@ async fn verify_composer_read_authority_in_transaction(
            SELECT relation.oid, relation.relowner, relation.relacl, target.proowner
              FROM required
              CROSS JOIN target
-             JOIN private_namespace namespace ON true
+             JOIN pg_catalog.pg_namespace namespace
+               ON namespace.nspname='composer_private'
              JOIN pg_catalog.pg_class relation
                ON relation.relnamespace=namespace.oid
               AND relation.relname=required.table_name
               AND relation.relkind IN ('r','p')
-              AND relation.relpersistence='p'
          )
          SELECT count(*)=9
-            AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
             AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
             AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')
-            AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_fact_writer' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
-            AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_fact_writer' OR member.rolname='rd_fact_writer')
-            AND (
-              SELECT count(*)=2
-                 AND count(*) FILTER (
-                   WHERE acl.grantee=private_namespace.nspowner
-                     AND acl.privilege_type IN ('USAGE','CREATE')
-                     AND NOT acl.is_grantable
-                 )=2
-                 AND count(*) FILTER (
-                   WHERE acl.grantee<>private_namespace.nspowner
-                      OR acl.privilege_type NOT IN ('USAGE','CREATE')
-                      OR acl.is_grantable
-                 )=0
-                FROM private_namespace
-                CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
-                  private_namespace.nspacl,
-                  pg_catalog.acldefault('n',private_namespace.nspowner)
-                )) acl
-            )
             AND (
               SELECT count(*)=2
                  AND bool_and(procedure.oid IN (
@@ -850,15 +729,6 @@ async fn verify_composer_read_authority_in_transaction(
                        pg_catalog.acldefault('r', relowner)
                      )) acl
                WHERE acl.grantee<>relowner
-            ))
-            AND NOT bool_or(EXISTS (
-              SELECT 1
-                FROM pg_catalog.pg_attribute attribute
-                CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-               WHERE attribute.attrelid=relations.oid
-                 AND attribute.attnum>0
-                 AND NOT attribute.attisdropped
-                 AND acl.grantee<>relations.relowner
             ))
             AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relations.oid AND NOT trigger_fact.tgisinternal))
             AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid=relations.oid))
@@ -925,12 +795,12 @@ async fn verify_composer_read_authority_in_transaction(
     .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|_| ComposerReadAuthorityIssueV2::Base)?;
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !authority_is_exact {
-        return Err(ComposerReadAuthorityIssueV2::Base);
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
     let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::Columns)?;
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     let expected_column_shape = [
         "rd_develop_artifact_modules_v2:1:artifact_identity:bytea:true:",
         "rd_develop_artifact_modules_v2:2:ordinal:integer:true:",
@@ -969,31 +839,22 @@ async fn verify_composer_read_authority_in_transaction(
         .map(String::as_str)
         .ne(expected_column_shape)
     {
-        return Err(ComposerReadAuthorityIssueV2::Columns);
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey) NOT IN (VALUES ('rd_develop_designs_v2','p',ARRAY[1]::smallint[]),('rd_develop_plans_v2','p',ARRAY[1]::smallint[]),('rd_develop_plans_v2','u',ARRAY[2]::smallint[]),('rd_develop_artifacts_v2','p',ARRAY[1]::smallint[]),('rd_develop_artifacts_v2','u',ARRAY[2]::smallint[]),('rd_develop_artifact_modules_v2','p',ARRAY[1,2]::smallint[]),('rd_develop_build_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[2]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[3]::smallint[]),('rd_develop_build_receipts_v2','u',ARRAY[4,5]::smallint[]),('rd_develop_composer_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_host_receipts_v2','p',ARRAY[1]::smallint[]),('rd_develop_operations_v2','p',ARRAY[1]::smallint[]),('rd_develop_operations_v2','u',ARRAY[3]::smallint[]),('rd_develop_operations_v2','u',ARRAY[4]::smallint[]),('rd_develop_operations_v2','u',ARRAY[5]::smallint[]),('rd_develop_outbox_v2','p',ARRAY[1]::smallint[]))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,constraint_fact.conkey,target.relname,constraint_fact.confkey) NOT IN (VALUES ('rd_develop_plans_v2',ARRAY[2]::smallint[],'rd_develop_designs_v2',ARRAY[1]::smallint[]),('rd_develop_artifacts_v2',ARRAY[2]::smallint[],'rd_develop_plans_v2',ARRAY[1]::smallint[]),('rd_develop_artifact_modules_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_build_receipts_v2',ARRAY[4]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_composer_receipts_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_host_receipts_v2',ARRAY[1]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_operations_v2',ARRAY[5]::smallint[],'rd_develop_artifacts_v2',ARRAY[1]::smallint[]),('rd_develop_outbox_v2',ARRAY[1]::smallint[],'rd_develop_operations_v2',ARRAY[1]::smallint[]))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::Dependency)?;
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,constraint_fact.conkey::text) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_build_receipts_v2','u','4 5'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,constraint_fact.conkey::text,target.relname,constraint_fact.confkey::text) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_build_receipts_v2','4','rd_develop_artifacts_v2','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !dependency_shape_is_exact {
-        return Err(ComposerReadAuthorityIssueV2::Dependency);
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let external_rewrite_dependencies_absent: bool =
-        sqlx::query_scalar(COMPOSER_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL)
-            .bind(COMPOSER_TABLES_V2.as_slice())
-            .fetch_one(&mut **transaction)
-            .await
-            .map_err(|_| ComposerReadAuthorityIssueV2::Dependency)?;
-    if !external_rewrite_dependencies_absent {
-        return Err(ComposerReadAuthorityIssueV2::Dependency);
-    }
-    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT CASE WHEN constraint_fact.contype IN ('p','u','f') THEN constraint_fact.connoinherit WHEN constraint_fact.contype='c' THEN NOT constraint_fact.connoinherit ELSE false END OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::ConstraintOptions)?;
+    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR constraint_fact.connoinherit OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !constraint_options_are_exact {
-        return Err(ComposerReadAuthorityIssueV2::ConstraintOptions);
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND relation.relpersistence='p' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
-        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| ComposerReadAuthorityIssueV2::IndexOptions)?;
+    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !index_options_are_exact {
-        return Err(ComposerReadAuthorityIssueV2::IndexOptions);
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
     Ok(())
 }
@@ -1002,9 +863,7 @@ async fn verify_composer_commit_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), sqlx::Error> {
     let exact: bool = sqlx::query_scalar(
-        "SELECT SESSION_USER='rd_fact_writer'
-            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
-            AND procedure.prosrc=$2
+        "SELECT SESSION_USER='rd_fact_writer' AND procedure.prosrc=$2
             AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
             AND language.lanname='plpgsql' AND procedure.prokind='f'
             AND NOT procedure.proretset AND procedure.prosecdef AND procedure.proisstrict
@@ -1053,140 +912,6 @@ async fn verify_composer_commit_authority_in_transaction(
     } else {
         Err(sqlx::Error::Protocol(
             "Composer commit authority is unavailable".to_owned(),
-        ))
-    }
-}
-
-async fn verify_composer_writer_authority_in_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
-        "WITH writer AS (
-           SELECT role.oid,
-                  role.rolcanlogin,
-                  role.rolinherit,
-                  role.rolsuper,
-                  role.rolcreatedb,
-                  role.rolcreaterole,
-                  role.rolreplication,
-                  role.rolbypassrls
-             FROM pg_catalog.pg_roles role
-            WHERE role.rolname='rd_fact_writer'
-         ), private_relations AS (
-           SELECT relation.oid
-             FROM pg_catalog.pg_class relation
-             JOIN pg_catalog.pg_namespace namespace
-               ON namespace.oid=relation.relnamespace
-              AND namespace.nspname='composer_private'
-            WHERE relation.relname=ANY($1)
-              AND relation.relkind IN ('r','p')
-         ), private_columns AS (
-           SELECT relation.oid AS relation_oid, attribute.attnum
-             FROM private_relations relation
-             JOIN pg_catalog.pg_attribute attribute
-               ON attribute.attrelid=relation.oid
-              AND attribute.attnum>0
-              AND NOT attribute.attisdropped
-         )
-         SELECT SESSION_USER='rd_fact_writer'
-            AND CURRENT_USER='rd_fact_writer'
-            AND NOT EXISTS (
-              SELECT 1 FROM pg_catalog.pg_auth_members membership
-              JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
-              JOIN pg_catalog.pg_roles member ON member.oid=membership.member
-              WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
-                 OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian')
-            )
-            AND (SELECT rolcanlogin AND rolinherit
-                        AND NOT rolsuper
-                        AND NOT rolcreatedb
-                        AND NOT rolcreaterole
-                        AND NOT rolreplication
-                        AND NOT rolbypassrls
-                   FROM writer)
-            AND NOT EXISTS (
-              SELECT 1
-                FROM writer
-                JOIN pg_catalog.pg_auth_members membership
-                  ON membership.member=writer.oid
-                  OR membership.roleid=writer.oid
-            )
-            AND (SELECT count(*)=9 FROM private_relations)
-            AND NOT EXISTS (
-              SELECT 1
-                FROM writer
-                CROSS JOIN private_relations relation
-               WHERE pg_catalog.has_table_privilege(
-                 writer.oid,
-                 relation.oid,
-                 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
-               )
-            )
-            AND NOT EXISTS (
-              SELECT 1
-                FROM writer
-                CROSS JOIN private_columns column_fact
-               WHERE pg_catalog.has_column_privilege(
-                 writer.oid,
-                 column_fact.relation_oid,
-                 column_fact.attnum,
-                 'SELECT,INSERT,UPDATE,REFERENCES'
-               )
-            )
-            AND (SELECT pg_catalog.has_schema_privilege(
-                          writer.oid,
-                          private_namespace.oid,
-                          'USAGE'
-                        ) IS FALSE
-                        AND pg_catalog.has_schema_privilege(
-                          writer.oid,
-                          private_namespace.oid,
-                          'CREATE'
-                        ) IS FALSE
-                   FROM writer
-                   JOIN pg_catalog.pg_namespace private_namespace
-                     ON private_namespace.nspname='composer_private')
-            AND (SELECT pg_catalog.has_schema_privilege(
-                          writer.oid,
-                          api_namespace.oid,
-                          'USAGE'
-                        )
-                        AND pg_catalog.has_schema_privilege(
-                          writer.oid,
-                          api_namespace.oid,
-                          'CREATE'
-                        ) IS FALSE
-                   FROM writer
-                   JOIN pg_catalog.pg_namespace api_namespace
-                     ON api_namespace.nspname='composer_owner_api')
-            AND (SELECT pg_catalog.has_database_privilege(
-                          writer.oid,
-                          database.oid,
-                          'CONNECT'
-                        )
-                        AND pg_catalog.has_database_privilege(
-                          writer.oid,
-                          database.oid,
-                          'CREATE'
-                        ) IS FALSE
-                        AND pg_catalog.has_database_privilege(
-                          writer.oid,
-                          database.oid,
-                          'TEMPORARY'
-                        ) IS FALSE
-                   FROM writer
-                   JOIN pg_catalog.pg_database database
-                     ON database.datname=pg_catalog.current_database())",
-    )
-    .bind(COMPOSER_TABLES_V2.as_slice())
-    .fetch_one(&mut **transaction)
-    .await?;
-
-    if exact {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
-            "Composer writer authority is unavailable".to_owned(),
         ))
     }
 }
@@ -1241,295 +966,27 @@ fn sealed_bytes_column(
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
 }
 
-async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx::Error> {
-    let role_is_exact: bool = sqlx::query_scalar("SELECT SESSION_USER=$1 AND CURRENT_USER=$1")
-        .bind(expected_role)
-        .fetch_one(pool)
-        .await?;
-
-    if role_is_exact {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(format!(
-            "Composer {expected_role} connection role is unavailable"
-        )))
-    }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-struct ComposerDatabaseFingerprintV2 {
-    system_identifier: String,
-    database_name: String,
-    database_oid: i64,
-}
-
-async fn verify_database_identity_authority(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let exact: bool = sqlx::query_scalar(
-        "SELECT language.lanname='sql'
-            AND procedure.prokind='f'
-            AND procedure.proretset
-            AND procedure.prosecdef
-            AND procedure.provolatile='i'
-            AND procedure.proparallel='s'
-            AND NOT procedure.proisstrict
-            AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
-            AND procedure.pronargs=0
-            AND procedure.prorettype='record'::pg_catalog.regtype
-            AND procedure.proallargtypes=ARRAY[
-                  'text'::pg_catalog.regtype::oid,
-                  'text'::pg_catalog.regtype::oid,
-                  'bigint'::pg_catalog.regtype::oid
-                ]::oid[]
-            AND procedure.proargmodes=ARRAY['t'::\"char\",'t'::\"char\",'t'::\"char\"]
-            AND procedure.proargnames=ARRAY[
-                  'system_identifier','database_name','database_oid'
-                ]::text[]
-            AND (
-              SELECT count(*)=2
-                 AND count(*) FILTER (
-                   WHERE acl.grantee=procedure.proowner
-                     AND acl.privilege_type='EXECUTE'
-                     AND NOT acl.is_grantable
-                 )=1
-                 AND count(*) FILTER (
-                   WHERE acl.grantee=rd_owner.oid
-                     AND acl.privilege_type='EXECUTE'
-                     AND NOT acl.is_grantable
-                 )=1
-                 AND count(*) FILTER (
-                   WHERE acl.grantee NOT IN (procedure.proowner,rd_owner.oid)
-                      OR acl.privilege_type<>'EXECUTE'
-                      OR acl.is_grantable
-                 )=0
-                FROM pg_catalog.aclexplode(COALESCE(
-                       procedure.proacl,
-                       pg_catalog.acldefault('f',procedure.proowner)
-                     )) acl
-            )
-           FROM pg_catalog.pg_proc procedure
-           JOIN pg_catalog.pg_namespace namespace
-             ON namespace.oid=procedure.pronamespace
-            AND namespace.nspname='rd_owner_api'
-           JOIN pg_catalog.pg_roles owner
-             ON owner.oid=procedure.proowner
-            AND owner.rolname='rd_custodian'
-           JOIN pg_catalog.pg_roles rd_owner ON rd_owner.rolname='rd_owner'
-           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
-          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
-    )
-    .bind(DATABASE_IDENTITY_FUNCTION_V2)
-    .fetch_one(pool)
-    .await?;
-
-    if exact {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
-            "Composer database identity authority is unavailable".to_owned(),
-        ))
-    }
-}
-
-async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
-    verify_database_identity_authority(pool).await?;
-    let (system_identifier, database_name, database_oid): (String, String, i64) =
-        sqlx::query_as(DATABASE_IDENTITY_QUERY_V2)
-            .fetch_one(pool)
-            .await?;
-    Ok(ComposerDatabaseFingerprintV2 {
-        system_identifier,
-        database_name,
-        database_oid,
-    })
-}
-
-async fn verify_transaction_database(
-    transaction: &mut Transaction<'_, Postgres>,
-    expected: &ComposerDatabaseFingerprintV2,
-) -> Result<(), sqlx::Error> {
-    let (system_identifier, database_name, database_oid): (String, String, i64) =
-        sqlx::query_as(DATABASE_IDENTITY_QUERY_V2)
-            .fetch_one(&mut **transaction)
-            .await?;
-    let actual = ComposerDatabaseFingerprintV2 {
-        system_identifier,
-        database_name,
-        database_oid,
-    };
-
-    if actual == *expected {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(
-            "Composer connection physical database changed after startup".to_owned(),
-        ))
-    }
-}
-
-async fn verify_transaction_database_for_writer(
-    transaction: &mut Transaction<'_, Postgres>,
-    expected: &ComposerDatabaseFingerprintV2,
-    mismatch_message: &'static str,
-) -> Result<(), sqlx::Error> {
-    let (database_name, database_oid): (String, i64) = sqlx::query_as(
-        "SELECT pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
-    )
-    .fetch_one(&mut **transaction)
-    .await?;
-
-    if database_name == expected.database_name && database_oid == expected.database_oid {
-        Ok(())
-    } else {
-        Err(sqlx::Error::Protocol(mismatch_message.to_owned()))
-    }
-}
-
-fn snapshot_import_statement(snapshot: &str) -> Result<AssertSqlSafe<String>, sqlx::Error> {
-    if snapshot.is_empty()
-        || snapshot.len() > 256
-        || !snapshot
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-')
-    {
-        return Err(sqlx::Error::Protocol(
-            "Composer physical database witness is unavailable".to_owned(),
-        ));
-    }
-
-    Ok(AssertSqlSafe(format!(
-        "SET TRANSACTION SNAPSHOT '{snapshot}'"
-    )))
-}
-
-async fn begin_verified_writer_transaction<'a>(
-    read_pool: &PgPool,
-    mutation_pool: &'a PgPool,
-    expected: &ComposerDatabaseFingerprintV2,
-    mismatch_message: &'static str,
-) -> Result<Transaction<'a, Postgres>, sqlx::Error> {
-    let mut witness = read_pool.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *witness)
-        .await?;
-    verify_transaction_database(&mut witness, expected).await?;
-    let snapshot: String = sqlx::query_scalar("SELECT pg_catalog.pg_export_snapshot()")
-        .fetch_one(&mut *witness)
-        .await?;
-
-    let mut transaction = mutation_pool.begin().await?;
-    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-        .execute(&mut *transaction)
-        .await?;
-    sqlx::query(snapshot_import_statement(&snapshot)?)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| sqlx::Error::Protocol(mismatch_message.to_owned()))?;
-    verify_transaction_database_for_writer(&mut transaction, expected, mismatch_message).await?;
-    witness.rollback().await?;
-    Ok(transaction)
-}
-
-async fn verify_same_database(
-    read_pool: &PgPool,
-    mutation_pool: &PgPool,
-) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
-    let read_identity = database_fingerprint(read_pool).await?;
-    let mutation_transaction = begin_verified_writer_transaction(
-        read_pool,
-        mutation_pool,
-        &read_identity,
-        "Composer read and mutation connections target different databases",
-    )
-    .await?;
-    mutation_transaction.rollback().await?;
-    Ok(read_identity)
-}
-
 #[derive(Clone)]
 pub struct PostgresDevelopComposerStoreV2 {
-    read_pool: PgPool,
-    mutation_pool: PgPool,
-    database_fingerprint: ComposerDatabaseFingerprintV2,
+    pool: PgPool,
 }
 
 impl PostgresDevelopComposerStoreV2 {
-    pub async fn connect(
-        rd_owner_database_url: &str,
-        rd_fact_writer_database_url: &str,
-    ) -> Result<Self, sqlx::Error> {
-        let read_pool = sqlx::postgres::PgPoolOptions::new()
+    pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
-            .connect(rd_owner_database_url)
-            .await?;
-        verify_pool_role(&read_pool, "rd_owner").await?;
-
-        let mutation_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(8)
-            .connect(rd_fact_writer_database_url)
-            .await?;
-        verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
-        let database_fingerprint = verify_same_database(&read_pool, &mutation_pool).await?;
-
-        Self::migrate(&read_pool).await?;
-        let mut transaction = begin_verified_writer_transaction(
-            &read_pool,
-            &mutation_pool,
-            &database_fingerprint,
-            "Composer connection physical database changed after startup",
-        )
-        .await?;
-        verify_composer_writer_authority_in_transaction(&mut transaction).await?;
-        verify_composer_commit_authority_in_transaction(&mut transaction).await?;
-        transaction.rollback().await?;
-
-        Ok(Self {
-            read_pool,
-            mutation_pool,
-            database_fingerprint,
-        })
-    }
-
-    async fn begin_read_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
-        let mut transaction = self.read_pool.begin().await?;
-        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
-        Ok(transaction)
-    }
-
-    async fn begin_mutation_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
-        begin_verified_writer_transaction(
-            &self.read_pool,
-            &self.mutation_pool,
-            &self.database_fingerprint,
-            "Composer connection physical database changed after startup",
-        )
-        .await
-    }
-
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    #[doc(hidden)]
-    pub async fn reconnect_mutation_pool_for_acceptance(
-        &mut self,
-        database_url: &str,
-    ) -> Result<(), sqlx::Error> {
-        self.mutation_pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
             .connect(database_url)
             .await?;
-        let transaction = self.begin_mutation_transaction().await?;
-        transaction.rollback().await
+        Self::migrate(&pool).await?;
+        Ok(Self { pool })
     }
 
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
-        let database_fingerprint = database_fingerprint(pool).await?;
         let mut transaction = pool.begin().await?;
-        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
         verify_composer_read_authority_in_transaction(&mut transaction)
             .await
-            .map_err(|issue| {
-                sqlx::Error::Protocol(format!(
-                    "Composer authority topology is unavailable: {}",
-                    issue.stage()
-                ))
+            .map_err(|_| {
+                sqlx::Error::Protocol("Composer authority topology is unavailable".to_owned())
             })?;
         transaction.rollback().await
     }
@@ -1550,7 +1007,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(self, request_identity).await {
+        let record = match load_record(&self.pool, request_identity).await {
             Ok(Some(record)) => record,
             Ok(None) => {
                 return Ok(unavailable_response(
@@ -1592,7 +1049,7 @@ impl PostgresDevelopComposerStoreV2 {
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let mut transaction = self.begin_mutation_transaction().await?;
+        let mut transaction = self.pool.begin().await?;
         acquire_advisory_locks(
             &mut transaction,
             &[request_lock_key(&request.request_identity)],
@@ -1668,7 +1125,6 @@ impl PostgresDevelopComposerStoreV2 {
 
         if let Err(e) = persist_record(
             &mut transaction,
-            &self.database_fingerprint,
             &record,
             current.bindings.clone(),
             fail_after_boundary,
@@ -1713,9 +1169,6 @@ impl PostgresDevelopComposerStoreV2 {
             }
         };
 
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
-        inject_selected_acceptance_commit_fault(&mut transaction).await?;
-
         match transaction.commit().await {
             Ok(()) => Ok(response),
             Err(_) => Ok(DevelopComposerOperationResponseV2::submitted_or_unknown(
@@ -1741,33 +1194,6 @@ impl PostgresDevelopComposerStoreV2 {
             Some(fail_after_boundary),
         )
         .await
-    }
-}
-
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-async fn inject_selected_acceptance_commit_fault(
-    transaction: &mut Transaction<'_, Postgres>,
-) -> Result<(), sqlx::Error> {
-    let selector: Option<String> = sqlx::query_scalar(
-        "SELECT pg_catalog.current_setting(
-            'vibe.develop_composer_acceptance_commit_fault', true
-         )",
-    )
-    .fetch_one(&mut **transaction)
-    .await?;
-
-    match selector.as_deref() {
-        None | Some("") => Ok(()),
-        Some(ACCEPTANCE_POST_WRITE_DISCONNECT_V2) => {
-            sqlx::query("SET LOCAL idle_in_transaction_session_timeout='50ms'")
-                .execute(&mut **transaction)
-                .await?;
-            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            Ok(())
-        }
-        Some(_) => Err(sqlx::Error::Protocol(
-            "unknown Composer acceptance commit fault selector".to_owned(),
-        )),
     }
 }
 
@@ -1896,18 +1322,10 @@ fn terminal_response(
 
 async fn persist_record(
     transaction: &mut Transaction<'_, Postgres>,
-    database_fingerprint: &ComposerDatabaseFingerprintV2,
     record: &StoredDevelopComposerPositiveV2,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
-    verify_transaction_database_for_writer(
-        transaction,
-        database_fingerprint,
-        "Composer connection physical database changed after startup",
-    )
-    .await?;
-    verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,
@@ -1973,10 +1391,10 @@ async fn persist_record(
 }
 
 async fn load_record(
-    store: &PostgresDevelopComposerStoreV2,
+    pool: &PgPool,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, sqlx::Error> {
-    let mut transaction = store.begin_read_transaction().await?;
+    let mut transaction = pool.begin().await?;
     let record = load_record_in_transaction(&mut transaction, request_identity).await?;
     transaction.commit().await?;
     Ok(record)
@@ -2039,35 +1457,7 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
-    use super::{
-        COMPOSER_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL, ComposerReadAuthorityIssueV2,
-        snapshot_import_statement,
-    };
-
-    #[rstest]
-    fn composer_read_authority_issue_stages_are_stable() {
-        assert_eq!(
-            [
-                ComposerReadAuthorityIssueV2::Base,
-                ComposerReadAuthorityIssueV2::Columns,
-                ComposerReadAuthorityIssueV2::Dependency,
-                ComposerReadAuthorityIssueV2::ConstraintOptions,
-                ComposerReadAuthorityIssueV2::IndexOptions,
-            ]
-            .map(|issue| issue.stage()),
-            [
-                "base",
-                "columns",
-                "dependency",
-                "constraint-options",
-                "index-options",
-            ]
-        );
-    }
-
-    #[rstest]
+    #[test]
     fn composer_authority_rejects_public_execute_on_commit() {
         let source = include_str!("develop_composer_postgres_v2.rs");
         let read_authority = source
@@ -2093,101 +1483,5 @@ mod tests {
         assert!(commit_authority.contains("SESSION_USER='rd_fact_writer'"));
         assert!(commit_authority.contains("SELECT count(*)=2"));
         assert!(commit_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
-    }
-
-    #[rstest]
-    fn composer_default_validator_closes_private_acl_and_writer_role_drift() {
-        let source = include_str!("develop_composer_postgres_v2.rs");
-        let read_authority = source
-            .split("async fn verify_composer_read_authority_in_transaction")
-            .nth(1)
-            .expect("Composer read authority")
-            .split("async fn verify_composer_commit_authority_in_transaction")
-            .next()
-            .expect("bounded Composer read authority");
-
-        assert!(read_authority.contains("owner.rolname='composer_owner'"));
-        assert!(read_authority.contains("namespace.nspname='composer_private'"));
-        assert!(read_authority.contains("pg_catalog.acldefault('n',private_namespace.nspowner)"));
-        assert!(read_authority.contains("pg_catalog.pg_attribute attribute"));
-        assert!(read_authority.contains("pg_catalog.aclexplode(attribute.attacl)"));
-        assert!(read_authority.contains("role.rolname='rd_fact_writer'"));
-        assert!(read_authority.contains("NOT role.rolsuper"));
-        assert!(read_authority.contains("granted.rolname='rd_fact_writer'"));
-        assert!(read_authority.contains("member.rolname='rd_fact_writer'"));
-        assert!(
-            COMPOSER_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL
-                .contains("rewrite_fact.ev_class NOT IN (SELECT oid FROM family)")
-        );
-        assert_eq!(
-            read_authority
-                .matches("COMPOSER_EXTERNAL_REWRITE_DEPENDENCIES_ABSENT_SQL")
-                .count(),
-            1
-        );
-    }
-
-    #[rstest]
-    fn composer_default_validator_requires_permanent_tables_and_indexes() {
-        let source = include_str!("develop_composer_postgres_v2.rs");
-        let read_authority = source
-            .split("async fn verify_composer_read_authority_in_transaction")
-            .nth(1)
-            .expect("Composer read authority")
-            .split("async fn verify_composer_commit_authority_in_transaction")
-            .next()
-            .expect("bounded Composer read authority");
-
-        assert_eq!(
-            read_authority
-                .lines()
-                .filter(|line| line.trim() == "AND relation.relpersistence='p'")
-                .count(),
-            1
-        );
-        assert!(read_authority.contains("AND relation.relpersistence='p' AND index_relation"));
-        assert!(read_authority.contains("index_relation.relpersistence='p'"));
-    }
-
-    #[rstest]
-    fn composer_database_identity_helper_is_read_side_only() {
-        let source = include_str!("develop_composer_postgres_v2.rs");
-        assert!(source.contains("rd_owner_api.resolve_develop_composer_database_identity_v2()"));
-        assert!(!source.contains(&["pg_catalog.pg_control", "_system()"].concat()));
-
-        let helper_authority = source
-            .split("async fn verify_database_identity_authority")
-            .nth(1)
-            .expect("Composer database identity authority")
-            .split("async fn database_fingerprint")
-            .next()
-            .expect("bounded Composer database identity authority");
-        assert!(helper_authority.contains("procedure.provolatile='i'"));
-        assert!(!helper_authority.contains("procedure.provolatile='s'"));
-        assert!(helper_authority.contains("procedure.proparallel='s'"));
-        assert!(helper_authority.contains("procedure.prosecdef"));
-        assert!(helper_authority.contains("procedure.proconfig=ARRAY['search_path=pg_catalog']"));
-        assert!(helper_authority.contains("owner.rolname='rd_custodian'"));
-        assert!(helper_authority.contains("count(*)=2"));
-        assert!(helper_authority.contains("acl.grantee=rd_owner.oid"));
-        assert!(helper_authority.contains("NOT acl.is_grantable"));
-
-        let writer_identity = source
-            .split("async fn verify_transaction_database_for_writer")
-            .nth(1)
-            .expect("Composer writer transaction identity")
-            .split("async fn verify_same_database")
-            .next()
-            .expect("bounded Composer writer transaction identity");
-        assert!(!writer_identity.contains("DATABASE_IDENTITY_QUERY_V2"));
-        assert!(writer_identity.contains("pg_catalog.current_database()"));
-    }
-
-    #[rstest]
-    #[case("")]
-    #[case("00000003-0000001B-1'; SELECT true; --")]
-    #[case("snapshot with spaces")]
-    fn composer_database_witness_rejects_unsafe_snapshot_identity(#[case] snapshot: &str) {
-        assert!(snapshot_import_statement(snapshot).is_err());
     }
 }

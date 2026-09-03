@@ -25,7 +25,7 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/rd-owner-postgres
   RUST_TEST_EXTRA_FEATURES: >-
     capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,
-    vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance
+    vibe-strategy-factory/sealed-develop-composer-acceptance
 
 jobs:
   rd-owner-postgres:
@@ -62,26 +62,13 @@ jobs:
           build-type: test
           free-disk-space: "true"
           free-disk-space-max-build: "true"
-          minimum-free-space-gb: "80"
-          rust-cache-enabled: "true"
-          rust-cache-workspaces: ". -> target/rd-owner-postgres"
-          rust-cache-on-failure: "true"
-          rust-cache-key: >-
-            rd-owner-postgres-v1-${{ hashFiles(
-            'Cargo.lock',
-            'rust-toolchain.toml',
-            'Cargo.toml',
-            'crates/**/Cargo.toml',
-            '.cargo/config.toml',
-            '.config/nextest.toml',
-            'Makefile') }}
+          minimum-free-space-gb: "110"
+          rust-cache-enabled: "false"
           uv-cache-enabled: "false"
           prek-cache-enabled: "false"
           capnp-cache-enabled: "false"
-          rust-cache-save-if: >-
-            ${{ github.repository == 'qOeOp/trade'
-            && github.event_name == 'push' }}
-          rust-cache-workspace-crates: "true"
+          rust-cache-save-if: "false"
+          rust-cache-workspace-crates: "false"
 
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"

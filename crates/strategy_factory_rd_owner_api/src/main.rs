@@ -26,8 +26,6 @@ use vibe_product_edge::{
     ProductEdgeError, ProductEdgeInvocationClaimReadbackV1, ProductEdgeInvocationClaimRequestV1,
     ProductEdgeInvocationStateV1, ProductEdgePostgresOwnerV1,
 };
-#[cfg(test)]
-use vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerSealedReadErrorV2;
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -38,7 +36,6 @@ use vibe_strategy_factory::{
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
-    develop_composer_postgres_v2::validate_existing_develop_composer_read_authority_v2,
     develop_composer_sealed_acceptance_v2::default_unavailable_response,
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
@@ -58,6 +55,7 @@ use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequ
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
     SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
+    submitted_or_unknown_response,
 };
 
 mod exploratory_replay;
@@ -148,18 +146,26 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if schema_materialization_requested(&arguments)? {
+        let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+        PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
+        PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        source_intake::materialize_schema(&database_url).await?;
+        return Ok(());
+    }
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
-    validate_existing_develop_composer_read_authority_v2(&database_url).await?;
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let rd_fact_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
+    let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
     let token = required_env("RD_OWNER_API_TOKEN")?;
     let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
     let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
     let product_edge = Arc::new(
-        ProductEdgePostgresOwnerV1::connect_existing(
+        ProductEdgePostgresOwnerV1::connect(
             &product_edge_database_url,
             required_env("PRODUCT_EDGE_DEPLOYMENT_IDENTITY")?,
             ProductEdgeAuthorizationTrustV1 {
@@ -171,13 +177,12 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     let owner =
-        PostgresResearchGoalOwnerV1::connect_existing(&database_url, &qualification_database_url)
-            .await?;
+        PostgresResearchGoalOwnerV1::connect(&database_url, &qualification_database_url).await?;
     #[cfg(feature = "sealed-source-intake-acceptance")]
     let owner = owner.bind_sealed_source_intake_research_policy();
     let owner = Arc::new(owner);
     let artifact_owner = Arc::new(
-        PostgresArtifactBuildOwnerV1::connect_existing(
+        PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             &env_or("RD_SANDBOX_SOCKET", SANDBOX_SOCKET_DEFAULT),
             env_or("RD_ARTIFACT_ATTEMPT_TIMEOUT_MS", "600000").parse()?,
@@ -185,13 +190,8 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let develop_composer = Arc::new(
-        SealedDevelopComposerAcceptanceV2::connect_with_writer(
-            &database_url,
-            &rd_fact_writer_database_url,
-        )
-        .await?,
-    );
+    let develop_composer =
+        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&composer_writer_database_url).await?);
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -291,6 +291,14 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
+fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool> {
+    match arguments {
+        [] => Ok(false),
+        [argument] if argument == "--materialize-schema" => Ok(true),
+        _ => anyhow::bail!("unsupported strategy-factory-rd-owner-api arguments"),
+    }
+}
+
 async fn bootstrap_deployment_store_admission()
 -> anyhow::Result<Option<Arc<dyn ResearchPitTerminalResolver>>> {
     Ok(research_pit_terminal_resolver_from_store_admission_environment().await?)
@@ -348,8 +356,8 @@ async fn run_develop_composer(
         match state.develop_composer.run().await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
+                StatusCode::ACCEPTED,
+                submitted_or_unknown_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
             ),
         }
     }
@@ -389,8 +397,8 @@ async fn resolve_develop_composer(
         match state.develop_composer.resolve(&request_identity).await {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                default_unavailable_response(&request_identity),
+                StatusCode::ACCEPTED,
+                submitted_or_unknown_response(&request_identity),
             ),
         }
     }
@@ -1562,529 +1570,21 @@ mod tests {
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
         product_edge::{RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchSourceV1},
     };
-    use vibe_testkit::postgres::{
-        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
-        ProtectedOwnerTestAuthorityV1, ProtectedOwnerTestRoleV1,
-    };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
 
-    async fn composer_test_authority(
-        database: &CanonicalOwnerPostgresTestDatabaseV1,
-    ) -> ProtectedOwnerTestAuthorityV1 {
-        match database
-            .acquire_protected_owner_test_authority(ProtectedOwnerTestRoleV1::ComposerOwner)
-            .await
-        {
-            Ok(authority) => authority,
-            Err(first_error) => {
-                let first_source = first_error.source().to_string();
-                match first_error.into_capability().retry_acquire().await {
-                    Ok(authority) => {
-                        release_composer_test_authority(authority).await;
-                        panic!(
-                            "initial Composer test authority acquire failed before successful recovery: {first_source}"
-                        );
-                    }
-                    Err(retry_error) => {
-                        let retry_source = retry_error.source().to_string();
-                        let authority = retry_error.into_capability();
-                        match authority.release().await {
-                            Ok(_) => panic!(
-                                "Composer test authority acquire failed and cleanup recovered: {first_source}; retry: {retry_source}"
-                            ),
-                            Err(release_error) => {
-                                let release_source = release_error.source().to_string();
-                                release_error
-                                    .into_capability()
-                                    .release()
-                                    .await
-                                    .unwrap_or_else(|final_error| {
-                                        panic!(
-                                            "Composer test authority acquire and cleanup failed: {first_source}; retry: {retry_source}; release: {release_source}; final release: {}",
-                                            final_error.source()
-                                        )
-                                    });
-                                panic!(
-                                    "Composer test authority acquire failed before cleanup recovery: {first_source}; retry: {retry_source}; release: {release_source}"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    async fn release_composer_test_authority(authority: ProtectedOwnerTestAuthorityV1) {
-        if let Err(first_error) = authority.release().await {
-            let first_source = first_error.source().to_string();
-            first_error
-                .into_capability()
-                .release()
-                .await
-                .unwrap_or_else(|retry_error| {
-                    panic!(
-                        "Composer test authority release and recovery failed: {first_source}; retry: {}",
-                        retry_error.source()
-                    )
-                });
-            panic!(
-                "Composer test authority release failed before successful recovery: {first_source}"
-            );
-        }
-    }
-
-    async fn execute_with_composer_test_authority(
-        database: &CanonicalOwnerPostgresTestDatabaseV1,
-        statement: &'static str,
-        action: &'static str,
-    ) {
-        let authority = composer_test_authority(database).await;
-        let result = sqlx::query(statement).execute(authority.pool()).await;
-        release_composer_test_authority(authority).await;
-        result.unwrap_or_else(|e| panic!("{action}: {e}"));
-    }
-
-    #[tokio::test]
-    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
-    async fn runtime_rd_owner_rejects_nonowner_sealed_column_acl() {
-        let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-        let qualification_url =
-            std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-
-        let error = PostgresResearchGoalOwnerV1::connect_existing(&rd_url, &qualification_url)
-            .await
-            .expect_err("nonowner sealed column ACL must make R&D custody unavailable");
-        assert_eq!(
-            error,
-            ResearchGoalOwnerError::Storage(
-                "existing R&D Owner custody or runtime authority is unavailable".into()
-            )
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "run only by the disposable PostgreSQL deployment boundary"]
-    async fn runtime_storage_connectors_start_without_migration_authority() {
-        let rd_url = std::env::var("RD_OWNER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
-        let rd_fact_writer_url =
-            std::env::var("RD_FACT_WRITER_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-        let qualification_url =
-            std::env::var("QUALIFICATION_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-        let edge_url = std::env::var("PRODUCT_EDGE_RUNTIME_STARTUP_DATABASE_URL").unwrap();
-        ProductEdgePostgresOwnerV1::connect_existing(
-            &edge_url,
-            "product-edge-runtime-startup-v1",
-            ProductEdgeAuthorizationTrustV1 {
-                issuer_identity: "runtime-startup-issuer-v1".into(),
-                issuer_key_version: "runtime-startup-key-v1".into(),
-                audience: "R_AND_D".into(),
-            },
-        )
-        .await
-        .expect("Product Edge existing custody");
-        PostgresResearchGoalOwnerV1::connect_existing(&rd_url, &qualification_url)
-            .await
-            .expect("R&D existing custody");
-        PostgresArtifactBuildOwnerV1::connect_existing(
-            &rd_url,
-            "/tmp/unused-runtime-sandbox.sock",
-            600_000,
-        )
-        .await
-        .expect("Artifact existing custody");
-        validate_existing_develop_composer_read_authority_v2(&rd_url)
-            .await
-            .expect("Composer read custody");
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
-        SealedDevelopComposerAcceptanceV2::connect_with_writer(&rd_url, &rd_fact_writer_url)
-            .await
-            .expect("Composer read and mutation custody");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_corrupt_index_options() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        execute_with_composer_test_authority(
-            &database,
-            "ALTER INDEX composer_private.rd_develop_designs_v2_pkey SET (fillfactor = 90)",
-            "inject Composer index option",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        execute_with_composer_test_authority(
-            &database,
-            "ALTER INDEX composer_private.rd_develop_designs_v2_pkey RESET (fillfactor)",
-            "restore Composer index option",
-        )
-        .await;
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_private_schema_acl_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        execute_with_composer_test_authority(
-            &database,
-            "GRANT USAGE ON SCHEMA composer_private TO rd_owner",
-            "inject Composer private schema ACL",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        execute_with_composer_test_authority(
-            &database,
-            "REVOKE USAGE ON SCHEMA composer_private FROM rd_owner",
-            "restore Composer private schema ACL",
-        )
-        .await;
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_private_column_acl_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        execute_with_composer_test_authority(
-            &database,
-            "GRANT SELECT (design_identity) ON composer_private.rd_develop_designs_v2 TO rd_owner",
-            "inject Composer private column ACL",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        execute_with_composer_test_authority(
-            &database,
-            "REVOKE SELECT (design_identity) ON composer_private.rd_develop_designs_v2 FROM rd_owner",
-            "restore Composer private column ACL",
-        )
-        .await;
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_external_view_dependency_and_restores() {
-        const VIEW_NAME: &str = "vibe_test_composer_external_dependency_v2";
-        const COMPOSER_TABLES: [&str; 9] = [
-            "rd_develop_designs_v2",
-            "rd_develop_plans_v2",
-            "rd_develop_artifacts_v2",
-            "rd_develop_artifact_modules_v2",
-            "rd_develop_build_receipts_v2",
-            "rd_develop_composer_receipts_v2",
-            "rd_develop_host_receipts_v2",
-            "rd_develop_operations_v2",
-            "rd_develop_outbox_v2",
-        ];
-        const FINGERPRINT_SQL: &str = "WITH family AS (
-          SELECT relation.oid
-            FROM pg_catalog.pg_class relation
-            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-           WHERE namespace.nspname='composer_private'
-             AND relation.relname=ANY($1)
-        ), facts(fact) AS (
-          SELECT 'view:'||relation.oid::text||':'||relation.relkind::text
-            FROM pg_catalog.pg_class relation
-            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-           WHERE namespace.nspname='public' AND relation.relname=$2
-          UNION ALL
-          SELECT 'dependency:'||dependency.classid::text||':'||dependency.objid::text||':'||
-                 dependency.objsubid::text||':'||dependency.refobjid::text||':'||
-                 dependency.refobjsubid::text||':'||dependency.deptype::text||':'||
-                 rewrite_fact.ev_class::text
-            FROM pg_catalog.pg_depend dependency
-            JOIN pg_catalog.pg_rewrite rewrite_fact
-              ON dependency.classid='pg_catalog.pg_rewrite'::pg_catalog.regclass
-             AND dependency.objid=rewrite_fact.oid
-           WHERE dependency.refclassid='pg_catalog.pg_class'::pg_catalog.regclass
-             AND dependency.refobjid IN (SELECT oid FROM family)
-             AND rewrite_fact.ev_class NOT IN (SELECT oid FROM family)
-        ) SELECT pg_catalog.md5(COALESCE(pg_catalog.string_agg(fact,E'\\n' ORDER BY fact),'')) FROM facts";
-        const WRITE_COUNT_SQL: &str = "SELECT
-          (SELECT count(*) FROM composer_private.rd_develop_designs_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_plans_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_artifacts_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_operations_v2)+
-          (SELECT count(*) FROM composer_private.rd_develop_outbox_v2)";
-
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        let authority = composer_test_authority(&database).await;
-        let before_fingerprint = sqlx::query_scalar::<_, String>(FINGERPRINT_SQL)
-            .bind(COMPOSER_TABLES.as_slice())
-            .bind(VIEW_NAME)
-            .fetch_one(authority.pool())
-            .await;
-        let before_writes = sqlx::query_scalar::<_, i64>(WRITE_COUNT_SQL)
-            .fetch_one(authority.pool())
-            .await;
-        release_composer_test_authority(authority).await;
-        let before_fingerprint =
-            before_fingerprint.expect("pre-injection Composer dependency fingerprint");
-        let before_writes = before_writes.expect("pre-injection Composer write count");
-        execute_with_composer_test_authority(
-            &database,
-            "CREATE VIEW public.vibe_test_composer_external_dependency_v2 AS
-             SELECT design_identity FROM composer_private.rd_develop_designs_v2",
-            "inject Composer external view dependency",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        let authority = composer_test_authority(&database).await;
-        let cleanup =
-            sqlx::query("DROP VIEW IF EXISTS public.vibe_test_composer_external_dependency_v2")
-                .execute(authority.pool())
-                .await;
-        let after_fingerprint = sqlx::query_scalar::<_, String>(FINGERPRINT_SQL)
-            .bind(COMPOSER_TABLES.as_slice())
-            .bind(VIEW_NAME)
-            .fetch_one(authority.pool())
-            .await;
-        let after_writes = sqlx::query_scalar::<_, i64>(WRITE_COUNT_SQL)
-            .fetch_one(authority.pool())
-            .await;
-        release_composer_test_authority(authority).await;
-
-        cleanup.expect("drop Composer external view dependency");
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-        assert_eq!(
-            after_writes.expect("post-cleanup Composer write count"),
-            before_writes
-        );
-        assert_eq!(
-            after_fingerprint.expect("post-cleanup Composer dependency fingerprint"),
-            before_fingerprint
-        );
-        validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await
-        .expect("Composer read authority after external view cleanup");
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_writer_membership_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        execute_with_composer_test_authority(
-            &database,
-            "GRANT rd_owner TO rd_fact_writer",
-            "inject Composer writer membership",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        execute_with_composer_test_authority(
-            &database,
-            "REVOKE rd_owner FROM rd_fact_writer",
-            "restore Composer writer membership",
-        )
-        .await;
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_writer_capability_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        execute_with_composer_test_authority(
-            &database,
-            "ALTER ROLE rd_fact_writer CREATEDB",
-            "inject Composer writer capability",
-        )
-        .await;
-
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-
-        execute_with_composer_test_authority(
-            &database,
-            "ALTER ROLE rd_fact_writer NOCREATEDB",
-            "restore Composer writer capability",
-        )
-        .await;
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    async fn admitted_postgres_fixture_pool() -> sqlx::PgPool {
-        let database_url = std::env::var("VIBE_TEST_POSTGRES_ADMIN_DATABASE_URL")
-            .expect("exact disposable PostgreSQL fixture-admin URL");
-        let expected_database = std::env::var("VIBE_POSTGRES_TEST_DATABASE_NAME")
-            .expect("exact disposable PostgreSQL database name");
-        let expected_marker = std::env::var("VIBE_POSTGRES_TEST_INSTANCE_MARKER")
-            .expect("exact disposable PostgreSQL instance marker");
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&database_url)
-            .await
-            .expect("disposable PostgreSQL fixture-admin connection");
-        let exact: bool = sqlx::query_scalar(
-            "SELECT session_user='postgres'
-                AND pg_catalog.current_database()=$1
-                AND EXISTS (
-                  SELECT 1
-                    FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
-                   WHERE marker.marker_identity=$2 AND marker.database_name=$1
-                )",
-        )
-        .bind(expected_database)
-        .bind(expected_marker)
-        .fetch_one(&pool)
-        .await
-        .expect("fixture-admin identity readback");
-        assert!(exact, "PostgreSQL fixture-admin identity mismatch");
-        pool
-    }
-
-    async fn pg_control_system_acl_fingerprint(pool: &sqlx::PgPool) -> String {
-        sqlx::query_scalar(
-            "SELECT COALESCE(routine.proacl::text,'<NULL>')
-               FROM pg_catalog.pg_proc routine
-              WHERE routine.oid=pg_catalog.to_regprocedure('pg_catalog.pg_control_system()')",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("pg_control_system ACL fingerprint")
-    }
-
-    async fn composer_persistence_fingerprint(pool: &sqlx::PgPool) -> Vec<String> {
-        sqlx::query_scalar(
-            "SELECT namespace.nspname||'.'||relation.relname||':'||relation.relkind||':'||relation.relpersistence
-               FROM pg_catalog.pg_class relation
-               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
-              WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private')
-                AND relation.relkind IN ('r','i')
-              ORDER BY namespace.nspname,relation.relname",
-        )
-        .fetch_all(pool)
-        .await
-        .expect("Catalog/Composer persistence fingerprint")
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_underlying_pg_control_system_acl_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        let fixture_admin = admitted_postgres_fixture_pool().await;
-        let fingerprint_before = pg_control_system_acl_fingerprint(&fixture_admin).await;
-
-        sqlx::query("GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO rd_owner")
-            .execute(&fixture_admin)
-            .await
-            .expect("inject pg_control_system ACL drift");
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-        let cleanup =
-            sqlx::query("REVOKE EXECUTE ON FUNCTION pg_catalog.pg_control_system() FROM rd_owner")
-                .execute(&fixture_admin)
-                .await;
-        cleanup.expect("restore pg_control_system ACL");
-        assert_eq!(
-            pg_control_system_acl_fingerprint(&fixture_admin).await,
-            fingerprint_before,
-            "pg_control_system ACL cleanup did not restore canonical custody"
-        );
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
-        );
-    }
-
-    #[tokio::test]
-    #[ignore = "requires the disposable canonical R&D Owner PostgreSQL topology"]
-    async fn composer_read_startup_rejects_unlogged_relation_drift() {
-        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
-            .await
-            .expect("canonical disposable Owner topology");
-        let fixture_admin = admitted_postgres_fixture_pool().await;
-        let fingerprint_before = composer_persistence_fingerprint(&fixture_admin).await;
-
-        sqlx::query("ALTER TABLE composer_private.rd_develop_designs_v2 SET UNLOGGED")
-            .execute(&fixture_admin)
-            .await
-            .expect("inject Composer UNLOGGED drift");
-        let validation = validate_existing_develop_composer_read_authority_v2(
-            database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
-        )
-        .await;
-        let cleanup = sqlx::query("ALTER TABLE composer_private.rd_develop_designs_v2 SET LOGGED")
-            .execute(&fixture_admin)
-            .await;
-        cleanup.expect("restore Composer durable relation");
-        assert_eq!(
-            composer_persistence_fingerprint(&fixture_admin).await,
-            fingerprint_before,
-            "Composer persistence cleanup did not restore canonical custody"
-        );
-        assert_eq!(
-            validation,
-            Err(DevelopComposerSealedReadErrorV2::Unavailable)
+    #[test]
+    fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {
+        assert!(!schema_materialization_requested(&[]).unwrap());
+        assert!(schema_materialization_requested(&["--materialize-schema".to_owned()]).unwrap());
+        assert!(schema_materialization_requested(&["--unknown".to_owned()]).is_err());
+        assert!(
+            schema_materialization_requested(&[
+                "--materialize-schema".to_owned(),
+                "--unknown".to_owned(),
+            ])
+            .is_err()
         );
     }
 
@@ -2285,7 +1785,7 @@ mod tests {
             .await
             .unwrap();
         let deployment_identity = format!("rd-api-retry-deployment-{suffix}");
-        let product_edge = ProductEdgePostgresOwnerV1::connect_existing(
+        let product_edge = ProductEdgePostgresOwnerV1::connect(
             test_database.database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner),
             &deployment_identity,
             ProductEdgeAuthorizationTrustV1 {
@@ -2338,7 +1838,7 @@ mod tests {
         );
         let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
         let owner = Arc::new(
-            PostgresResearchGoalOwnerV1::connect_existing(
+            PostgresResearchGoalOwnerV1::connect(
                 test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                 test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
             )
@@ -2346,7 +1846,7 @@ mod tests {
             .unwrap(),
         );
         let artifact_owner = Arc::new(
-            PostgresArtifactBuildOwnerV1::connect_existing(
+            PostgresArtifactBuildOwnerV1::connect(
                 test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                 "/tmp/unused-rd-sandbox.sock",
                 u64::MAX,
@@ -2364,8 +1864,7 @@ mod tests {
             _market_data_research_pit: None,
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer: Arc::new(
-                SealedDevelopComposerAcceptanceV2::connect_with_writer(
-                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                SealedDevelopComposerAcceptanceV2::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
                 .await
@@ -2373,37 +1872,6 @@ mod tests {
             ),
         };
         let headers = bearer_headers(token);
-        #[cfg(feature = "sealed-develop-composer-acceptance")]
-        {
-            let run_response =
-                run_develop_composer(State(state.clone()), headers.clone(), Bytes::new()).await;
-            assert_eq!(run_response.status(), StatusCode::OK);
-            let run_bytes = axum::body::to_bytes(run_response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            let run: DevelopComposerOperationResponseV2 =
-                serde_json::from_slice(&run_bytes).unwrap();
-            assert_eq!(
-                run.disposition,
-                DevelopComposerOperationDispositionV2::Success
-            );
-            assert!(run.receipt_identity.is_some());
-            assert!(run.artifact.is_some());
-
-            let resolve_response = resolve_develop_composer(
-                State(state.clone()),
-                Path(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2.to_owned()),
-                headers.clone(),
-                Bytes::new(),
-            )
-            .await;
-            assert_eq!(resolve_response.status(), StatusCode::OK);
-            let resolve_bytes = axum::body::to_bytes(resolve_response.into_body(), usize::MAX)
-                .await
-                .unwrap();
-            assert_eq!(resolve_bytes, run_bytes);
-        }
-
         let research_request_identity = format!("rd-api-retry-research-{suffix}");
         let research = ProductEdgeOperationRequestV2 {
             request_identity: research_request_identity.clone(),

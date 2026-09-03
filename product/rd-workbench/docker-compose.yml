@@ -10,6 +10,7 @@ services:
       - OPERATOR_AUTHORIZATION_DB_PASSWORD
       - QUALIFICATION_OWNER_DB_PASSWORD
       - PRODUCT_EDGE_DB_PASSWORD
+      - BACKTEST_OWNER_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -61,6 +62,21 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  schema-materialize:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    command: ["--materialize-schema"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
   authority-custody-migrate:
     profiles: ["authority-admin"]
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
@@ -72,12 +88,13 @@ services:
       QUALIFICATION_OWNER_DB_PASSWORD: >-
         ${QUALIFICATION_OWNER_DB_PASSWORD:?set QUALIFICATION_OWNER_DB_PASSWORD}
       PRODUCT_EDGE_DB_PASSWORD: ${PRODUCT_EDGE_DB_PASSWORD:?set PRODUCT_EDGE_DB_PASSWORD}
+      BACKTEST_OWNER_DB_PASSWORD: ${BACKTEST_OWNER_DB_PASSWORD:?set BACKTEST_OWNER_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      schema-materialize:
+        condition: service_completed_successfully
     security_opt:
       - no-new-privileges:true
 

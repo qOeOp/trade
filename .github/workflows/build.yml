@@ -493,7 +493,7 @@ jobs:
         && 'target/rust-tests-linux-x86'
         || '/home/runner/.cache/cargo-target/rust-tests-linux-x86' }}
       # yamllint disable-line rule:line-length
-      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance
+      RUST_TEST_EXTRA_FEATURES: capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,vibe-strategy-factory/sealed-develop-composer-acceptance
       RUST_BACKTRACE: 1
       VIBE_TEST_DATA_BASE_URL: ${{ vars.VIBE_TEST_DATA_BASE_URL }}
     # yamllint disable rule:line-length

@@ -7,7 +7,7 @@
 use std::fmt::Display;
 
 use serde::Deserialize;
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{Postgres, Row, Transaction};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
     ProductEdgeSourceInvocationStartRequestV1, SOURCE_INTAKE_OPERATION_SCHEMA_V1,
@@ -35,132 +35,6 @@ use super::{
     validate_current_policy, validate_retrieval_time,
 };
 use super::{OpenAlexWorkByDoiRequestV1, SourceIntakePolicyEvidenceV1};
-
-/// Validates the deployment-installed Source Intake custody without acquiring
-/// topology administration authority. This query is intentionally catalog-only.
-pub async fn validate_existing_source_intake_topology(
-    pool: &PgPool,
-) -> Result<(), SourceIntakeError> {
-    validate_existing_source_intake_topology_for(pool, true).await
-}
-
-/// Validates only the immutable Source Intake object manifest.
-///
-/// Migration callers use this catalog-only projection to recognize an already sealed deployment
-/// without pretending that their topology-administration connection is the runtime `rd_owner`.
-pub async fn validate_existing_source_intake_object_topology(
-    pool: &PgPool,
-) -> Result<(), SourceIntakeError> {
-    validate_existing_source_intake_topology_for(pool, false).await
-}
-
-async fn validate_existing_source_intake_topology_for(
-    pool: &PgPool,
-    require_runtime_authority: bool,
-) -> Result<(), SourceIntakeError> {
-    let exact: bool = sqlx::query_scalar(
-        "WITH required_relations(name,runtime_privileges) AS (
-           VALUES
-             ('rd_source_intake_bindings_v1',ARRAY['INSERT','SELECT','UPDATE']::text[]),
-             ('rd_source_intake_receipts_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[]),
-             ('rd_source_raw_payloads_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[]),
-             ('rd_source_raw_receipt_links_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[]),
-             ('rd_research_source_provenance_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[]),
-             ('rd_source_candidates_v1',ARRAY['INSERT','REFERENCES','SELECT','UPDATE']::text[])
-         ), required_routines(signature,is_strict,is_security_definer,volatility,parallel_mode,configuration,product_edge_execute) AS (
-           VALUES
-             ('rd_owner_api.derive_source_intake_identity_v1(text,text[])',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.canonical_source_intake_json_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],false),
-             ('rd_owner_api.derive_openalex_location_rights_v1(jsonb,text)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.derive_source_acquisition_binding_digest_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],false),
-             ('rd_owner_api.derive_source_acquisition_binding_identity_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog']::text[],false),
-             ('rd_owner_api.lock_source_acquisition_binding_v1(text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[],true),
-             ('rd_owner_api.lock_source_invocation_reservation_v1(text,text,text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog']::text[],true),
-             ('rd_owner_api.valid_source_intake_started_custody_v1(text,text,text,jsonb)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.guard_source_intake_binding_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, public, pg_temp']::text[],false),
-             ('rd_owner_api.reject_source_intake_terminal_mutation_v1()',false,true,'v','u',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.valid_source_intake_binding_contract_v1(jsonb)',true,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.valid_source_intake_receipt_v1(jsonb,text,text,text,text,text,smallint,text,text,bigint)',false,false,'i','s',ARRAY['search_path=pg_catalog, pg_temp']::text[],false),
-             ('rd_owner_api.canonical_source_intake_custody_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, pg_temp']::text[],false),
-             ('rd_owner_api.read_source_intake_v1(text)',true,true,'s','s',ARRAY['search_path=pg_catalog, rd_owner_api, pg_temp']::text[],false),
-             ('rd_owner_api.peek_source_intake_research_handoff_v1(text,text,text)',true,true,'s','s',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],false),
-             ('rd_owner_api.lock_source_intake_research_handoff_v1(text,text,text)',true,true,'v','u',ARRAY['search_path=pg_catalog, public, rd_owner_api, pg_temp']::text[],false)
-         ), required_triggers(name,relation_name,routine_signature,trigger_type,definition) AS (
-           VALUES
-             ('rd_source_intake_binding_guard_v1','rd_source_intake_bindings_v1','rd_owner_api.guard_source_intake_binding_v1()',19::smallint,'CREATE TRIGGER rd_source_intake_binding_guard_v1 BEFORE UPDATE ON rd_source_intake_bindings_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_api.guard_source_intake_binding_v1()'),
-             ('rd_source_intake_receipt_immutable_v1','rd_source_intake_receipts_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_intake_receipt_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_source_intake_receipts_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
-             ('rd_source_raw_payload_immutable_v1','rd_source_raw_payloads_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_raw_payload_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_source_raw_payloads_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
-             ('rd_source_raw_receipt_link_immutable_v1','rd_source_raw_receipt_links_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_raw_receipt_link_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_source_raw_receipt_links_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
-             ('rd_research_source_provenance_immutable_v1','rd_research_source_provenance_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_research_source_provenance_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_research_source_provenance_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()'),
-             ('rd_source_candidate_immutable_v1','rd_source_candidates_v1','rd_owner_api.reject_source_intake_terminal_mutation_v1()',58::smallint,'CREATE TRIGGER rd_source_candidate_immutable_v1 BEFORE DELETE OR UPDATE OR TRUNCATE ON rd_source_candidates_v1 FOR EACH STATEMENT EXECUTE FUNCTION rd_owner_api.reject_source_intake_terminal_mutation_v1()')
-         )
-         SELECT (NOT $1 OR (
-             session_user='rd_owner'
-             AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname IN ('composer_owner','rd_custodian','product_edge_custodian') OR member.rolname IN ('composer_owner','rd_custodian','product_edge_custodian'))
-             AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname=session_user AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
-             AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)
-             AND NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
-             AND NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')
-             AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE')
-             AND NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')
-             AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')
-           ))
-           AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
-           AND pg_catalog.pg_get_userbyid((SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='rd_owner_api'))='rd_custodian'
-           AND NOT EXISTS (
-             SELECT 1 FROM required_relations required
-             LEFT JOIN pg_catalog.pg_class relation ON relation.oid=pg_catalog.to_regclass('public.'||required.name)
-             WHERE relation.oid IS NULL OR relation.relkind<>'r' OR relation.relpersistence<>'p'
-                OR relation.relrowsecurity OR relation.relforcerowsecurity
-                OR pg_catalog.pg_get_userbyid(relation.relowner)<>'rd_custodian'
-                OR EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND acl.grantee<>relation.relowner)
-                OR EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
-                OR EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
-                OR pg_catalog.obj_description(relation.oid,'pg_class') IS DISTINCT FROM 'vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object('columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
-                OR (SELECT pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable)
-                      FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl) IS DISTINCT FROM required.runtime_privileges
-                OR (SELECT pg_catalog.count(*)<>7+pg_catalog.cardinality(required.runtime_privileges)
-                         OR pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
-                         OR pg_catalog.bool_or(acl.grantee NOT IN (relation.relowner,pg_catalog.to_regrole('rd_owner')::oid))
-                         OR pg_catalog.bool_or(acl.is_grantable)
-                      FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
-           )
-           AND NOT EXISTS (
-             SELECT 1 FROM required_routines required
-             LEFT JOIN pg_catalog.pg_proc routine ON routine.oid=pg_catalog.to_regprocedure(required.signature)
-             WHERE routine.oid IS NULL OR pg_catalog.pg_get_userbyid(routine.proowner)<>'rd_custodian'
-                OR routine.proisstrict<>required.is_strict OR routine.prosecdef<>required.is_security_definer
-                OR routine.provolatile::text<>required.volatility OR routine.proparallel::text<>required.parallel_mode
-                OR routine.proconfig IS DISTINCT FROM required.configuration
-                OR pg_catalog.obj_description(routine.oid,'pg_proc') IS DISTINCT FROM 'vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
-                OR (SELECT pg_catalog.array_agg(role.rolname||':'||acl.privilege_type||':'||acl.is_grantable::text ORDER BY role.rolname,acl.privilege_type,acl.is_grantable)
-                      FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
-                      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee) IS DISTINCT FROM CASE WHEN required.product_edge_execute
-                        THEN ARRAY['product_edge_owner:EXECUTE:false','rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[]
-                        ELSE ARRAY['rd_custodian:EXECUTE:false','rd_owner:EXECUTE:false']::text[] END
-           )
-           AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(
-                  trigger_fact.tgenabled='O' AND trigger_fact.tgnargs=0 AND trigger_fact.tgargs=''::bytea
-                  AND trigger_fact.tgqual IS NULL AND trigger_fact.tgtype=required.trigger_type
-                  AND pg_catalog.pg_get_triggerdef(trigger_fact.oid,true)=required.definition
-                  AND trigger_fact.tgfoid=pg_catalog.to_regprocedure(required.routine_signature)
-                  AND trigger_fact.tgrelid=pg_catalog.to_regclass('public.'||required.relation_name)
-                  AND EXISTS (SELECT 1 FROM pg_catalog.pg_depend dependency WHERE dependency.classid='pg_catalog.pg_trigger'::pg_catalog.regclass AND dependency.objid=trigger_fact.oid AND dependency.refclassid='pg_catalog.pg_proc'::pg_catalog.regclass AND dependency.refobjid=trigger_fact.tgfoid AND dependency.deptype='n')
-                ) FROM required_triggers required JOIN pg_catalog.pg_trigger trigger_fact ON trigger_fact.tgname=required.name AND NOT trigger_fact.tgisinternal)
-           AND (SELECT pg_catalog.count(*)=6 FROM pg_catalog.pg_trigger trigger_fact WHERE NOT trigger_fact.tgisinternal AND trigger_fact.tgrelid IN (SELECT pg_catalog.to_regclass('public.'||required.name) FROM required_relations required))",
-    )
-    .bind(require_runtime_authority)
-    .fetch_one(pool)
-    .await
-    .map_err(source_storage)?;
-
-    if !exact {
-        return Err(SourceIntakeError::Serialization(
-            "existing Source Intake custody or runtime authority is unavailable".into(),
-        ));
-    }
-    Ok(())
-}
 
 #[derive(Debug)]
 pub struct SourceIntakeTermsBlockedCommitV1<'a> {
@@ -3161,7 +3035,6 @@ RETURNING binding.request_identity, binding.binding_identity, receipt.receipt_id
 #[cfg(test)]
 mod terminal_wrapper_tests {
     use rstest::rstest;
-    use sqlx::postgres::PgPoolOptions;
 
     use super::*;
 
@@ -3180,24 +3053,6 @@ mod terminal_wrapper_tests {
                 < gate.find("FOR UPDATE")
         );
         assert!(source.contains("REVOKE ALL ON FUNCTION rd_owner_api.read_source_intake_v1(text) FROM PUBLIC, product_edge_owner"));
-    }
-
-    #[rstest]
-    #[tokio::test]
-    #[ignore = "requires an injected non-owner Source Intake column ACL"]
-    async fn existing_topology_rejects_nonowner_column_acl() {
-        let database_url = std::env::var("RD_SOURCE_INTAKE_COLUMN_ACL_TEST_DATABASE_URL")
-            .expect("Source Intake column ACL test URL");
-        let pool = PgPoolOptions::new()
-            .max_connections(1)
-            .connect(&database_url)
-            .await
-            .expect("Source Intake runtime connection");
-        assert!(
-            validate_existing_source_intake_topology(&pool)
-                .await
-                .is_err()
-        );
     }
 
     #[rstest]

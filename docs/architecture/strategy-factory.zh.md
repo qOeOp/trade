@@ -15,7 +15,10 @@ database/public schema 的 NOLOGIN custodian；`replay_policy_catalog_owner` 与
 private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE`、
 raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的 `rd_fact_writer` LOGIN
 获得 Catalog 管理与 Composer commit routine 的不可转授 `EXECUTE`。所有 routine 都使用全限定关系、
-`search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中；read 不创建 custody，迁移保留既有 OID、row 与 bytes。
+`search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中。fresh deployment 必须先在 `rd_owner` 仍拥有
+`public` 时运行同一套有界 Rust schema materializer；完成后 custody migration 才能把 database/schema
+移交给 `rd_database_owner` 并撤销 `rd_owner` 的 schema `CREATE`。runtime startup 不得重新获得该 lease，
+缺失任何预物化 legacy table 都必须 fail-close。read 不创建 custody，cutover 保留既有 OID、row 与 bytes。
 
 Qualification 投影构成一条按 principal/scope 绑定、只追加且无环的单链。某个准确且已验证的 Independence Basis 的最新投影若在 Qualification 提交或响应丢失后过期，只有 Qualification Owner 能在同一 principal/scope 锁下追加后继；该后继绑定准确 basis ref/digest、前驱投影 ref/digest、不变的规范 source sequence/cut/frontier、Owner clock epoch、新半开有效期、回执与 outbox，并原子推进 head。仍为 current 的投影必须按字节等价 join；调用方与 R&D 均不得自行续期。历史 R&D 终态 custody 继续绑定并暴露其实际消费的准确历史投影，而新的 S1 写入必须在最终锁定 cut 使用规范最新且仍 current 的投影。
 
