@@ -66,15 +66,15 @@ const COMPOSER_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTab
     composer_table!("rd_develop_designs_v2", [("design_identity", "bytea"), ("canonical_bytes", "bytea")],
         ["p:design_identity:::false:false:true:"], [primary "design_identity"]),
     composer_table!("rd_develop_plans_v2", [("plan_digest", "bytea"), ("design_identity", "bytea"), ("canonical_bytes", "bytea")], [
-        "f:design_identity:public.rd_develop_designs_v2(design_identity):aas:false:false:true:",
+        "f:design_identity:public.rd_develop_designs_v2(design_identity):a:a:s:false:false:true:",
         "p:plan_digest:::false:false:true:", "u:design_identity:::false:false:true:"
     ], [primary "plan_digest", unique "design_identity"]),
     composer_table!("rd_develop_artifacts_v2", [("artifact_identity", "bytea"), ("plan_digest", "bytea"), ("package_bytes", "bytea")], [
-        "f:plan_digest:public.rd_develop_plans_v2(plan_digest):aas:false:false:true:",
+        "f:plan_digest:public.rd_develop_plans_v2(plan_digest):a:a:s:false:false:true:",
         "p:artifact_identity:::false:false:true:", "u:plan_digest:::false:false:true:"
     ], [primary "artifact_identity", unique "plan_digest"]),
     composer_table!("rd_develop_artifact_modules_v2", [("artifact_identity", "bytea"), ("ordinal", "integer"), ("module_bytes", "bytea")], [
-        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):aas:false:false:true:",
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
         "p:artifact_identity,ordinal:::false:false:true:"
     ], [primary "artifact_identity,ordinal"]),
     composer_table!("rd_develop_build_receipts_v2", [
@@ -82,16 +82,16 @@ const COMPOSER_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTab
         ("capsule_identity", "bytea"), ("artifact_identity", "bytea"),
         ("ordinal", "integer"), ("canonical_bytes", "bytea")
     ], [
-        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):aas:false:false:true:",
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
         "p:receipt_identity:::false:false:true:", "u:artifact_identity,ordinal:::false:false:true:",
         "u:build_attempt_identity:::false:false:true:", "u:capsule_identity:::false:false:true:"
     ], [primary "receipt_identity", unique "artifact_identity,ordinal", unique "build_attempt_identity", unique "capsule_identity"]),
     composer_table!("rd_develop_composer_receipts_v2", [("artifact_identity", "bytea"), ("canonical_bytes", "bytea")], [
-        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):aas:false:false:true:",
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
         "p:artifact_identity:::false:false:true:"
     ], [primary "artifact_identity"]),
     composer_table!("rd_develop_host_receipts_v2", [("artifact_identity", "bytea"), ("canonical_bytes", "bytea")], [
-        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):aas:false:false:true:",
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
         "p:artifact_identity:::false:false:true:"
     ], [primary "artifact_identity"]),
     composer_table!("rd_develop_operations_v2", [
@@ -100,12 +100,12 @@ const COMPOSER_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTab
         ("artifact_identity", "bytea"), ("canonical_receipt_bytes", "bytea"),
         ("response_bytes", "bytea")
     ], [
-        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):aas:false:false:true:",
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
         "p:request_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:intent_identity:::false:false:true:", "u:research_request_identity:::false:false:true:"
     ], [primary "request_identity", unique "artifact_identity", unique "intent_identity", unique "research_request_identity"]),
     composer_table!("rd_develop_outbox_v2", [("request_identity", "text"), ("canonical_bytes", "bytea")], [
-        "f:request_identity:public.rd_develop_operations_v2(request_identity):aas:false:false:true:",
+        "f:request_identity:public.rd_develop_operations_v2(request_identity):a:a:s:false:false:true:",
         "p:request_identity:::false:false:true:"
     ], [primary "request_identity"]),
 ];
@@ -1037,9 +1037,11 @@ impl PostgresDevelopComposerStoreV2 {
             .max_connections(1)
             .connect(database_url)
             .await?;
+
         if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool).await? {
             return Self::migrate(&pool).await;
         }
+
         for (relation_name, statement) in [
             (
                 "rd_develop_designs_v2",
@@ -1579,7 +1581,7 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 mod tests {
     use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn public_materializer_covers_the_complete_composer_family() {
         assert_eq!(super::COMPOSER_TABLES_V2.len(), 9);
         assert_eq!(super::COMPOSER_PUBLIC_TABLE_SPECS_V2.len(), 9);

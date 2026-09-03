@@ -44,7 +44,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
             "c:catalog_version:::false:false:true:((catalog_version > (0)::numeric) AND (catalog_version <= '18446744073709551615'::numeric))",
             "c:policy_digest:::false:false:true:(octet_length(policy_digest) = 32)",
             "c:policy_grammar_parser_digest:::false:false:true:(octet_length(policy_grammar_parser_digest) = 32)",
-            "f:predecessor_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "f:predecessor_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):a:a:s:false:false:true:",
             "p:catalog_record_id:::false:false:true:",
             "u:catalog_record_digest:::false:false:true:",
             "u:catalog_version:::false:false:true:",
@@ -68,7 +68,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
         ],
         constraints: &[
             "c:singleton:::false:false:true:singleton",
-            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):a:a:s:false:false:true:",
             "p:singleton:::false:false:true:",
             "u:catalog_record_id:::false:false:true:",
             "u:catalog_version:::false:false:true:",
@@ -88,7 +88,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
             crate::schema_materialization::required("revoked_at_epoch_ms", "bigint"),
         ],
         constraints: &[
-            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):aas:false:false:true:",
+            "f:catalog_record_id:public.rd_replay_policy_catalog_records_v2(catalog_record_id):a:a:s:false:false:true:",
             "p:catalog_record_id:::false:false:true:",
             "u:catalog_version:::false:false:true:",
         ],

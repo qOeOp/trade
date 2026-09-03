@@ -190,7 +190,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
         ],
         constraints: &[
-            "f:evaluation_identity:public.rd_complex_strategy_develop_evaluations_v1(evaluation_identity):aas:false:false:true:",
+            "f:evaluation_identity:public.rd_complex_strategy_develop_evaluations_v1(evaluation_identity):a:a:s:false:false:true:",
             "p:lineage_identity:::false:false:true:",
         ],
         indexes: &[crate::schema_materialization::primary_index(

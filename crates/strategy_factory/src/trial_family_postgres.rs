@@ -47,7 +47,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("member_json", "jsonb"), ("membership_receipt_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
     ], [
-        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:member_identity:::false:false:true:", "u:fact_identity:::false:false:true:",
         "u:trial_family_identity,ordinal:::false:false:true:"
     ], [primary "member_identity", unique "fact_identity", unique "trial_family_identity,ordinal"]),
@@ -56,7 +56,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("frontier_digest", "text"), ("frontier_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
     ], [
-        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
     ], [primary "trial_family_identity", unique "frontier_identity"]),
     table!("rd_trial_family_attempt_cuts_v2", [
@@ -66,7 +66,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("attempt_frontier_json", "jsonb"), ("candidate_set_frontier_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
     ], [
-        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:census_frontier_identity:::false:false:true:",
         "u:attempt_frontier_identity:::false:false:true:",
         "u:candidate_set_frontier_identity:::false:false:true:",
@@ -79,7 +79,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("binding_json", "jsonb"), ("binding_receipt_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
     ], [
-        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):aas:false:false:true:",
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:build_receipt_identity:::false:false:true:"
     ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),

@@ -295,7 +295,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
         ],
         constraints: &[
-            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):aas:false:false:true:",
+            "f:basis_identity:public.rd_independence_bases_v1(basis_identity):a:a:s:false:false:true:",
             "p:principal_scope_key:::false:false:true:",
         ],
         indexes: &[crate::schema_materialization::primary_index(
@@ -2640,7 +2640,7 @@ mod tests {
     };
     use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
 
-    #[test]
+    #[rstest]
     fn expression_index_manifest_matches_postgres_pretty_catalog_form() {
         let research = RD_CORE_TABLES
             .iter()

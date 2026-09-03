@@ -241,6 +241,7 @@ impl PostgresArtifactBuildOwnerV1 {
             attempt_timeout_ms: 0,
             clock: Arc::new(current_epoch_ms),
         };
+
         if materialization {
             owner.migrate().await?;
             crate::schema_materialization::verify_materialized_public_tables(

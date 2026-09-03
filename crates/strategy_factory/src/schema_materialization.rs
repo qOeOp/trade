@@ -128,11 +128,13 @@ pub(crate) async fn require_existing_public_tables(
     )
     .fetch_one(pool)
     .await?;
+
     if !runtime_custody_is_admitted {
         return Err(sqlx::Error::Protocol(
             "runtime R&D schema validation requires the completed custody cutover".to_owned(),
         ));
     }
+
     for spec in specs {
         require_existing_public_table(pool, spec).await?;
     }
@@ -148,6 +150,7 @@ pub(crate) async fn verify_materialized_public_tables(
             "pre-cutover R&D schema verification is unavailable".to_owned(),
         ));
     }
+
     for spec in specs {
         require_existing_public_table(pool, spec).await?;
     }
@@ -181,6 +184,7 @@ async fn require_existing_public_table(
     .bind(spec.name)
     .fetch_optional(pool)
     .await?;
+
     if relation_is_exact != Some(true) {
         return incompatible(spec.name, "custody or relation options");
     }
@@ -200,6 +204,7 @@ async fn require_existing_public_table(
     .bind(spec.name)
     .fetch_all(pool)
     .await?;
+
     if columns.len() != spec.columns.len()
         || columns.iter().zip(spec.columns).any(|(actual, expected)| {
             actual.get::<String, _>("attname") != expected.name
@@ -223,7 +228,7 @@ async fn require_existing_public_table(
                   (SELECT pg_catalog.string_agg(attribute.attname,',' ORDER BY key_fact.ordinality)
                      FROM pg_catalog.unnest(constraint_fact.confkey) WITH ORDINALITY key_fact(attnum,ordinality)
                      JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=constraint_fact.confrelid AND attribute.attnum=key_fact.attnum)||')','')||':'||
-                CASE WHEN constraint_fact.contype='f' THEN constraint_fact.confupdtype::text||constraint_fact.confdeltype::text||constraint_fact.confmatchtype::text ELSE '' END||':'||
+                CASE WHEN constraint_fact.contype='f' THEN constraint_fact.confupdtype::text||':'||constraint_fact.confdeltype::text||':'||constraint_fact.confmatchtype::text ELSE '' END||':'||
                 constraint_fact.condeferrable::text||':'||constraint_fact.condeferred::text||':'||constraint_fact.convalidated::text||':'||
                 COALESCE(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false),'')
            FROM pg_catalog.pg_constraint constraint_fact
@@ -236,9 +241,11 @@ async fn require_existing_public_table(
     .bind(spec.name)
     .fetch_all(pool)
     .await?;
+
     constraints.sort();
     let mut expected_constraints = spec.constraints.to_vec();
     expected_constraints.sort_unstable();
+
     if constraints
         .iter()
         .map(String::as_str)
@@ -326,17 +333,20 @@ fn incompatible(relation_name: &str, aspect: &str) -> Result<(), sqlx::Error> {
 
 #[cfg(test)]
 mod tests {
-    #[test]
+    use rstest::rstest;
+
+    #[rstest]
     fn runtime_validation_is_read_only_and_exact() {
         let source = include_str!("schema_materialization.rs");
         let runtime = source
             .split("async fn require_existing_public_table(")
             .nth(1)
-            .expect("runtime validator")
-            .split("#[derive(Eq")
-            .next()
-            .expect("runtime validator boundary");
+        .expect("runtime validator")
+        .split("#[derive(Eq")
+        .next()
+        .expect("runtime validator boundary");
         assert!(!runtime.contains("CREATE TABLE"));
+
         for required in [
             "column manifest",
             "constraint manifest",
