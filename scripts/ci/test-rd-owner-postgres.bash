@@ -369,7 +369,6 @@ ordered_contract = (
     "Replay Policy Catalog/R&D protected membership cleanup failed",
     'if [[ "$rd_owner_test_status" -ne 0 ]]; then',
     'return "$rd_owner_test_status"',
-    'RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url"',
 )
 position = -1
 for required in ordered_contract:
@@ -385,6 +384,73 @@ if body.count("REVOKE rd_custodian FROM rd_owner") != 1:
     raise SystemExit("ERROR: R&D fresh migration lease cleanup is not unique")
 if body.count("GRANT CREATE ON SCHEMA rd_owner_api TO surprise_replay_grantee") != 1:
     raise SystemExit("ERROR: R&D schema ACL third-party negative is not unique")
+PY
+}
+
+check_artifact_fresh_migration_lease() {
+  python3 - "${BASH_SOURCE[0]}" << 'PY'
+from pathlib import Path
+import re
+import sys
+
+script = Path(sys.argv[1]).read_text(encoding="utf-8")
+function_match = re.search(
+    r"provision_owner_schemas\(\) \{(.*?)\n\}",
+    script,
+    re.DOTALL,
+)
+if function_match is None:
+    raise SystemExit("ERROR: Artifact fresh migration boundary is unavailable")
+body = function_match.group(1)
+ordered_contract = (
+    'local artifact_fresh_database="${fixture_database}_artifact_fresh"',
+    'CREATE DATABASE :"artifact_fresh_database" OWNER rd_database_owner;',
+    'GRANT CONNECT ON DATABASE :"artifact_fresh_database"\n'
+    '  TO vibe_test_owner_topology_admin;',
+    "CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;",
+    "GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;",
+    "GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;",
+    "GRANT rd_custodian TO vibe_test_owner_topology_admin\n"
+    "  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;",
+    "Artifact fresh migration lease topology mismatch",
+    "local artifact_test_status=0",
+    'RD_ARTIFACT_ADMIN_DATABASE_URL="$artifact_fresh_admin_url"',
+    'artifact_test_status="$?"',
+    "REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;",
+    "REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;",
+    "REVOKE rd_custodian FROM vibe_test_owner_topology_admin;",
+    "Artifact fresh migration lease cleanup failed",
+    'REVOKE CONNECT ON DATABASE :"artifact_fresh_database"\n'
+    '  FROM vibe_test_owner_topology_admin;',
+    'DROP DATABASE :"artifact_fresh_database" WITH (FORCE);',
+    'if [[ "$artifact_test_status" -ne 0 ]]; then',
+    'return "$artifact_test_status"',
+)
+position = -1
+for required in ordered_contract:
+    next_position = body.find(required, position + 1)
+    if next_position < 0:
+        raise SystemExit(
+            f"ERROR: Artifact fresh migration lease contract is missing or reordered: {required}"
+        )
+    position = next_position
+unique_contract = (
+    'CREATE DATABASE :"artifact_fresh_database" OWNER rd_database_owner;',
+    "GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;",
+    "GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;",
+    "GRANT rd_custodian TO vibe_test_owner_topology_admin",
+    'RD_ARTIFACT_ADMIN_DATABASE_URL="$artifact_fresh_admin_url"',
+    'artifact_test_status="$?"',
+    "REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;",
+    "REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;",
+    "REVOKE rd_custodian FROM vibe_test_owner_topology_admin;",
+    'DROP DATABASE :"artifact_fresh_database" WITH (FORCE);',
+)
+for required in unique_contract:
+    if body.count(required) != 1:
+        raise SystemExit(
+            f"ERROR: Artifact fresh migration lease contract is not unique: {required}"
+        )
 PY
 }
 
@@ -456,6 +522,7 @@ check_replay_policy_catalog_fault_function_bodies
 check_legacy_migration_lease_function_bodies
 check_migration_authority_boundary
 check_rd_owner_fresh_migration_lease
+check_artifact_fresh_migration_lease
 check_product_edge_fresh_migration_lease
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
@@ -2226,6 +2293,8 @@ provision_owner_schemas() {
   local rd_fresh_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${rd_fresh_database}"
   local rd_schema_lease_failure_database="${fixture_database}_rd_schema_lease_failure"
   local rd_schema_lease_failure_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${rd_schema_lease_failure_database}"
+  local artifact_fresh_database="${fixture_database}_artifact_fresh"
+  local artifact_fresh_admin_url="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${artifact_fresh_database}"
   local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
   local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & (test(=rd_owner_schema_is_provisioned_before_runtime_connections) | test(=rd_owner_schema_third_party_create_grant_fails_atomically))'
@@ -2414,15 +2483,169 @@ SQL
     return "$rd_owner_test_status"
   fi
 
-  if ! env RD_ARTIFACT_ADMIN_DATABASE_URL="$admin_url" \
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres \
+    --set=artifact_fresh_database="$artifact_fresh_database" << 'SQL'
+CREATE DATABASE :"artifact_fresh_database" OWNER rd_database_owner;
+REVOKE ALL ON DATABASE :"artifact_fresh_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"artifact_fresh_database"
+  TO vibe_test_owner_topology_admin;
+SQL
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$artifact_fresh_database" << 'SQL'
+BEGIN;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
+REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
+GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
+GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;
+GRANT rd_custodian TO vibe_test_owner_topology_admin
+  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+DO $artifact_migration_lease$
+BEGIN
+  IF pg_catalog.pg_get_userbyid((
+       SELECT namespace.nspowner
+         FROM pg_catalog.pg_namespace namespace
+        WHERE namespace.nspname='rd_owner_api'
+     )) IS DISTINCT FROM 'rd_owner'
+     OR NOT pg_catalog.has_database_privilege(
+       'vibe_test_owner_topology_admin',pg_catalog.current_database(),'CONNECT'
+     )
+     OR pg_catalog.has_database_privilege(
+       'vibe_test_owner_topology_admin',pg_catalog.current_database(),'CREATE,TEMPORARY'
+     )
+     OR EXISTS (
+       WITH admitted(grantee,privilege_type,is_grantable) AS (VALUES
+         ('vibe_test_owner_topology_admin','CONNECT',false)
+       ), actual AS (
+         SELECT COALESCE(grantee.rolname,'PUBLIC'),
+                acl.privilege_type,
+                acl.is_grantable
+           FROM pg_catalog.pg_database database_entry
+           CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+             database_entry.datacl,
+             pg_catalog.acldefault('d',database_entry.datdba)
+           )) acl
+           LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+          WHERE database_entry.datname=pg_catalog.current_database()
+            AND acl.grantee<>database_entry.datdba
+       )
+       SELECT * FROM admitted EXCEPT SELECT * FROM actual
+       UNION ALL
+       SELECT * FROM actual EXCEPT SELECT * FROM admitted
+     )
+     OR NOT pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','public','CREATE'
+     )
+     OR NOT pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','rd_owner_api','CREATE'
+     )
+     OR (SELECT pg_catalog.count(*)<>1
+           OR pg_catalog.count(*) FILTER (
+             WHERE granted.rolname='rd_custodian'
+               AND member.rolname='vibe_test_owner_topology_admin'
+               AND grantor.rolname='postgres'
+               AND NOT membership.admin_option
+               AND membership.inherit_option
+               AND membership.set_option
+           )<>1
+         FROM pg_catalog.pg_auth_members membership
+         JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+         JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+         JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+        WHERE granted.rolname='rd_custodian'
+           OR member.rolname='rd_custodian')
+     OR EXISTS (
+       WITH admitted(schema_name,grantee,privilege_type,is_grantable) AS (VALUES
+         ('public','PUBLIC','USAGE',false),
+         ('public','pg_database_owner','CREATE',false),
+         ('public','pg_database_owner','USAGE',false),
+         ('public','vibe_test_owner_topology_admin','CREATE',false),
+         ('rd_owner_api','rd_custodian','CREATE',false),
+         ('rd_owner_api','rd_owner','CREATE',false),
+         ('rd_owner_api','rd_owner','USAGE',false)
+       ), actual AS (
+         SELECT namespace.nspname,
+                COALESCE(grantee.rolname,'PUBLIC'),
+                acl.privilege_type,
+                acl.is_grantable
+           FROM pg_catalog.pg_namespace namespace
+           CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
+             namespace.nspacl,
+             pg_catalog.acldefault('n',namespace.nspowner)
+           )) acl
+           LEFT JOIN pg_catalog.pg_roles grantee ON grantee.oid=acl.grantee
+          WHERE namespace.nspname IN ('public','rd_owner_api')
+       )
+       SELECT * FROM admitted EXCEPT SELECT * FROM actual
+       UNION ALL
+       SELECT * FROM actual EXCEPT SELECT * FROM admitted
+     ) THEN
+    RAISE EXCEPTION 'Artifact fresh migration lease topology mismatch';
+  END IF;
+END
+$artifact_migration_lease$;
+COMMIT;
+SQL
+
+  local artifact_test_status=0
+  if env RD_ARTIFACT_ADMIN_DATABASE_URL="$artifact_fresh_admin_url" \
     cargo nextest run \
     --archive-file "$nextest_archive_file" \
     --profile "$nextest_profile" \
     "${nextest_execution_args[@]}" \
     -E "$artifact_filter"; then
-    return 1
+    :
+  else
+    artifact_test_status="$?"
   fi
 
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$artifact_fresh_database" << 'SQL'
+BEGIN;
+REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;
+REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;
+REVOKE rd_custodian FROM vibe_test_owner_topology_admin;
+DO $artifact_migration_cleanup$
+BEGIN
+  IF pg_catalog.pg_has_role(
+       'vibe_test_owner_topology_admin','rd_custodian','MEMBER'
+     )
+     OR EXISTS (
+       SELECT 1
+         FROM pg_catalog.pg_auth_members membership
+         JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+         JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+        WHERE granted.rolname='rd_custodian'
+           OR member.rolname='rd_custodian'
+     )
+     OR pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','public','CREATE'
+     )
+     OR pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','rd_owner_api','CREATE'
+     )
+     OR pg_catalog.has_schema_privilege(
+       'rd_custodian','rd_owner_api','CREATE'
+     ) THEN
+    RAISE EXCEPTION 'Artifact fresh migration lease cleanup failed';
+  END IF;
+END
+$artifact_migration_cleanup$;
+COMMIT;
+SQL
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres \
+    --set=artifact_fresh_database="$artifact_fresh_database" << 'SQL'
+REVOKE CONNECT ON DATABASE :"artifact_fresh_database"
+  FROM vibe_test_owner_topology_admin;
+DROP DATABASE :"artifact_fresh_database" WITH (FORCE);
+SQL
+
+  if [[ "$artifact_test_status" -ne 0 ]]; then
+    return "$artifact_test_status"
+  fi
 }
 
 provision_owner_schemas "$test_database"
