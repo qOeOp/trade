@@ -490,6 +490,13 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
         Ok(record)
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Catalog append remains private until a separately admitted administration composition uses it"
+        )
+    )]
     pub(crate) async fn append_version(
         transaction: &mut Transaction<'_, Postgres>,
         administrator: &AuthenticatedCatalogAdministratorV2,
@@ -583,6 +590,13 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
         Ok(())
     }
 
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "Catalog revocation remains private until a separately admitted administration composition uses it"
+        )
+    )]
     pub(crate) async fn revoke_version(
         transaction: &mut Transaction<'_, Postgres>,
         administrator: &AuthenticatedCatalogAdministratorV2,
@@ -760,6 +774,13 @@ async fn current_head(
     }
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "current head identity is retained only for the private append and revoke administration paths"
+    )
+)]
 async fn current_head_id(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<Option<String>, ReplayPolicyCatalogErrorV2> {
