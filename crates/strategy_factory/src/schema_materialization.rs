@@ -341,10 +341,10 @@ mod tests {
         let runtime = source
             .split("async fn require_existing_public_table(")
             .nth(1)
-        .expect("runtime validator")
-        .split("#[derive(Eq")
-        .next()
-        .expect("runtime validator boundary");
+            .expect("runtime validator")
+            .split("#[derive(Eq")
+            .next()
+            .expect("runtime validator boundary");
         assert!(!runtime.contains("CREATE TABLE"));
 
         for required in [
