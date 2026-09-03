@@ -715,7 +715,7 @@ async fn verify_composer_read_authority_in_transaction(
              ('rd_develop_operations_v2'),
              ('rd_develop_outbox_v2')
          ), relations AS (
-           SELECT relation.oid, relation.relowner, relation.relacl, target.proowner
+           SELECT relation.oid, relation.relowner, relation.relacl, relation.relpersistence, target.proowner
              FROM required
              CROSS JOIN target
              JOIN pg_catalog.pg_namespace namespace
@@ -780,7 +780,7 @@ async fn verify_composer_read_authority_in_transaction(
                   ON namespace.oid=procedure.pronamespace
                WHERE namespace.nspname='composer_owner_api'
             )
-            AND bool_and(relowner=relations.proowner)
+            AND bool_and(relpersistence='p' AND relowner=relations.proowner)
             AND NOT bool_or(EXISTS (
               SELECT 1
                 FROM pg_catalog.aclexplode(COALESCE(
@@ -910,7 +910,7 @@ async fn verify_composer_read_authority_in_transaction(
     if !constraint_options_are_exact {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
     }
-    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
+    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
         .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
     if !index_options_are_exact {
         return Err(DevelopComposerSealedReadErrorV2::Unavailable);
@@ -1580,6 +1580,7 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     #[rstest]
     fn public_materializer_covers_the_complete_composer_family() {
@@ -1597,6 +1598,62 @@ mod tests {
                 "constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f'))"
             )
         );
+    }
+
+    #[rstest]
+    fn composer_authority_requires_permanent_tables_and_indexes() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        let read_authority = source
+            .split("async fn verify_composer_read_authority_in_transaction")
+            .nth(1)
+            .expect("Composer read authority")
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .next()
+            .expect("bounded Composer read authority");
+
+        assert!(read_authority.contains("relation.relpersistence"));
+        assert!(read_authority.contains("relpersistence='p'"));
+        assert!(read_authority.contains("index_relation.relpersistence='p'"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+    async fn composer_unlogged_drift_is_unavailable_to_migration_and_runtime() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = database.mutation();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        super::PostgresDevelopComposerStoreV2::migrate(pool)
+            .await
+            .unwrap();
+
+        sqlx::query("ALTER TABLE composer_private.rd_develop_outbox_v2 SET UNLOGGED")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        assert!(
+            super::PostgresDevelopComposerStoreV2::migrate(pool)
+                .await
+                .is_err()
+        );
+        let mut transaction = pool.begin().await.unwrap();
+        assert!(
+            super::load_record_via_sealed_routine_in_transaction(
+                &mut transaction,
+                "unknown-composer-operation",
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        sqlx::query("ALTER TABLE composer_private.rd_develop_outbox_v2 SET LOGGED")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        super::PostgresDevelopComposerStoreV2::migrate(pool)
+            .await
+            .unwrap();
     }
 
     #[rstest]

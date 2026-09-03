@@ -31,6 +31,7 @@ grep -Fq "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migr
 grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count=9 AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count=9 AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc "c.relkind='r' AND c.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 cutover_gate_line=$(grep -nF "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
 private_schema_line=$(grep -nF 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
 test "$cutover_gate_line" -lt "$private_schema_line"
@@ -51,6 +52,8 @@ grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-
 grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "count(*)=13 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "index_relation.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "DO \$catalog_composer_constraint_manifest\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "foreign-key dependency manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
