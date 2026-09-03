@@ -89,10 +89,7 @@ const RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL: &str = "WITH protected_
      ), admitted_schema_acl(role_name,privilege_type,is_grantable,grantor_name) AS (
        VALUES
          ('rd_owner','CREATE',false,'rd_owner'),
-         ('rd_owner','USAGE',false,'rd_owner'),
-         ('product_edge_owner','USAGE',false,'rd_owner'),
-         ('qualification_writer','USAGE',false,'rd_owner'),
-         ('backtest_owner','USAGE',false,'rd_owner')
+         ('rd_owner','USAGE',false,'rd_owner')
      ), actual_schema_acl AS (
        SELECT COALESCE(grantee.rolname::text,'PUBLIC'),acl.privilege_type,
               acl.is_grantable,pg_catalog.pg_get_userbyid(acl.grantor)::text
@@ -1303,14 +1300,6 @@ impl PostgresResearchGoalOwnerV1 {
     async fn acquire_rd_owner_api_schema_create_lease(
         transaction: &mut Transaction<'_, Postgres>,
     ) -> Result<(), ResearchGoalOwnerError> {
-        let exact_before: bool =
-            sqlx::query_scalar(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL)
-                .fetch_one(&mut **transaction)
-                .await
-                .map_err(|e| storage(&e))?;
-        if !exact_before {
-            return Err(existing_rd_storage_unavailable());
-        }
         Self::require_exact_rd_owner_api_schema_publication_acl(transaction, false).await?;
 
         sqlx::query("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
@@ -3090,19 +3079,27 @@ mod tests {
 
     #[rstest]
     fn rd_owner_api_schema_acl_manifests_are_closed_before_and_after_publication() {
-        for admitted_role in [
-            "rd_owner",
+        assert!(
+            RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL
+                .contains("('rd_owner','CREATE',false,'rd_owner')")
+        );
+        assert!(
+            RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL
+                .contains("('rd_owner','USAGE',false,'rd_owner')")
+        );
+
+        for publication_role in [
             "product_edge_owner",
             "qualification_writer",
             "backtest_owner",
         ] {
             assert!(
-                RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(admitted_role),
-                "missing admitted schema role {admitted_role}"
+                !RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(publication_role),
+                "publication-only schema role admitted at entry: {publication_role}"
             );
             assert!(
-                RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains(admitted_role),
-                "missing publication schema role {admitted_role}"
+                RD_OWNER_API_SCHEMA_PUBLICATION_ACL_SQL.contains(publication_role),
+                "missing publication schema role {publication_role}"
             );
         }
         assert!(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL.contains(
