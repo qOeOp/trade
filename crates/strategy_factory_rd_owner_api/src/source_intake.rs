@@ -977,6 +977,7 @@ mod tests {
             SourceIntakeRelationFamilyState::Complete
         );
         let mut malformed_classes = Vec::new();
+
         for mutate in [
             |shape: &mut SourceIntakeRelationFamilyShape| shape.relation_custody.pop(),
             |shape: &mut SourceIntakeRelationFamilyShape| shape.columns.pop(),
@@ -1073,6 +1074,7 @@ mod tests {
             .split("#[cfg(test)]")
             .next()
             .expect("production module");
+
         for catalog_class in [
             "pg_catalog.pg_constraint",
             "pg_catalog.pg_index",
