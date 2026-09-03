@@ -235,8 +235,8 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
                 keys: "#expression#",
                 unique: true,
                 primary: false,
-                expression: Some("(intent_json ->> 'intent_identity'::text)"),
-                predicate: Some("(intent_json IS NOT NULL)"),
+                expression: Some("intent_json ->> 'intent_identity'::text"),
+                predicate: Some("intent_json IS NOT NULL"),
             },
         ],
     },
@@ -2639,6 +2639,24 @@ mod tests {
         ProductEdgePostgresOwnerV1,
     };
     use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
+
+    #[test]
+    fn expression_index_manifest_matches_postgres_pretty_catalog_form() {
+        let research = RD_CORE_TABLES
+            .iter()
+            .find(|spec| spec.name == "rd_research_request_receipts_v1")
+            .expect("research receipt table manifest");
+        let intent = research
+            .indexes
+            .iter()
+            .find(|index| index.expression.is_some())
+            .expect("intent expression index manifest");
+        assert_eq!(
+            intent.expression,
+            Some("intent_json ->> 'intent_identity'::text")
+        );
+        assert_eq!(intent.predicate, Some("intent_json IS NOT NULL"));
+    }
 
     struct SequencedSourcePolicyV1 {
         outcomes: Mutex<VecDeque<SourceIntakePolicyEvidenceResultV1>>,

@@ -177,7 +177,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
                 unique: true,
                 primary: false,
                 expression: None,
-                predicate: Some("(predecessor_evaluation_identity IS NOT NULL)"),
+                predicate: Some("predecessor_evaluation_identity IS NOT NULL"),
             },
         ],
     },
