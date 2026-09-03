@@ -357,7 +357,8 @@ ordered_contract = (
     "AND grantor.rolname='postgres' AND NOT membership.admin_option",
     "AND membership.inherit_option AND membership.set_option",
     "local rd_owner_test_status=0",
-    'RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url"',
+    'RD_OWNER_SEALED_TEST_DATABASE_URL="$admin_url"',
+    'RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_fresh_admin_url"',
     'rd_owner_test_status="$?"',
     "REVOKE rd_owner FROM vibe_test_owner_topology_admin;",
     "WHERE granted.rolname IN ('replay_policy_catalog_owner','rd_owner','rd_fact_writer')\n"
@@ -2215,15 +2216,12 @@ SQL
 provision_owner_schemas() {
   local fixture_database="$1"
   local admin_url="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
+  local rd_fresh_database="${fixture_database}_rd_fresh"
+  local rd_fresh_admin_url="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${rd_fresh_database}"
   local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
   local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=rd_owner_schema_is_provisioned_before_runtime_connections)'
   local artifact_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)'
-
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$fixture_database" << 'SQL'
-ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
-SQL
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$fixture_database" << 'SQL'
@@ -2299,9 +2297,18 @@ SQL
   fi
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$fixture_database" << 'SQL'
+    --username postgres --dbname postgres \
+    --set=rd_fresh_database="$rd_fresh_database" << 'SQL'
+CREATE DATABASE :"rd_fresh_database" OWNER rd_database_owner;
+REVOKE CONNECT ON DATABASE :"rd_fresh_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"rd_fresh_database"
+  TO vibe_test_owner_topology_admin, rd_owner;
+GRANT CREATE ON DATABASE :"rd_fresh_database" TO rd_owner;
+SQL
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$rd_fresh_database" << 'SQL'
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 GRANT USAGE, CREATE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
-GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;
 GRANT CREATE ON SCHEMA public TO rd_owner;
 SQL
 
@@ -2342,7 +2349,8 @@ SQL
 
   local rd_owner_test_status=0
   if env \
-    RD_OWNER_FRESH_TEST_DATABASE_URL="$admin_url" \
+    RD_OWNER_SEALED_TEST_DATABASE_URL="$admin_url" \
+    RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_fresh_admin_url" \
     QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
     cargo nextest run \
     --archive-file "$nextest_archive_file" \
@@ -2371,6 +2379,12 @@ BEGIN
   END IF;
 END
 $rd_owner_migration_cleanup$;
+SQL
+
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname postgres \
+    --set=rd_fresh_database="$rd_fresh_database" << 'SQL'
+DROP DATABASE :"rd_fresh_database" WITH (FORCE);
 SQL
 
   if [[ "$rd_owner_test_status" -ne 0 ]]; then

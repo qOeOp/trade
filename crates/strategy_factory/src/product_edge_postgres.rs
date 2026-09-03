@@ -3472,15 +3472,24 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a fresh isolated four-role PostgreSQL topology"]
     async fn fresh_rd_owner_existing_custody_validates_after_migration() {
+        let sealed_rd_database_url =
+            std::env::var("RD_OWNER_SEALED_TEST_DATABASE_URL").expect("sealed rd_owner URL");
         let rd_database_url =
             std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("fresh rd_owner URL");
         let qualification_database_url =
             std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
                 .expect("fresh qualification_writer URL");
 
-        let owner = PostgresResearchGoalOwnerV1::connect_existing(&rd_database_url, &qualification_database_url)
-            .await
-            .expect("fresh R&D storage migration and Qualification validation must be atomic in startup order");
+        let _sealed_owner = PostgresResearchGoalOwnerV1::connect(
+            &sealed_rd_database_url,
+            &qualification_database_url,
+        )
+        .await
+        .expect("complete sealed R&D storage must be reused without migration");
+        let owner =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .expect("fresh R&D storage migration and Qualification validation must be atomic in startup order");
         let catalog: (String, bool, String, String, bool, Option<Vec<String>>) = sqlx::query_as(
             "SELECT role.rolname, procedure.prosecdef, procedure.provolatile::text, procedure.proparallel::text, procedure.proisstrict, procedure.proconfig FROM pg_proc procedure JOIN pg_roles role ON role.oid=procedure.proowner WHERE procedure.oid=to_regprocedure('rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)')",
         )
