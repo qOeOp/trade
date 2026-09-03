@@ -19,7 +19,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity'
   'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
-  'vibe-strategy-factory|vibe_strategy_factory|postgres_freshness_tests::postgres_rd_owner_api_path|fresh_rd_owner_existing_custody_validates_after_migration'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_existing_custody_validates_after_migration'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::partial_sealed_non_anchor_objects_fail_before_ddl'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
   'vibe-strategy-factory|develop_composer_postgres_v2|composer_startup_rejects_same_named_database_on_a_distinct_cluster'
@@ -304,7 +304,7 @@ if min(normalization_start, test_provision, origin_provision, production_migrati
 normalization = script[normalization_start:production_migration]
 ordered_normalization = (
     'legacy-replay-migration:${test_marker}:pre-authority-normalization:v1',
-    'test(=product_edge_postgres::postgres_freshness_tests::fresh_rd_owner_existing_custody_validates_after_migration)',
+    'test(=product_edge_postgres::tests::fresh_rd_owner_existing_custody_validates_after_migration)',
     "vibe_test_legacy_migration_lease.acquire_v1(:'test_marker',:'lease_identity')",
     'RD_OWNER_SEALED_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
     'RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"',
@@ -2778,7 +2778,7 @@ SQL
 
 readonly legacy_normalization_lease_identity="legacy-replay-migration:${test_marker}:pre-authority-normalization:v1"
 readonly legacy_normalization_migration_url="postgresql://vibe_test_legacy_migration_caller:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
-readonly legacy_normalization_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=product_edge_postgres::postgres_freshness_tests::fresh_rd_owner_existing_custody_validates_after_migration)'
+readonly legacy_normalization_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=product_edge_postgres::tests::fresh_rd_owner_existing_custody_validates_after_migration)'
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
