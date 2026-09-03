@@ -25,7 +25,7 @@ env:
   CARGO_TARGET_DIR: ${{ github.workspace }}/target/rd-owner-postgres
   RUST_TEST_EXTRA_FEATURES: >-
     capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,
-    vibe-strategy-factory/sealed-develop-composer-acceptance
+    vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance
 
 jobs:
   rd-owner-postgres:

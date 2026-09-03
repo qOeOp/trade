@@ -90,7 +90,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -Uq \
-    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance' \
+    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
     echo "ERROR: rd-owner-postgres workflow must define sealed-develop-composer-acceptance feature union." >&2
     return 1
