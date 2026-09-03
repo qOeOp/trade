@@ -149,7 +149,7 @@ impl ReplayPolicyCatalogBindingV2 {
 }
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
-pub(crate) enum ReplayPolicyCatalogErrorV2 {
+pub enum ReplayPolicyCatalogErrorV2 {
     #[error("Replay Policy Catalog record is invalid: {0}")]
     InvalidRecord(&'static str),
     #[error("Replay Policy Catalog policy is invalid: {0}")]
@@ -158,6 +158,19 @@ pub(crate) enum ReplayPolicyCatalogErrorV2 {
     Unavailable(String),
     #[error("Replay Policy Catalog command conflicts with canonical custody")]
     Conflict,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayPolicyCatalogBootstrapReceiptV1 {
+    pub schema_version: u16,
+    pub bootstrap_identity: String,
+    pub administrator_identity: String,
+    pub verifier_identity: String,
+    pub authentication_fact_digest: String,
+    pub catalog_binding: ReplayPolicyCatalogBindingV2,
+    pub create_command_identity: String,
+    pub advance_command_identity: String,
 }
 
 fn canonical_record_bytes(

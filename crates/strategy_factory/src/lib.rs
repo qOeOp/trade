@@ -98,13 +98,12 @@ mod program_session;
 mod rd_owner_postgres_custody;
 pub mod receipt;
 pub mod replay_execution_policy_v2;
-#[allow(
-    dead_code,
-    reason = "the private Catalog administration port is reachable only from explicit disposable fixtures until an authenticated R&D administration composition is admitted"
-)]
 mod replay_policy_catalog_postgres_v2;
 mod replay_policy_catalog_v2;
-pub use replay_policy_catalog_v2::ReplayPolicyCatalogBindingV2;
+pub use replay_policy_catalog_postgres_v2::ensure_authenticated_replay_policy_catalog_genesis_v1;
+pub use replay_policy_catalog_v2::{
+    ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
+};
 mod representative;
 mod research;
 mod robustness;

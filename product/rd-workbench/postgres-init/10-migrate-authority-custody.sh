@@ -959,6 +959,19 @@ ALTER FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()
 REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2() TO rd_owner, rd_fact_writer;
 
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(p_command_identity text)
+RETURNS TABLE (administrator_identity text, authentication_fact_digest text, command_kind text, predecessor_record_id text, predecessor_head_record_id text, result_record_id text, content_identity text, audit_json jsonb, committed_at_epoch_ms bigint)
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_audit_read$
+  SELECT audit.administrator_identity, audit.authentication_fact_digest, audit.command_kind,
+    audit.predecessor_record_id, audit.predecessor_head_record_id, audit.result_record_id,
+    audit.content_identity, audit.audit_json, audit.committed_at_epoch_ms
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 audit
+  WHERE audit.command_identity=p_command_identity
+$catalog_audit_read$;
+ALTER FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text) FROM PUBLIC, rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text) TO rd_fact_writer;
+
 CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(
   p_action text, p_command_identity text, p_administrator_identity text, p_authentication_digest text,
   p_record_id text, p_version numeric, p_predecessor_id text, p_parser_id text, p_parser_digest bytea,
@@ -1105,7 +1118,7 @@ BEGIN
 END
 $catalog_composer_function_acl_cutover$;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint), composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_fact_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint), composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_fact_writer;
 DO $catalog_composer_readback$
 DECLARE exact boolean;
 BEGIN
@@ -1137,11 +1150,26 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
-    AND (SELECT count(*)=3 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=4 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)')
     )) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api')
+    AND (SELECT count(*)=1 AND bool_and(
+      pg_catalog.pg_get_userbyid(procedure.proowner)='replay_policy_catalog_owner'
+      AND procedure.prosecdef AND procedure.provolatile='v' AND procedure.proparallel='u'
+      AND procedure.proisstrict AND procedure.proretset
+      AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+      AND procedure.prosrc=$catalog_audit_read$
+  SELECT audit.administrator_identity, audit.authentication_fact_digest, audit.command_kind,
+    audit.predecessor_record_id, audit.predecessor_head_record_id, audit.result_record_id,
+    audit.content_identity, audit.audit_json, audit.committed_at_epoch_ms
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 audit
+  WHERE audit.command_identity=p_command_identity
+$catalog_audit_read$
+    ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
+      WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
     AND (SELECT count(*)=2 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)')
@@ -1149,8 +1177,10 @@ BEGIN
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')

@@ -11231,6 +11231,7 @@ dependencies = [
  "async-trait",
  "base64 0.23.1",
  "blake3",
+ "ed25519-dalek",
  "jiff",
  "reqwest 0.13.4",
  "rstest",
