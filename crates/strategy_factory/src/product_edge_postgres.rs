@@ -6,7 +6,7 @@ use std::{
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -72,6 +72,50 @@ struct ExistingRdStorageDiagnostic {
     locator: String,
     invariant: String,
 }
+
+const RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL: &str = "WITH protected_memberships AS (
+       SELECT membership.*,granted.rolname AS granted_role,
+              member.rolname AS member_role,grantor.rolname AS grantor_role
+         FROM pg_catalog.pg_auth_members membership
+         JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid
+         JOIN pg_catalog.pg_roles member ON member.oid=membership.member
+         JOIN pg_catalog.pg_roles grantor ON grantor.oid=membership.grantor
+        WHERE granted.rolname IN (
+                'rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer'
+              )
+           OR member.rolname IN (
+                'rd_custodian','rd_owner','replay_policy_catalog_owner','rd_fact_writer'
+              )
+     )
+     SELECT SESSION_USER='rd_owner'
+        AND CURRENT_USER='rd_owner'
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_roles role
+           WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit
+             AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
+             AND NOT role.rolreplication AND NOT role.rolbypassrls
+        )
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_roles role
+           WHERE role.rolname='rd_custodian' AND NOT role.rolcanlogin
+             AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole
+             AND NOT role.rolreplication AND NOT role.rolbypassrls
+        )
+        AND (SELECT pg_catalog.count(*)=1 FROM protected_memberships)
+        AND (SELECT pg_catalog.count(*)=1 FROM protected_memberships
+              WHERE granted_role='rd_custodian' AND member_role='rd_owner'
+                AND grantor_role='postgres' AND NOT admin_option
+                AND inherit_option AND set_option)
+        AND pg_catalog.pg_get_userbyid((
+          SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
+           WHERE namespace.nspname='rd_owner_api'
+        ))='rd_owner'
+        AND pg_catalog.has_schema_privilege('rd_owner','rd_owner_api','USAGE')
+        AND pg_catalog.has_schema_privilege('rd_owner','rd_owner_api','CREATE')
+        AND NOT pg_catalog.has_schema_privilege(
+          'rd_custodian','rd_owner_api','CREATE'
+        )
+        AND pg_catalog.has_schema_privilege('rd_owner','public','CREATE')";
 
 impl Debug for PostgresResearchGoalOwnerV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -803,6 +847,7 @@ impl PostgresResearchGoalOwnerV1 {
         require_rd_owner_api_schema(pool)
             .await
             .map_err(|e| storage(&e))?;
+        Self::require_rd_owner_api_schema_create_lease_preconditions(pool).await?;
 
         for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1 {
             sqlx::query(*statement)
@@ -1068,8 +1113,6 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
-            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian",
-            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_custodian",
             "REVOKE ALL ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_writer",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) TO product_edge_owner",
@@ -1107,6 +1150,7 @@ impl PostgresResearchGoalOwnerV1 {
             .await
             .map_err(|e| ResearchGoalOwnerError::Storage(e.to_string()))?;
         let mut publication = pool.begin().await.map_err(|e| storage(&e))?;
+        Self::acquire_rd_owner_api_schema_create_lease(&mut publication).await?;
         sqlx::query("CREATE UNIQUE INDEX IF NOT EXISTS rd_owner_outbox_aggregate_kind_v1 ON public.rd_owner_outbox_v1 (aggregate_identity, event_kind)")
             .execute(&mut *publication)
             .await
@@ -1178,6 +1222,8 @@ impl PostgresResearchGoalOwnerV1 {
         .map_err(|e| storage(&e))?;
 
         for statement in [
+            "ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian",
+            "ALTER FUNCTION rd_owner_api.lock_current_research_for_artifact_v1(text,text,text) OWNER TO rd_custodian",
             "ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian",
             "REVOKE ALL ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) FROM PUBLIC, product_edge_owner, operator_authorization_writer, qualification_owner",
             "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer",
@@ -1188,7 +1234,90 @@ impl PostgresResearchGoalOwnerV1 {
                 .await
                 .map_err(|e| storage(&e))?;
         }
+        Self::release_rd_owner_api_schema_create_lease(&mut publication).await?;
         publication.commit().await.map_err(|e| storage(&e))?;
+        Ok(())
+    }
+
+    async fn require_rd_owner_api_schema_create_lease_preconditions(
+        pool: &PgPool,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        let exact: bool = sqlx::query_scalar(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| storage(&e))?;
+
+        if !exact {
+            return Err(existing_rd_storage_unavailable());
+        }
+        Ok(())
+    }
+
+    async fn acquire_rd_owner_api_schema_create_lease(
+        transaction: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        let exact_before: bool =
+            sqlx::query_scalar(RD_OWNER_API_SCHEMA_CREATE_LEASE_PRECONDITION_SQL)
+                .fetch_one(&mut **transaction)
+                .await
+                .map_err(|e| storage(&e))?;
+        if !exact_before {
+            return Err(existing_rd_storage_unavailable());
+        }
+
+        sqlx::query("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
+            .execute(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        let exact_lease: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.has_schema_privilege(
+                      'rd_custodian','rd_owner_api','CREATE'
+                    )
+                AND (SELECT pg_catalog.count(*)=1
+                       FROM pg_catalog.pg_namespace namespace
+                       CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
+                      WHERE namespace.nspname='rd_owner_api'
+                        AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+                        AND acl.privilege_type='CREATE' AND NOT acl.is_grantable)",
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+        if !exact_lease {
+            return Err(existing_rd_storage_unavailable());
+        }
+        Ok(())
+    }
+
+    async fn release_rd_owner_api_schema_create_lease(
+        transaction: &mut Transaction<'_, Postgres>,
+    ) -> Result<(), ResearchGoalOwnerError> {
+        sqlx::query("REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian")
+            .execute(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+        let exact_final_acl: bool = sqlx::query_scalar(
+            "SELECT pg_catalog.pg_get_userbyid((
+                      SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
+                       WHERE namespace.nspname='rd_owner_api'
+                    ))='rd_owner'
+                AND NOT pg_catalog.has_schema_privilege(
+                  'rd_custodian','rd_owner_api','CREATE'
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_catalog.pg_namespace namespace
+                  CROSS JOIN LATERAL pg_catalog.aclexplode(namespace.nspacl) acl
+                   WHERE namespace.nspname='rd_owner_api'
+                     AND acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+                     AND acl.privilege_type='CREATE'
+                )",
+        )
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+        if !exact_final_acl {
+            return Err(existing_rd_storage_unavailable());
+        }
         Ok(())
     }
 
@@ -2864,6 +2993,61 @@ mod tests {
         assert!(migration.contains("SELECT SESSION_USER='rd_owner'"));
         assert!(migration.contains("if session_is_rd_owner"));
         assert!(source.contains("array_agg(role.rolname::text ORDER BY role.rolname)"));
+    }
+
+    #[rstest]
+    fn rd_owner_api_schema_create_is_a_transaction_bounded_publication_lease() {
+        let source = include_str!("product_edge_postgres.rs");
+        let migration = source
+            .split("async fn migrate_rd_storage")
+            .nth(1)
+            .expect("R&D storage migration")
+            .split("pub async fn commit_exploratory_replay_request_v1")
+            .next()
+            .expect("R&D storage migration boundary");
+        let preflight = migration
+            .find("Self::require_rd_owner_api_schema_create_lease_preconditions(pool)")
+            .expect("schema lease preflight");
+        let first_ddl = migration
+            .find("for statement in SOURCE_INTAKE_IDENTITY_PREREQUISITE_SQL_V1")
+            .expect("first canonical migration DDL");
+        let publication = migration
+            .find("let mut publication = pool.begin()")
+            .expect("publication transaction");
+        let lease = migration
+            .find("Self::acquire_rd_owner_api_schema_create_lease(&mut publication)")
+            .expect("schema CREATE lease");
+        let first_transfer = migration
+            .find("ALTER FUNCTION rd_owner_api.peek_current_research_for_artifact_v1(text) OWNER TO rd_custodian")
+            .expect("first custodian ownership transfer");
+        let final_transfer = migration
+            .find("ALTER FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) OWNER TO rd_custodian")
+            .expect("final custodian ownership transfer");
+        let revoke = migration
+            .find("Self::release_rd_owner_api_schema_create_lease(&mut publication)")
+            .expect("schema CREATE lease release");
+        let commit = migration
+            .find("publication.commit()")
+            .expect("publication commit");
+
+        assert!(preflight < first_ddl);
+        assert!(publication < lease);
+        assert!(lease < first_transfer);
+        assert!(first_transfer < final_transfer);
+        assert!(final_transfer < revoke);
+        assert!(revoke < commit);
+        assert_eq!(
+            migration
+                .matches("GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian")
+                .count(),
+            1
+        );
+        assert_eq!(
+            migration
+                .matches("REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian")
+                .count(),
+            1
+        );
     }
 
     #[rstest]

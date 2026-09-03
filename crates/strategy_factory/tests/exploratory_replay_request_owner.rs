@@ -2811,9 +2811,114 @@ async fn rd_owner_schema_is_provisioned_before_runtime_connections() {
         std::env::var("RD_OWNER_FRESH_TEST_DATABASE_URL").expect("disposable R&D migration URL");
     let qualification_url = std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
         .expect("disposable Qualification validation URL");
+    let pool = PgPool::connect(&rd_url)
+        .await
+        .expect("fresh R&D migration authority connection");
+    let before: (String, bool, i64) = sqlx::query_as(
+        "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner),
+                pg_catalog.has_schema_privilege('rd_custodian','rd_owner_api','CREATE'),
+                (SELECT pg_catalog.count(*)
+                   FROM pg_catalog.aclexplode(namespace.nspacl) acl
+                  WHERE acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+                    AND acl.privilege_type='CREATE')
+           FROM pg_catalog.pg_namespace namespace
+          WHERE namespace.nspname='rd_owner_api'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("fresh R&D schema lease precondition");
+    assert_eq!(before, ("rd_owner".into(), false, 0));
+
     PostgresResearchGoalOwnerV1::connect(&rd_url, &qualification_url)
         .await
         .expect("canonical R&D Owner schema migration");
+
+    let after: (String, bool, i64, i64) = sqlx::query_as(
+        "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner),
+                pg_catalog.has_schema_privilege('rd_custodian','rd_owner_api','CREATE'),
+                (SELECT pg_catalog.count(*)
+                   FROM pg_catalog.aclexplode(namespace.nspacl) acl
+                  WHERE acl.grantee=pg_catalog.to_regrole('rd_custodian')::oid
+                    AND acl.privilege_type='CREATE'),
+                (SELECT pg_catalog.count(*)
+                   FROM pg_catalog.pg_proc procedure
+                  WHERE procedure.oid=ANY(ARRAY[
+                    pg_catalog.to_regprocedure(
+                      'rd_owner_api.peek_current_research_for_artifact_v1(text)'
+                    ),
+                    pg_catalog.to_regprocedure(
+                      'rd_owner_api.lock_current_research_for_artifact_v1(text,text,text)'
+                    ),
+                    pg_catalog.to_regprocedure(
+                      'rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb)'
+                    )
+                  ])
+                    AND pg_catalog.pg_get_userbyid(procedure.proowner)='rd_custodian')
+           FROM pg_catalog.pg_namespace namespace
+          WHERE namespace.nspname='rd_owner_api'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("final R&D schema lease and publication custody");
+    assert_eq!(after, ("rd_owner".into(), false, 0, 3));
+}
+
+#[tokio::test]
+#[ignore = "run only by the disposable PostgreSQL deployment boundary"]
+async fn rd_owner_schema_permission_failure_is_atomic() {
+    let rd_url = std::env::var("RD_OWNER_SCHEMA_LEASE_FAILURE_TEST_DATABASE_URL")
+        .expect("disposable R&D schema permission failure URL");
+    let qualification_url = std::env::var("QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL")
+        .expect("disposable Qualification validation URL");
+    let pool = PgPool::connect(&rd_url)
+        .await
+        .expect("R&D permission failure connection");
+    let before = rd_owner_migration_topology_fingerprint(&pool).await;
+
+    PostgresResearchGoalOwnerV1::connect(&rd_url, &qualification_url)
+        .await
+        .expect_err("missing public schema CREATE must fail before canonical migration DDL");
+
+    let after = rd_owner_migration_topology_fingerprint(&pool).await;
+    assert_eq!(after, before);
+    let leaked_schema_create: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.has_schema_privilege(
+           'rd_custodian','rd_owner_api','CREATE'
+         )",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("R&D permission failure schema lease readback");
+    assert!(!leaked_schema_create);
+}
+
+async fn rd_owner_migration_topology_fingerprint(pool: &PgPool) -> String {
+    sqlx::query_scalar::<_, String>(
+        "WITH facts(fact) AS (
+           SELECT 'namespace:'||namespace.nspname||':'||
+                  pg_catalog.pg_get_userbyid(namespace.nspowner)||':'||
+                  COALESCE(namespace.nspacl::text,'<NULL>')
+             FROM pg_catalog.pg_namespace namespace
+            WHERE namespace.nspname IN ('public','rd_owner_api')
+           UNION ALL
+           SELECT 'relation:'||namespace.nspname||'.'||relation.relname
+             FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+            WHERE namespace.nspname IN ('public','rd_owner_api')
+           UNION ALL
+           SELECT 'routine:'||namespace.nspname||'.'||routine.proname||'('||
+                  pg_catalog.pg_get_function_identity_arguments(routine.oid)||')'
+             FROM pg_catalog.pg_proc routine
+             JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+            WHERE namespace.nspname IN ('public','rd_owner_api')
+         )
+         SELECT pg_catalog.md5(COALESCE(
+           pg_catalog.string_agg(fact,E'\\n' ORDER BY fact),''
+         )) FROM facts",
+    )
+    .fetch_one(pool)
+    .await
+    .expect("R&D permission failure topology fingerprint")
 }
 
 fn research_request(identity: &str) -> ProductEdgeResearchGoalRequestV2 {

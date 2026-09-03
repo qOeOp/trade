@@ -359,6 +359,7 @@ ordered_contract = (
     "local rd_owner_test_status=0",
     'RD_OWNER_SEALED_TEST_DATABASE_URL="$rd_sealed_owner_url"',
     'RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_fresh_owner_url"',
+    'RD_OWNER_SCHEMA_LEASE_FAILURE_TEST_DATABASE_URL="$rd_schema_lease_failure_owner_url"',
     'rd_owner_test_status="$?"',
     "REVOKE rd_custodian FROM rd_owner;",
     "WHERE granted.rolname IN ('rd_custodian','rd_owner','rd_fact_writer')\n"
@@ -2219,9 +2220,11 @@ provision_owner_schemas() {
   local rd_sealed_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local rd_fresh_database="${fixture_database}_rd_fresh"
   local rd_fresh_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${rd_fresh_database}"
+  local rd_schema_lease_failure_database="${fixture_database}_rd_schema_lease_failure"
+  local rd_schema_lease_failure_owner_url="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${rd_schema_lease_failure_database}"
   local qualification_url="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}"
   local product_edge_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=product_edge_schema_is_provisioned_before_runtime_connections)'
-  local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & test(=rd_owner_schema_is_provisioned_before_runtime_connections)'
+  local rd_owner_filter='package(vibe-strategy-factory) & binary(exploratory_replay_request_owner) & (test(=rd_owner_schema_is_provisioned_before_runtime_connections) | test(=rd_owner_schema_permission_failure_is_atomic))'
   local artifact_filter='package(vibe-strategy-factory) & binary(vibe_strategy_factory) & test(=artifact_build_postgres::postgres_freshness_tests::artifact_schema_is_provisioned_by_topology_admin)'
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -2299,17 +2302,27 @@ SQL
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres \
-    --set=rd_fresh_database="$rd_fresh_database" << 'SQL'
+    --set=rd_fresh_database="$rd_fresh_database" \
+    --set=rd_schema_lease_failure_database="$rd_schema_lease_failure_database" << 'SQL'
 CREATE DATABASE :"rd_fresh_database" OWNER rd_database_owner;
 REVOKE CONNECT ON DATABASE :"rd_fresh_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"rd_fresh_database"
   TO rd_owner;
 GRANT CREATE ON DATABASE :"rd_fresh_database" TO rd_owner;
+CREATE DATABASE :"rd_schema_lease_failure_database" OWNER rd_database_owner;
+REVOKE CONNECT ON DATABASE :"rd_schema_lease_failure_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"rd_schema_lease_failure_database" TO rd_owner;
+GRANT CREATE ON DATABASE :"rd_schema_lease_failure_database" TO rd_owner;
 SQL
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$rd_fresh_database" << 'SQL'
 CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 GRANT CREATE ON SCHEMA public TO rd_owner;
+SQL
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$rd_schema_lease_failure_database" << 'SQL'
+REVOKE CREATE ON SCHEMA public FROM PUBLIC, rd_owner;
+CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 SQL
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -2351,6 +2364,7 @@ SQL
   if env \
     RD_OWNER_SEALED_TEST_DATABASE_URL="$rd_sealed_owner_url" \
     RD_OWNER_FRESH_TEST_DATABASE_URL="$rd_fresh_owner_url" \
+    RD_OWNER_SCHEMA_LEASE_FAILURE_TEST_DATABASE_URL="$rd_schema_lease_failure_owner_url" \
     QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="$qualification_url" \
     cargo nextest run \
     --archive-file "$nextest_archive_file" \
@@ -2383,8 +2397,10 @@ SQL
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres \
-    --set=rd_fresh_database="$rd_fresh_database" << 'SQL'
+    --set=rd_fresh_database="$rd_fresh_database" \
+    --set=rd_schema_lease_failure_database="$rd_schema_lease_failure_database" << 'SQL'
 DROP DATABASE :"rd_fresh_database" WITH (FORCE);
+DROP DATABASE :"rd_schema_lease_failure_database" WITH (FORCE);
 SQL
 
   if [[ "$rd_owner_test_status" -ne 0 ]]; then
@@ -2876,6 +2892,12 @@ BEGIN
      OR pg_catalog.pg_has_role('backtest_owner', 'operator_authorization_owner', 'MEMBER')
      OR pg_catalog.has_schema_privilege('backtest_owner', 'public', 'CREATE')
      OR pg_catalog.has_schema_privilege('backtest_owner', 'rd_owner_api', 'CREATE')
+     OR pg_catalog.pg_get_userbyid((
+          SELECT namespace.nspowner FROM pg_catalog.pg_namespace namespace
+           WHERE namespace.nspname='rd_owner_api'
+        )) IS DISTINCT FROM 'rd_custodian'
+     OR NOT pg_catalog.has_schema_privilege('rd_owner', 'rd_owner_api', 'USAGE')
+     OR pg_catalog.has_schema_privilege('rd_owner', 'rd_owner_api', 'CREATE')
   THEN
     RAISE EXCEPTION 'Qualification owner/writer physical roles or database CONNECT custody are not separated';
   END IF;
