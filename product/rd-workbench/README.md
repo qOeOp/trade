@@ -29,11 +29,12 @@ adapters and their deployment authority are separately available.
 
 Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL` and `RD_OWNER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD` and `RD_OWNER_DB_PASSWORD` respectively. Do not commit it.
 
-Operator Authorization and Product Edge genesis are explicit administrative
-operations and never run as part of service startup. On a fresh named volume,
-first run the bounded schema materializer. It reuses the Owner's Rust migrations
-while `rd_owner` still owns `public`, creates no business fact, and exits before
-the custody boundary changes:
+Operator Authorization and Product Edge genesis remain explicit administrative
+operations and never run as part of service startup. Replay Policy Catalog
+genesis is a separate mandatory startup gate described below. On a fresh named
+volume, first run the bounded schema materializer. It reuses the Owner's Rust
+migrations while `rd_owner` still owns `public`, creates no business fact, and
+exits before the custody boundary changes:
 
 ```bash
 docker compose \
@@ -59,6 +60,33 @@ docker compose \
   --env-file /absolute/path/to/private.env \
   -f product/rd-workbench/docker-compose.yml \
   --profile authority-admin run --rm authority-custody-migrate
+```
+
+The default R&D API startup additionally requires a sealed Replay Policy Catalog
+genesis request and independently trusted verifier configuration. Set
+`RD_FACT_WRITER_DATABASE_URL` to the dedicated Catalog writer connection, set
+`REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST` to the absolute path of the sealed JSON
+request, set `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY`, and set
+`REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY` to the absolute path of its
+lowercase-hex public-key file. Keep both files private and outside the repository.
+The verifier key is mounted separately from the request; no Product Edge,
+Windmill, deployment, or environment setting can supply or generate policy
+meaning.
+
+`replay-policy-catalog-bootstrap` is a one-shot default service. It runs only
+after successful custody migration, calls the Strategy Factory authenticated
+ensure operation, and exits only after canonical Catalog readback. It prints one
+bounded receipt JSON to stdout without the request, signature, key, or database
+credential. A missing, invalid, conflicting, or unreadable input exits nonzero
+and prevents `rd-owner-api` from listening. An administrator may inspect the
+idempotent result before starting the rest of the stack:
+
+```bash
+docker compose \
+  --project-name trade-rd-workbench \
+  --env-file /absolute/path/to/private.env \
+  -f product/rd-workbench/docker-compose.yml \
+  run --rm replay-policy-catalog-bootstrap
 ```
 
 Then an administrator may explicitly run the one-time bootstrap with the
@@ -104,7 +132,9 @@ The service is opt-in under `authority-admin` and never runs during default
 startup.
 
 After those explicit administrative steps, start the default services; the
-`authority-admin` profile remains disabled:
+`authority-admin` profile remains disabled. Compose reruns the idempotent
+schema-materialization, custody-migration, and Catalog-bootstrap chain and starts
+the API only after all three one-shot services exit successfully:
 
 ```bash
 docker compose \

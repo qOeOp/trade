@@ -15,6 +15,35 @@ fi
 grep -Fq 'schema-materialize:' "$package_dir/docker-compose.yml"
 grep -Fq 'command: ["--materialize-schema"]' "$package_dir/docker-compose.yml"
 grep -Fq 'condition: service_completed_successfully' "$package_dir/docker-compose.yml"
+grep -Fq 'replay-policy-catalog-bootstrap:' "$package_dir/docker-compose.yml"
+grep -Fq 'replay-policy-catalog-authority-bootstrap' "$package_dir/Dockerfile.owner"
+catalog_bootstrap_compose=$(sed -n '/^  replay-policy-catalog-bootstrap:$/,/^  authority-bootstrap:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'authority-custody-migrate:'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'restart: "no"'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'RD_FACT_WRITER_DATABASE_URL:'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-bootstrap-request.json:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-trusted-verifier-public-key.hex:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'condition: service_completed_successfully'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'read_only: true'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'cap_drop:'
+if printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'profiles:'; then
+  echo "Catalog bootstrap must gate default startup" >&2
+  exit 1
+fi
+rd_owner_api_compose=$(sed -n '/^  rd-owner-api:$/,/^  schema-materialize:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$rd_owner_api_compose" | grep -Fq 'replay-policy-catalog-bootstrap:'
+if printf '%s\n' "$rd_owner_api_compose" | grep -Eq 'RD_FACT_WRITER|REPLAY_POLICY_CATALOG'; then
+  echo "R&D API must not receive Catalog bootstrap authority or inputs" >&2
+  exit 1
+fi
+catalog_bootstrap_source="$package_dir/../../crates/strategy_factory_rd_owner_api/src/bin/replay_policy_catalog_authority_bootstrap.rs"
+grep -Fq 'ensure_authenticated_replay_policy_catalog_genesis_v1(' "$catalog_bootstrap_source"
+grep -Fq 'const MAX_SEALED_REQUEST_BYTES: usize = 64 * 1024;' "$catalog_bootstrap_source"
+grep -Fq 'const MAX_RECEIPT_BYTES: usize = 16 * 1024;' "$catalog_bootstrap_source"
+if grep -Eq '(policy_canonical_bytes|ReplayExecutionPolicyV2|generate.*policy|default.*policy)' "$catalog_bootstrap_source"; then
+  echo "Catalog bootstrap composition must not synthesize policy" >&2
+  exit 1
+fi
 sealed_compose="$package_dir/docker-compose.source-intake-sealed-acceptance.yml"
 test "$(grep -Fc 'profiles: !override []' "$sealed_compose")" -eq 3
 grep -Fq "QUALIFICATION_OWNER_DB_PASSWORD: \${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}" "$sealed_compose"

@@ -48,7 +48,7 @@ services:
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
       RUST_LOG: info
     depends_on:
-      authority-custody-migrate:
+      replay-policy-catalog-bootstrap:
         condition: service_completed_successfully
     expose:
       - 8080
@@ -93,6 +93,33 @@ services:
     depends_on:
       schema-materialize:
         condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
+  replay-policy-catalog-bootstrap:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-authority-bootstrap"]
+    environment:
+      RD_FACT_WRITER_DATABASE_URL: >-
+        ${RD_FACT_WRITER_DATABASE_URL:?set RD_FACT_WRITER_DATABASE_URL}
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: >-
+        ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
+        /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
+    volumes:
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 

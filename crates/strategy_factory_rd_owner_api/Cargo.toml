@@ -48,6 +48,11 @@ path = "src/main.rs"
 doc = false
 test = false
 
+[[bin]]
+name = "replay-policy-catalog-authority-bootstrap"
+path = "src/bin/replay_policy_catalog_authority_bootstrap.rs"
+doc = false
+
 [[test]]
 name = "rd_owner_api_main"
 path = "src/main.rs"
