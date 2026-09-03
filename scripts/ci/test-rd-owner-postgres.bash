@@ -409,6 +409,7 @@ ordered_contract = (
     '  TO vibe_test_owner_topology_admin;',
     "CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;",
     "GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;",
+    "GRANT USAGE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;",
     "GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;",
     "GRANT rd_custodian TO vibe_test_owner_topology_admin\n"
     "  WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;",
@@ -417,6 +418,7 @@ ordered_contract = (
     'RD_ARTIFACT_ADMIN_DATABASE_URL="$artifact_fresh_admin_url"',
     'artifact_test_status="$?"',
     "REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;",
+    "REVOKE USAGE ON SCHEMA rd_owner_api FROM vibe_test_owner_topology_admin;",
     "REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;",
     "REVOKE rd_custodian FROM vibe_test_owner_topology_admin;",
     "Artifact fresh migration lease cleanup failed",
@@ -437,11 +439,13 @@ for required in ordered_contract:
 unique_contract = (
     'CREATE DATABASE :"artifact_fresh_database" OWNER rd_database_owner;',
     "GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;",
+    "GRANT USAGE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;",
     "GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;",
     "GRANT rd_custodian TO vibe_test_owner_topology_admin",
     'RD_ARTIFACT_ADMIN_DATABASE_URL="$artifact_fresh_admin_url"',
     'artifact_test_status="$?"',
     "REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;",
+    "REVOKE USAGE ON SCHEMA rd_owner_api FROM vibe_test_owner_topology_admin;",
     "REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;",
     "REVOKE rd_custodian FROM vibe_test_owner_topology_admin;",
     'DROP DATABASE :"artifact_fresh_database" WITH (FORCE);',
@@ -2498,6 +2502,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
 GRANT CREATE ON SCHEMA public TO vibe_test_owner_topology_admin;
+GRANT USAGE ON SCHEMA rd_owner_api TO vibe_test_owner_topology_admin;
 GRANT CREATE ON SCHEMA rd_owner_api TO rd_custodian;
 GRANT rd_custodian TO vibe_test_owner_topology_admin
   WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
@@ -2540,6 +2545,9 @@ BEGIN
      OR NOT pg_catalog.has_schema_privilege(
        'vibe_test_owner_topology_admin','rd_owner_api','CREATE'
      )
+     OR NOT pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','rd_owner_api','USAGE'
+     )
      OR (SELECT pg_catalog.count(*)<>1
            OR pg_catalog.count(*) FILTER (
              WHERE granted.rolname='rd_custodian'
@@ -2563,7 +2571,8 @@ BEGIN
          ('public','vibe_test_owner_topology_admin','CREATE',false),
          ('rd_owner_api','rd_custodian','CREATE',false),
          ('rd_owner_api','rd_owner','CREATE',false),
-         ('rd_owner_api','rd_owner','USAGE',false)
+         ('rd_owner_api','rd_owner','USAGE',false),
+         ('rd_owner_api','vibe_test_owner_topology_admin','USAGE',false)
        ), actual AS (
          SELECT namespace.nspname,
                 COALESCE(grantee.rolname,'PUBLIC'),
@@ -2604,6 +2613,7 @@ SQL
     --username postgres --dbname "$artifact_fresh_database" << 'SQL'
 BEGIN;
 REVOKE CREATE ON SCHEMA public FROM vibe_test_owner_topology_admin;
+REVOKE USAGE ON SCHEMA rd_owner_api FROM vibe_test_owner_topology_admin;
 REVOKE CREATE ON SCHEMA rd_owner_api FROM rd_custodian;
 REVOKE rd_custodian FROM vibe_test_owner_topology_admin;
 DO $artifact_migration_cleanup$
@@ -2624,6 +2634,9 @@ BEGIN
      )
      OR pg_catalog.has_schema_privilege(
        'vibe_test_owner_topology_admin','rd_owner_api','CREATE'
+     )
+     OR pg_catalog.has_schema_privilege(
+       'vibe_test_owner_topology_admin','rd_owner_api','USAGE'
      )
      OR pg_catalog.has_schema_privilege(
        'rd_custodian','rd_owner_api','CREATE'
