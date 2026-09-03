@@ -1816,6 +1816,183 @@ BEGIN
 END
 $required_rd_storage_manifest$;
 
+DO $artifact_storage_predecessor$
+DECLARE
+  attempt_oid oid := pg_catalog.to_regclass('public.rd_artifact_build_attempts_v1');
+  artifact_oid oid := pg_catalog.to_regclass('public.rd_strategy_artifacts_v1');
+  routine_oid oid := pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)');
+  present_count integer;
+  predecessor_count integer := 0;
+  final_count integer := 0;
+  relation_oid oid;
+  relation_name text;
+  expected_columns jsonb;
+  expected_constraints text[];
+BEGIN
+  present_count := (attempt_oid IS NOT NULL)::integer
+    + (artifact_oid IS NOT NULL)::integer
+    + (routine_oid IS NOT NULL)::integer;
+  IF present_count=0 THEN RETURN; END IF;
+  IF present_count<>3 THEN
+    RAISE EXCEPTION 'Artifact storage partial predecessor manifest mismatch';
+  END IF;
+  IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc routine
+       JOIN pg_catalog.pg_namespace namespace ON namespace.oid=routine.pronamespace
+      WHERE namespace.nspname='rd_owner_api'
+        AND routine.proname='lock_artifact_invocation_reservation_v1')<>1 THEN
+    RAISE EXCEPTION 'Artifact reservation routine predecessor manifest mismatch';
+  END IF;
+
+  FOR relation_name,relation_oid,expected_columns,expected_constraints IN VALUES
+    ('rd_artifact_build_attempts_v1',attempt_oid,
+      '[[1,"build_request_identity","text",true],[2,"attempt_identity","text",true],[3,"semantic_digest","text",true],[4,"attempt_json","jsonb",true],[5,"prepared_at_epoch_ms","bigint",true]]'::jsonb,
+      ARRAY['PRIMARY KEY (build_request_identity)','UNIQUE (attempt_identity)']::text[]),
+    ('rd_strategy_artifacts_v1',artifact_oid,
+      '[[1,"artifact_digest","text",true],[2,"intent_identity","text",true],[3,"attempt_identity","text",true],[4,"identity_json","jsonb",true],[5,"wasm_bytes","bytea",true],[6,"source_capsule","bytea",true],[7,"build_recipe","bytea",true],[8,"build_receipt_json","jsonb",true],[9,"artifact_review_json","jsonb",true],[10,"committed_at_epoch_ms","bigint",true]]'::jsonb,
+      ARRAY['PRIMARY KEY (artifact_digest)','UNIQUE (attempt_identity)']::text[])
+  LOOP
+    IF NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class relation
+      WHERE relation.oid=relation_oid
+        AND relation.relkind='r' AND relation.relpersistence='p'
+        AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+        AND (SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(
+              attribute.attnum,attribute.attname,
+              pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),
+              attribute.attnotnull) ORDER BY attribute.attnum)
+             FROM pg_catalog.pg_attribute attribute
+             LEFT JOIN pg_catalog.pg_attrdef default_fact
+               ON default_fact.adrelid=attribute.attrelid
+              AND default_fact.adnum=attribute.attnum
+            WHERE attribute.attrelid=relation.oid
+              AND attribute.attnum>0 AND NOT attribute.attisdropped
+              AND attribute.attidentity='' AND attribute.attgenerated=''
+              AND default_fact.oid IS NULL AND attribute.attacl IS NULL)=expected_columns
+        AND (SELECT pg_catalog.array_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true))
+             FROM pg_catalog.pg_constraint constraint_fact
+            WHERE constraint_fact.conrelid=relation.oid
+              AND NOT constraint_fact.condeferrable
+              AND NOT constraint_fact.condeferred
+              AND constraint_fact.convalidated)=expected_constraints
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+    ) THEN
+      RAISE EXCEPTION 'Artifact relation predecessor manifest mismatch: %',relation_name;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_class relation WHERE relation.oid=relation_oid
+      AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+      AND relation.relacl IS NULL AND pg_catalog.obj_description(relation.oid,'pg_class') IS NULL) THEN
+      predecessor_count := predecessor_count+1;
+    ELSIF EXISTS (SELECT 1 FROM pg_catalog.pg_class relation WHERE relation.oid=relation_oid
+      AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
+      AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+        'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+        'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),
+        'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
+      AND (SELECT pg_catalog.count(*)=11
+        AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+        AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
+        FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)) THEN
+      final_count := final_count+1;
+    ELSE
+      RAISE EXCEPTION 'Artifact relation custody predecessor manifest mismatch: %',relation_name;
+    END IF;
+  END LOOP;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.oid=routine_oid
+    AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
+    AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v'
+    AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[]
+    AND pg_catalog.md5(routine.prosrc)='f2a92add3aa2d4bc840b139af4ca81fd') THEN
+    RAISE EXCEPTION 'Artifact reservation routine predecessor manifest mismatch';
+  END IF;
+  IF (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
+      FROM pg_catalog.pg_proc routine,
+      LATERAL pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+      WHERE routine.oid=routine_oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
+      =ARRAY['product_edge_owner','rd_custodian']::text[]
+     AND pg_catalog.obj_description(routine_oid,'pg_proc') IS NULL THEN
+    predecessor_count := predecessor_count+1;
+  ELSIF (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
+      FROM pg_catalog.pg_proc routine,
+      LATERAL pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+      JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+      WHERE routine.oid=routine_oid AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
+      =ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+     AND pg_catalog.obj_description(routine_oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5((SELECT prosrc FROM pg_catalog.pg_proc WHERE oid=routine_oid)) THEN
+    final_count := final_count+1;
+  ELSE
+    RAISE EXCEPTION 'Artifact reservation routine custody predecessor manifest mismatch';
+  END IF;
+  IF predecessor_count<>3 AND final_count<>3 THEN
+    RAISE EXCEPTION 'Artifact storage mixed predecessor manifest mismatch';
+  END IF;
+END
+$artifact_storage_predecessor$;
+
+CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1 (artifact_digest TEXT PRIMARY KEY, intent_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL UNIQUE, identity_json JSONB NOT NULL, wasm_bytes BYTEA NOT NULL, source_capsule BYTEA NOT NULL, build_recipe BYTEA NOT NULL, build_receipt_json JSONB NOT NULL, artifact_review_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(
+              requested_build_request_identity text,
+              requested_attempt_identity text,
+              requested_claim_identity text,
+              requested_reservation_identity text,
+              requested_reservation_digest text
+            ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+            SET search_path = pg_catalog
+            AS $function$
+            DECLARE sealed record;
+            DECLARE reservation jsonb;
+            BEGIN
+              IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+              SELECT build_request_identity, attempt_identity, semantic_digest, attempt_json, prepared_at_epoch_ms
+                INTO sealed
+                FROM public.rd_artifact_build_attempts_v1
+               WHERE build_request_identity = requested_build_request_identity
+                 AND attempt_identity = requested_attempt_identity
+               FOR SHARE;
+              IF NOT FOUND THEN RETURN NULL; END IF;
+              reservation := sealed.attempt_json->'invocation_claim';
+              IF sealed.attempt_json->>'schema_version' <> '1'
+                 OR sealed.attempt_json->>'state' <> 'INVOCATION_RESERVED'
+                 OR sealed.attempt_json->>'request_semantic_digest' <> sealed.semantic_digest
+                 OR sealed.attempt_json->>'prepared_at_epoch_ms' <> sealed.prepared_at_epoch_ms::text
+                 OR sealed.attempt_json->'request'->>'build_request_identity' <> sealed.build_request_identity
+                 OR sealed.attempt_json->'request'->>'attempt_identity' <> sealed.attempt_identity
+                 OR reservation IS NULL
+                 OR sealed.attempt_json->'invocation_custody' IS NULL
+                 OR reservation->>'request_identity' <> sealed.build_request_identity
+                 OR reservation->>'attempt_identity' <> sealed.attempt_identity
+                 OR reservation->>'admission_identity' <> sealed.attempt_json->'request'->'admission'->>'admission_identity'
+                 OR reservation->>'claim_identity' <> requested_claim_identity
+                 OR reservation->>'reservation_identity' <> requested_reservation_identity
+                 OR reservation->>'reservation_digest' <> requested_reservation_digest
+                 OR reservation->>'execution_custody_digest' <> sealed.attempt_json->'invocation_custody'->>'custody_digest'
+                 OR reservation->>'reserved_at_epoch_ms' IS NULL
+              THEN RETURN NULL; END IF;
+              RETURN pg_catalog.jsonb_build_object(
+                'schema_version', 1,
+                'build_request_identity', sealed.build_request_identity,
+                'attempt_identity', sealed.attempt_identity,
+                'admission_identity', reservation->>'admission_identity',
+                'claim_identity', reservation->>'claim_identity',
+                'claim_digest', reservation->>'claim_digest',
+                'invocation_admission_receipt_identity', reservation->>'invocation_admission_receipt_identity',
+                'invocation_admission_receipt_digest', reservation->>'invocation_admission_receipt_digest',
+                'claimed_state_digest', reservation->>'claimed_state_digest',
+                'execution_custody_digest', reservation->>'execution_custody_digest',
+                'reservation_identity', reservation->>'reservation_identity',
+                'reservation_digest', reservation->>'reservation_digest',
+                'reserved_at_epoch_ms', (reservation->>'reserved_at_epoch_ms')::bigint
+              );
+            END
+            $function$;
+ALTER FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) OWNER TO rd_custodian;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) FROM PUBLIC, rd_owner, product_edge_owner, operator_authorization_writer, qualification_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text) TO product_edge_owner;
+
 DROP FUNCTION IF EXISTS rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,text,jsonb);
 CREATE OR REPLACE FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(
   requested_basis_identity text,
@@ -4196,6 +4373,48 @@ BEGIN
   END LOOP;
 END
 $grant_optional_rd_runtime_routines$;
+DO $artifact_storage_final_manifest$
+DECLARE exact boolean;
+BEGIN
+  WITH required(name) AS (VALUES
+    ('rd_artifact_build_attempts_v1'),('rd_strategy_artifacts_v1')
+  )
+  SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
+    pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
+    AND relation.relkind='r' AND relation.relpersistence='p'
+    AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+    AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+      'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),
+      'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
+    AND (SELECT pg_catalog.count(*)=11
+      AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+      AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
+      FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
+  ) INTO exact
+  FROM required JOIN pg_catalog.pg_class relation
+    ON relation.oid=pg_catalog.to_regclass('public.'||required.name);
+  IF exact IS DISTINCT FROM true OR NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_proc routine
+    WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)')
+      AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian'
+      AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v'
+      AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[]
+      AND pg_catalog.md5(routine.prosrc)='f2a92add3aa2d4bc840b139af4ca81fd'
+      AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc)
+      AND (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname)
+        FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl
+        JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+        WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
+        =ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]
+  ) THEN
+    RAISE EXCEPTION 'Artifact storage final manifest mismatch';
+  END IF;
+END
+$artifact_storage_final_manifest$;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_independence_basis_for_qualification_v1(text,text,text,jsonb) TO qualification_writer;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_legacy_prepared_attempt_drain_effects_v1(), product_edge_api.read_legacy_prepared_attempt_absence_v1(text,text), product_edge_api.lock_downstream_admission_v1(text,text,text), product_edge_api.lock_source_invocation_claim_v1(text,text,text), product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner;
 GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,text,text,text,text) TO portfolio_owner;

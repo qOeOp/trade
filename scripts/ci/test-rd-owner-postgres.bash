@@ -456,8 +456,11 @@ check_migration_authority_boundary() {
     "rd_sealed_exploratory_replay_requests_v1 (" \
     "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluations_v1" \
     "CREATE TABLE IF NOT EXISTS rd_complex_strategy_develop_evaluation_heads_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1" \
+    "CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1" \
     "CREATE OR REPLACE FUNCTION rd_owner_api.peek_current_research_for_artifact_v1" \
     "CREATE OR REPLACE FUNCTION rd_owner_api.lock_current_research_for_artifact_v1" \
+    "CREATE OR REPLACE FUNCTION rd_owner_api.lock_artifact_invocation_reservation_v1" \
     "CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1" \
     "CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_v1" \
     "CREATE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2" \
@@ -479,6 +482,8 @@ check_migration_authority_boundary() {
   fi
   if ! rg -Fq "test(=rd_owner_schema_is_provisioned_before_runtime_connections)" "${BASH_SOURCE[0]}" ||
     ! rg -Fq 'R&D research receipt predecessor manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'Artifact storage partial predecessor manifest mismatch' "$authority_migration" ||
+    ! rg -Fq 'Artifact storage final manifest mismatch' "$authority_migration" ||
     ! rg -Fq 'required R&D storage column manifest mismatch' "$authority_migration" ||
     ! rg -Fq 'required R&D storage constraint manifest mismatch' "$authority_migration" ||
     ! rg -Uq 'ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB;(?s:.*?)ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT;' "$authority_migration" ||
@@ -846,17 +851,16 @@ SQL
   )" || recovery_failed=true
   if [[ "$legacy_database_present" == 1 ]] &&
     ! docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-      --username postgres --dbname "$legacy_normalization_database" << 'SQL'
+      --username postgres --dbname "$legacy_normalization_database" << 'SQL'; then
 REVOKE CREATE ON SCHEMA public FROM rd_owner;
 SQL
-  then
     recovery_failed=true
   fi
   if ! docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname postgres \
     --set=legacy_database="$legacy_normalization_database" \
     --set=test_database="$test_database" \
-    --set=origin_current_database="$origin_current_database" << 'SQL'
+    --set=origin_current_database="$origin_current_database" << 'SQL'; then
 REVOKE rd_custodian FROM rd_owner;
 SELECT pg_catalog.set_config(
   'vibe_test.test_database',:'test_database',false
@@ -884,7 +888,6 @@ $restore_shared_connect$;
 DROP DATABASE IF EXISTS :"legacy_database" WITH (FORCE);
 DROP SCHEMA IF EXISTS vibe_test_legacy_normalization_cluster CASCADE;
 SQL
-  then
     recovery_failed=true
   fi
   [[ "$recovery_failed" == false ]]
@@ -3158,13 +3161,12 @@ if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=legacy_database="$legacy_normalization_database" \
   --set=test_database="$test_database" \
   --set=origin_current_database="$origin_current_database" \
-  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
+  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'; then
 SELECT vibe_test_legacy_normalization_cluster.acquire_v1(
   :'test_marker',:'legacy_database',:'lease_identity',
   :'test_database',:'origin_current_database'
 );
 SQL
-then
   legacy_normalization_concurrent_rejection=1
 fi
 
@@ -3185,7 +3187,7 @@ legacy_normalization_cleanup_status=0
 if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$legacy_normalization_database" \
   --set=test_marker="$test_marker" \
-  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'
+  --set=lease_identity="$legacy_normalization_lease_identity" << 'SQL'; then
 BEGIN;
 REVOKE CREATE ON SCHEMA public FROM rd_owner;
 DO $target_release$
@@ -3197,7 +3199,6 @@ END
 $target_release$;
 COMMIT;
 SQL
-then
   :
 else
   legacy_normalization_cleanup_status="$?"
@@ -3210,7 +3211,7 @@ if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=legacy_database="$legacy_normalization_database" \
   --set=lease_identity="$legacy_normalization_lease_identity" \
   --set=test_database="$test_database" \
-  --set=origin_current_database="$origin_current_database" << 'SQL'
+  --set=origin_current_database="$origin_current_database" << 'SQL'; then
 BEGIN;
 SELECT vibe_test_legacy_normalization_cluster.release_v1(
   :'test_marker',:'legacy_database',:'lease_identity'
@@ -3247,7 +3248,6 @@ END
 $shared_restored$;
 COMMIT;
 SQL
-then
   :
 else
   legacy_normalization_cluster_cleanup_status="$?"
@@ -3288,12 +3288,11 @@ fi
 legacy_normalization_drop_status=0
 if docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres \
-  --set=legacy_database="$legacy_normalization_database" << 'SQL'
+  --set=legacy_database="$legacy_normalization_database" << 'SQL'; then
 REVOKE CONNECT ON DATABASE :"legacy_database" FROM rd_owner;
 DROP DATABASE :"legacy_database" WITH (FORCE);
 DROP SCHEMA vibe_test_legacy_normalization_cluster CASCADE;
 SQL
-then
   :
 else
   legacy_normalization_drop_status="$?"
@@ -3494,8 +3493,55 @@ SQL
 
 runtime_diagnostic_filter='package(vibe-strategy-factory) & test(=product_edge_postgres::tests::runtime_diagnostic_manifest_is_empty_for_existing_custody)'
 runtime_startup_filter='package(vibe-strategy-factory-rd-owner-api) & binary(rd_owner_api_main) & test(=tests::runtime_storage_connectors_start_without_migration_authority)'
+artifact_runtime_manifest_failures() {
+  local fixture_database="$1"
+  docker exec \
+    --env "PGPASSWORD=${test_password}" \
+    "$container" psql --quiet --tuples-only --no-align --set ON_ERROR_STOP=1 \
+    --host 127.0.0.1 --username rd_owner --dbname "$fixture_database" << 'SQL'
+WITH required_relation(name) AS (
+  VALUES ('rd_artifact_build_attempts_v1'),('rd_strategy_artifacts_v1')
+), relation_manifest AS (
+  SELECT pg_catalog.count(*)=2 AND pg_catalog.bool_and(
+    pg_catalog.pg_get_userbyid(relation.relowner)='rd_custodian'
+    AND relation.relkind='r' AND relation.relpersistence='p'
+    AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite_fact WHERE rewrite_fact.ev_class=relation.oid)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy_fact WHERE policy_fact.polrelid=relation.oid)
+    AND pg_catalog.obj_description(relation.oid,'pg_class')='vibe-closed-relation-v2:'||pg_catalog.md5(pg_catalog.jsonb_build_object(
+      'columns',(SELECT pg_catalog.jsonb_agg(pg_catalog.jsonb_build_array(attribute.attnum,attribute.attname,attribute.atttypid::text,attribute.atttypmod,attribute.attnotnull,attribute.attidentity,attribute.attgenerated,pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid)) ORDER BY attribute.attnum) FROM pg_catalog.pg_attribute attribute LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=attribute.attrelid AND default_fact.adnum=attribute.attnum WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped),
+      'constraints',(SELECT COALESCE(pg_catalog.jsonb_agg(pg_catalog.pg_get_constraintdef(constraint_fact.oid,true) ORDER BY pg_catalog.pg_get_constraintdef(constraint_fact.oid,true)),'[]'::jsonb) FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid=relation.oid),
+      'acl',COALESCE(relation.relacl::text,'<NULL>'))::text)
+    AND (SELECT pg_catalog.count(*)=11
+      AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','REFERENCES','SELECT','TRIGGER','TRUNCATE','UPDATE']::text[]
+      AND pg_catalog.array_agg(acl.privilege_type ORDER BY acl.privilege_type) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND NOT acl.is_grantable) IS NOT DISTINCT FROM ARRAY['DELETE','INSERT','SELECT','UPDATE']::text[]
+      FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
+  ) AS exact
+  FROM required_relation
+  JOIN pg_catalog.pg_class relation
+    ON relation.oid=pg_catalog.to_regclass('public.'||required_relation.name)
+), invariant(label,exact) AS (
+  VALUES
+    ('artifact.runtime-role', session_user='rd_owner' AND EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname=session_user AND rolcanlogin AND rolinherit AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)),
+    ('artifact.runtime-membership', NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.roleid=pg_catalog.to_regrole(session_user)::oid OR membership.member=pg_catalog.to_regrole(session_user)::oid)),
+    ('artifact.database-acl', NOT pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')),
+    ('artifact.public-schema-acl', NOT pg_catalog.has_schema_privilege(session_user,'public','CREATE')),
+    ('artifact.custodian-role', EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname='rd_custodian' AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole AND NOT rolreplication AND NOT rolbypassrls)),
+    ('artifact.custodian-membership', NOT pg_catalog.pg_has_role(session_user,'rd_custodian','MEMBER')),
+    ('artifact.api-schema', pg_catalog.pg_get_userbyid((SELECT nspowner FROM pg_catalog.pg_namespace WHERE nspname='rd_owner_api'))='rd_custodian' AND pg_catalog.has_schema_privilege(session_user,'rd_owner_api','USAGE') AND NOT pg_catalog.has_schema_privilege(session_user,'rd_owner_api','CREATE')),
+    ('artifact.api-schema-acl', (SELECT pg_catalog.count(*)=6 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=namespace.nspowner AND NOT acl.is_grantable)=2 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('rd_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('product_edge_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('qualification_writer')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 AND pg_catalog.count(*) FILTER (WHERE acl.grantee=pg_catalog.to_regrole('backtest_owner')::oid AND acl.privilege_type='USAGE' AND NOT acl.is_grantable)=1 FROM pg_catalog.pg_namespace namespace, LATERAL pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) acl WHERE namespace.nspname='rd_owner_api')),
+    ('artifact.relations', (SELECT exact FROM relation_manifest)),
+    ('artifact.reservation-routine', EXISTS (SELECT 1 FROM pg_catalog.pg_proc routine WHERE routine.oid=pg_catalog.to_regprocedure('rd_owner_api.lock_artifact_invocation_reservation_v1(text,text,text,text,text)') AND pg_catalog.pg_get_userbyid(routine.proowner)='rd_custodian' AND routine.prosecdef AND routine.proisstrict AND routine.provolatile='v' AND routine.proparallel='u' AND routine.proconfig=ARRAY['search_path=pg_catalog']::text[] AND pg_catalog.obj_description(routine.oid,'pg_proc')='vibe-source-md5:'||pg_catalog.md5(routine.prosrc) AND (SELECT pg_catalog.array_agg(role.rolname::text ORDER BY role.rolname) FROM pg_catalog.aclexplode(COALESCE(routine.proacl,pg_catalog.acldefault('f',routine.proowner))) acl JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=ARRAY['product_edge_owner','rd_custodian','rd_owner']::text[]))
+)
+SELECT pg_catalog.string_agg(label,',' ORDER BY label)
+FROM invariant
+WHERE exact IS DISTINCT FROM true;
+SQL
+}
 verify_runtime_startup() {
   local fixture_database="$1"
+  local artifact_manifest_failures
 
   if env \
     RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
@@ -3507,6 +3553,14 @@ verify_runtime_startup() {
     :
   else
     return "$?"
+  fi
+  if ! artifact_manifest_failures="$(artifact_runtime_manifest_failures "$fixture_database")"; then
+    echo "ERROR: Artifact runtime startup manifest diagnostic failed" >&2
+    return 1
+  fi
+  if [[ -n "$artifact_manifest_failures" ]]; then
+    echo "ERROR: Artifact runtime startup manifest mismatch: ${artifact_manifest_failures}" >&2
+    return 1
   fi
   env \
     RD_OWNER_RUNTIME_STARTUP_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${fixture_database}" \
