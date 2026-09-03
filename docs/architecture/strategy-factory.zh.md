@@ -17,8 +17,11 @@ raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有�
 获得 Catalog 管理与 Composer commit routine 的不可转授 `EXECUTE`。所有 routine 都使用全限定关系、
 `search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中。fresh deployment 必须先在 `rd_owner` 仍拥有
 `public` 时运行同一套有界 Rust schema materializer；完成后 custody migration 才能把 database/schema
-移交给 `rd_database_owner` 并撤销 `rd_owner` 的 schema `CREATE`。runtime startup 不得重新获得该 lease，
-缺失任何预物化 legacy table 都必须 fail-close。read 不创建 custody，cutover 保留既有 OID、row 与 bytes。
+移交给 `rd_database_owner` 并撤销 `rd_owner` 的 schema `CREATE`。随后必须完成显式、单次运行的
+Catalog bootstrap 或准确解析，并验证其 canonical Owner readback，R&D API 才能开始 listen。runtime
+startup 不得重新获得 schema lease 或编写 Catalog state；预物化 legacy table 缺失，或 bootstrap
+readback 缺失、不匹配、未认证或尚未解析时，必须 fail closed。read 不创建 custody，cutover 保留
+既有 OID、row 与 bytes。
 
 Qualification 投影构成一条按 principal/scope 绑定、只追加且无环的单链。某个准确且已验证的 Independence Basis 的最新投影若在 Qualification 提交或响应丢失后过期，只有 Qualification Owner 能在同一 principal/scope 锁下追加后继；该后继绑定准确 basis ref/digest、前驱投影 ref/digest、不变的规范 source sequence/cut/frontier、Owner clock epoch、新半开有效期、回执与 outbox，并原子推进 head。仍为 current 的投影必须按字节等价 join；调用方与 R&D 均不得自行续期。历史 R&D 终态 custody 继续绑定并暴露其实际消费的准确历史投影，而新的 S1 写入必须在最终锁定 cut 使用规范最新且仍 current 的投影。
 
@@ -736,6 +739,24 @@ bytes 按此固定顺序编码 ASCII record ID 的 `u32 length || bytes`、littl
 grammar/parser ID 的 `u32 length || bytes`、32-byte grammar/parser digest、policy bytes 的
 `u32 length || bytes` 与 32-byte policy digest；每个 length 均为 little-endian。`catalog_record_digest` 为
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`。
+
+Catalog bootstrap 是独立、显式启用、单次运行的 `authority-admin` composition，绝不是 R&D API
+route、Product Edge/Windmill operation、default service、migration 或 runtime selector。它只使用
+`RD_FACT_WRITER_DATABASE_URL` 调用固定私有 write port。其拒绝未知字段的密封 V1 request 由
+Ed25519 签名，并绑定 schema version、bootstrap identity、administrator identity、单独信任的
+verifier identity、Catalog record identity、完整 canonical policy bytes、确定性 create 与 head-advance
+command identity、event time 与 signature。composition 必须在任何 database access 之前验证准确
+schema、signature、受信 verifier identity/key、已绑定 identity 与 canonical digest，再从该已验证
+evidence 派生 `authentication_fact_digest`，不得接受 caller 或 credential 自行声明的值。
+
+只有确实为空的 storage 可以在同一 transaction 中创建 version 1 并推进其 head。准确 identity 与
+逐字节相同 meaning 必须从准确 sealed request 与 immutable audited record/head state 重建一份确定性
+typed Owner readback。首次 success 与准确 response-loss 或 restart replay 都以零写入返回该逐字节相同
+readback；任何 attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。
+identity 或 meaning 改变，以及 orphaned、divergent、revoked、tampered、partially initialized 或
+unauthenticated state 都必须 conflict，并对 record、head、revocation 与 audit 零变化。每个 immutable audit
+fact 就是持久 command receipt，该 typed readback 是唯一 projection；不存在单独的 administration receipt 或
+outbox。不得推断或合成 policy、identity、head、authentication fact 或 success result。
 
 只有在上述绑定的准确 schema/grammar/parser identity 与 digest 下，`policy_canonical_bytes` 才能唯一复现。
 该 contract 规定唯一固定 field order、明确 integer width 与 endianness、按适用类型使用 `u32` length-prefixed

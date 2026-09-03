@@ -18,9 +18,11 @@ The separately supplied `rd_fact_writer` LOGIN alone receives non-grantable `EXE
 administration and Composer commit routines. All routines use `search_path=pg_catalog,pg_temp` inside the
 caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
 `rd_owner` still owns `public`; only after they finish may the custody migration transfer the database/schema
-to `rd_database_owner` and revoke `rd_owner` schema `CREATE`. Runtime startup never reacquires that lease:
-missing pre-materialized legacy tables fail closed. Reads never create custody; cutover preserves existing OIDs,
-rows and bytes.
+to `rd_database_owner` and revoke `rd_owner` schema `CREATE`. The explicit, one-shot Catalog bootstrap or exact
+resolution must then complete and its canonical Owner readback must verify before the R&D API may listen. Runtime
+startup never reacquires the schema lease or authors Catalog state: missing pre-materialized legacy tables or an
+absent, mismatched, unauthenticated, or unresolved bootstrap readback fails closed. Reads never create custody;
+cutover preserves existing OIDs, rows and bytes.
 
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
 
@@ -779,6 +781,25 @@ encode, in that fixed order, the ASCII record ID as `u32 length || bytes`, the v
 ASCII grammar/parser ID as `u32 length || bytes`, the 32 grammar/parser-digest bytes, the policy bytes as
 `u32 length || bytes`, and the 32 policy-digest bytes; every length is little-endian. `catalog_record_digest` is
 `SHA-256("rd.replay-policy-catalog-record.v2\0" || canonical_record_bytes)`.
+
+The Catalog bootstrap is a dedicated opt-in, one-shot `authority-admin` composition, never an R&D API route,
+Product Edge/Windmill operation, default service, migration, or runtime selector. It uses only
+`RD_FACT_WRITER_DATABASE_URL` to invoke the fixed private write port. Its deny-unknown-fields sealed V1 request is
+Ed25519-signed and binds the schema version, bootstrap identity, administrator identity, separately trusted
+verifier identity, Catalog record identity, complete canonical policy bytes, deterministic create and head-advance
+command identities, event time, and signature. The composition verifies the exact schema, signature, trusted
+verifier identity/key, bound identities, and canonical digests before any database access, then derives the
+`authentication_fact_digest` from the verified evidence rather than accepting a caller- or credential-asserted
+value.
+
+Only genuinely empty storage may create version 1 and advance its head, together in one transaction. Exact identity
+and byte-identical meaning reconstruct one deterministic typed Owner readback from the exact sealed request and
+immutable audited record/head state. First success and exact response-loss or restart replay return that readback
+byte-for-byte without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its
+bytes. Changed identity or meaning and orphaned, divergent, revoked, tampered, partially initialized, or
+unauthenticated state conflict with zero record, head, revocation, or audit change. Each immutable audit fact is the
+durable command receipt and this typed readback is the sole projection; there is no separate administration receipt
+or outbox. No policy, identity, head, authentication fact, or success result may be inferred or synthesized.
 
 `policy_canonical_bytes` are uniquely reproducible only under the exact schema/grammar/parser identity and digest
 bound above. That contract defines one fixed field order; explicit integer widths and endianness; `u32`-length-

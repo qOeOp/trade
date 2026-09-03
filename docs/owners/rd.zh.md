@@ -253,10 +253,48 @@ receipt 与 outbox 全部零写入；不存在隐式 fallback。
 
 Catalog 唯一 writer 是私有且受审计的 R&D Catalog Administration Port。它拥有 policy create、immutable
 version append、显式 current-head advance 与 revocation。每个已接纳 administration command 都原子记录其
-已认证 administrative identity、准确 predecessor/head、结果 content identity、audit fact 与 outbox。普通
-caller、Product Edge、Windmill、provider 与其他 Owner 不能调用该 port、选择 policy version、推进 head、
-撤销 version 或写入 Catalog storage。environment value、default、migration、deployment configuration 与
-runtime selector 都不能 seed 或合成 policy 或 current head。
+已认证 administrative identity、准确 predecessor/head、结果 content identity 与 immutable audit fact。该 audit
+fact 就是持久 command receipt。Catalog authority 只包含 immutable record、singleton head、revocation 与 audit
+table；不存在单独的 administration receipt 或 outbox table。普通 caller、Product Edge、Windmill、provider
+与其他 Owner 不能调用该 port、选择 policy version、推进 head、撤销 version 或写入 Catalog storage。
+environment value、default、migration、deployment configuration 与 runtime selector 都不能 seed 或合成
+policy 或 current head。
+
+唯一可以 bootstrap 空 Catalog 的产品 composition 是一个独立、显式启用、单次运行的
+`authority-admin` composition。它不提供 API route，Product Edge、Windmill、R&D API、default service、
+migration 与 runtime selector 均不能调用它。只有该 composition 使用另行提供的
+`RD_FACT_WRITER_DATABASE_URL` 访问固定 Catalog Administration Port；仅持有该 credential 既不能
+认证 administrator，也不能提供 policy 含义。
+
+其私有 V1 request 是由 Ed25519 签名、拒绝未知字段的密封文档，它绑定 request schema
+version、bootstrap identity、administrator identity、单独信任的 verifier identity、Catalog record
+identity、完整 canonical policy bytes、确定性 create 与 head-advance command identity、event time 与
+signature。在打开 database connection 之前，composition 必须按准确 V1 schema 解析、拒绝任何
+未知或畸形字段、使用另行信任的 verifier identity 与 key 验证签名，并交叉验证每个
+绑定 identity 与 canonical policy digest。`authentication_fact_digest` 只能从该已验证证据派生；
+不得从 request、credential、environment 或 caller assertion 接收它。
+
+当 Catalog storage 确实为空时，单个 transaction 创建 version 1，把显式 current head 推进到该
+record，并把两个确定性 command 作为 immutable authenticated audit fact 原子提交。唯一公开
+projection 是从准确 sealed request 与 audited record/head state 重建的一份确定性 typed Owner readback。
+首次 success 与准确 response-loss 或 restart replay 都必须以零写入返回该逐字节相同 readback；任何
+attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。任何 bootstrap、
+create-command 或 head-advance identity 或 meaning 改变，或遇到 orphaned、divergent、revoked、tampered、
+partially initialized、unauthenticated 或其他非规范状态时，必须返回 conflict，并对 Catalog record、
+head、revocation 与 audit 全部零变化。response loss 与 process restart 只能解析同一组确定性
+command，不得合成 replacement policy、identity、head、receipt、outbox 或 success result。
+
+deployment 顺序严格固定为：有界 schema materialization，然后 custody cutover，再执行显式 Catalog
+bootstrap 或准确解析并验证其 canonical Owner readback，之后 R&D API 才能开始 listen。不存在
+隐式 policy 或 current head。bootstrap readback 缺失、无法验证、不匹配或尚未解析时，startup 必须
+fail closed。
+
+在 merged implementation 与具名 acceptance evidence 证明 authentication rejection、empty-store creation、
+exact replay、changed-identity 与 changed-meaning conflict、response-loss/restart resolution、tamper
+rejection、每种零变化失败，以及 fresh disposable PostgreSQL 与 isolated Windmill topology 中随后的
+accepted TrialFamily formation 之前，该有界 composition 仍是 **TARGET / NOT_ADMITTED**。只有这些条件
+全部成立后，才能把有界 bootstrap composition 称为 **CURRENT**。该状态不证明 production
+deployment、Workbench product readiness、provider readiness 或任何真实交易权威。
 
 TrialFamily formation 成功后，完整 policy 及其 Catalog identity、version、digest、grammar/parser identity
 与 digest cross-binding 永久密封在 family 中。后续 Replay 或 Composer composition 只使用该 family-sealed
