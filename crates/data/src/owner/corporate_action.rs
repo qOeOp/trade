@@ -11,7 +11,7 @@ pub(super) mod authority;
 pub(super) mod codec;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub(crate) type CorporateActionIdentity = BindingDigest;
 

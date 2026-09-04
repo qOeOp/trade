@@ -456,6 +456,316 @@ fn fixture_row() -> super::postgres::StoredReplayMarketFactsRowV2 {
     row
 }
 
+#[tokio::test]
+#[ignore = "requires the admitted disposable R&D Owner PostgreSQL topology"]
+async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap()
+ {
+    use std::{sync::Arc, time::Duration};
+
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    use crate::owner::{
+        correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
+        postgres::{
+            MarketDataOwnerPostgres,
+            tests::{
+                persist_replay_joined_projection_fixture_v1,
+                persist_replay_reference_leaf_fixture_v1,
+                replay_composition_market_base_fixture_v1,
+            },
+        },
+        replay_market_facts_v2::{
+            AuthenticatedComposerNativeJoinV1, ReplayCompositionContentLocatorV1,
+            ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
+            ReplayCompositionRequestLocatorV1,
+            composition::ReplayCompositionBindingIssuanceRequestV1,
+        },
+        sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4,
+        source_binding::BindingDigest,
+        strategy_design_role_set::{
+            StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignNativeJoinReceiptV1,
+            StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
+            StrategyDesignRoleSetReceiptV1,
+        },
+    };
+
+    fn d(value: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
+    let admin = database.owner_topology_admin_pool();
+    let base = replay_composition_market_base_fixture_v1(&owner_url, &reader_url, admin).await;
+    let market = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
+    let joined = persist_replay_joined_projection_fixture_v1(&market, &base).await;
+    let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
+    let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
+        source_binding: &base.source_readback,
+        coordinates: &base.coordinates,
+        r0_coordinate_identity: base.r0.record().identity(),
+        r0_coordinate_digest: base.r0.record().digest(),
+    })
+    .unwrap();
+
+    let composer_locator = StrategyDesignRoleSetLocatorV1 {
+        schema_version: 2,
+        request_identity: "w3-replay-composition-owner-v1".into(),
+        operation_receipt_identity: d(216),
+        artifact_locator: "artifact:w3-replay-composition-owner-v1".into(),
+        artifact_identity: d(214),
+        canonical_plan_digest: d(215),
+        design_digest: d(213),
+    };
+    let roles = base
+        .binding_requests
+        .iter()
+        .enumerate()
+        .map(|(ordinal, request)| StrategyDesignRoleEntryV1 {
+            role_identity: request.input_role_identity,
+            semantic_id: format!("replay-role-{ordinal}"),
+            fact_class: "MARKET_DATA".into(),
+            instrument: "AAPL".into(),
+            scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
+            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
+            channel: "MARKET".into(),
+            timeframe: "1M".into(),
+            unit: "PRICE".into(),
+            scale: 2,
+            value_type: "I128".into(),
+        })
+        .collect::<Vec<_>>();
+    let join_entry = StrategyDesignJoinEntryV1 {
+        join_identity: joined.join_claim.join_identity,
+        semantic_id: joined.join_claim.join_semantic_id.clone(),
+        roles: joined
+            .join_claim
+            .roles
+            .iter()
+            .map(|role| StrategyDesignJoinRoleV1 {
+                semantic_id: role.semantic_id.clone(),
+                role_identity: role.input_role_identity,
+            })
+            .collect(),
+        alignment_semantic_id: joined.join_claim.alignment_semantic_id.clone(),
+        trigger_input_id: joined.join_claim.trigger_input_id.clone(),
+        max_staleness_ns: joined.join_claim.max_staleness_ns,
+    };
+    let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        composer_locator.clone(),
+        base.binding_requests[0].research_request_identity,
+        d(217),
+        base.binding_requests[0].strategy_design_identity,
+        d(213),
+        d(218),
+        roles,
+        vec![join_entry],
+    )
+    .unwrap();
+    let joined_digest = joined.joined.record().digest();
+    let native_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+            joined.projection.receipt_digest(),
+        ),
+        joined_digest,
+        BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
+    );
+    let native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+        composer_locator.clone(),
+        &native_capability,
+    )
+    .unwrap();
+    let mut composer_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *composer_tx)
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
+        .bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-design".as_slice()).execute(&mut *composer_tx).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
+        .bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-plan".as_slice()).execute(&mut *composer_tx).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_artifacts_v2(artifact_identity,plan_digest,package_bytes) VALUES($1,$2,$3)")
+        .bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(b"w3-artifact".as_slice()).execute(&mut *composer_tx).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_operations_v2(request_identity,request_digest,research_request_identity,intent_identity,artifact_identity,canonical_receipt_bytes,response_bytes) VALUES($1,$2,$3,$4,$5,$6,$7)")
+        .bind(&composer_locator.request_identity).bind(d(219).as_bytes().as_slice()).bind(role_set.research_request_identity.as_bytes().as_slice()).bind(role_set.intent_identity.as_bytes().as_slice()).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(b"w3-operation".as_slice()).bind(b"w3-response".as_slice()).execute(&mut *composer_tx).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1(request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest,attestation_identity,attestation_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+        .bind(&composer_locator.request_identity).bind(i32::from(composer_locator.schema_version)).bind(composer_locator.operation_receipt_identity.as_bytes().as_slice()).bind(&composer_locator.artifact_locator).bind(composer_locator.artifact_identity.as_bytes().as_slice()).bind(composer_locator.canonical_plan_digest.as_bytes().as_slice()).bind(composer_locator.design_digest.as_bytes().as_slice()).bind(role_set.receipt_identity().as_bytes().as_slice()).bind(role_set.receipt_digest().as_bytes().as_slice()).bind(role_set.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
+    sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1(request_identity,native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6)")
+        .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
+    composer_tx.commit().await.unwrap();
+
+    let semantics_receipt = base.semantics.receipt();
+    let composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+        composer_locator.clone(),
+        base.pit.receipt().locator().clone(),
+        base.source.receipt().locator().clone(),
+        50,
+        51,
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            base.instrument.cut().request_identity,
+            base.instrument.cut().request_meaning_digest,
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            base.universe.receipt().request_identity(),
+            base.universe.receipt().request_meaning_digest(),
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            joined.census_request.request_identity(),
+            joined.census_request.request_meaning_digest(),
+        ),
+        ReplayCompositionContentLocatorV1::from_untrusted(joined_digest, joined_digest),
+        ReplayCompositionContentLocatorV1::from_untrusted(
+            BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
+            BindingDigest::from_untrusted_bytes(joined.projection.receipt_digest()),
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            base.r0.receipt().request_identity,
+            base.r0.receipt().request_meaning_digest,
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            leaves.calendar_request.request_identity(),
+            leaves.calendar_request.request_meaning_digest(),
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            leaves.session_request.request_identity,
+            leaves.session_request_meaning_digest,
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            leaves.time_zone_request.request_identity,
+            crate::owner::time_zone::authority::request_meaning_digest_v1(
+                &leaves.time_zone_request,
+            )
+            .unwrap(),
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            semantics_receipt.request_identity,
+            semantics_receipt.request_meaning_digest,
+        ),
+        ReplayCompositionContentLocatorV1::from_untrusted(
+            correction.identity(),
+            correction.identity(),
+        ),
+        ReplayCompositionRequestLocatorV1::from_untrusted(
+            leaves.corporate_action_request.request_identity,
+            leaves.corporate_action_request.request_meaning_digest,
+        ),
+    );
+    let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
+    let owner = Arc::new(
+        ReplayCompositionOwnerV1::connect(&owner_url, &reader_url)
+            .await
+            .unwrap(),
+    );
+
+    let before = replay_positive_state(admin).await;
+    let missing_composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+        StrategyDesignRoleSetLocatorV1 {
+            request_identity: "missing-w3-composer".into(),
+            ..composer_locator.clone()
+        },
+        command.composition().pit_locator().clone(),
+        command.composition().source_binding_locator().clone(),
+        50,
+        51,
+        command.composition().instrument_master_locator(),
+        command.composition().universe_selection_locator(),
+        command.composition().observation_census_locator(),
+        command.composition().joined_cut_locator(),
+        command.composition().sample_projection_locator(),
+        command.composition().reference_fact_r0_locator(),
+        command.composition().calendar_locator(),
+        command.composition().session_locator(),
+        command.composition().time_zone_locator(),
+        command.composition().market_semantics_locator(),
+        command.composition().correction_policy_locator(),
+        command.composition().corporate_action_locator(),
+    );
+    let missing =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
+    assert!(owner.issue_binding_v1(&missing).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+
+    let mut blocker = admin.begin().await.unwrap();
+    sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
+        .bind(base.r0.receipt().request_identity.as_bytes().as_slice()).fetch_one(&mut *blocker).await.unwrap();
+    let issue_owner = Arc::clone(&owner);
+    let issue_command = command.clone();
+    let issue = tokio::spawn(async move { issue_owner.issue_binding_v1(&issue_command).await });
+    let mut observed_two_owner_transactions = false;
+    for _ in 0..100 {
+        let holders: i64 = sqlx::query_scalar("SELECT count(DISTINCT activity.usename) FROM pg_catalog.pg_locks lock_fact JOIN pg_catalog.pg_stat_activity activity ON activity.pid=lock_fact.pid WHERE lock_fact.locktype='advisory' AND lock_fact.granted AND activity.usename IN ('market_data_reader','market_data_owner')")
+            .fetch_one(admin).await.unwrap();
+        if holders == 2 {
+            observed_two_owner_transactions = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        observed_two_owner_transactions,
+        "reader and Market transactions overlap after handoff"
+    );
+    blocker.rollback().await.unwrap();
+    let first = issue.await.unwrap().unwrap();
+    let retry = owner.issue_binding_v1(&command).await.unwrap();
+    let recovered = owner
+        .recover_issuance_v1(command.issuance_locator())
+        .await
+        .unwrap();
+    assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
+    assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
+
+    let committed = replay_positive_state(admin).await;
+    let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+        composer_locator,
+        command.composition().pit_locator().clone(),
+        command.composition().source_binding_locator().clone(),
+        50,
+        51,
+        command.composition().instrument_master_locator(),
+        command.composition().universe_selection_locator(),
+        command.composition().observation_census_locator(),
+        command.composition().joined_cut_locator(),
+        command.composition().sample_projection_locator(),
+        ReplayCompositionRequestLocatorV1::from_untrusted(d(250), d(251)),
+        command.composition().calendar_locator(),
+        command.composition().session_locator(),
+        command.composition().time_zone_locator(),
+        command.composition().market_semantics_locator(),
+        command.composition().correction_policy_locator(),
+        command.composition().corporate_action_locator(),
+    );
+    let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
+    assert!(owner.issue_binding_v1(&bad).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, committed);
+}
+
+async fn replay_positive_state(pool: &sqlx::PgPool) -> Vec<i64> {
+    sqlx::query_scalar(
+        "SELECT value FROM (VALUES
+            (1, (SELECT count(*) FROM market_data_private.replay_composition_bindings_v1)),
+            (2, (SELECT count(*) FROM market_data_private.replay_composition_binding_receipts_v1)),
+            (3, (SELECT count(*) FROM market_data_private.replay_composition_binding_outbox_v1)),
+            (4, (SELECT count(*) FROM market_data_private.replay_market_facts_v2)),
+            (5, (SELECT count(*) FROM market_data_private.replay_market_facts_receipts_v2)),
+            (6, (SELECT count(*) FROM market_data_private.replay_market_facts_outbox_v2)),
+            (7, (SELECT count(*) FROM market_data_private.replay_composition_issuances_v1)),
+            (8, (SELECT count(*) FROM market_data_private.observation_census_records_v1)),
+            (9, (SELECT count(*) FROM market_data_private.observation_census_dependencies_v1)),
+            (10, (SELECT count(*) FROM market_data_private.observation_census_outbox_v1)),
+            (11, COALESCE((SELECT append_sequence FROM market_data_private.replay_market_facts_state_v2 WHERE singleton), 0)),
+            (12, COALESCE((SELECT aggregate_count FROM market_data_private.observation_census_state_v1 WHERE singleton), 0))
+        ) AS positive_state(ordinal, value)
+        ORDER BY ordinal",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
 fn dependency(seed: u8) -> super::postgres::OpaqueDependencyLocatorV2 {
     super::postgres::OpaqueDependencyLocatorV2 {
         identity: [seed; 32],

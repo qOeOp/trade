@@ -7725,4 +7725,4 @@ fn nonnegative_u64(value: i64) -> Result<u64, sqlx::Error> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

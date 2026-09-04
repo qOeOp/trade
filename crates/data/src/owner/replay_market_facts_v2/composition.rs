@@ -170,6 +170,48 @@ pub struct ReplayCompositionBindingIssuanceRequestV1 {
 }
 
 impl ReplayCompositionBindingIssuanceRequestV1 {
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) const fn from_test_fixture(
+        composer_locator: StrategyDesignRoleSetLocatorV1,
+        pit_locator: UntrustedPitSnapshotLocator,
+        source_binding_locator: UntrustedSourceBindingLocator,
+        replay_start_event_ns: i128,
+        replay_end_event_ns_exclusive: i128,
+        instrument_master_locator: ReplayCompositionRequestLocatorV1,
+        universe_selection_locator: ReplayCompositionRequestLocatorV1,
+        observation_census_locator: ReplayCompositionRequestLocatorV1,
+        joined_cut_locator: ReplayCompositionContentLocatorV1,
+        sample_projection_locator: ReplayCompositionContentLocatorV1,
+        reference_fact_r0_locator: ReplayCompositionRequestLocatorV1,
+        calendar_locator: ReplayCompositionRequestLocatorV1,
+        session_locator: ReplayCompositionRequestLocatorV1,
+        time_zone_locator: ReplayCompositionRequestLocatorV1,
+        market_semantics_locator: ReplayCompositionRequestLocatorV1,
+        correction_policy_locator: ReplayCompositionContentLocatorV1,
+        corporate_action_locator: ReplayCompositionRequestLocatorV1,
+    ) -> Self {
+        Self {
+            composer_locator,
+            pit_locator,
+            source_binding_locator,
+            replay_start_event_ns,
+            replay_end_event_ns_exclusive,
+            instrument_master_locator,
+            universe_selection_locator,
+            observation_census_locator,
+            joined_cut_locator,
+            sample_projection_locator,
+            reference_fact_r0_locator,
+            calendar_locator,
+            session_locator,
+            time_zone_locator,
+            market_semantics_locator,
+            correction_policy_locator,
+            corporate_action_locator,
+        }
+    }
+
     #[must_use]
     pub const fn composer_locator(&self) -> &StrategyDesignRoleSetLocatorV1 {
         &self.composer_locator

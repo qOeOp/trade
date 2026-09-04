@@ -117,8 +117,55 @@ fn proposals() -> Vec<TimeZoneFactProposalV1> {
     vec![first, proposal(15, Some(25), 2, Some(first_id), 36_000)]
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn replay_time_zone_fixture_v1(
+    request_identity: TimeZoneIdentity,
+    coordinates: VerifiedReferenceFactCoordinatesV1,
+    source_locator_bytes: &[u8],
+    r0_locator_bytes: &[u8],
+    r0_coordinate_identity: TimeZoneIdentity,
+    r0_coordinate_digest: TimeZoneIdentity,
+) -> (UntrustedTimeZoneRequestV1, Vec<TimeZoneFactProposalV1>) {
+    let claim = coordinates.claim();
+    let ruleset_identity = d(214);
+    let request = UntrustedTimeZoneRequestV1 {
+        request_identity,
+        consumer: TimeZoneConsumerV1::ReplayV2,
+        time_zone_identity: b"America/New_York".to_vec().into(),
+        ruleset_identity,
+        window_start_ns: claim.replay_start_event_ns,
+        window_end_ns_exclusive: claim.replay_end_event_ns_exclusive,
+        owner_observation_ns: claim.time.owner_observation_ns,
+        decision_cut: claim.time.decision_cut,
+        source_binding_locator_bytes: source_locator_bytes.to_vec().into(),
+        r0_locator_bytes: r0_locator_bytes.to_vec().into(),
+        stable_correlation: claim.stable_correlation,
+    };
+    let proposal = TimeZoneFactProposalV1 {
+        time_zone_identity: b"America/New_York".to_vec().into(),
+        ruleset_identity,
+        utc_offset_seconds: -14_400,
+        correction_sequence: claim.source.lineage_version,
+        dependencies: VerifiedTimeZoneDependenciesV1::verify(
+            coordinates,
+            r0_coordinate_identity,
+            r0_coordinate_digest,
+        )
+        .unwrap(),
+    };
+    (request, vec![proposal])
+}
+
 #[rstest]
 fn complete_transition_cut_round_trips_and_receipt_equals_outbox() {
+    let _ = replay_time_zone_fixture_v1(
+        d(90),
+        dependencies(10, Some(20), 1, None).coordinates().clone(),
+        b"source-locator",
+        b"r0-locator",
+        d(22),
+        d(23),
+    );
     let prepared = authority::prepare_resolution_v1(request(), proposals(), d(16), d(17)).unwrap();
     let readback = authority::seal_readback_v1(prepared, d(18), 1).unwrap();
     assert_eq!(readback.receipt().identity(), readback.outbox_identity());
