@@ -27,7 +27,7 @@ adapters and their deployment authority are separately available.
 
 ## Start
 
-Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL` and `RD_OWNER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD` and `RD_OWNER_DB_PASSWORD` respectively. Do not commit it.
+Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL`, `RD_OWNER_DATABASE_URL`, and `RD_FACT_WRITER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD`, `RD_OWNER_DB_PASSWORD`, and `RD_FACT_WRITER_DB_PASSWORD` respectively. Do not commit it.
 
 Operator Authorization and Product Edge genesis remain explicit administrative
 operations and never run as part of service startup. Replay Policy Catalog
@@ -49,8 +49,9 @@ run the idempotent custody migration. It creates/updates only PostgreSQL roles,
 ownership, and grants; it
 also performs the single-transaction Catalog/Composer private-owner cutover.
 The database/public schema custodian and both object owners are NOLOGIN roles.
-`rd_owner` uses only fixed lock/read APIs; mutation requires an explicitly supplied
-`rd_fact_writer` credential which this repository does not seed or compose for deployment.
+`rd_owner` uses only fixed lock/read APIs; mutation requires the dedicated
+`rd_fact_writer` credential provisioned from the explicitly supplied
+`RD_FACT_WRITER_DB_PASSWORD`. No default or fallback credential exists.
 Existing relations are moved with `SET SCHEMA` without row rewrites. The
 migration does not insert, update, delete, backfill, or reinterpret an Owner fact:
 

@@ -473,6 +473,7 @@ docker exec --interactive \
   --env POSTGRES_DB=postgres \
   --env "RD_OWNER_DATABASE_NAME=${test_database}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
@@ -493,6 +494,7 @@ docker exec --interactive \
   --env "POSTGRES_DATABASE=${test_database}" \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
@@ -503,7 +505,6 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" \
   --set=test_database="$test_database" \
   --set=test_password="$test_password" << 'SQL'
-ALTER ROLE rd_fact_writer LOGIN PASSWORD :'test_password';
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 DO $database_access$

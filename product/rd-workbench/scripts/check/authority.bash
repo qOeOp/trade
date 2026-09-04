@@ -8,8 +8,26 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # The expression is the literal contract under inspection.
 # shellcheck disable=SC2016
 grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq 'GRANT USAGE, CREATE ON SCHEMA public TO rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq -- "--set=fact_writer_password=\"\$RD_FACT_WRITER_DB_PASSWORD\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq "CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq -- "--set=fact_writer_password=\"\$RD_FACT_WRITER_DB_PASSWORD\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+postgres_compose=$(sed -n '/^  postgres:$/,/^  rd-owner-api:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$postgres_compose" | grep -Fq "RD_FACT_WRITER_DB_PASSWORD=\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+custody_migrate_compose=$(sed -n '/^  authority-custody-migrate:$/,/^  replay-policy-catalog-bootstrap:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$custody_migrate_compose" | grep -Fq 'RD_FACT_WRITER_DB_PASSWORD: >-'
+printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+grep -Fq 'RD_FACT_WRITER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
+ci_postgres_test="$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+test "$(grep -Fc -- "--env \"RD_FACT_WRITER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 2
+if grep -Fq "ALTER ROLE rd_fact_writer LOGIN PASSWORD :'test_password';" "$ci_postgres_test"; then
+  echo "disposable CI must use the canonical rd_fact_writer credential chain" >&2
+  exit 1
+fi
 if grep -Fq 'CREATE SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/00-create-rd-owner.sh" ||
   grep -Fq 'CREATE SCHEMA composer_private' "$package_dir/postgres-init/00-create-rd-owner.sh"; then
   echo "private custody must not exist before schema materialization" >&2
