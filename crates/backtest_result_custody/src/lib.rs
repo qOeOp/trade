@@ -392,7 +392,7 @@ async fn acquire_topology_fence(
                           UNION ALL SELECT operator.oid FROM pg_catalog.pg_operator operator WHERE operator.oprnamespace=namespace.oid
                           UNION ALL SELECT operator_class.oid FROM pg_catalog.pg_opclass operator_class WHERE operator_class.opcnamespace=namespace.oid
                           UNION ALL SELECT operator_family.oid FROM pg_catalog.pg_opfamily operator_family WHERE operator_family.opfnamespace=namespace.oid
-                          UNION ALL SELECT collation.oid FROM pg_catalog.pg_collation collation WHERE collation.collnamespace=namespace.oid
+                          UNION ALL SELECT collation_entry.oid FROM pg_catalog.pg_collation collation_entry WHERE collation_entry.collnamespace=namespace.oid
                           UNION ALL SELECT conversion.oid FROM pg_catalog.pg_conversion conversion WHERE conversion.connamespace=namespace.oid
                           UNION ALL SELECT text_search_config.oid FROM pg_catalog.pg_ts_config text_search_config WHERE text_search_config.cfgnamespace=namespace.oid
                           UNION ALL SELECT text_search_dictionary.oid FROM pg_catalog.pg_ts_dict text_search_dictionary WHERE text_search_dictionary.dictnamespace=namespace.oid
