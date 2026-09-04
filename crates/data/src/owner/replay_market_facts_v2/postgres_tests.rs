@@ -43,18 +43,30 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("request_meaning_digest BYTEA NOT NULL UNIQUE"));
     assert!(source.contains("response_bytes BYTEA NOT NULL"));
     assert!(source.contains("lock_issuance_identity"));
-    assert!(source.contains("resolve_role_set_attestation(request.composer_locator())"));
-    assert!(source.contains("resolve_native_join_attestation(request.composer_locator())"));
+    assert!(source.contains("Self::resolve_role_set_attestation(&mut reader_transaction"));
+    assert!(
+        source.contains(
+            "Self::resolve_native_join_attestation(\n            &mut reader_transaction"
+        )
+    );
     assert!(source.contains("validate_native_join_v4(&mut transaction, &native_join)"));
+    assert!(source.contains("let mut reader_transaction = self\n            .rd_role_set_pool"));
+    assert!(source.contains("verify_owner_handoff_v1("));
+    assert!(source.contains("pg_try_advisory_xact_lock"));
+    assert!(source.contains("pg_control_system"));
+    assert!(source.contains("pg_postmaster_start_time"));
+    assert!(source.contains("pg_is_in_recovery"));
+    assert!(source.contains("lock_composer_cut_v1("));
     assert!(source.contains(
-        "FROM rd_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
+        "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
     ));
     assert!(source.contains("decoded.component_count() != 6"));
     assert!(source.contains("stored\n            .decoded\n            .canonical_bytes()"));
     assert!(source.contains("authenticate_durable_strategy_design_role_set_v1"));
     assert!(source.contains(
-        "FROM rd_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)"
+        "FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)"
     ));
+    assert!(!source.contains("fetch_optional(&self.rd_role_set_pool)"));
     assert!(!source.contains("FROM rd_develop_strategy_design_role_set_attestations_v1"));
     assert!(!source.contains("FROM public.rd_develop_strategy_design_role_set_attestations_v1"));
     assert!(source.contains("rd_reader_role != \"market_data_reader\""));
@@ -62,7 +74,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("native_function_execute"));
     assert!(source.contains("native_raw_select"));
     assert!(source.contains("native_raw_write"));
-    assert!(source.contains("pg_has_role(current_user,'rd_owner','MEMBER')"));
+    assert!(source.contains("pg_has_role(current_user,'composer_owner','MEMBER')"));
     assert!(source.contains("'SELECT') AS raw_select"));
     assert!(source.contains("'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write"));
     assert!(
@@ -84,16 +96,26 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
         .expect("positive issuance body");
     assert!(
         issue_body
-            .find("resolve_role_set_attestation(request.composer_locator())")
-            .expect("R&D function read")
+            .find("lock_composer_cut_v1(")
+            .expect("Composer owner lock")
             < issue_body
                 .find("recover_reference_fact_r0_in_transaction_v1")
                 .expect("first Market fact read")
     );
+    assert!(source.contains("rd_role_set_pool"));
+    assert!(!source.contains("issue_composer_native_join_v1"));
     assert!(
         issue_body
-            .find("resolve_role_set_attestation(request.composer_locator())")
-            .expect("R&D function read")
+            .find("lock_composer_cut_v1(")
+            .expect("Composer owner lock")
+            < issue_body
+                .find("persist_replay_composition_binding_in_transaction_v1")
+                .expect("first Market write")
+    );
+    assert!(
+        issue_body
+            .find("verify_owner_handoff_v1(")
+            .expect("live database handoff")
             < issue_body
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")

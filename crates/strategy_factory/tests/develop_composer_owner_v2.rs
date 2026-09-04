@@ -57,7 +57,57 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     let database_url = database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter);
     let mutation = database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
+    let market_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    let writer_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
     let pool = database.owner_topology_admin_pool();
+
+    let mut reader_cut = reader_pool.begin().await.expect("reader transaction");
+    let reader_backend: i64 =
+        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+            .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+            .fetch_one(&mut *reader_cut)
+            .await
+            .expect("reader shared Composer cut");
+    let mut market_cut = market_pool.begin().await.expect("Market owner transaction");
+    let market_backend: i64 =
+        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+            .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+            .fetch_one(&mut *market_cut)
+            .await
+            .expect("Market owner shared Composer cut handoff");
+    assert_ne!(reader_backend, market_backend);
+    let mut writer_cut = writer_pool.begin().await.expect("writer probe transaction");
+    let writer_key_available: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))",
+    )
+    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+    .fetch_one(&mut *writer_cut)
+    .await
+    .expect("writer-key probe");
+    assert!(!writer_key_available);
+    reader_cut
+        .rollback()
+        .await
+        .expect("forced reader disconnect");
+    let writer_key_available_after_reader: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))",
+    )
+    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+    .fetch_one(&mut *writer_cut)
+    .await
+    .expect("writer-key probe after reader terminal");
+    assert!(!writer_key_available_after_reader);
+    market_cut.rollback().await.expect("Market terminal");
+    let writer_key_available_after_market: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_try_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))",
+    )
+    .bind(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
+    .fetch_one(&mut *writer_cut)
+    .await
+    .expect("writer-key probe after Market terminal");
+    assert!(writer_key_available_after_market);
+    writer_cut.rollback().await.expect("release writer probe");
 
     let owner = SealedDevelopComposerAcceptanceV2::connect(database_url)
         .await

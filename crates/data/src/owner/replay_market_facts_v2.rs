@@ -53,7 +53,7 @@ pub use composition::{
 /// Its database handle is private and its positive issuance method accepts the non-deserializable
 /// R&D readback, so callers cannot inject a resolver or manufacture authenticated role custody.
 pub struct ReplayCompositionOwnerV1 {
-    pub(in crate::owner) owner: crate::owner::postgres::MarketDataOwnerPostgres,
+    pub(in crate::owner) owner: super::postgres::MarketDataOwnerPostgres,
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
 }
 
@@ -93,6 +93,7 @@ impl AuthenticatedComposerNativeJoinV1 {
         self.schedule_dependency_set_digest
     }
 
+    #[cfg(test)]
     pub(in crate::owner) const fn from_owner_readback(
         locator: UntrustedStrategyInputSampleProjectionLocatorV4,
         joined_cut_digest: BindingDigest,

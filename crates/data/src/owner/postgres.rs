@@ -300,6 +300,24 @@ impl MarketDataOwnerPostgres {
         Ok(owner)
     }
 
+    pub(crate) async fn connect_existing(database_url: &str) -> Result<Self, SourceBindingError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        let admitted: bool = sqlx::query_scalar(
+            "SELECT session_user='market_data_owner' AND current_user='market_data_owner' AND NOT pg_catalog.pg_is_in_recovery() AND pg_catalog.to_regclass('market_data_private.owner_migrations_v1') IS NOT NULL AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid) FROM pg_catalog.pg_roles role WHERE role.rolname=current_user",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        if !admitted {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
+        Ok(Self { pool })
+    }
+
     async fn migrate(&self) -> Result<(), SourceBindingError> {
         let mut transaction = self
             .pool

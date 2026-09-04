@@ -602,6 +602,7 @@ docker exec --interactive \
   --env "RD_OWNER_DATABASE_NAME=${test_database}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
   --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
@@ -624,6 +625,7 @@ docker exec --interactive \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
   --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
@@ -925,6 +927,7 @@ export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authoriza
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
@@ -957,6 +960,7 @@ run_authority_migration_for_database() {
     --env "POSTGRES_PASSWORD=${test_password}" \
     --env "RD_OWNER_DB_PASSWORD=${test_password}" \
     --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+    --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
     --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
     --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
     --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
@@ -1248,6 +1252,7 @@ SQL
     --env "POSTGRES_PASSWORD=${test_password}" \
     --env "RD_OWNER_DB_PASSWORD=${test_password}" \
     --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+    --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
     --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
     --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
     --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
