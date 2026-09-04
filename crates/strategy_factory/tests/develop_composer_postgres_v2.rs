@@ -62,6 +62,11 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(source.contains("pub(crate) async fn run_with_native_join"));
     assert!(source.contains("pub(crate) async fn resolve_with_native_join"));
     assert!(source.contains("StrategyDesignNativeJoinReceiptV1::from_market_owner"));
+    assert!(
+        source.contains(
+            "StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, native_join)"
+        )
+    );
     assert!(source.contains(
         "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
     ));
@@ -189,6 +194,21 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
             < runtime_write
                 .find("native_join_receipt.as_ref()")
                 .expect("native join persisted with the positive operation")
+    );
+    let native_retry = runtime_write
+        .split("if let Some(existing) = existing")
+        .nth(1)
+        .expect("exact retry branch")
+        .split("let mut transaction")
+        .next()
+        .expect("bounded exact retry branch");
+    assert!(
+        native_retry
+            .find("StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, native_join)")
+            .expect("cross-Design rejection before retry acceptance")
+            < native_retry
+                .find("native_join_matches_owner_port")
+                .expect("exact Owner API retry readback")
     );
 
     for table in [

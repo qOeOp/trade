@@ -76,6 +76,14 @@ pub struct AuthenticatedComposerNativeJoinV1 {
     joined_cut_digest: BindingDigest,
     joined_cut_receipt_digest: BindingDigest,
     schedule_dependency_set_digest: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    join_identity: BindingDigest,
+    join_claim_digest: BindingDigest,
+    join_semantic_id: Box<str>,
+    alignment_semantic_id: Box<str>,
+    trigger_input_id: Box<str>,
+    max_staleness_ns: u64,
+    roles: Box<[(Box<str>, BindingDigest)]>,
 }
 
 impl AuthenticatedComposerNativeJoinV1 {
@@ -99,19 +107,111 @@ impl AuthenticatedComposerNativeJoinV1 {
         self.schedule_dependency_set_digest
     }
 
-    pub(in crate::owner) const fn from_owner_readback(
+    #[must_use]
+    pub const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    #[must_use]
+    pub const fn join_identity(&self) -> BindingDigest {
+        self.join_identity
+    }
+
+    #[must_use]
+    pub const fn join_claim_digest(&self) -> BindingDigest {
+        self.join_claim_digest
+    }
+
+    pub(in crate::owner) fn matches_role_set(
+        &self,
+        role_set: &super::strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
+    ) -> bool {
+        role_set.has_valid_integrity()
+            && role_set.design_identity == self.strategy_design_identity
+            && role_set
+                .joins
+                .iter()
+                .find(|join| join.join_identity == self.join_identity)
+                .is_some_and(|join| {
+                    join.semantic_id == self.join_semantic_id.as_ref()
+                        && join.alignment_semantic_id == self.alignment_semantic_id.as_ref()
+                        && join.trigger_input_id == self.trigger_input_id.as_ref()
+                        && join.max_staleness_ns == self.max_staleness_ns
+                        && join.roles.len() == self.roles.len()
+                        && join.roles.iter().zip(self.roles.iter()).all(
+                            |(expected, (semantic_id, role_identity))| {
+                                expected.semantic_id == semantic_id.as_ref()
+                                    && expected.role_identity == *role_identity
+                            },
+                        )
+                })
+    }
+
+    pub(in crate::owner) fn from_owner_readback(
         locator: UntrustedStrategyInputSampleProjectionLocatorV4,
         joined_cut_digest: BindingDigest,
         joined_cut_receipt_digest: BindingDigest,
         schedule_dependency_set_digest: BindingDigest,
+        join_claim: &super::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
     ) -> Self {
+        let join_claim_digest = composer_join_claim_digest_v1(join_claim);
         Self {
             locator,
             joined_cut_digest,
             joined_cut_receipt_digest,
             schedule_dependency_set_digest,
+            strategy_design_identity: join_claim.strategy_design_identity,
+            join_identity: join_claim.join_identity,
+            join_claim_digest,
+            join_semantic_id: join_claim.join_semantic_id.clone().into_boxed_str(),
+            alignment_semantic_id: join_claim.alignment_semantic_id.clone().into_boxed_str(),
+            trigger_input_id: join_claim.trigger_input_id.clone().into_boxed_str(),
+            max_staleness_ns: join_claim.max_staleness_ns,
+            roles: join_claim
+                .roles
+                .iter()
+                .map(|role| {
+                    (
+                        role.semantic_id.clone().into_boxed_str(),
+                        role.input_role_identity,
+                    )
+                })
+                .collect(),
         }
     }
+}
+
+fn composer_join_claim_digest_v1(
+    claim: &super::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
+) -> BindingDigest {
+    let mut hasher = Sha256::new();
+    hasher.update(b"market-data.composer-native-join.claim.v1\0");
+    hasher.update(claim.strategy_design_identity.as_bytes());
+    hasher.update(claim.join_identity.as_bytes());
+    for value in [
+        claim.join_semantic_id.as_bytes(),
+        claim.alignment_semantic_id.as_bytes(),
+        claim.trigger_input_id.as_bytes(),
+    ] {
+        hasher.update(u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+        hasher.update(value);
+    }
+    hasher.update(claim.max_staleness_ns.to_be_bytes());
+    hasher.update(
+        u64::try_from(claim.roles.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for role in &claim.roles {
+        hasher.update(
+            u64::try_from(role.semantic_id.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        hasher.update(role.semantic_id.as_bytes());
+        hasher.update(role.input_role_identity.as_bytes());
+    }
+    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
 impl Debug for ReplayCompositionOwnerV1 {

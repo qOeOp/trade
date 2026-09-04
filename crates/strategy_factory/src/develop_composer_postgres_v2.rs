@@ -1738,11 +1738,8 @@ impl PostgresDevelopComposerStoreV2 {
         }
         let role_set = project_role_set_from_record(&record, &response)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-            role_set.composer_locator.clone(),
-            native_join,
-        )
-        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, native_join)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         if !native_join_matches_owner_port(self, &role_set.composer_locator, &expected).await? {
             return Ok(unavailable_response(
                 request_identity,
@@ -1853,11 +1850,9 @@ impl PostgresDevelopComposerStoreV2 {
             {
                 let role_set = project_role_set_from_record(&existing, &response)
                     .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-                let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-                    role_set.composer_locator.clone(),
-                    native_join,
-                )
-                .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                let expected =
+                    StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, native_join)
+                        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
                 if !native_join_matches_owner_port(self, &role_set.composer_locator, &expected)
                     .await?
                 {
@@ -1912,10 +1907,7 @@ impl PostgresDevelopComposerStoreV2 {
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         let native_join_receipt = native_join
             .map(|native_join| {
-                StrategyDesignNativeJoinReceiptV1::from_market_owner(
-                    role_set.composer_locator.clone(),
-                    native_join,
-                )
+                StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, native_join)
             })
             .transpose()
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;

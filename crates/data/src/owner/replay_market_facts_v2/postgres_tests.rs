@@ -516,7 +516,12 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
         sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4,
         source_binding::BindingDigest,
         strategy_design_role_set::{
-            StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetLocatorV1,
+            StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignNativeJoinReceiptV1,
+            StrategyDesignRoleEntryV1, StrategyDesignRoleSetLocatorV1,
+            StrategyDesignRoleSetReceiptV1,
+        },
+        strategy_input_joined_cut::{
+            StrategyInputJoinRoleClaimV1, UntrustedStrategyInputJoinClaimV1,
         },
     };
 
@@ -529,15 +534,91 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
         canonical_plan_digest: BindingDigest::from_untrusted_bytes([3; 32]),
         design_digest: BindingDigest::from_untrusted_bytes([4; 32]),
     };
+    let role_identity = BindingDigest::from_untrusted_bytes([9; 32]);
+    let second_role_identity = BindingDigest::from_untrusted_bytes([16; 32]);
+    let design_identity = BindingDigest::from_untrusted_bytes([10; 32]);
+    let join_identity = BindingDigest::from_untrusted_bytes([11; 32]);
+    let claim = UntrustedStrategyInputJoinClaimV1 {
+        strategy_design_identity: design_identity,
+        join_semantic_id: "bar".into(),
+        join_identity,
+        alignment_semantic_id: "LATEST_NOT_AFTER".into(),
+        trigger_input_id: "close".into(),
+        max_staleness_ns: 60,
+        roles: vec![
+            StrategyInputJoinRoleClaimV1 {
+                semantic_id: "open".into(),
+                input_role_identity: second_role_identity,
+            },
+            StrategyInputJoinRoleClaimV1 {
+                semantic_id: "close".into(),
+                input_role_identity: role_identity,
+            },
+        ],
+    };
+    let role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        locator.clone(),
+        BindingDigest::from_untrusted_bytes([12; 32]),
+        BindingDigest::from_untrusted_bytes([13; 32]),
+        design_identity,
+        locator.design_digest,
+        BindingDigest::from_untrusted_bytes([14; 32]),
+        vec![
+            StrategyDesignRoleEntryV1 {
+                role_identity,
+                semantic_id: "close".into(),
+                fact_class: "MARKET_DATA".into(),
+                instrument: "XNAS:AAPL".into(),
+                scope: "EXACT_INSTRUMENT".into(),
+                field_semantic_id: "BAR_CLOSE_PRICE".into(),
+                channel: "MARKET".into(),
+                timeframe: "PT1M".into(),
+                unit: "PRICE".into(),
+                scale: 4,
+                value_type: "I128".into(),
+            },
+            StrategyDesignRoleEntryV1 {
+                role_identity: second_role_identity,
+                semantic_id: "open".into(),
+                fact_class: "MARKET_DATA".into(),
+                instrument: "XNAS:AAPL".into(),
+                scope: "EXACT_INSTRUMENT".into(),
+                field_semantic_id: "BAR_OPEN_PRICE".into(),
+                channel: "MARKET".into(),
+                timeframe: "PT1M".into(),
+                unit: "PRICE".into(),
+                scale: 4,
+                value_type: "I128".into(),
+            },
+        ],
+        vec![StrategyDesignJoinEntryV1 {
+            join_identity,
+            semantic_id: "bar".into(),
+            roles: vec![
+                StrategyDesignJoinRoleV1 {
+                    semantic_id: "open".into(),
+                    role_identity: second_role_identity,
+                },
+                StrategyDesignJoinRoleV1 {
+                    semantic_id: "close".into(),
+                    role_identity,
+                },
+            ],
+            alignment_semantic_id: "LATEST_NOT_AFTER".into(),
+            trigger_input_id: "close".into(),
+            max_staleness_ns: 60,
+        }],
+    )
+    .unwrap();
     let capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted([5; 32]),
         BindingDigest::from_untrusted_bytes([6; 32]),
         BindingDigest::from_untrusted_bytes([7; 32]),
         BindingDigest::from_untrusted_bytes([8; 32]),
+        &claim,
     );
-    let receipt =
-        StrategyDesignNativeJoinReceiptV1::from_market_owner(locator.clone(), &capability)
-            .expect("native join attestation");
+    let receipt = StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &capability)
+        .expect("native join attestation");
     let decoded = StrategyDesignNativeJoinReceiptV1::from_durable_attestation(
         &locator,
         receipt.canonical_bytes(),
@@ -556,6 +637,21 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
     assert_ne!(
         decoded.joined_cut_digest(),
         decoded.joined_cut_receipt_digest()
+    );
+    let cross_design_role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        locator.clone(),
+        role_set.research_request_identity,
+        role_set.intent_identity,
+        BindingDigest::from_untrusted_bytes([15; 32]),
+        role_set.design_digest,
+        role_set.canonical_design_digest,
+        role_set.roles.clone(),
+        role_set.joins.clone(),
+    )
+    .unwrap();
+    assert!(
+        StrategyDesignNativeJoinReceiptV1::from_market_owner(&cross_design_role_set, &capability,)
+            .is_err()
     );
     let mut corrupt = receipt.canonical_bytes().to_vec();
     corrupt[0] ^= 1;
@@ -955,11 +1051,9 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .as_bytes(),
         &joined.projection.schedule_dependency_set_digest()
     );
-    let native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-        composer_locator.clone(),
-        &native_capability,
-    )
-    .unwrap();
+    let native_join =
+        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &native_capability)
+            .unwrap();
     let wrong_day_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
             joined.wrong_day_projection.receipt_digest(),
@@ -969,12 +1063,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         BindingDigest::from_untrusted_bytes(
             joined.wrong_day_projection.schedule_dependency_set_digest(),
         ),
+        &joined.join_claim,
     );
-    let wrong_day_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-        composer_locator.clone(),
-        &wrong_day_capability,
-    )
-    .unwrap();
+    let wrong_day_native_join =
+        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &wrong_day_capability)
+            .unwrap();
     let cross_splice_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
             joined.cross_splice_projection.receipt_digest(),
@@ -986,12 +1079,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
                 .cross_splice_projection
                 .schedule_dependency_set_digest(),
         ),
+        &joined.join_claim,
     );
-    let cross_splice_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-        composer_locator.clone(),
-        &cross_splice_capability,
-    )
-    .unwrap();
+    let cross_splice_native_join =
+        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &cross_splice_capability)
+            .unwrap();
     let mut composer_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *composer_tx)
