@@ -646,7 +646,7 @@ async fn validate_replay_first_corpus_claim_v1(
 
         if join_role.semantic_id == claim.trigger_input_id {
             trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
-                && joined.trigger_digest() == component.frame_digest();
+                && joined.trigger_digest() == component.frame().trigger().digest();
         }
 
         if matches!(
