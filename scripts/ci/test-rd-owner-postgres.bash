@@ -283,6 +283,13 @@ if "backtest_authority_lock_api.poisoned_sibling_v1()" not in test_script:
     raise SystemExit("ERROR: authority-lock sibling rejection oracle is unavailable")
 if "backtest_authority_lock_api.poisoned_relation_v1" not in test_script:
     raise SystemExit("ERROR: authority-lock object rejection oracle is unavailable")
+authority_migration_wrapper = '''run_authority_migration() {
+  if ! run_authority_migration_for_database "$test_database"; then
+    return 1
+  fi
+  docker exec'''
+if authority_migration_wrapper not in test_script:
+    raise SystemExit("ERROR: authority migration wrapper does not preserve migration failure")
 ordered_fences = re.compile(
     r"SELECT pg_catalog\.pg_advisory_xact_lock\(\s*"
     r"pg_catalog\.hashtextextended\('vibe\.backtest\.result-topology\.v2',0\)\s*"
@@ -998,7 +1005,9 @@ run_authority_migration_for_database() {
 }
 
 run_authority_migration() {
-  run_authority_migration_for_database "$test_database"
+  if ! run_authority_migration_for_database "$test_database"; then
+    return 1
+  fi
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
