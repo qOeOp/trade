@@ -39,13 +39,22 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         migration.contains("composer_owner_api.resolve_strategy_design_role_set_attestation_v1")
     );
     assert!(migration.contains("composer_owner_api.resolve_strategy_design_native_join_v1"));
-    assert!(migration.contains("GRANT USAGE ON SCHEMA composer_owner_api TO market_data_reader"));
+    assert!(migration.contains(
+        "GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_data_reader"
+    ));
     assert!(
         migration.contains(
             "REVOKE ALL ON ALL TABLES IN SCHEMA composer_private FROM market_data_reader"
         )
     );
-    assert!(!source.contains("CREATE TABLE IF NOT EXISTS"));
+    let runtime_write = source
+        .split("async fn run_inner")
+        .nth(1)
+        .expect("bounded Composer runtime write path")
+        .split("pub(crate) fn resolve_loaded_record_with_evidence")
+        .next()
+        .expect("bounded Composer runtime write body");
+    assert!(!runtime_write.contains("CREATE TABLE IF NOT EXISTS"));
     assert!(migration.contains("REVOKE ALL ON ALL TABLES IN SCHEMA"));
     assert!(!source.contains("JSONB"));
     assert!(!source.contains("serde_json"));
@@ -73,9 +82,32 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner"
     ));
     assert!(source.contains("pg_catalog.pg_has_role(caller_oid, proowner, 'MEMBER')"));
-    assert!(source.contains("caller_oid IN (rd_owner_oid,fact_writer_oid)"));
-    assert!(source.contains("acl.grantee NOT IN (proowner, rd_owner_oid, fact_writer_oid)"));
+    assert!(source.contains("caller_oid=rd_owner_oid"));
+    assert!(source.contains("acl.grantee NOT IN (proowner, rd_owner_oid)"));
     assert!(source.contains("SESSION_USER='rd_fact_writer'"));
+    assert!(
+        source.contains("NOT pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE')")
+    );
+    assert!(
+        migration
+            .contains("GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2")
+    );
+    assert!(!migration.contains(
+        "composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO rd_fact_writer"
+    ));
+    assert!(migration.contains(
+        "NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')"
+    ));
+    assert!(migration.contains(
+        "NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_role_set_attestation_v1"
+    ));
+    assert!(source.contains("rd.develop.composer.commit.v2:"));
+    assert!(source.contains("IF FOUND THEN"));
+    assert!(source.contains("RETURN EXISTS ("));
+    assert!(source.contains("pg_catalog.pg_is_in_recovery()"));
+    assert!(source.contains("pg_catalog.pg_postmaster_start_time()"));
+    assert!(source.contains("pg_catalog.pg_try_advisory_xact_lock($1)"));
+    assert!(source.contains("do not share one lock manager"));
     assert!(source.contains("pg_catalog.has_table_privilege"));
     let pinned_source = source
         .split("const SEALED_READ_FUNCTION_SOURCE_V2: &str = \"")
@@ -92,6 +124,21 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         .next()
         .expect("bounded installed Composer routine source");
     assert_eq!(installed_source, pinned_source);
+    let pinned_commit_source = source
+        .split("const COMMIT_FUNCTION_SOURCE_V2: &str = \"")
+        .nth(1)
+        .expect("pinned Composer commit routine source")
+        .split("\";")
+        .next()
+        .expect("bounded pinned Composer commit source");
+    let installed_commit_source = migration
+        .split("AS $composer_commit$")
+        .nth(1)
+        .expect("installed Composer commit routine source")
+        .split("$composer_commit$")
+        .next()
+        .expect("bounded installed Composer commit source");
+    assert_eq!(installed_commit_source, pinned_commit_source);
     assert!(source.contains("sealed_read_port::RdOwned"));
     assert!(source.contains("pub struct SealedDevelopComposerReadbackV2"));
     assert!(!source.contains("impl Serialize for SealedDevelopComposerReadbackV2"));
@@ -172,6 +219,20 @@ async fn postgres_migration_materializes_only_private_binary_authority() {
         rows.iter()
             .all(|row| row.get::<String, _>("data_type") == "bytea")
     );
+    let (commit, sealed_read, role_set, native_join): (bool, bool, bool, bool) = sqlx::query_as(
+        "SELECT
+           pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE'),
+           pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE'),
+           pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE'),
+           pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("Composer writer authority readback");
+    assert!(commit);
+    assert!(!sealed_read);
+    assert!(!role_set);
+    assert!(!native_join);
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]

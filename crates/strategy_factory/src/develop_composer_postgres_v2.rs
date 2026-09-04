@@ -2,7 +2,12 @@
 //!
 //! Every authoritative value is private BYTEA. No JSON column participates in readback or hashing.
 
-use std::{collections::BTreeSet, fmt::Display};
+use std::{
+    collections::BTreeSet,
+    fmt::Display,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
@@ -42,6 +47,35 @@ BEGIN
   IF cardinality(p_receipt_identities)<>cardinality(p_attempt_identities)
      OR cardinality(p_receipt_identities)<>cardinality(p_capsule_identities)
      OR cardinality(p_receipt_identities)<>cardinality(p_build_bytes) THEN RETURN false; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
+  PERFORM operation.request_identity FROM composer_private.rd_develop_operations_v2 operation WHERE operation.request_identity=p_request_identity FOR UPDATE;
+  IF FOUND THEN
+    RETURN EXISTS (
+      SELECT 1
+        FROM composer_private.rd_develop_operations_v2 operation
+        JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity
+        JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+        JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+        JOIN composer_private.rd_develop_composer_receipts_v2 composer ON composer.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_host_receipts_v2 host ON host.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set ON role_set.request_identity=operation.request_identity
+        JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
+        LEFT JOIN composer_private.rd_develop_strategy_design_native_joins_v1 native_join ON native_join.request_identity=operation.request_identity
+        LEFT JOIN LATERAL (SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_modules_v2 module WHERE module.artifact_identity=artifact.artifact_identity) modules ON true
+        LEFT JOIN LATERAL (SELECT array_agg(receipt.ordinal ORDER BY receipt.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt.ordinal) AS identities,array_agg(receipt.build_attempt_identity ORDER BY receipt.ordinal) AS attempts,array_agg(receipt.capsule_identity ORDER BY receipt.ordinal) AS capsules,array_agg(receipt.canonical_bytes ORDER BY receipt.ordinal) AS canonical_bytes FROM composer_private.rd_develop_build_receipts_v2 receipt WHERE receipt.artifact_identity=artifact.artifact_identity) builds ON true
+       WHERE operation.request_identity=p_request_identity
+         AND operation.request_digest=p_request_digest AND operation.research_request_identity=p_research_identity AND operation.intent_identity=p_intent_identity AND operation.artifact_identity=p_artifact_identity AND operation.canonical_receipt_bytes=p_operation_bytes AND operation.response_bytes=p_response_bytes
+         AND artifact.plan_digest=p_plan_digest AND artifact.package_bytes=p_package_bytes
+         AND plan.design_identity=p_design_identity AND plan.canonical_bytes=p_plan_bytes AND design.canonical_bytes=p_design_bytes
+         AND COALESCE(modules.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_module_bytes)-1) value)
+         AND COALESCE(modules.canonical_bytes,ARRAY[]::bytea[])=p_module_bytes
+         AND COALESCE(builds.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_receipt_identities)-1) value)
+         AND COALESCE(builds.identities,ARRAY[]::bytea[])=p_receipt_identities AND COALESCE(builds.attempts,ARRAY[]::bytea[])=p_attempt_identities AND COALESCE(builds.capsules,ARRAY[]::bytea[])=p_capsule_identities AND COALESCE(builds.canonical_bytes,ARRAY[]::bytea[])=p_build_bytes
+         AND composer.canonical_bytes=p_composer_bytes AND host.canonical_bytes=p_host_bytes AND outbox.canonical_bytes=p_outbox_bytes
+         AND role_set.composer_schema_version=p_role_schema_version AND role_set.operation_receipt_identity=p_role_operation_receipt_identity AND role_set.artifact_locator=p_role_artifact_locator AND role_set.artifact_identity=p_artifact_identity AND role_set.canonical_plan_digest=p_plan_digest AND role_set.design_digest=p_role_design_digest AND role_set.attestation_identity=p_role_attestation_identity AND role_set.attestation_digest=p_role_attestation_digest AND role_set.canonical_bytes=p_role_bytes
+         AND ((octet_length(p_native_join_bytes)=0 AND native_join.request_identity IS NULL) OR (octet_length(p_native_join_bytes)>0 AND native_join.native_join_digest=p_native_join_digest AND native_join.projection_receipt_digest=p_projection_receipt_digest AND native_join.joined_cut_digest=p_joined_cut_digest AND native_join.schedule_dependency_set_digest=p_schedule_dependency_set_digest AND native_join.canonical_bytes=p_native_join_bytes))
+    );
+  END IF;
   INSERT INTO composer_private.rd_develop_designs_v2 VALUES (p_design_identity,p_design_bytes);
   INSERT INTO composer_private.rd_develop_plans_v2 VALUES (p_plan_digest,p_design_identity,p_plan_bytes);
   INSERT INTO composer_private.rd_develop_artifacts_v2 VALUES (p_artifact_identity,p_plan_digest,p_package_bytes);
@@ -883,8 +917,7 @@ async fn verify_composer_read_authority_in_transaction(
                    pg_catalog.to_regprocedure($3)
                  ))
                  AND bool_and((
-                   SELECT count(*)=CASE procedure.proname
-                            WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END
+                   SELECT count(*)=2
                       AND count(*) FILTER (
                         WHERE acl.grantee=procedure.proowner
                           AND acl.privilege_type='EXECUTE'
@@ -896,7 +929,8 @@ async fn verify_composer_read_authority_in_transaction(
                         )
                           AND acl.privilege_type='EXECUTE'
                           AND NOT acl.is_grantable
-                      )=1
+                      )=CASE procedure.proname
+                          WHEN 'commit_develop_composer_v2' THEN 1 ELSE 0 END
                       AND count(*) FILTER (
                         WHERE acl.grantee=(
                           SELECT oid FROM pg_catalog.pg_roles
@@ -959,7 +993,7 @@ async fn verify_composer_read_authority_in_transaction(
                    AND (
                      caller_oid=proowner
                      OR (
-                       caller_oid IN (rd_owner_oid,fact_writer_oid)
+                       caller_oid=rd_owner_oid
                        AND NOT pg_catalog.pg_has_role(caller_oid, proowner, 'MEMBER')
                        AND NOT pg_catalog.pg_has_role(proowner, caller_oid, 'MEMBER')
                        AND pg_catalog.has_schema_privilege(caller_oid, namespace_oid, 'USAGE')
@@ -973,8 +1007,8 @@ async fn verify_composer_read_authority_in_transaction(
                              pg_catalog.acldefault('f', proowner)
                             )) acl
                       WHERE acl.privilege_type<>'EXECUTE'
-                         OR acl.grantee NOT IN (proowner, rd_owner_oid, fact_writer_oid)
-                         OR (acl.grantee IN (rd_owner_oid,fact_writer_oid) AND acl.is_grantable)
+                         OR acl.grantee NOT IN (proowner, rd_owner_oid)
+                         OR (acl.grantee=rd_owner_oid AND acl.is_grantable)
                    )
                    AND NOT EXISTS (
                      SELECT 1
@@ -1093,7 +1127,9 @@ async fn verify_composer_read_authority_in_transaction(
             AND count(*)=2
             AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
             AND bool_and(pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
-            AND bool_and(pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
+            AND bool_and(pg_catalog.has_function_privilege('market_data_reader',oid,'EXECUTE'))
+            AND bool_and(NOT pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
+            AND bool_and((SELECT count(*)=3 AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1 AND count(*) FILTER (WHERE role.rolname IN ('rd_owner','market_data_reader') AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=2 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>routines.proowner AND (role.rolname NOT IN ('rd_owner','market_data_reader') OR acl.is_grantable)))=0 FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
          FROM routines",
@@ -1280,9 +1316,18 @@ async fn verify_composer_writer_authority_in_transaction(
                         ) IS FALSE
                    FROM writer
                    JOIN pg_catalog.pg_database database
-                     ON database.datname=pg_catalog.current_database())",
+                     ON database.datname=pg_catalog.current_database())
+            AND (SELECT count(*)=1
+                        AND bool_and(procedure.oid=pg_catalog.to_regprocedure($2))
+                   FROM writer
+                   JOIN pg_catalog.pg_proc procedure
+                     ON pg_catalog.has_function_privilege(writer.oid,procedure.oid,'EXECUTE')
+                   JOIN pg_catalog.pg_namespace namespace
+                     ON namespace.oid=procedure.pronamespace
+                    AND namespace.nspname='composer_owner_api')",
     )
     .bind(COMPOSER_TABLES_V2.as_slice())
+    .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await?;
 
@@ -1363,39 +1408,59 @@ async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ComposerDatabaseFingerprintV2 {
     system_identifier: String,
+    timeline_id: i64,
+    postmaster_started_at_epoch: String,
     database_name: String,
     database_oid: i64,
 }
 
 async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
-    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
-        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
-    )
-    .fetch_one(pool)
-    .await?;
-    Ok(ComposerDatabaseFingerprintV2 {
+    let mut transaction = pool.begin().await?;
+    let (fingerprint, is_primary) = transaction_database_fingerprint(&mut transaction).await?;
+    transaction.rollback().await?;
+    if is_primary {
+        Ok(fingerprint)
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer connection does not target a writable primary".to_owned(),
+        ))
+    }
+}
+
+async fn transaction_database_fingerprint(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(ComposerDatabaseFingerprintV2, bool), sqlx::Error> {
+    let (
         system_identifier,
+        timeline_id,
+        postmaster_started_at_epoch,
         database_name,
         database_oid,
-    })
+        is_primary,
+    ): (String, i64, String, String, i64, bool) = sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, checkpoint.timeline_id::bigint, pg_catalog.date_part('epoch',pg_catalog.pg_postmaster_start_time())::text, pg_catalog.current_database()::text, database.oid::bigint, NOT pg_catalog.pg_is_in_recovery() FROM pg_catalog.pg_database AS database CROSS JOIN LATERAL pg_catalog.pg_control_checkpoint() AS checkpoint WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    Ok((
+        ComposerDatabaseFingerprintV2 {
+            system_identifier,
+            timeline_id,
+            postmaster_started_at_epoch,
+            database_name,
+            database_oid,
+        },
+        is_primary,
+    ))
 }
 
 async fn verify_transaction_database(
     transaction: &mut Transaction<'_, Postgres>,
     expected: &ComposerDatabaseFingerprintV2,
 ) -> Result<(), sqlx::Error> {
-    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
-        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
-    )
-    .fetch_one(&mut **transaction)
-    .await?;
-    let actual = ComposerDatabaseFingerprintV2 {
-        system_identifier,
-        database_name,
-        database_oid,
-    };
+    let (actual, is_primary) = transaction_database_fingerprint(transaction).await?;
 
-    if actual == *expected {
+    if is_primary && actual == *expected {
         Ok(())
     } else {
         Err(sqlx::Error::Protocol(
@@ -1404,19 +1469,54 @@ async fn verify_transaction_database(
     }
 }
 
-async fn verify_same_database(
+async fn verify_same_live_primary(
     read_pool: &PgPool,
     mutation_pool: &PgPool,
 ) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
-    let read_identity = database_fingerprint(read_pool).await?;
-    let mutation_identity = database_fingerprint(mutation_pool).await?;
+    static PROBE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+    let mut read_transaction = read_pool.begin().await?;
+    let (read_identity, read_is_primary) =
+        transaction_database_fingerprint(&mut read_transaction).await?;
+    let mut mutation_transaction = mutation_pool.begin().await?;
+    let (mutation_identity, mutation_is_primary) =
+        transaction_database_fingerprint(&mut mutation_transaction).await?;
+    if !read_is_primary || !mutation_is_primary || read_identity != mutation_identity {
+        mutation_transaction.rollback().await?;
+        read_transaction.rollback().await?;
+        return Err(sqlx::Error::Protocol(
+            "Composer read and mutation connections do not target the same live primary".to_owned(),
+        ));
+    }
 
-    if read_identity == mutation_identity {
-        Ok(read_identity)
-    } else {
+    let sequence = PROBE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|_| {
+        sqlx::Error::Protocol("Composer primary probe clock is unavailable".to_owned())
+    })?;
+    let mut hasher = Sha256::new();
+    hasher.update(b"rd.develop.same-live-primary.probe.v2\0");
+    hasher.update(std::process::id().to_be_bytes());
+    hasher.update(now.as_nanos().to_be_bytes());
+    hasher.update(sequence.to_be_bytes());
+    let probe_key = i64::from_be_bytes(hasher.finalize()[..8].try_into().map_err(|_| {
+        sqlx::Error::Protocol("Composer primary probe identity is unavailable".to_owned())
+    })?);
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock($1)")
+        .bind(probe_key)
+        .execute(&mut *read_transaction)
+        .await?;
+    let mutation_acquired: bool =
+        sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
+            .bind(probe_key)
+            .fetch_one(&mut *mutation_transaction)
+            .await?;
+    mutation_transaction.rollback().await?;
+    read_transaction.rollback().await?;
+    if mutation_acquired {
         Err(sqlx::Error::Protocol(
-            "Composer read and mutation connections target different databases".to_owned(),
+            "Composer read and mutation connections do not share one lock manager".to_owned(),
         ))
+    } else {
+        Ok(read_identity)
     }
 }
 
@@ -1514,7 +1614,7 @@ impl PostgresDevelopComposerStoreV2 {
             .connect(rd_fact_writer_database_url)
             .await?;
         verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
-        let database_fingerprint = verify_same_database(&read_pool, &mutation_pool).await?;
+        let database_fingerprint = verify_same_live_primary(&read_pool, &mutation_pool).await?;
 
         Self::migrate(&read_pool).await?;
         let mut transaction = mutation_pool.begin().await?;
@@ -1709,34 +1809,24 @@ impl PostgresDevelopComposerStoreV2 {
         fail_after_boundary: Option<usize>,
         native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let mut transaction = self.begin_mutation_transaction().await?;
-        acquire_advisory_locks(
-            &mut transaction,
-            &[request_lock_key(&request.request_identity)],
-        )
-        .await?;
-
-        let existing =
-            match load_record_in_transaction(&mut transaction, &request.request_identity).await {
-                Ok(existing) => existing,
-                Err(sqlx::Error::Protocol(message))
-                    if message == SEALED_READ_UNAVAILABLE_PROTOCOL_V2 =>
-                {
-                    transaction.rollback().await?;
-                    return Ok(unavailable_response(
-                        &request.request_identity,
-                        SEALED_READ_UNAVAILABLE_PROTOCOL_V2,
-                    ));
-                }
-                Err(e) if is_record_integrity_error(&e) => {
-                    transaction.rollback().await?;
-                    return Ok(unavailable_response(
-                        &request.request_identity,
-                        "stored terminal custody is incomplete or malformed",
-                    ));
-                }
-                Err(e) => return Err(e),
-            };
+        let existing = match load_record(self, &request.request_identity).await {
+            Ok(existing) => existing,
+            Err(sqlx::Error::Protocol(message))
+                if message == SEALED_READ_UNAVAILABLE_PROTOCOL_V2 =>
+            {
+                return Ok(unavailable_response(
+                    &request.request_identity,
+                    SEALED_READ_UNAVAILABLE_PROTOCOL_V2,
+                ));
+            }
+            Err(e) if is_record_integrity_error(&e) => {
+                return Ok(unavailable_response(
+                    &request.request_identity,
+                    "stored terminal custody is incomplete or malformed",
+                ));
+            }
+            Err(e) => return Err(e),
+        };
 
         if let Some(existing) = existing {
             let mut response = if existing.request_digest == request_digest(request) {
@@ -1767,12 +1857,8 @@ impl PostgresDevelopComposerStoreV2 {
                     native_join,
                 )
                 .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-                if !native_join_matches_transaction(
-                    &mut transaction,
-                    &role_set.composer_locator,
-                    &expected,
-                )
-                .await?
+                if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected)
+                    .await?
                 {
                     response = unavailable_response(
                         &request.request_identity,
@@ -1780,9 +1866,14 @@ impl PostgresDevelopComposerStoreV2 {
                     );
                 }
             }
-            transaction.rollback().await?;
             return Ok(response);
         }
+        let mut transaction = self.begin_mutation_transaction().await?;
+        acquire_advisory_locks(
+            &mut transaction,
+            &[request_lock_key(&request.request_identity)],
+        )
+        .await?;
         let preflight = match preflight_develop_composer_v2(evidence, request, read_cut_epoch_ms) {
             Ok(preflight) => preflight,
             Err(terminal) => {
@@ -1852,31 +1943,6 @@ impl PostgresDevelopComposerStoreV2 {
             }
             return Err(e);
         }
-        let stored = match load_record_via_sealed_routine_in_transaction(
-            &mut transaction,
-            &request.request_identity,
-        )
-        .await
-        {
-            Ok(Some(stored)) => stored,
-            _ => {
-                transaction.rollback().await?;
-                return Err(sqlx::Error::Protocol(
-                    "fresh Composer custody is absent or malformed".to_owned(),
-                ));
-            }
-        };
-        let response = match resolve_positive_record_v2(&stored, current) {
-            Ok(response) => response,
-            Err(terminal) => {
-                transaction.rollback().await?;
-                return Err(sqlx::Error::Protocol(format!(
-                    "fresh Composer record failed readback: {}",
-                    terminal.reason
-                )));
-            }
-        };
-
         match transaction.commit().await {
             Ok(()) => Ok(response),
             Err(_) => Ok(DevelopComposerOperationResponseV2::submitted_or_unknown(
@@ -2042,27 +2108,6 @@ async fn native_join_matches_pool(
         .bind(locator.canonical_plan_digest.as_bytes().as_slice())
         .bind(locator.design_digest.as_bytes().as_slice())
         .fetch_optional(pool)
-        .await?;
-    Ok(row.is_some_and(|row| {
-        row.get::<Vec<u8>, _>("native_join_digest") == expected.receipt_digest().as_bytes()
-            && row.get::<Vec<u8>, _>("canonical_bytes") == expected.canonical_bytes()
-    }))
-}
-
-async fn native_join_matches_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    locator: &StrategyDesignRoleSetLocatorV1,
-    expected: &StrategyDesignNativeJoinReceiptV1,
-) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query("SELECT native_join_digest,canonical_bytes FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)")
-        .bind(&locator.request_identity)
-        .bind(i32::from(locator.schema_version))
-        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
-        .bind(&locator.artifact_locator)
-        .bind(locator.artifact_identity.as_bytes().as_slice())
-        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
-        .bind(locator.design_digest.as_bytes().as_slice())
-        .fetch_optional(&mut **transaction)
         .await?;
     Ok(row.is_some_and(|row| {
         row.get::<Vec<u8>, _>("native_join_digest") == expected.receipt_digest().as_bytes()
@@ -2292,7 +2337,7 @@ mod tests {
     async fn composer_unlogged_drift_is_unavailable_to_migration_and_runtime() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = database.mutation();
-        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let topology_admin_pool = database.owner_topology_admin_pool();
         super::PostgresDevelopComposerStoreV2::migrate(pool)
             .await
@@ -2339,7 +2384,8 @@ mod tests {
             .expect("bounded Composer read authority");
         assert!(read_authority.contains("pg_catalog.to_regprocedure($3)"));
         assert!(read_authority.contains(".bind(COMMIT_FUNCTION_V2)"));
-        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END"));
+        assert!(read_authority.contains("SELECT count(*)=2"));
+        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 1 ELSE 0 END"));
         assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 0 ELSE 1 END"));
         assert!(read_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
 
