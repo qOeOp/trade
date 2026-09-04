@@ -36,6 +36,7 @@ async fn main() -> anyhow::Result<()> {
         MAX_SEALED_REQUEST_BYTES,
         "sealed Catalog bootstrap request",
     )?;
+
     if sealed_request_json.is_empty() {
         anyhow::bail!("sealed Catalog bootstrap request must not be empty");
     }
@@ -79,6 +80,7 @@ fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::
     if !metadata.is_file() {
         anyhow::bail!("{label} path must identify a regular file");
     }
+
     if metadata.len() > limit as u64 {
         anyhow::bail!("{label} file exceeds its byte bound");
     }
@@ -107,6 +109,7 @@ fn canonical_public_key_hex(bytes: &[u8]) -> anyhow::Result<&str> {
         .strip_suffix("\r\n")
         .or_else(|| text.strip_suffix('\n'))
         .unwrap_or(text);
+
     if value.len() != 64
         || !value
             .bytes()

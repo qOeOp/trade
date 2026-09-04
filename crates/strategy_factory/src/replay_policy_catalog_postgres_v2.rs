@@ -964,6 +964,7 @@ async fn require_rd_owner_session(
         .fetch_one(&mut **transaction)
         .await
         .map_err(unavailable)?;
+
     if exact {
         Ok(())
     } else {
@@ -1963,7 +1964,7 @@ mod postgres_tests {
             .await
             .expect_err("non-broker Catalog apply must be rejected");
         assert_eq!(
-            error.as_database_error().and_then(|error| error.code()),
+            error.as_database_error().and_then(|e| e.code()),
             Some(std::borrow::Cow::Borrowed("42501"))
         );
     }
