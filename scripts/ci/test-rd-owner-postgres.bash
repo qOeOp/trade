@@ -362,6 +362,7 @@ readonly container="vibe-rd-owner-test-${suffix}"
 readonly volume="vibe-rd-owner-test-${suffix}"
 readonly test_database="vibe_test_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
+readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -816,10 +817,15 @@ SQL
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres \
   --set=test_database="$test_database" \
-  --set=origin_current_database="$origin_current_database" << 'SQL'
+  --set=origin_current_database="$origin_current_database" \
+  --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
+CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER postgres;
 REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
+REVOKE CONNECT ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 SQL
 
@@ -831,7 +837,11 @@ UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" << 'SQL'
+  --username postgres --dbname "$legacy_replay_database" \
+  --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'legacy_replay_database';
+
 CREATE TABLE public.rd_exploratory_replay_requests_v1 (
   replay_request_identity text PRIMARY KEY,
   run_attempt_identity text NOT NULL UNIQUE,
@@ -883,7 +893,7 @@ SQL
 
 legacy_replay_fingerprint() {
   docker exec --interactive "$container" psql --quiet --tuples-only --no-align \
-    --set ON_ERROR_STOP=1 --username postgres --dbname "$test_database" << 'SQL'
+    --set ON_ERROR_STOP=1 --username postgres --dbname "$legacy_replay_database" << 'SQL'
 SELECT 'count=' || pg_catalog.count(*)::text
   FROM public.rd_exploratory_replay_requests_v1;
 
@@ -1339,7 +1349,25 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
+  if [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$legacy_replay_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
