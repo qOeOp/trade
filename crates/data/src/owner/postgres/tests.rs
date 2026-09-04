@@ -2558,6 +2558,9 @@ pub(crate) struct ReplayJoinedProjectionFixtureV1 {
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) wrong_day_projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    pub(crate) cross_splice_projection:
+        crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    pub(crate) cross_splice_receipt_digest: crate::owner::source_binding::BindingDigest,
     pub(crate) join_claim:
         crate::owner::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
 }
@@ -2637,6 +2640,33 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         transaction.commit().await.unwrap();
         joined
     };
+    let cross_splice_census_request =
+        crate::owner::observation_census::UntrustedObservationCensusRequestV1::new(
+            d(249),
+            base.pit.receipt().locator().clone(),
+            join_claim.clone(),
+            frames.last().unwrap().trigger().lifecycle().logical_time(),
+            base.binding_requests[0].research_request_identity,
+        );
+    let cross_splice_joined = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &cross_splice_census_request,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        joined
+    };
+    assert_ne!(
+        joined.record().digest(),
+        cross_splice_joined.record().digest()
+    );
+    assert_ne!(
+        joined.record().joined_cut_receipt().digest(),
+        cross_splice_joined.record().joined_cut_receipt().digest()
+    );
     let minute_schedule = UntrustedBarScheduleProposalV1 {
         canonical_instrument: "AAPL".into(),
         predecessor_fact_digest: None,
@@ -2669,7 +2699,7 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
             minute_schedule.clone(),
             minute_schedule.clone(),
             hour_schedule.clone(),
-            day_schedule,
+            day_schedule.clone(),
         ],
         &base.bindings,
         &frames,
@@ -2679,6 +2709,25 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
     )
     .await
     .joined;
+    let cross_splice_projection =
+        super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
+            owner,
+            &[
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                hour_schedule.clone(),
+                day_schedule,
+            ],
+            &base.bindings,
+            &frames,
+            &base.batch,
+            &base.instrument,
+            cross_splice_joined.record().joined_cut_receipt(),
+        )
+        .await
+        .joined;
     let wrong_day_projection =
         super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
             owner,
@@ -2703,6 +2752,8 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         joined,
         projection,
         wrong_day_projection,
+        cross_splice_projection,
+        cross_splice_receipt_digest: cross_splice_joined.record().joined_cut_receipt().digest(),
         join_claim,
     }
 }

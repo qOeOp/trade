@@ -937,6 +937,23 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         &wrong_day_capability,
     )
     .unwrap();
+    let cross_splice_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+            joined.cross_splice_projection.receipt_digest(),
+        ),
+        joined_digest,
+        joined.cross_splice_receipt_digest,
+        BindingDigest::from_untrusted_bytes(
+            joined
+                .cross_splice_projection
+                .schedule_dependency_set_digest(),
+        ),
+    );
+    let cross_splice_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+        composer_locator.clone(),
+        &cross_splice_capability,
+    )
+    .unwrap();
     let mut composer_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *composer_tx)
@@ -1105,6 +1122,33 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
 
     let before = replay_positive_state(admin).await;
+    let mut cross_splice_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *cross_splice_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *cross_splice_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+        .bind(cross_splice_native_join.receipt_digest().as_bytes().as_slice())
+        .bind(cross_splice_native_join.projection_receipt_digest().as_bytes().as_slice())
+        .bind(cross_splice_native_join.joined_cut_digest().as_bytes().as_slice())
+        .bind(cross_splice_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+        .bind(cross_splice_native_join.canonical_bytes())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *cross_splice_tx)
+        .await
+        .unwrap();
+    cross_splice_tx.commit().await.unwrap();
+    let cross_splice =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(254), command.composition().clone())
+            .unwrap();
+    assert!(owner.issue_binding_v1(&cross_splice).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+
     let mut wrong_day_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *wrong_day_tx)
