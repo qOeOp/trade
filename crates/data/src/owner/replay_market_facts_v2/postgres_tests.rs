@@ -136,6 +136,28 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("verify_market_challenge_v1(")
                 .expect("handoff consumes supplied challenge")
     );
+    let market_outcome = issue_body
+        .split("let outcome = Box::pin(async {")
+        .nth(1)
+        .expect("Market transaction outcome")
+        .split("let market_terminal = transaction.commit().await;")
+        .next()
+        .expect("bounded Market transaction outcome");
+    let market_cut = market_outcome
+        .find("lock_composer_cut_v1(")
+        .expect("Market Composer shared cut");
+    let final_reader_liveness = market_outcome
+        .find("verify_market_challenge_v1(")
+        .expect("final reader liveness proof");
+    let first_market_read = market_outcome
+        .find("lock_issuance_identity(")
+        .expect("first Market fact access");
+    let first_market_write = market_outcome
+        .find("persist_replay_composition_binding_in_transaction_v1")
+        .expect("first Market write");
+    assert!(market_cut < final_reader_liveness);
+    assert!(final_reader_liveness < first_market_read);
+    assert!(final_reader_liveness < first_market_write);
     assert!(
         issue_body
             .find("lock_composer_cut_v1(")
