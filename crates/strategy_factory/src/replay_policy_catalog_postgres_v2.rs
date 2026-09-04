@@ -1509,15 +1509,18 @@ mod postgres_tests {
     async fn catalog_admin_and_family_formation_are_atomic_and_fail_closed() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = database.mutation();
-        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let fact_writer_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
         let topology_admin_pool = database.owner_topology_admin_pool();
 
-        verify_catalog_storage_authority(pool).await.unwrap();
+        verify_catalog_storage_authority(fact_writer_pool)
+            .await
+            .unwrap();
         let external_write_grants: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM information_schema.role_table_grants WHERE table_schema = 'replay_policy_catalog_private' AND table_name = ANY($1) AND grantee <> 'replay_policy_catalog_owner'",
         )
         .bind(CATALOG_TABLES_V2.as_slice())
-        .fetch_one(pool)
+        .fetch_one(fact_writer_pool)
         .await
         .unwrap();
         assert_eq!(external_write_grants, 0);
@@ -1551,7 +1554,7 @@ mod postgres_tests {
         let bootstrap = signed_bootstrap_request(&signing_key, &replay_policy(1), 1_000);
         let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
         let created = ensure_authenticated_replay_policy_catalog_genesis_v1(
-            pool,
+            fact_writer_pool,
             &bootstrap,
             "rd-catalog-test-verifier-v1",
             &verifier_key,
@@ -1571,7 +1574,7 @@ mod postgres_tests {
         .unwrap();
         assert_eq!(counts_after_create, (1, 1, 0, 2));
         let resolved = ensure_authenticated_replay_policy_catalog_genesis_v1(
-            pool,
+            fact_writer_pool,
             &bootstrap,
             "rd-catalog-test-verifier-v1",
             &verifier_key,
@@ -1579,7 +1582,7 @@ mod postgres_tests {
         .await
         .unwrap();
         let resolved_again = ensure_authenticated_replay_policy_catalog_genesis_v1(
-            pool,
+            fact_writer_pool,
             &bootstrap,
             "rd-catalog-test-verifier-v1",
             &verifier_key,
@@ -1610,10 +1613,10 @@ mod postgres_tests {
             &format!("sha256:{}", "a".repeat(64)),
         )
         .unwrap();
-        assert_direct_catalog_mutations_are_rejected(pool).await;
+        assert_direct_catalog_mutations_are_rejected(fact_writer_pool).await;
 
         let mut policy = family_policy();
-        let mut transaction = pool.begin().await.unwrap();
+        let mut transaction = rd_owner_pool.begin().await.unwrap();
         policy.replay_execution_policy_v2 = Some(
             resolve_current_for_trial_family_formation(&mut transaction, &policy)
                 .await
@@ -1640,7 +1643,7 @@ mod postgres_tests {
             .clone();
         assert_eq!(sealed_record, first);
 
-        let mut transaction = pool.begin().await.unwrap();
+        let mut transaction = fact_writer_pool.begin().await.unwrap();
         let second = ReplayPolicyCatalogAdministrationPortV2::append_version(
             &mut transaction,
             &admin,
@@ -1673,7 +1676,7 @@ mod postgres_tests {
         .unwrap();
         transaction.commit().await.unwrap();
 
-        let mut transaction = pool.begin().await.unwrap();
+        let mut transaction = rd_owner_pool.begin().await.unwrap();
         let loaded = load_trial_family_in_transaction(
             &mut transaction,
             "rd-research-intent-v2-catalog-formation",
@@ -1689,18 +1692,22 @@ mod postgres_tests {
         );
         transaction.rollback().await.unwrap();
 
-        assert_zero_family_write_on_cross_splice(pool).await;
-        assert_zero_family_write_on_tamper(topology_admin_pool, pool, second.catalog_record_id())
-            .await;
-        assert_zero_family_write_on_wrong_owner(
+        assert_zero_family_write_on_cross_splice(rd_owner_pool).await;
+        assert_zero_family_write_on_tamper(
             topology_admin_pool,
-            pool,
+            rd_owner_pool,
             second.catalog_record_id(),
         )
         .await;
-        assert_zero_family_write_on_wrong_head(topology_admin_pool, pool).await;
+        assert_zero_family_write_on_wrong_owner(
+            topology_admin_pool,
+            rd_owner_pool,
+            second.catalog_record_id(),
+        )
+        .await;
+        assert_zero_family_write_on_wrong_head(topology_admin_pool, rd_owner_pool).await;
 
-        let mut transaction = pool.begin().await.unwrap();
+        let mut transaction = fact_writer_pool.begin().await.unwrap();
         ReplayPolicyCatalogAdministrationPortV2::revoke_version(
             &mut transaction,
             &admin,
@@ -1711,15 +1718,15 @@ mod postgres_tests {
         .await
         .unwrap();
         transaction.commit().await.unwrap();
-        let before = family_row_counts(pool).await;
-        let mut transaction = pool.begin().await.unwrap();
+        let before = family_row_counts(rd_owner_pool).await;
+        let mut transaction = rd_owner_pool.begin().await.unwrap();
         assert!(
             resolve_current_for_trial_family_formation(&mut transaction, &family_policy())
                 .await
                 .is_err()
         );
         transaction.rollback().await.unwrap();
-        assert_eq!(family_row_counts(pool).await, before);
+        assert_eq!(family_row_counts(rd_owner_pool).await, before);
 
         let audit_count: i64 = sqlx::query_scalar(
             "SELECT count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2",
