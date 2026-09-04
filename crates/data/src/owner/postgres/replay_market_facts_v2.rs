@@ -948,6 +948,7 @@ impl ReplayCompositionOwnerV1 {
             request.joined_cut_digest,
             joined_cut_receipt_digest,
             BindingDigest::from_untrusted_bytes(readback.schedule_dependency_set_digest()),
+            claim,
         ))
     }
 

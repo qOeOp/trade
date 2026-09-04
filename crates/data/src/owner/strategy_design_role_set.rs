@@ -35,6 +35,9 @@ pub struct StrategyDesignRoleSetLocatorV1 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct StrategyDesignNativeJoinReceiptV1 {
     composer_locator: StrategyDesignRoleSetLocatorV1,
+    strategy_design_identity: BindingDigest,
+    join_identity: BindingDigest,
+    join_claim_digest: BindingDigest,
     projection_receipt_digest: BindingDigest,
     joined_cut_digest: BindingDigest,
     joined_cut_receipt_digest: BindingDigest,
@@ -48,11 +51,16 @@ impl StrategyDesignNativeJoinReceiptV1 {
     ///
     /// # Errors
     ///
-    /// Returns an error if the bounded locator cannot be encoded canonically.
+    /// Returns an error if Market custody does not match the exact Composer Design and join or if
+    /// the bounded locator cannot be encoded canonically.
     pub fn from_market_owner(
-        composer_locator: StrategyDesignRoleSetLocatorV1,
+        role_set: &StrategyDesignRoleSetReceiptV1,
         native_join: &AuthenticatedComposerNativeJoinV1,
     ) -> Result<Self, StrategyDesignRoleSetErrorV1> {
+        if !native_join.matches_role_set(role_set) {
+            return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
+        }
+        let composer_locator = role_set.composer_locator.clone();
         let projection_receipt_digest =
             BindingDigest::from_untrusted_bytes(native_join.locator().receipt_digest());
         let mut canonical_bytes = Vec::new();
@@ -65,6 +73,9 @@ impl StrategyDesignNativeJoinReceiptV1 {
         canonical_bytes.extend_from_slice(composer_locator.artifact_identity.as_bytes());
         canonical_bytes.extend_from_slice(composer_locator.canonical_plan_digest.as_bytes());
         canonical_bytes.extend_from_slice(composer_locator.design_digest.as_bytes());
+        canonical_bytes.extend_from_slice(native_join.strategy_design_identity().as_bytes());
+        canonical_bytes.extend_from_slice(native_join.join_identity().as_bytes());
+        canonical_bytes.extend_from_slice(native_join.join_claim_digest().as_bytes());
         canonical_bytes.extend_from_slice(projection_receipt_digest.as_bytes());
         canonical_bytes.extend_from_slice(native_join.joined_cut_digest().as_bytes());
         canonical_bytes.extend_from_slice(native_join.joined_cut_receipt_digest().as_bytes());
@@ -72,6 +83,9 @@ impl StrategyDesignNativeJoinReceiptV1 {
         let receipt_digest = domain_digest(NATIVE_JOIN_DOMAIN, &canonical_bytes);
         Ok(Self {
             composer_locator,
+            strategy_design_identity: native_join.strategy_design_identity(),
+            join_identity: native_join.join_identity(),
+            join_claim_digest: native_join.join_claim_digest(),
             projection_receipt_digest,
             joined_cut_digest: native_join.joined_cut_digest(),
             joined_cut_receipt_digest: native_join.joined_cut_receipt_digest(),
@@ -79,6 +93,18 @@ impl StrategyDesignNativeJoinReceiptV1 {
             canonical_bytes,
             receipt_digest,
         })
+    }
+
+    pub const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    pub const fn join_identity(&self) -> BindingDigest {
+        self.join_identity
+    }
+
+    pub const fn join_claim_digest(&self) -> BindingDigest {
+        self.join_claim_digest
     }
 
     pub const fn projection_receipt_digest(&self) -> BindingDigest {
@@ -131,6 +157,9 @@ impl StrategyDesignNativeJoinReceiptV1 {
         let artifact_identity = decoder.digest()?;
         let canonical_plan_digest = decoder.digest()?;
         let design_digest = decoder.digest()?;
+        let strategy_design_identity = decoder.digest()?;
+        let join_identity = decoder.digest()?;
+        let join_claim_digest = decoder.digest()?;
         let projection_receipt_digest = decoder.digest()?;
         let joined_cut_digest = decoder.digest()?;
         let joined_cut_receipt_digest = decoder.digest()?;
@@ -144,6 +173,9 @@ impl StrategyDesignNativeJoinReceiptV1 {
             || artifact_identity != expected_locator.artifact_identity
             || canonical_plan_digest != expected_locator.canonical_plan_digest
             || design_digest != expected_locator.design_digest
+            || strategy_design_identity.as_bytes() == &[0; 32]
+            || join_identity.as_bytes() == &[0; 32]
+            || join_claim_digest.as_bytes() == &[0; 32]
             || projection_receipt_digest.as_bytes() == &[0; 32]
             || joined_cut_digest.as_bytes() == &[0; 32]
             || joined_cut_receipt_digest.as_bytes() == &[0; 32]
@@ -153,6 +185,9 @@ impl StrategyDesignNativeJoinReceiptV1 {
         }
         Ok(Self {
             composer_locator: expected_locator.clone(),
+            strategy_design_identity,
+            join_identity,
+            join_claim_digest,
             projection_receipt_digest,
             joined_cut_digest,
             joined_cut_receipt_digest,
