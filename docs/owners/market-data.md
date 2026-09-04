@@ -471,16 +471,18 @@ immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with th
 outbox. It binds the
 exact Research request, Composer aggregate and `StrategyDesignV2`, canonically ordered typed roles, every semantic
 coordinate and complete role coverage. Its content-addressed exact locator is known before send. Replay Policy V2
-composition is coordinated by the R&D-owned A1 on one `rd_owner` PostgreSQL transaction. On that same transaction,
-`rd_owner` resolves the exact R&D attestation through the Composer Owner's locator-only `SECURITY DEFINER` facade and
-invokes only the Market Data Owner's bounded locator-only `SECURITY DEFINER` composition facade. Each facade executes
-with its owning non-login role, performs its own ordered locks, canonical rereads, validation, sealing and exact
-recovery, and returns only the evidence required by A1. The ACL grants `rd_owner` only schema `USAGE` and `EXECUTE` on
-those named functions: it grants no raw-table `SELECT` or DML, no role membership, generic query surface, public
-positive constructor/deserializer, receipt/readback input, bearer token, cryptographic-key authority,
-latest/history/full scan or cross-Owner parser. The fixed `market_data_reader` remains an independent read-only
-principal for its separately admitted locator-resolution surfaces; it neither holds the A1 transaction nor receives
-the Market Data composition write facade.
+composition is coordinated by the R&D-owned A1 across two Owner-isolated transactions. The fixed
+`market_data_reader` opens a read-only transaction, acquires the Composer request's shared writer-key cut lock, calls
+only the Composer Owner's locator-only `SECURITY DEFINER` lock/read functions, validates the complete canonical
+evidence, and holds the transaction through the Market terminal decision. The Market Data Owner then opens one
+SERIALIZABLE transaction, proves both connections share the same live primary, database, postmaster incarnation and
+advisory lock manager, and acquires the same shared Composer cut lock before any Market lock or write. The Composer
+writer must hold the matching exclusive lock before every mutation; therefore reader loss cannot reopen a mutation
+window while the Market transaction retains the handoff lock. Neither principal receives the other Owner's raw-table
+`SELECT` or DML, role membership, generic query surface, public positive constructor/deserializer, receipt/readback
+input, bearer token, cryptographic-key authority, latest/history/full scan or cross-Owner parser. This boundary
+guarantees stable Composer evidence during the guarded window and atomic Market writes; it does not claim a shared
+XID, MVCC snapshot or cross-Owner atomic commit.
 
 W3 issuance accepts only that untrusted R&D attestation locator plus exact Market dependency locators. Market Data
 validates the recovered attestation internally, then independently re-resolves every durable registry declaration, the

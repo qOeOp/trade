@@ -357,15 +357,20 @@ that family-sealed policy and cross-binding and never rereads the Catalog as aut
 audit-only and cannot affect admissibility; a later Catalog version, revocation, deletion, unavailability, or
 tamper cannot replace the policy or invalidate a formed family.
 
-Later Replay Policy V2 composition uses one admitted R&D PostgreSQL transaction domain across the R&D, Composer,
-and Market Data path. The R&D-owned composition resolver/A1 alone holds that transaction capability and passes it
-to each applicable Owner-owned sealed Composer or Market Data read method. Each Owner performs its own locking,
-canonical reread, validation, and sealing on that exact transaction. No Owner or composition resolver may open
-another pool, connection, or transaction for the
-composition, read another Owner's raw tables, reconstruct sealed evidence, or transfer fact authority. Any
-unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or any invalid
-family-sealed policy cross-binding, fails before the first positive write. R&D then commits the formed facts,
-receipts, and R&D outbox atomically on that same transaction.
+Later Replay Policy V2 composition uses one R&D-owned A1 orchestration across two explicitly bounded Owner
+transactions. A read-only `market_data_reader` transaction first acquires the exact Composer request's shared cut
+lock, locks and canonically rereads the complete Composer aggregate through Owner-owned sealed functions, validates
+it, and remains open through the Market terminal decision. Only then may one `market_data_owner` SERIALIZABLE
+transaction prove that both connections reach the same live primary, database, postmaster incarnation and advisory
+lock manager, acquire the same shared Composer cut lock as a database-level handoff, and perform every Market Data
+lock, canonical reread, validation, seal and positive write. The Composer writer uses the matching exclusive cut
+lock before every mutation, so either surviving shared lock prevents Composer drift until the Market transaction
+commits or rolls back. No Owner or A1 may read another Owner's raw tables, reconstruct sealed evidence, transfer fact
+authority, claim a shared XID or MVCC snapshot, or claim cross-Owner atomic commit. Any unavailable, stale,
+mismatched, cross-cut, wrong-owner or wrong-database evidence, any failed lock-manager proof, or any invalid
+family-sealed policy cross-binding fails before the first positive Market write. Binding, Replay facts, receipts,
+outbox and issuance response bytes commit atomically only inside the Market Data Owner transaction; Composer
+evidence is stable for the guarded window but was committed independently.
 
 A disposable Catalog fixture is test-only. An isolated `SEALED_ACCEPTANCE` harness may use the private
 administration port to create and explicitly advance one fixed content-addressed policy head in its fresh
