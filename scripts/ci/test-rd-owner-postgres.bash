@@ -812,6 +812,86 @@ ALTER FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) OW
 REVOKE ALL ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text)
   TO vibe_test_owner_topology_admin;
+
+CREATE FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(
+  expected_marker_identity text,
+  target_relation_name text
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay fixture rename caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture rename marker mismatch' USING ERRCODE='55000';
+  END IF;
+  IF target_relation_name NOT IN (
+    'rd_exploratory_replay_request_custody_v1',
+    'rd_exploratory_replay_requests_v1'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture rename target mismatch' USING ERRCODE='22023';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_request_custody_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_sealed_exploratory_replay_requests_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_requests_v1')
+  );
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_namespace namespace
+      JOIN pg_catalog.pg_roles owner ON owner.oid=namespace.nspowner
+     WHERE namespace.nspname='public'
+       AND owner.rolname='rd_database_owner'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture rename schema owner mismatch' USING ERRCODE='55000';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+      JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+     WHERE namespace.nspname='public'
+       AND relation.relname='rd_sealed_exploratory_replay_requests_v1'
+       AND relation.relkind='r'
+       AND relation.relpersistence='p'
+       AND owner.rolname='rd_owner'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture rename source mismatch' USING ERRCODE='55000';
+  END IF;
+
+  IF target_relation_name='rd_exploratory_replay_request_custody_v1' THEN
+    IF pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NOT NULL THEN
+      RAISE EXCEPTION 'Replay fixture rename target exists' USING ERRCODE='42P07';
+    END IF;
+    ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+      RENAME TO rd_exploratory_replay_request_custody_v1;
+  ELSE
+    IF pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NOT NULL THEN
+      RAISE EXCEPTION 'Replay fixture rename target exists' USING ERRCODE='42P07';
+    END IF;
+    ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
+      RENAME TO rd_exploratory_replay_requests_v1;
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(text,text)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(text,text)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(text,text)
+  TO vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
