@@ -31,6 +31,9 @@ use crate::owner::replay_market_facts_v2::{
     },
 };
 use crate::owner::{
+    bar_schedule::{
+        BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleUnitV1,
+    },
     calendar::UntrustedCalendarLocatorV1,
     corporate_action::{CorporateActionTermsV1, UntrustedCorporateActionLocatorV1},
     correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
@@ -46,8 +49,15 @@ use crate::owner::{
     source_binding::BindingDigest,
     strategy_design_role_set::{
         AuthenticatedStrategyDesignRoleSetV1, StrategyDesignNativeJoinReceiptV1,
-        StrategyDesignRoleSetLocatorV1, authenticate_durable_strategy_design_role_set_v1,
+        StrategyDesignRoleSetLocatorV1, StrategyDesignRoleSetReceiptV1,
+        authenticate_durable_strategy_design_role_set_v1,
     },
+    strategy_input_binding::{
+        MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
+        request_matches_authenticated_role_v1,
+    },
+    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
     time_zone::UntrustedTimeZoneLocatorV1,
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
@@ -170,10 +180,15 @@ fn composer_reader_acl_is_exact(
     ))
 }
 
+struct ValidatedNativeJoinV4 {
+    roles: Vec<(BindingDigest, BindingDigest)>,
+    dependencies: Vec<ScheduleDependencyV4>,
+}
+
 async fn validate_native_join_v4(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     attestation: &StrategyDesignNativeJoinReceiptV1,
-) -> Result<Vec<(BindingDigest, BindingDigest)>, ReplayCompositionBindingErrorV1> {
+) -> Result<ValidatedNativeJoinV4, ReplayCompositionBindingErrorV1> {
     let expected = *attestation.projection_receipt_digest().as_bytes();
     let row = sqlx::query(
         "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_v4($1)",
@@ -319,7 +334,7 @@ async fn validate_native_join_v4(
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    Ok(dependencies
+    let roles = dependencies
         .iter()
         .map(|dependency| {
             (
@@ -327,7 +342,295 @@ async fn validate_native_join_v4(
                 BindingDigest::from_untrusted_bytes(dependency.binding_receipt_digest),
             )
         })
-        .collect())
+        .collect();
+    Ok(ValidatedNativeJoinV4 {
+        roles,
+        dependencies,
+    })
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplayFirstCorpusRoleV1 {
+    MinuteOpen,
+    MinuteHigh,
+    MinuteLow,
+    MinuteClose,
+    HourClose,
+    ExchangeSessionDayClose,
+}
+
+fn replay_first_corpus_role_v1(
+    request: &UntrustedStrategyInputBindingRequest,
+) -> Option<ReplayFirstCorpusRoleV1> {
+    replay_first_corpus_coordinate_v1(request.field_semantic, &request.timeframe)
+}
+
+fn replay_first_corpus_coordinate_v1(
+    field_semantic: MarketDataFieldSemantic,
+    timeframe: &str,
+) -> Option<ReplayFirstCorpusRoleV1> {
+    match (field_semantic, timeframe) {
+        (MarketDataFieldSemantic::BarOpenPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteOpen),
+        (MarketDataFieldSemantic::BarHighPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteHigh),
+        (MarketDataFieldSemantic::BarLowPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteLow),
+        (MarketDataFieldSemantic::BarClosePrice, "1M") => {
+            Some(ReplayFirstCorpusRoleV1::MinuteClose)
+        }
+        (MarketDataFieldSemantic::BarClosePrice, "1H") => Some(ReplayFirstCorpusRoleV1::HourClose),
+        (MarketDataFieldSemantic::BarClosePrice, "1D") => {
+            Some(ReplayFirstCorpusRoleV1::ExchangeSessionDayClose)
+        }
+        _ => None,
+    }
+}
+
+fn replay_first_corpus_schedule_v1(
+    corpus_role: ReplayFirstCorpusRoleV1,
+    kind: BarScheduleKindV1,
+    step: u32,
+    unit: BarScheduleUnitV1,
+    label: BarScheduleLabelV1,
+    completion: BarScheduleCompletionV1,
+) -> bool {
+    let expected = match corpus_role {
+        ReplayFirstCorpusRoleV1::MinuteOpen
+        | ReplayFirstCorpusRoleV1::MinuteHigh
+        | ReplayFirstCorpusRoleV1::MinuteLow
+        | ReplayFirstCorpusRoleV1::MinuteClose => (
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Minute,
+        ),
+        ReplayFirstCorpusRoleV1::HourClose => {
+            (BarScheduleKindV1::FixedInterval, 1, BarScheduleUnitV1::Hour)
+        }
+        ReplayFirstCorpusRoleV1::ExchangeSessionDayClose => (
+            BarScheduleKindV1::ExchangeSession,
+            1,
+            BarScheduleUnitV1::ExchangeSessionDay,
+        ),
+    };
+    (kind, step, unit) == expected
+        && label == BarScheduleLabelV1::IntervalClose
+        && completion == BarScheduleCompletionV1::CompleteOnly
+}
+
+#[cfg(test)]
+impl ReplayCompositionOwnerV1 {
+    pub(crate) fn replay_first_corpus_coordinate_for_test_v1(
+        field_semantic: MarketDataFieldSemantic,
+        timeframe: &str,
+    ) -> Option<u8> {
+        replay_first_corpus_coordinate_v1(field_semantic, timeframe).map(|role| role as u8)
+    }
+
+    pub(crate) fn replay_first_corpus_schedule_for_test_v1(
+        field_semantic: MarketDataFieldSemantic,
+        timeframe: &str,
+        kind: BarScheduleKindV1,
+        step: u32,
+        unit: BarScheduleUnitV1,
+    ) -> bool {
+        replay_first_corpus_coordinate_v1(field_semantic, timeframe).is_some_and(|role| {
+            replay_first_corpus_schedule_v1(
+                role,
+                kind,
+                step,
+                unit,
+                BarScheduleLabelV1::IntervalClose,
+                BarScheduleCompletionV1::CompleteOnly,
+            )
+        })
+    }
+}
+
+async fn validate_replay_first_corpus_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    role_set: &StrategyDesignRoleSetReceiptV1,
+    declarations: &[super::strategy_input_binding_registry::StrategyInputBindingDeclarationReadbackV1],
+    joined: &StrategyInputJoinedCutReceiptV1,
+    native_join: &ValidatedNativeJoinV4,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let [join] = role_set.joins.as_slice() else {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    };
+
+    if role_set.roles.len() != 6
+        || declarations.len() != 6
+        || join.roles.len() != 6
+        || native_join.dependencies.len() != 6
+        || join.alignment_semantic_id != "strategy.input-join.latest-not-after-trigger.v1"
+        || joined.join_identity() != join.join_identity
+        || joined.alignment_semantic_id() != join.alignment_semantic_id
+        || joined.trigger_input_id() != join.trigger_input_id
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+
+    let mut joined_role_identities = join
+        .roles
+        .iter()
+        .map(|role| role.role_identity)
+        .collect::<Vec<_>>();
+    joined_role_identities.sort_unstable();
+    if joined_role_identities
+        != role_set
+            .roles
+            .iter()
+            .map(|role| role.role_identity)
+            .collect::<Vec<_>>()
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+
+    let first_request = declarations
+        .first()
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?
+        .request();
+    let UntrustedStrategyInputScope::ExactInstrument {
+        instrument: common_instrument,
+    } = &first_request.scope
+    else {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    };
+    let common_scale = first_request.scale;
+    let trigger_component = joined
+        .components()
+        .iter()
+        .filter(|component| component.role_semantic_id() == join.trigger_input_id)
+        .collect::<Vec<_>>();
+    let [trigger_component] = trigger_component.as_slice() else {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    };
+    let trigger_logical_time = trigger_component
+        .frame()
+        .trigger()
+        .lifecycle()
+        .logical_time();
+
+    let mut seen = [false; 6];
+    let mut minute_schedule = None;
+    let mut minute_event_effective = None;
+    let mut minute_observation_batch = None;
+    let mut trigger_is_minute_close = false;
+
+    for declaration in declarations {
+        let request = declaration.request();
+        let role = role_set
+            .role(request.input_role_identity)
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
+        if !request_matches_authenticated_role_v1(request, role)
+            || request.channel != StrategyInputChannel::Market
+            || request.unit != StrategyInputUnit::Price
+            || request.scale != common_scale
+            || !matches!(
+                &request.scope,
+                UntrustedStrategyInputScope::ExactInstrument { instrument }
+                    if instrument == common_instrument
+            )
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+        let corpus_role = replay_first_corpus_role_v1(request)
+            .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+        let corpus_index = corpus_role as usize;
+        if std::mem::replace(&mut seen[corpus_index], true) {
+            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+        }
+        let join_role = join
+            .roles
+            .iter()
+            .find(|join_role| join_role.role_identity == request.input_role_identity)
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let components = joined
+            .components()
+            .iter()
+            .filter(|component| component.role_semantic_id() == join_role.semantic_id)
+            .collect::<Vec<_>>();
+        let [component] = components.as_slice() else {
+            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+        };
+        let [value] = component.frame().values() else {
+            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+        };
+
+        if value.input_role_identity() != request.input_role_identity
+            || component.frame().trigger().lifecycle().logical_time() > trigger_logical_time
+            || component.staleness_ns()
+                != trigger_logical_time - component.frame().trigger().lifecycle().logical_time()
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+
+        if join_role.semantic_id == join.trigger_input_id {
+            trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
+                && joined.trigger_digest() == component.frame_digest();
+        }
+
+        let dependency = native_join
+            .dependencies
+            .iter()
+            .find(|dependency| {
+                dependency.role_identity == *request.input_role_identity.as_bytes()
+                    && dependency.binding_receipt_digest
+                        == *declaration.binding().digest().as_bytes()
+            })
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let schedule = super::load_bar_schedule_readback(
+            transaction,
+            BindingDigest::from_untrusted_bytes(dependency.schedule_readback_identity),
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let schedule_fact = schedule.fact();
+        if schedule_fact.canonical_instrument() != common_instrument
+            || !replay_first_corpus_schedule_v1(
+                corpus_role,
+                schedule_fact.kind(),
+                schedule_fact.step(),
+                schedule_fact.unit(),
+                schedule_fact.label(),
+                schedule_fact.completion(),
+            )
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+
+        if matches!(
+            corpus_role,
+            ReplayFirstCorpusRoleV1::MinuteOpen
+                | ReplayFirstCorpusRoleV1::MinuteHigh
+                | ReplayFirstCorpusRoleV1::MinuteLow
+                | ReplayFirstCorpusRoleV1::MinuteClose
+        ) {
+            let schedule_coordinate = (
+                dependency.schedule_readback_identity,
+                dependency.schedule_cut_identity,
+                dependency.schedule_cut_digest,
+            );
+
+            if minute_schedule.is_some_and(|expected| expected != schedule_coordinate)
+                || minute_event_effective.is_some_and(|expected| {
+                    expected != component.frame().trigger().lifecycle().event_time()
+                })
+                || minute_observation_batch.is_some_and(|expected| {
+                    expected != component.frame().trigger().observation_batch_digest()
+                })
+            {
+                return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+            }
+            minute_schedule = Some(schedule_coordinate);
+            minute_event_effective = Some(component.frame().trigger().lifecycle().event_time());
+            minute_observation_batch = Some(component.frame().trigger().observation_batch_digest());
+        }
+    }
+
+    if !seen.into_iter().all(|present| present) || !trigger_is_minute_close {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+    Ok(())
 }
 
 impl ReplayCompositionOwnerV1 {
@@ -628,22 +931,7 @@ impl ReplayCompositionOwnerV1 {
         )
         .await?;
         lock_issuance_identity(&mut transaction, issuance_locator.request_identity()).await?;
-        if issuance_exists(&mut transaction, issuance_locator.request_identity()).await? {
-            let response =
-                recover_issuance_in_transaction(&mut transaction, issuance_locator).await?;
-            let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
-                "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
-            )
-            .bind(issuance_locator.request_identity().as_bytes().as_slice())
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            if stored_request_bytes != request_bytes {
-                return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
-            }
-            return Ok(response);
-        }
-        let native_join_roles = validate_native_join_v4(&mut transaction, &native_join).await?;
+        let validated_native_join = validate_native_join_v4(&mut transaction, &native_join).await?;
 
         let r0_locator = request.reference_fact_r0_locator();
         let r0 = super::reference_fact_coordinates::recover_reference_fact_r0_in_transaction_v1(
@@ -689,6 +977,7 @@ impl ReplayCompositionOwnerV1 {
         .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
 
         let mut roles = Vec::with_capacity(receipt.roles.len());
+        let mut declarations = Vec::with_capacity(receipt.roles.len());
         let mut first_declaration_request = None;
 
         for role in &receipt.roles {
@@ -704,6 +993,7 @@ impl ReplayCompositionOwnerV1 {
             if declaration.request().research_request_identity != receipt.research_request_identity
                 || declaration.request().strategy_design_identity != receipt.design_identity
                 || declaration.request().input_role_identity != role.role_identity
+                || !request_matches_authenticated_role_v1(declaration.request(), role)
             {
                 return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
             }
@@ -718,6 +1008,7 @@ impl ReplayCompositionOwnerV1 {
                 binding_identity: declaration.binding().digest(),
                 binding_digest: declaration.binding().digest(),
             });
+            declarations.push(declaration);
         }
         let census_locator = request.observation_census_locator();
         let census_row = sqlx::query("SELECT request_meaning_digest,request_bytes,census_identity,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1")
@@ -785,13 +1076,38 @@ impl ReplayCompositionOwnerV1 {
             || native_join.joined_cut_digest() != joined.digest()
             || sample.identity() != native_join.projection_receipt_digest()
             || sample.digest() != native_join.projection_receipt_digest()
-            || native_join_roles
+            || validated_native_join.roles
                 != roles
                     .iter()
                     .map(|role| (role.role_identity, role.binding_digest))
                     .collect::<Vec<_>>()
         {
             return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+        }
+
+        validate_replay_first_corpus_v1(
+            &mut transaction,
+            receipt,
+            &declarations,
+            authenticated_joined.record().joined_cut_receipt(),
+            &validated_native_join,
+        )
+        .await?;
+
+        if issuance_exists(&mut transaction, issuance_locator.request_identity()).await? {
+            let response =
+                recover_issuance_in_transaction(&mut transaction, issuance_locator).await?;
+            let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
+                "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+            )
+            .bind(issuance_locator.request_identity().as_bytes().as_slice())
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            if stored_request_bytes != request_bytes {
+                return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+            }
+            return Ok(response);
         }
 
         validate_exact_request_row(
