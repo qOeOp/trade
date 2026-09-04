@@ -2648,11 +2648,37 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
             frames.last().unwrap().trigger().lifecycle().logical_time(),
             base.binding_requests[0].research_request_identity,
         );
+    let mut cross_splice_batch = base.batch.clone();
+    cross_splice_batch.digest = d(248);
+    for observation in &mut cross_splice_batch.observations {
+        observation.value_mantissa += 1;
+    }
+    let cross_splice_frames = base
+        .bindings
+        .iter()
+        .map(|binding| {
+            bind_strategy_input_event_frame(std::slice::from_ref(binding), &cross_splice_batch)
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
     let cross_splice_joined = {
-        let mut transaction = owner.pool().begin().await.unwrap();
-        let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
-            &mut transaction,
+        let (census, joined) =
+            crate::owner::observation_census::authority::issue_observation_census_and_joined_cut_v1(
+                &cross_splice_census_request,
+                &base.bindings,
+                cross_splice_frames.clone(),
+            )
+            .unwrap();
+        let envelope = super::observation_census::ObservationCensusWriteEnvelopeV1::from_readbacks(
             &cross_splice_census_request,
+            &census,
+            &joined,
+        )
+        .unwrap();
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::observation_census::commit_observation_census_and_joined_cut_v1(
+            &mut transaction,
+            &envelope,
         )
         .await
         .unwrap();
@@ -2721,8 +2747,8 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
                 day_schedule,
             ],
             &base.bindings,
-            &frames,
-            &base.batch,
+            &cross_splice_frames,
+            &cross_splice_batch,
             &base.instrument,
             cross_splice_joined.record().joined_cut_receipt(),
         )

@@ -54,8 +54,7 @@ use crate::owner::{
     },
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
-        UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
-        request_matches_authenticated_role_v1,
+        UntrustedStrategyInputScope, request_matches_authenticated_role_v1,
     },
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
     time_zone::UntrustedTimeZoneLocatorV1,
@@ -359,88 +358,81 @@ enum ReplayFirstCorpusRoleV1 {
     ExchangeSessionDayClose,
 }
 
-fn replay_first_corpus_role_v1(
-    request: &UntrustedStrategyInputBindingRequest,
-) -> Option<ReplayFirstCorpusRoleV1> {
-    replay_first_corpus_coordinate_v1(request.field_semantic, &request.timeframe)
-}
-
 fn replay_first_corpus_coordinate_v1(
     field_semantic: MarketDataFieldSemantic,
-    timeframe: &str,
+    kind: BarScheduleKindV1,
+    step: u32,
+    unit: BarScheduleUnitV1,
 ) -> Option<ReplayFirstCorpusRoleV1> {
-    match (field_semantic, timeframe) {
-        (MarketDataFieldSemantic::BarOpenPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteOpen),
-        (MarketDataFieldSemantic::BarHighPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteHigh),
-        (MarketDataFieldSemantic::BarLowPrice, "1M") => Some(ReplayFirstCorpusRoleV1::MinuteLow),
-        (MarketDataFieldSemantic::BarClosePrice, "1M") => {
-            Some(ReplayFirstCorpusRoleV1::MinuteClose)
-        }
-        (MarketDataFieldSemantic::BarClosePrice, "1H") => Some(ReplayFirstCorpusRoleV1::HourClose),
-        (MarketDataFieldSemantic::BarClosePrice, "1D") => {
-            Some(ReplayFirstCorpusRoleV1::ExchangeSessionDayClose)
-        }
+    match (field_semantic, kind, step, unit) {
+        (
+            MarketDataFieldSemantic::BarOpenPrice,
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Minute,
+        ) => Some(ReplayFirstCorpusRoleV1::MinuteOpen),
+        (
+            MarketDataFieldSemantic::BarHighPrice,
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Minute,
+        ) => Some(ReplayFirstCorpusRoleV1::MinuteHigh),
+        (
+            MarketDataFieldSemantic::BarLowPrice,
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Minute,
+        ) => Some(ReplayFirstCorpusRoleV1::MinuteLow),
+        (
+            MarketDataFieldSemantic::BarClosePrice,
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Minute,
+        ) => Some(ReplayFirstCorpusRoleV1::MinuteClose),
+        (
+            MarketDataFieldSemantic::BarClosePrice,
+            BarScheduleKindV1::FixedInterval,
+            1,
+            BarScheduleUnitV1::Hour,
+        ) => Some(ReplayFirstCorpusRoleV1::HourClose),
+        (
+            MarketDataFieldSemantic::BarClosePrice,
+            BarScheduleKindV1::ExchangeSession,
+            1,
+            BarScheduleUnitV1::ExchangeSessionDay,
+        ) => Some(ReplayFirstCorpusRoleV1::ExchangeSessionDayClose),
         _ => None,
     }
 }
 
 fn replay_first_corpus_schedule_v1(
-    corpus_role: ReplayFirstCorpusRoleV1,
-    kind: BarScheduleKindV1,
-    step: u32,
-    unit: BarScheduleUnitV1,
+    field_semantic: MarketDataFieldSemantic,
+    schedule: &crate::owner::bar_schedule::BarScheduleFactV1,
     label: BarScheduleLabelV1,
     completion: BarScheduleCompletionV1,
-) -> bool {
-    let expected = match corpus_role {
-        ReplayFirstCorpusRoleV1::MinuteOpen
-        | ReplayFirstCorpusRoleV1::MinuteHigh
-        | ReplayFirstCorpusRoleV1::MinuteLow
-        | ReplayFirstCorpusRoleV1::MinuteClose => (
-            BarScheduleKindV1::FixedInterval,
-            1,
-            BarScheduleUnitV1::Minute,
-        ),
-        ReplayFirstCorpusRoleV1::HourClose => {
-            (BarScheduleKindV1::FixedInterval, 1, BarScheduleUnitV1::Hour)
-        }
-        ReplayFirstCorpusRoleV1::ExchangeSessionDayClose => (
-            BarScheduleKindV1::ExchangeSession,
-            1,
-            BarScheduleUnitV1::ExchangeSessionDay,
-        ),
-    };
-    (kind, step, unit) == expected
-        && label == BarScheduleLabelV1::IntervalClose
-        && completion == BarScheduleCompletionV1::CompleteOnly
+) -> Option<ReplayFirstCorpusRoleV1> {
+    (label == BarScheduleLabelV1::IntervalClose
+        && completion == BarScheduleCompletionV1::CompleteOnly)
+        .then(|| {
+            replay_first_corpus_coordinate_v1(
+                field_semantic,
+                schedule.kind(),
+                schedule.step(),
+                schedule.unit(),
+            )
+        })
+        .flatten()
 }
 
 #[cfg(test)]
 impl ReplayCompositionOwnerV1 {
     pub(crate) fn replay_first_corpus_coordinate_for_test_v1(
         field_semantic: MarketDataFieldSemantic,
-        timeframe: &str,
-    ) -> Option<u8> {
-        replay_first_corpus_coordinate_v1(field_semantic, timeframe).map(|role| role as u8)
-    }
-
-    pub(crate) fn replay_first_corpus_schedule_for_test_v1(
-        field_semantic: MarketDataFieldSemantic,
-        timeframe: &str,
         kind: BarScheduleKindV1,
         step: u32,
         unit: BarScheduleUnitV1,
-    ) -> bool {
-        replay_first_corpus_coordinate_v1(field_semantic, timeframe).is_some_and(|role| {
-            replay_first_corpus_schedule_v1(
-                role,
-                kind,
-                step,
-                unit,
-                BarScheduleLabelV1::IntervalClose,
-                BarScheduleCompletionV1::CompleteOnly,
-            )
-        })
+    ) -> Option<u8> {
+        replay_first_corpus_coordinate_v1(field_semantic, kind, step, unit).map(|role| role as u8)
     }
 }
 
@@ -532,12 +524,6 @@ async fn validate_replay_first_corpus_v1(
         {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
-        let corpus_role = replay_first_corpus_role_v1(request)
-            .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
-        let corpus_index = corpus_role as usize;
-        if std::mem::replace(&mut seen[corpus_index], true) {
-            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-        }
         let join_role = join
             .roles
             .iter()
@@ -563,11 +549,6 @@ async fn validate_replay_first_corpus_v1(
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
 
-        if join_role.semantic_id == join.trigger_input_id {
-            trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
-                && joined.trigger_digest() == component.frame_digest();
-        }
-
         let dependency = native_join
             .dependencies
             .iter()
@@ -585,17 +566,24 @@ async fn validate_replay_first_corpus_v1(
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let schedule_fact = schedule.fact();
-        if schedule_fact.canonical_instrument() != common_instrument
-            || !replay_first_corpus_schedule_v1(
-                corpus_role,
-                schedule_fact.kind(),
-                schedule_fact.step(),
-                schedule_fact.unit(),
-                schedule_fact.label(),
-                schedule_fact.completion(),
-            )
-        {
+        let corpus_role = replay_first_corpus_schedule_v1(
+            request.field_semantic,
+            schedule_fact,
+            schedule_fact.label(),
+            schedule_fact.completion(),
+        )
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+        if schedule_fact.canonical_instrument() != common_instrument {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+        let corpus_index = corpus_role as usize;
+        if std::mem::replace(&mut seen[corpus_index], true) {
+            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+        }
+
+        if join_role.semantic_id == join.trigger_input_id {
+            trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
+                && joined.trigger_digest() == component.frame_digest();
         }
 
         if matches!(

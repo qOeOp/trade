@@ -237,95 +237,70 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
 #[rstest]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarOpenPrice,
-    "1M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     Some(0)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarHighPrice,
-    "1M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     Some(1)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarLowPrice,
-    "1M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     Some(2)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
-    "1M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     Some(3)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
-    "1H",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Hour,
     Some(4)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
-    "1D",
+    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
     Some(5)
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarVolumeQuantity,
-    "1M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     None
 )]
 #[case(
     crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
-    "5M",
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    5,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     None
 )]
 fn replay_first_corpus_role_coordinate_is_closed(
     #[case] field: crate::owner::strategy_input_binding::MarketDataFieldSemantic,
-    #[case] timeframe: &str,
+    #[case] kind: crate::owner::bar_schedule::BarScheduleKindV1,
+    #[case] step: u32,
+    #[case] unit: crate::owner::bar_schedule::BarScheduleUnitV1,
     #[case] expected: Option<u8>,
 ) {
     assert_eq!(
         super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
-            field, timeframe,
-        ),
-        expected
-    );
-}
-
-#[rstest]
-#[case(
-    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
-    1,
-    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
-    true
-)]
-#[case(
-    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
-    1,
-    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
-    false
-)]
-#[case(
-    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
-    1,
-    crate::owner::bar_schedule::BarScheduleUnitV1::Hour,
-    false
-)]
-#[case(
-    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
-    24,
-    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
-    false
-)]
-fn replay_first_corpus_day_schedule_is_typed_and_closed(
-    #[case] kind: crate::owner::bar_schedule::BarScheduleKindV1,
-    #[case] step: u32,
-    #[case] unit: crate::owner::bar_schedule::BarScheduleUnitV1,
-    #[case] expected: bool,
-) {
-    assert_eq!(
-        super::ReplayCompositionOwnerV1::replay_first_corpus_schedule_for_test_v1(
-            crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
-            "1D",
-            kind,
-            step,
-            unit,
+            field, kind, step, unit,
         ),
         expected
     );
@@ -337,11 +312,15 @@ fn replay_first_corpus_trigger_is_uniquely_minute_close() {
 
     let minute_close = super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
         MarketDataFieldSemantic::BarClosePrice,
-        "1M",
+        crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+        1,
+        crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     );
     let minute_open = super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
         MarketDataFieldSemantic::BarOpenPrice,
-        "1M",
+        crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+        1,
+        crate::owner::bar_schedule::BarScheduleUnitV1::Minute,
     );
     assert_eq!(minute_close, Some(3));
     assert_ne!(minute_open, minute_close);
