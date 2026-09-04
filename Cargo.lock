@@ -10129,6 +10129,7 @@ dependencies = [
  "vibe-model",
  "vibe-persistence",
  "vibe-serialization",
+ "vibe-testkit",
  "zeroize",
 ]
 

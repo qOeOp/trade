@@ -249,8 +249,66 @@ fn instrument() -> InstrumentMasterReferenceV1 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn replay_session_fixture_v1(
+    request_identity: SessionIdentityV1,
+    coordinates: VerifiedReferenceFactCoordinatesV1,
+    calendar_locator_bytes: &[u8],
+    time_zone_locator_bytes: &[u8],
+    source_locator_bytes: &[u8],
+    r0_locator_bytes: &[u8],
+    r0_coordinate_identity: SessionIdentityV1,
+    r0_coordinate_digest: SessionIdentityV1,
+) -> (UntrustedSessionRequestV1, Vec<SessionFactProposalV1>) {
+    let claim = coordinates.claim();
+    let request = UntrustedSessionRequestV1 {
+        request_identity,
+        session_identity: b"XNYS-REGULAR-V1".to_vec().into(),
+        first_day: 0,
+        last_day_exclusive: 1,
+        calendar_cut_locator_bytes: calendar_locator_bytes.to_vec().into(),
+        time_zone_cut_locator_bytes: time_zone_locator_bytes.to_vec().into(),
+        source_binding_locator_bytes: source_locator_bytes.to_vec().into(),
+        r0_locator_bytes: r0_locator_bytes.to_vec().into(),
+        owner_observation_ns: claim.time.owner_observation_ns,
+        decision_cut: claim.time.decision_cut,
+        stable_correlation: claim.stable_correlation,
+    };
+    let proposal = SessionFactProposalV1 {
+        trading_day: 0,
+        interval_ordinal: 0,
+        local_open: LocalBoundaryV1 {
+            day: 0,
+            nanos_of_day: 0,
+            resolution: LocalResolutionV1::Exact,
+        },
+        local_close: LocalBoundaryV1 {
+            day: 0,
+            nanos_of_day: 100,
+            resolution: LocalResolutionV1::Exact,
+        },
+        predecessor_identity: None,
+        correction_sequence: claim.source.lineage_version,
+        correction_identity: claim.correction.digest,
+        coordinates,
+        r0_coordinate_identity,
+        r0_coordinate_digest,
+    };
+    (request, vec![proposal])
+}
+
 #[rstest]
 fn request_meaning_binds_exact_native_locators_and_instrument_reference() {
+    let _ = replay_session_fixture_v1(
+        d(90),
+        coordinates(-10, Some(200), 1, None),
+        b"calendar",
+        b"time-zone",
+        b"source",
+        b"r0",
+        d(37),
+        d(38),
+    );
     let baseline = authority::request_meaning_digest_v1(&request(), &instrument()).unwrap();
     let mut changed = request();
     changed.time_zone_cut_locator_bytes = b"other-time-zone".to_vec().into();

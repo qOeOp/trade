@@ -224,8 +224,70 @@ fn proposals() -> Vec<CalendarFactProposalV1> {
     ]
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn replay_prepared_calendar_fixture_v1(
+    request_identity: BindingDigest,
+    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    coordinates: VerifiedReferenceFactCoordinatesV1,
+    source_locator_bytes: &[u8],
+    r0_locator_bytes: &[u8],
+    r0_cut_identity: BindingDigest,
+    r0_cut_digest: BindingDigest,
+    r0_coordinate_identity: BindingDigest,
+    r0_coordinate_digest: BindingDigest,
+) -> (
+    UntrustedCalendarRequestV1,
+    crate::owner::calendar::authority::PreparedCalendarCutV1,
+) {
+    let claim = coordinates.claim();
+    let request = UntrustedCalendarRequestV1::new(
+        request_identity,
+        CalendarConsumerV1::ReplayV2,
+        b"XNYS-CALENDAR-V1".to_vec(),
+        0,
+        1,
+        claim.time.owner_observation_ns,
+        claim.time.decision_cut,
+        source_locator_bytes.to_vec(),
+        r0_locator_bytes.to_vec(),
+        claim.stable_correlation,
+    );
+    let prepared = prepare_calendar_cut_v1(
+        &request,
+        vec![CalendarFactProposalV1 {
+            day: 0,
+            is_open: true,
+            lineage_root: claim.source.lineage_root,
+            correction_sequence: claim.source.lineage_version,
+            coordinates,
+            r0_coordinate_identity,
+            r0_coordinate_digest,
+        }],
+        CalendarAuthenticatedInputsV1 {
+            instrument_master: instrument,
+            source_binding_locator_bytes: source_locator_bytes,
+            r0_locator_bytes,
+            r0_cut_identity,
+            r0_cut_digest,
+        },
+    )
+    .unwrap();
+    (request, prepared)
+}
+
 #[rstest]
 fn complete_open_closed_cut_is_canonical_and_roundtrips() {
+    let _ = replay_prepared_calendar_fixture_v1(
+        d(90),
+        &instrument_readback("XNYS-CALENDAR-V1"),
+        coordinates(None),
+        b"source-locator",
+        b"r0-locator",
+        d(70),
+        d(71),
+        d(61),
+        d(62),
+    );
     let request = request();
     let instrument = instrument_readback("XNYS-CALENDAR-V1");
     let prepared = prepare_calendar_cut_v1(

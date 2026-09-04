@@ -98,6 +98,57 @@ fn readback() -> CorporateActionReadbackV1 {
     authority::issue_readback_v1(facts, cut, id(50), 1, id(9)).unwrap()
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn replay_empty_corporate_action_fixture_v1(
+    request_identity: CorporateActionIdentity,
+    instrument: &[u8],
+    replay_start_ns: i128,
+    replay_end_ns_exclusive: i128,
+    owner_observation_ns: i128,
+    decision_cut: u64,
+    instrument_locator_bytes: &[u8],
+    pit_locator_bytes: &[u8],
+    source_locator_bytes: &[u8],
+    r0_locator_bytes: &[u8],
+    stable_correlation: CorporateActionIdentity,
+    r0_cut_identity: CorporateActionIdentity,
+    r0_cut_digest: CorporateActionIdentity,
+    instrument_readback_digest: CorporateActionIdentity,
+    instrument_cut_digest: CorporateActionIdentity,
+    pit_cut_digest: CorporateActionIdentity,
+) -> (
+    UntrustedCorporateActionProposalV1,
+    AuthenticatedCorporateActionInputsV1,
+) {
+    let mut proposal = UntrustedCorporateActionProposalV1 {
+        request_identity,
+        request_meaning_digest: id(0),
+        consumer: CorporateActionConsumerV1::ReplayV2,
+        replay_start_ns,
+        replay_end_ns_exclusive,
+        instruments: vec![instrument.to_vec().into_boxed_slice()].into_boxed_slice(),
+        owner_observation_ns,
+        decision_cut,
+        instrument_master_locator_bytes: instrument_locator_bytes.to_vec().into_boxed_slice(),
+        pit_locator_bytes: pit_locator_bytes.to_vec().into_boxed_slice(),
+        source_binding_locator_bytes: source_locator_bytes.to_vec().into_boxed_slice(),
+        r0_locator_bytes: r0_locator_bytes.to_vec().into_boxed_slice(),
+        stable_correlation,
+    };
+    proposal.request_meaning_digest = authority::request_meaning_digest_v1(&proposal).unwrap();
+    let inputs = AuthenticatedCorporateActionInputsV1 {
+        entries: Box::new([]),
+        instruments: vec![instrument.to_vec().into_boxed_slice()].into_boxed_slice(),
+        r0_cut_identity,
+        r0_cut_digest,
+        instrument_master_readback_digest: instrument_readback_digest,
+        instrument_master_cut_digest: instrument_cut_digest,
+        pit_cut_digest,
+        stable_correlation,
+    };
+    (proposal, inputs)
+}
+
 #[rstest]
 fn exact_readback_roundtrip_and_receipt_is_outbox() {
     let value = readback();
@@ -108,6 +159,24 @@ fn exact_readback_roundtrip_and_receipt_is_outbox() {
 
 #[rstest]
 fn explicit_empty_instrument_census_is_canonical() {
+    let _ = replay_empty_corporate_action_fixture_v1(
+        id(90),
+        b"AAA",
+        0,
+        1_000,
+        120,
+        7,
+        b"instrument",
+        b"pit",
+        b"source",
+        b"r0",
+        id(9),
+        id(30),
+        id(31),
+        id(32),
+        id(33),
+        id(34),
+    );
     let proposal = proposal(vec![b"AAA", b"BBB"]);
     let mut authenticated = inputs(Vec::new());
     authenticated.instruments =

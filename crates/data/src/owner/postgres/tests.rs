@@ -1628,12 +1628,38 @@ fn instrument_request(
     }
 }
 
+pub(crate) struct ReplayCompositionMarketBaseFixtureV1 {
+    pub(crate) source: SourceBindingCommit,
+    pub(crate) source_readback: SourceBindingOwnerReadback,
+    pub(crate) instrument: crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    pub(crate) pit: crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    pub(crate) batch: crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+    pub(crate) universe: crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    pub(crate) r0: crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    pub(crate) semantics: crate::owner::market_semantics::MarketSemanticsReadbackV1,
+    pub(crate) coordinates:
+        crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
+    pub(crate) binding_requests: Vec<UntrustedStrategyInputBindingRequest>,
+    pub(crate) bindings: Vec<crate::owner::strategy_input_binding::StrategyInputBindingReceipt>,
+}
+
+struct StrategyInputBindingRegistryFixtureV1 {
+    source_readback: SourceBindingOwnerReadback,
+    pit: crate::owner::pit_snapshot::PitSnapshotCommitAggregate,
+    batch: crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+    universe: crate::owner::universe_selection::UniverseSelectionReadbackV1,
+    r0: crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    semantics: crate::owner::market_semantics::MarketSemanticsReadbackV1,
+    binding_requests: Vec<UntrustedStrategyInputBindingRequest>,
+    bindings: Vec<crate::owner::strategy_input_binding::StrategyInputBindingReceipt>,
+}
+
 async fn strategy_input_binding_registry_postgres_oracle(
     owner: &MarketDataOwnerPostgres,
     source: &SourceBindingCommit,
     instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
     clock: &MarketDataClockAdmission,
-) {
+) -> StrategyInputBindingRegistryFixtureV1 {
     let source_readback = {
         let mut transaction = owner.pool().begin().await.unwrap();
         let aggregate = load_source_for_update(&mut transaction, source.fact().binding_id(), false)
@@ -2059,18 +2085,24 @@ async fn strategy_input_binding_registry_postgres_oracle(
         market_semantics_identity: batch.market_semantics_identity(),
         decision_cut: batch.time_evidence().decision_cut.value,
     };
-    let registered = {
+    let mut binding_requests = Vec::with_capacity(6);
+    let mut declarations = Vec::with_capacity(6);
+    for ordinal in 0_u8..6 {
+        let mut request = binding_request.clone();
+        request.input_role_identity = d(192 + ordinal);
         let mut transaction = owner.pool().begin().await.unwrap();
-        let readback =
+        let declaration =
             super::strategy_input_binding_registry::register_strategy_input_binding_declaration_v1(
                 &mut transaction,
-                &binding_request,
+                &request,
             )
             .await
             .unwrap();
         transaction.commit().await.unwrap();
-        readback
-    };
+        binding_requests.push(request);
+        declarations.push(declaration);
+    }
+    let registered = &declarations[0];
     assert_eq!(registered.request(), &binding_request);
     assert_eq!(
         registered.binding().locator().input_role_identity(),
@@ -2163,6 +2195,433 @@ async fn strategy_input_binding_registry_postgres_oracle(
         .await
         .unwrap();
     assert_eq!(restored.binding(), registered.binding());
+    let bindings = declarations
+        .iter()
+        .map(|declaration| declaration.binding().clone())
+        .collect();
+    StrategyInputBindingRegistryFixtureV1 {
+        source_readback,
+        pit,
+        batch,
+        universe,
+        r0,
+        semantics,
+        binding_requests,
+        bindings,
+    }
+}
+
+pub(crate) async fn replay_composition_market_base_fixture_v1(
+    owner_url: &str,
+    reader_url: &str,
+    admin: &PgPool,
+) -> ReplayCompositionMarketBaseFixtureV1 {
+    let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    grant_reader(admin).await;
+    let clock = instrument_clock();
+    let mut source_value = source_proposal(10, 100);
+    source_value.time_evidence.clock_identity = clock.clock_identity.clone();
+    source_value.time_evidence.clock_epoch = clock.clock_epoch.clone();
+    source_value.time_evidence.monotonic_sequence = 1;
+    source_value.time_evidence.restart_continuity_digest = d(90);
+    source_value.time_evidence.skew_bound = 2;
+    source_value.time_evidence.uncertainty_bound = 1;
+    source_value.time_evidence.observed_at = 100;
+    source_value.time_evidence.effective_at = 100;
+    source_value.time_evidence.valid_through = 160;
+    source_value.time_evidence.provider_available = 90;
+    source_value.time_evidence.retrieval = 92;
+    source_value.time_evidence.correction_publication = 91;
+    source_value.source_frontier.cut_identity = "instrument-source-cut-85".into();
+    source_value.source_frontier.digest = d(85);
+    source_value.correction_frontier.cut_identity = "instrument-correction-cut-86".into();
+    source_value.correction_frontier.digest = d(86);
+    source_value.time_evidence.claimed_evidence_identity =
+        derive_time_evidence_identity(&source_value.time_evidence);
+    source_value.claimed_binding_id = derive_binding_id(&source_value);
+    let source = owner
+        .commit_source_initial(
+            source_value,
+            OwnerSourceBindingDecision {
+                blockers: BTreeSet::new(),
+            },
+            &clock,
+        )
+        .await
+        .unwrap();
+    let read = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    let handoff = read
+        .resolve_clock_head(build_head_fact(&clock, None).unwrap().handoff.locator())
+        .await
+        .unwrap();
+    owner
+        .append_instrument_master_fact(instrument_fact("AAPL", None, 86), handoff.locator())
+        .await
+        .unwrap();
+    let exact = instrument_request(
+        110,
+        InstrumentMasterScopeV1::ExactInstrument("AAPL".into()),
+        handoff.locator().clone(),
+    );
+    let instrument = owner.resolve_instrument_master(&exact, None).await.unwrap();
+    let fixture =
+        strategy_input_binding_registry_postgres_oracle(&owner, &source, &instrument, &clock).await;
+    let coordinates = replay_reference_coordinates_v1(&fixture.r0);
+    ReplayCompositionMarketBaseFixtureV1 {
+        source,
+        source_readback: fixture.source_readback,
+        instrument,
+        pit: fixture.pit,
+        batch: fixture.batch,
+        universe: fixture.universe,
+        r0: fixture.r0,
+        semantics: fixture.semantics,
+        coordinates,
+        binding_requests: fixture.binding_requests,
+        bindings: fixture.bindings,
+    }
+}
+
+fn replay_reference_coordinates_v1(
+    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+) -> crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1 {
+    use crate::owner::reference_fact_coordinates::{
+        AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
+        ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
+        VerifiedReferenceFactCoordinatesV1,
+    };
+    let record = r0.record();
+    let evidence = &record.evidence;
+    let digest_from_bytes =
+        |bytes: &[u8]| BindingDigest::from_untrusted_bytes(<[u8; 32]>::try_from(bytes).unwrap());
+    let clock = ReferenceFactClockV1 {
+        clock_identity: evidence.clock_identity.clone(),
+        clock_epoch: evidence.clock_epoch.clone(),
+        monotonic_sequence: evidence.clock_sequence,
+        wall_observed: evidence.clock_wall_observed,
+        decision_cut: evidence.clock_decision_cut,
+        valid_through: evidence.clock_valid_through,
+        head_identity: evidence.clock_head_identity,
+        head_digest: evidence.clock_head_digest,
+        restart_continuity_digest: evidence.restart_continuity_digest,
+        uncertainty_bound: evidence.uncertainty_bound,
+        skew_bound: evidence.skew_bound,
+        comparison_rule: 1,
+        epoch_proof_identity: None,
+        epoch_proof_digest: None,
+    };
+    VerifiedReferenceFactCoordinatesV1::verify(ReferenceFactCoordinateClaimV1 {
+        pit: ReferenceFactPitCutV1 {
+            snapshot_identity: evidence.pit_snapshot_identity,
+            fact_digest: evidence.pit_fact_digest,
+            decision_cut: evidence.clock_decision_cut,
+            observed_at: evidence.clock_wall_observed,
+            valid_through: evidence.clock_valid_through,
+            clock: clock.clone(),
+        },
+        replay_start_event_ns: record.replay_start_event_ns,
+        replay_end_event_ns_exclusive: record.replay_end_event_ns_exclusive,
+        source: AdmittedReferenceFactSourceV1 {
+            binding_identity: evidence.source_binding_identity,
+            binding_fact_digest: evidence.source_binding_fact_digest,
+            lineage_root: evidence.source_binding_lineage_root,
+            lineage_version: evidence.source_binding_lineage_version,
+            admitted: true,
+            frontier: ReferenceFactFrontierV1 {
+                stream_identity: evidence.source_frontier_stream_identity.clone(),
+                cut_identity: digest_from_bytes(&evidence.source_frontier_cut_identity),
+                sequence: evidence.source_frontier_sequence,
+                digest: evidence.source_frontier_digest,
+            },
+        },
+        correction: ReferenceFactFrontierV1 {
+            stream_identity: evidence.correction_frontier_stream_identity.clone(),
+            cut_identity: digest_from_bytes(&evidence.correction_frontier_cut_identity),
+            sequence: evidence.correction_frontier_sequence,
+            digest: evidence.correction_frontier_digest,
+        },
+        time: ReferenceFactEffectiveTimeV1 {
+            effective_from_ns: record.effective_from_ns,
+            effective_until_ns: record.effective_until_ns,
+            provider_available_ns: record.provider_available_ns,
+            retrieval_ns: record.retrieval_ns,
+            correction_publication_ns: record.correction_publication_ns,
+            owner_observation_ns: record.owner_observation_ns,
+            decision_cut: record.decision_cut,
+        },
+        fact_clock: clock,
+        predecessor_identity: record.predecessor_identity,
+        stable_correlation: record.stable_correlation,
+    })
+    .unwrap()
+}
+
+pub(crate) struct ReplayReferenceLeafFixtureV1 {
+    pub(crate) calendar_request: crate::owner::calendar::UntrustedCalendarRequestV1,
+    pub(crate) time_zone_request: crate::owner::time_zone::UntrustedTimeZoneRequestV1,
+    pub(crate) session_request: crate::owner::session::UntrustedSessionRequestV1,
+    pub(crate) session_request_meaning_digest: BindingDigest,
+    pub(crate) corporate_action_request:
+        crate::owner::corporate_action::UntrustedCorporateActionProposalV1,
+}
+
+pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+    base: &ReplayCompositionMarketBaseFixtureV1,
+) -> ReplayReferenceLeafFixtureV1 {
+    let source_locator_bytes = serde_json::to_vec(base.source.receipt().locator()).unwrap();
+    let pit_locator_bytes = serde_json::to_vec(base.pit.receipt().locator()).unwrap();
+    let r0_locator = base.r0.receipt();
+    let mut r0_locator_bytes = Vec::with_capacity(64);
+    r0_locator_bytes.extend_from_slice(r0_locator.request_identity.as_bytes());
+    r0_locator_bytes.extend_from_slice(r0_locator.request_meaning_digest.as_bytes());
+    let instrument_cut = base.instrument.cut();
+    let mut instrument_locator_bytes = Vec::with_capacity(64);
+    instrument_locator_bytes.extend_from_slice(instrument_cut.request_identity.as_bytes());
+    instrument_locator_bytes.extend_from_slice(instrument_cut.request_meaning_digest.as_bytes());
+
+    let (calendar_request, prepared_calendar) =
+        crate::owner::calendar::tests::replay_prepared_calendar_fixture_v1(
+            d(201),
+            &base.instrument,
+            base.coordinates.clone(),
+            &source_locator_bytes,
+            &r0_locator_bytes,
+            base.r0.cut().identity(),
+            base.r0.cut().digest(),
+            base.r0.record().identity(),
+            base.r0.record().digest(),
+        );
+    let _calendar = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback = super::calendar::register_calendar_v1(&mut transaction, prepared_calendar)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let (time_zone_request, time_zone_proposals) =
+        crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
+            d(202),
+            base.coordinates.clone(),
+            &source_locator_bytes,
+            &r0_locator_bytes,
+            base.r0.record().identity(),
+            base.r0.record().digest(),
+        );
+    let _time_zone = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback = super::time_zone::resolve_time_zone_in_transaction_v1(
+            &mut transaction,
+            time_zone_request.clone(),
+            time_zone_proposals,
+            base.r0.cut().identity(),
+            base.r0.cut().digest(),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let calendar_locator = calendar_request.locator();
+    let mut calendar_locator_bytes = Vec::with_capacity(64);
+    calendar_locator_bytes.extend_from_slice(calendar_locator.request_identity().as_bytes());
+    calendar_locator_bytes.extend_from_slice(calendar_locator.request_meaning_digest().as_bytes());
+    let time_zone_meaning =
+        crate::owner::time_zone::authority::request_meaning_digest_v1(&time_zone_request).unwrap();
+    let time_zone_locator = crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
+        request_identity: time_zone_request.request_identity,
+        request_meaning_digest: time_zone_meaning,
+    };
+    let mut time_zone_locator_bytes = Vec::with_capacity(64);
+    time_zone_locator_bytes.extend_from_slice(time_zone_locator.request_identity.as_bytes());
+    time_zone_locator_bytes.extend_from_slice(time_zone_locator.request_meaning_digest.as_bytes());
+    let (session_request, session_proposals) =
+        crate::owner::session::tests::replay_session_fixture_v1(
+            d(203),
+            base.coordinates.clone(),
+            &calendar_locator_bytes,
+            &time_zone_locator_bytes,
+            &source_locator_bytes,
+            &r0_locator_bytes,
+            base.r0.record().identity(),
+            base.r0.record().digest(),
+        );
+    let session_instrument = crate::owner::session::InstrumentMasterReferenceV1 {
+        locator_bytes: instrument_locator_bytes.clone().into_boxed_slice(),
+        readback_identity: base.instrument.digest(),
+        fact_digest: base.instrument.facts()[0].digest(),
+        cut_digest: base.instrument.cut().digest(),
+    };
+    let session_request_meaning_digest =
+        crate::owner::session::authority::request_meaning_digest_v1(
+            &session_request,
+            &session_instrument,
+        )
+        .unwrap();
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::session::resolve_session_in_transaction_v1(
+            &mut transaction,
+            session_request.clone(),
+            super::session::SessionNativeResolutionV1 {
+                calendar_locator,
+                time_zone_locator,
+                instrument_master: session_instrument,
+                proposals: session_proposals,
+                r0_cut_identity: base.r0.cut().identity(),
+                r0_cut_digest: base.r0.cut().digest(),
+            },
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    }
+    let claim = base.coordinates.claim();
+    let (corporate_action_request, corporate_action_inputs) =
+        crate::owner::corporate_action::tests::replay_empty_corporate_action_fixture_v1(
+            d(204),
+            b"AAPL",
+            claim.replay_start_event_ns,
+            claim.replay_end_event_ns_exclusive,
+            claim.time.owner_observation_ns,
+            claim.time.decision_cut,
+            &instrument_locator_bytes,
+            &pit_locator_bytes,
+            &source_locator_bytes,
+            &r0_locator_bytes,
+            claim.stable_correlation,
+            base.r0.cut().identity(),
+            base.r0.cut().digest(),
+            base.instrument.digest(),
+            base.instrument.cut().digest(),
+            base.pit.fact().digest(),
+        );
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::corporate_action::resolve_corporate_action_in_transaction_v1(
+            &mut transaction,
+            &corporate_action_request,
+            &corporate_action_inputs,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    }
+    ReplayReferenceLeafFixtureV1 {
+        calendar_request,
+        time_zone_request,
+        session_request,
+        session_request_meaning_digest,
+        corporate_action_request,
+    }
+}
+
+pub(crate) struct ReplayJoinedProjectionFixtureV1 {
+    pub(crate) census_request:
+        crate::owner::observation_census::UntrustedObservationCensusRequestV1,
+    pub(crate) joined: crate::owner::observation_census::StrategyInputJoinedCutReadbackV1,
+    pub(crate) projection:
+        crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    pub(crate) join_claim:
+        crate::owner::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
+}
+
+pub(crate) async fn persist_replay_joined_projection_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+    base: &ReplayCompositionMarketBaseFixtureV1,
+) -> ReplayJoinedProjectionFixtureV1 {
+    use crate::owner::{
+        bar_schedule::{
+            BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleUnitV1,
+            UntrustedBarScheduleProposalV1,
+        },
+        strategy_input_binding::bind_strategy_input_event_frame,
+        strategy_input_joined_cut::{
+            StrategyInputJoinRoleClaimV1, UntrustedStrategyInputJoinClaimV1,
+            derive_strategy_input_join_identity_v2,
+        },
+    };
+    let frames = base
+        .bindings
+        .iter()
+        .map(|binding| {
+            bind_strategy_input_event_frame(std::slice::from_ref(binding), &base.batch).unwrap()
+        })
+        .collect::<Vec<_>>();
+    let semantic_ids = (0..base.bindings.len())
+        .map(|ordinal| format!("replay-role-{ordinal}"))
+        .collect::<Vec<_>>();
+    let trigger_input_id = semantic_ids.last().unwrap().clone();
+    let join_identity = derive_strategy_input_join_identity_v2(
+        "replay-composition-six-role-v1",
+        &semantic_ids,
+        "strategy.input-join.latest-not-after-trigger.v1",
+        &trigger_input_id,
+        1,
+    );
+    let join_claim = UntrustedStrategyInputJoinClaimV1 {
+        strategy_design_identity: base.binding_requests[0].strategy_design_identity,
+        join_semantic_id: "replay-composition-six-role-v1".into(),
+        join_identity,
+        alignment_semantic_id: "strategy.input-join.latest-not-after-trigger.v1".into(),
+        trigger_input_id,
+        max_staleness_ns: 1,
+        roles: semantic_ids
+            .iter()
+            .zip(&base.binding_requests)
+            .map(|(semantic_id, request)| StrategyInputJoinRoleClaimV1 {
+                semantic_id: semantic_id.clone(),
+                input_role_identity: request.input_role_identity,
+            })
+            .collect(),
+    };
+    let census_request = crate::owner::observation_census::UntrustedObservationCensusRequestV1::new(
+        d(205),
+        base.pit.receipt().locator().clone(),
+        join_claim.clone(),
+        frames.last().unwrap().trigger().lifecycle().logical_time(),
+        base.binding_requests[0].research_request_identity,
+    );
+    let joined = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &census_request,
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+        joined
+    };
+    let projection = super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
+        owner,
+        UntrustedBarScheduleProposalV1 {
+            canonical_instrument: "AAPL".into(),
+            predecessor_fact_digest: None,
+            effective_from: 1,
+            effective_until: Some(200),
+            kind: BarScheduleKindV1::FixedInterval,
+            step: 1,
+            unit: BarScheduleUnitV1::Minute,
+            anchor_identity: d(206),
+            label: BarScheduleLabelV1::IntervalClose,
+            completion: BarScheduleCompletionV1::CompleteOnly,
+        },
+        &base.bindings,
+        &frames,
+        &base.batch,
+        &base.instrument,
+        joined.record().joined_cut_receipt(),
+    )
+    .await
+    .joined;
+    ReplayJoinedProjectionFixtureV1 {
+        census_request,
+        joined,
+        projection,
+        join_claim,
+    }
 }
 
 async fn instrument_master_postgres_oracle(owner_url: &str, reader_url: &str, admin: &PgPool) {

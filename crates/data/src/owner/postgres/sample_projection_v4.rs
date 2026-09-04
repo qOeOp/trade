@@ -500,7 +500,7 @@ fn map_insert(error: &sqlx::Error) -> StrategyInputSampleProjectionErrorV4 {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::env;
 
     use super::*;
@@ -524,6 +524,122 @@ mod tests {
             seal_strategy_input_join_census_v1,
         },
     };
+
+    pub(crate) struct JoinedBarProjectionFixtureV4 {
+        pub(crate) frame:
+            crate::owner::sample_projection_v4::PreparedStrategyInputSampleProjectionV4,
+        pub(crate) joined:
+            crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    }
+
+    pub(crate) async fn commit_joined_bar_projection_fixture_v4(
+        owner: &MarketDataOwnerPostgres,
+        schedule_proposal: crate::owner::bar_schedule::UntrustedBarScheduleProposalV1,
+        bindings: &[crate::owner::strategy_input_binding::StrategyInputBindingReceipt],
+        frames: &[crate::owner::strategy_input_binding::StrategyInputEventFrameReceipt],
+        batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
+        instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+        joined_cut: &crate::owner::strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
+    ) -> JoinedBarProjectionFixtureV4 {
+        assert_eq!(bindings.len(), frames.len());
+        assert!(bindings.len() >= 2);
+        let prepared_schedule = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
+            schedule_proposal,
+            &bindings[0],
+            batch,
+            instrument,
+        )
+        .unwrap();
+        let schedule = owner
+            .commit_prepared_bar_schedule_v1(&prepared_schedule)
+            .await
+            .unwrap();
+        let mut stored_projections = Vec::with_capacity(bindings.len());
+        for (binding, frame) in bindings.iter().zip(frames) {
+            let timeframe = prepare_bar_timeframe_projection_v1(binding, batch, &schedule).unwrap();
+            let sample = owner
+                .commit_prepared_sample_v1(
+                    &prepare_sample_commit_v1(
+                        binding,
+                        batch,
+                        &timeframe,
+                        SampleFactHeadsV1 {
+                            series: None,
+                            slot: None,
+                        },
+                    )
+                    .unwrap(),
+                )
+                .await
+                .unwrap();
+            let prepared_v3 = prepare_strategy_input_sample_projection_bar_v3(
+                frame,
+                &[StrategyInputSampleProjectionSourceV3 {
+                    binding,
+                    timeframe: &timeframe,
+                    sample: &sample,
+                    schedule: &schedule,
+                }],
+            )
+            .unwrap();
+            owner
+                .commit_strategy_input_sample_projection_v3(&prepared_v3)
+                .await
+                .unwrap();
+            let mut transaction = owner.pool.begin().await.unwrap();
+            let stored = load_strategy_input_sample_projection_v3(
+                &mut transaction,
+                prepared_v3.receipt_digest(),
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            let stored_dependencies = load_sample_projection_schedule_dependencies_v3(
+                &mut transaction,
+                prepared_v3.receipt_digest(),
+            )
+            .await
+            .unwrap();
+            transaction.commit().await.unwrap();
+            let dependencies = stored_dependencies
+                .iter()
+                .zip(stored.decoded.components())
+                .map(|(dependency, component)| ScheduleDependencyV4 {
+                    source_projection_digest: stored.decoded.receipt_digest(),
+                    role_identity: dependency.role_identity,
+                    binding_receipt_digest: dependency.binding_receipt_digest,
+                    timeframe_projection_digest: component.timeframe_projection_digest(),
+                    schedule_readback_identity: *dependency.schedule_readback_identity.as_bytes(),
+                    schedule_fact_digest: *dependency.schedule_fact_digest.as_bytes(),
+                    schedule_cut_identity: *dependency.schedule_cut_identity.as_bytes(),
+                    schedule_cut_digest: *dependency.schedule_cut_digest.as_bytes(),
+                    schedule_receipt_identity: *dependency.schedule_receipt_identity.as_bytes(),
+                })
+                .collect::<Vec<_>>();
+            stored_projections.push((stored.decoded, dependencies));
+        }
+        let sources = stored_projections
+            .iter()
+            .map(|(projection, dependencies)| VerifiedV3ProjectionSourceV4 {
+                projection,
+                dependencies,
+            })
+            .collect::<Vec<_>>();
+        let joined_prepared =
+            crate::owner::sample_projection_v4::prepare_joined_cut_v4(joined_cut, &sources)
+                .unwrap();
+        let frame =
+            crate::owner::sample_projection_v4::prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
+                projection: sources[0].projection,
+                dependencies: sources[0].dependencies,
+            })
+            .unwrap();
+        let joined = owner
+            .commit_strategy_input_sample_projection_v4(&joined_prepared)
+            .await
+            .unwrap();
+        JoinedBarProjectionFixtureV4 { frame, joined }
+    }
 
     #[tokio::test]
     #[ignore = "requires a disposable Market Data PostgreSQL database"]
@@ -670,11 +786,21 @@ mod tests {
                 .unwrap();
         let joined = issue_strategy_input_joined_cut_v1(
             &claim,
-            &[fixture.binding.clone(), second_binding],
+            &[fixture.binding.clone(), second_binding.clone()],
             &census,
             second_frame.trigger().lifecycle().logical_time(),
         )
         .unwrap();
+        let shared_fixture = commit_joined_bar_projection_fixture_v4(
+            &owner,
+            fixture.schedule_proposal.clone(),
+            &[fixture.binding.clone(), second_binding],
+            &[fixture.frame.clone(), second_frame.clone()],
+            &fixture.batch,
+            &fixture.instrument_master,
+            &joined,
+        )
+        .await;
         let mut transaction = owner.pool.begin().await.unwrap();
         let stored = load_strategy_input_sample_projection_v3(
             &mut transaction,
@@ -750,12 +876,11 @@ mod tests {
             joined_prepared.subject_identity(),
             *joined.digest().as_bytes()
         );
-        let prepared =
-            crate::owner::sample_projection_v4::prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
-                projection: &stored.decoded,
-                dependencies: &dependencies,
-            })
-            .unwrap();
+        assert_eq!(
+            shared_fixture.joined.receipt_digest(),
+            joined_prepared.receipt_digest()
+        );
+        let prepared = shared_fixture.frame;
         let before: (i64, i64, i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_receipts_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_dependencies_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_readbacks_v4),(SELECT COUNT(*) FROM market_data_private.strategy_input_sample_projection_outbox_v4)")
             .fetch_one(&owner.pool).await.unwrap();
         assert_eq!(

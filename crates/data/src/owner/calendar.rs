@@ -15,7 +15,7 @@ pub(crate) mod codec;
 pub use authority::verify_calendar_readback_v1;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub type CalendarIdentityV1 = BindingDigest;
 

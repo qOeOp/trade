@@ -18,7 +18,7 @@ pub(crate) mod authority;
 pub(crate) mod codec;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub(crate) type TimeZoneIdentity = BindingDigest;
 
