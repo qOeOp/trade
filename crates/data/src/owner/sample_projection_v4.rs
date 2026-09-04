@@ -329,17 +329,16 @@ fn prepare_v4(
             return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
         }
 
-        for (joined_component, exact) in joined.components().iter().zip(&exact_components) {
+        for joined_component in joined.components() {
             let values = joined_component.frame().values();
             let [value] = values else {
                 return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
             };
-
-            if value.input_role_identity().as_bytes() != &exact[..32]
-                || value.binding_receipt_digest().as_bytes() != &exact[32..64]
-                || joined_component.frame().trigger().digest().as_bytes() != &exact[96..128]
-                || value.digest().as_bytes() != &exact[144..176]
-            {
+            let exact = exact_components
+                .iter()
+                .find(|exact| value.input_role_identity().as_bytes() == &exact[..32])
+                .ok_or(StrategyInputSampleProjectionErrorV4::ComponentMismatch)?;
+            if !joined_component_matches_exact_v4(joined_component, exact) {
                 return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
             }
         }
@@ -370,6 +369,20 @@ fn prepare_v4(
         },
         dependencies: dependencies.into_boxed_slice(),
     })
+}
+
+pub(super) fn joined_component_matches_exact_v4(
+    joined_component: &crate::owner::strategy_input_joined_cut::StrategyInputJoinedCutComponentV1,
+    exact: &[u8],
+) -> bool {
+    let [value] = joined_component.frame().values() else {
+        return false;
+    };
+    exact.len() == COMPONENT_LEN_V4
+        && value.input_role_identity().as_bytes() == &exact[..32]
+        && value.binding_receipt_digest().as_bytes() == &exact[32..64]
+        && joined_component.frame().trigger().digest().as_bytes() == &exact[96..128]
+        && value.digest().as_bytes() == &exact[144..176]
 }
 
 pub(super) fn decode_v4(
