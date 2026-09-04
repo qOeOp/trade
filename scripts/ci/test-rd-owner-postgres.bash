@@ -819,8 +819,8 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=origin_current_database="$origin_current_database" \
   --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
-CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
-CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER postgres;
+CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
