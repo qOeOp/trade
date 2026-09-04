@@ -515,37 +515,55 @@ impl ReplayCompositionOwnerV1 {
             .begin()
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-            .execute(&mut *reader_transaction)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let reader_challenge = begin_owner_challenge_v1(
-            &mut reader_transaction,
-            issuance_locator.request_identity(),
-            "reader",
-        )
-        .await?;
-        lock_composer_cut_v1(
-            &mut reader_transaction,
-            &request.composer_locator().request_identity,
-        )
-        .await?;
-        let authenticated_role_set =
-            Self::resolve_role_set_attestation(&mut reader_transaction, request.composer_locator())
-                .await?;
+        let reader_preflight = async {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+                .execute(&mut *reader_transaction)
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            let reader_challenge = begin_owner_challenge_v1(
+                &mut reader_transaction,
+                issuance_locator.request_identity(),
+                "reader",
+            )
+            .await?;
+            lock_composer_cut_v1(
+                &mut reader_transaction,
+                &request.composer_locator().request_identity,
+            )
+            .await?;
+            let authenticated_role_set = Self::resolve_role_set_attestation(
+                &mut reader_transaction,
+                request.composer_locator(),
+            )
+            .await?;
+            let native_join = Self::resolve_native_join_attestation(
+                &mut reader_transaction,
+                request.composer_locator(),
+            )
+            .await?;
+            Ok((reader_challenge, authenticated_role_set, native_join))
+        }
+        .await;
+        let (reader_challenge, authenticated_role_set, native_join) = match reader_preflight {
+            Ok(preflight) => preflight,
+            Err(error) => {
+                reader_transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+                return Err(error);
+            }
+        };
         let receipt = authenticated_role_set.receipt();
-        let native_join = Self::resolve_native_join_attestation(
-            &mut reader_transaction,
-            request.composer_locator(),
-        )
-        .await?;
-        let mut transaction = self
-            .owner
-            .pool
-            .begin()
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        let Ok(mut transaction) = self.owner.pool.begin().await else {
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+        };
+        let outcome = Box::pin(async {
+            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
@@ -575,14 +593,6 @@ impl ReplayCompositionOwnerV1 {
             if stored_request_bytes != request_bytes {
                 return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
             }
-            transaction
-                .commit()
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            reader_transaction
-                .rollback()
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Ok(response);
         }
         let native_join_roles = validate_native_join_v4(&mut transaction, &native_join).await?;
@@ -989,15 +999,29 @@ impl ReplayCompositionOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        reader_transaction
-            .rollback()
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
+            Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
+        })
+        .await;
+        match outcome {
+            Ok(response) => {
+                let market_terminal = transaction.commit().await;
+                let reader_terminal = reader_transaction.rollback().await;
+                if market_terminal.is_err() || reader_terminal.is_err() {
+                    Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+                } else {
+                    Ok(response)
+                }
+            }
+            Err(error) => {
+                let market_terminal = transaction.rollback().await;
+                let reader_terminal = reader_transaction.rollback().await;
+                if market_terminal.is_err() || reader_terminal.is_err() {
+                    Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+                } else {
+                    Err(error)
+                }
+            }
+        }
     }
 
     async fn resolve_role_set_attestation(

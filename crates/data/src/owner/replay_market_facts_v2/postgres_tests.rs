@@ -44,12 +44,8 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("request_meaning_digest BYTEA NOT NULL UNIQUE"));
     assert!(source.contains("response_bytes BYTEA NOT NULL"));
     assert!(source.contains("lock_issuance_identity"));
-    assert!(source.contains("Self::resolve_role_set_attestation(&mut reader_transaction"));
-    assert!(
-        source.contains(
-            "Self::resolve_native_join_attestation(\n            &mut reader_transaction"
-        )
-    );
+    assert!(source.contains("let authenticated_role_set = Self::resolve_role_set_attestation("));
+    assert!(source.contains("let native_join = Self::resolve_native_join_attestation("));
     assert!(source.contains("validate_native_join_v4(&mut transaction, &native_join)"));
     assert!(source.contains("let mut reader_transaction = self\n            .rd_role_set_pool"));
     assert!(source.contains("verify_owner_handoff_v1("));
@@ -121,6 +117,47 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")
     );
+}
+
+#[rstest]
+fn owner_transactions_are_explicitly_terminal_before_reader_release() {
+    let source = include_str!("../postgres/replay_market_facts_v2.rs");
+    let issue_body = source
+        .split("pub async fn issue_binding_v1")
+        .nth(1)
+        .expect("positive issuance body")
+        .split("async fn resolve_role_set_attestation")
+        .next()
+        .expect("bounded issuance body");
+    let finalizer = issue_body
+        .split("match outcome")
+        .nth(1)
+        .expect("single outer transaction finalizer");
+    let success = finalizer
+        .split("Err(error) =>")
+        .next()
+        .expect("success terminal branch");
+    assert!(
+        success
+            .find("let market_terminal = transaction.commit().await;")
+            .expect("Market commit terminal")
+            < success
+                .find("let reader_terminal = reader_transaction.rollback().await;")
+                .expect("reader release after Market commit")
+    );
+    let failure = finalizer
+        .split("Err(error) =>")
+        .nth(1)
+        .expect("failure terminal branch");
+    assert!(
+        failure
+            .find("let market_terminal = transaction.rollback().await;")
+            .expect("Market rollback terminal")
+            < failure
+                .find("let reader_terminal = reader_transaction.rollback().await;")
+                .expect("reader release after Market rollback")
+    );
+    assert!(failure.contains("Err(error)"));
 }
 
 #[rstest]
