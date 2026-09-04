@@ -18,10 +18,10 @@ sqlx = { workspace = true }
 thiserror = { workspace = true }
 vibe-backtest-owner-contracts = { workspace = true }
 vibe-backtest-result-custody = { workspace = true }
-vibe-strategy-factory = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
 tokio = { workspace = true }
 trybuild = { workspace = true }
+vibe-strategy-factory = { workspace = true }
 vibe-testkit = { workspace = true, features = ["postgres"] }

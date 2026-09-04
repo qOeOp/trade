@@ -752,7 +752,10 @@ mod tests {
     use sqlx::Row;
 
     use super::*;
-    use crate::postgres::{PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2};
+    use crate::postgres::{
+        PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
+        PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
+    };
     use vibe_backtest_owner_contracts::{
         ContentIdentityV2, ReplayModelProfilesV2, ReplayWindowV2, VersionedIdentityV2,
     };
@@ -903,6 +906,31 @@ mod tests {
         }
     }
 
+    fn expect_committed(
+        disposition: PostgresReplayResultCommitDispositionV2,
+    ) -> crate::postgres::ReplayResultReadbackV2 {
+        match disposition {
+            PostgresReplayResultCommitDispositionV2::Committed(readback) => *readback,
+            PostgresReplayResultCommitDispositionV2::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge the commit")
+            }
+        }
+    }
+
+    #[test]
+    fn postgres_commit_response_loss_is_typed_submitted_or_unknown() {
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request)).expect("sealed result");
+        let bytes = result.to_canonical_bytes().expect("canonical result");
+        let dto = vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(&bytes)
+            .expect("result DTO");
+
+        assert!(matches!(
+            crate::postgres::submitted_or_unknown(&dto),
+            PostgresReplayResultCommitDispositionV2::SubmittedOrUnknown(_)
+        ));
+    }
+
     #[tokio::test]
     #[ignore = "requires the canonical disposable PostgreSQL Owner topology"]
     async fn postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only() {
@@ -923,14 +951,18 @@ mod tests {
         let result_identity = result.result_identity().as_str().to_string();
         let expected_bytes = result.to_canonical_bytes().expect("canonical result bytes");
 
-        let first = owner
-            .commit_exploratory_replay_result_v2(&result)
-            .await
-            .expect("atomic Result/receipt/outbox commit");
-        let retry = owner
-            .commit_exploratory_replay_result_v2(&result)
-            .await
-            .expect("byte-identical retry joins existing custody");
+        let first = expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("atomic Result/receipt/outbox submission"),
+        );
+        let retry = expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("byte-identical retry submission joins existing custody"),
+        );
         assert_eq!(first.result_canonical_bytes(), expected_bytes);
         assert_eq!(retry.result_canonical_bytes(), expected_bytes);
         let counts: (i64, i64, i64) = sqlx::query_as(
@@ -971,12 +1003,31 @@ mod tests {
         let restarted = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
             .await
             .expect("restarted Backtest writer");
-        let recovered = restarted
-            .resolve_existing_result_v2(result.result_identity())
+        let result_dto =
+            vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(&expected_bytes)
+                .expect("persisted Result DTO");
+        let recovered = ReplayResultCommitRecoveryV2::for_result(&result_dto)
+            .resolve(&restarted)
             .await
-            .expect("response-loss resolve")
+            .expect("exact response-loss recovery")
             .expect("existing aggregate");
         assert_eq!(recovered.result_canonical_bytes(), expected_bytes);
+
+        let conflicting_dto =
+            vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(
+                &conflicting
+                    .to_canonical_bytes()
+                    .expect("conflicting canonical Result"),
+            )
+            .expect("conflicting Result DTO");
+        assert!(
+            ReplayResultCommitRecoveryV2::for_result(&conflicting_dto)
+                .resolve(&restarted)
+                .await
+                .expect("mismatched exact recovery is a zero readback")
+                .is_none(),
+            "recovery must not resolve a different result for the same request/attempt"
+        );
 
         let mut rd_transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
         let locked = resolve_exploratory_replay_result_for_rd_in_transaction(
@@ -1120,10 +1171,12 @@ mod tests {
             .expect("Backtest writer topology");
         let request = request();
         let result = commit_owner_result(&request, draft(&request)).expect("sealed result");
-        owner
-            .commit_exploratory_replay_result_v2(&result)
-            .await
-            .expect("committed aggregate");
+        expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("aggregate submission"),
+        );
 
         let mut rd_transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
         resolve_exploratory_replay_result_for_rd_in_transaction(
