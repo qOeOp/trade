@@ -53,6 +53,59 @@ pub struct ReplayResultReadbackV2 {
     outbox_canonical_bytes: Vec<u8>,
 }
 
+/// Outcome of submitting one atomic Backtest Result aggregate.
+#[must_use = "the caller must distinguish an acknowledged commit from SubmittedOrUnknown"]
+#[derive(Debug)]
+pub enum PostgresReplayResultCommitDispositionV2 {
+    /// PostgreSQL acknowledged the commit and returned the integrity-checked aggregate.
+    Committed(Box<ReplayResultReadbackV2>),
+    /// The commit was submitted, but PostgreSQL did not confirm whether it committed.
+    SubmittedOrUnknown(ReplayResultCommitRecoveryV2),
+}
+
+/// Recovery capability for a commit whose response was lost.
+///
+/// The bound identities are deliberately private. Recovery can only resolve the exact original
+/// Result/request/attempt correlation and never creates or repairs custody.
+#[must_use = "SubmittedOrUnknown must be resolved through its exact recovery capability"]
+#[derive(Debug)]
+pub struct ReplayResultCommitRecoveryV2 {
+    result_identity: OpaqueIdentityV2,
+    request_identity: OpaqueIdentityV2,
+    attempt_identity: OpaqueIdentityV2,
+}
+
+impl ReplayResultCommitRecoveryV2 {
+    pub(crate) fn for_result(result: &ReplayResultDtoV2) -> Self {
+        Self {
+            result_identity: result.result_identity.clone(),
+            request_identity: result.request_identity.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+        }
+    }
+
+    /// Resolves only the exact original Result/request/attempt correlation.
+    ///
+    /// This never creates, repairs, or recomposes custody. A storage-unavailable resolve can be
+    /// retried through the same capability because the operation is read-only.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for custody drift, storage failure, or incomplete/corrupt correlation.
+    pub async fn resolve(
+        &self,
+        owner: &PostgresReplayResultOwnerV2,
+    ) -> Result<Option<ReplayResultReadbackV2>, PostgresReplayResultOwnerErrorV2> {
+        owner
+            .resolve_exact_result_v2(
+                &self.result_identity,
+                &self.request_identity,
+                &self.attempt_identity,
+            )
+            .await
+    }
+}
+
 impl ReplayResultReadbackV2 {
     /// Returns the validated but still forgeable Result wire.
     #[must_use]
@@ -135,11 +188,13 @@ impl PostgresReplayResultOwnerV2 {
     /// # Errors
     ///
     /// Returns an error for non-exploratory/non-terminal input, custody drift, conflicts, storage
-    /// failure, or an integrity-invalid readback.
+    /// failure known before commit submission, or an integrity-invalid readback. If PostgreSQL does
+    /// not acknowledge a submitted commit, returns `SubmittedOrUnknown` with the sole exact recovery
+    /// capability instead of reporting a definite storage failure.
     pub async fn commit_exploratory_replay_result_v2(
         &self,
         result: &SealedReplayResultV2,
-    ) -> Result<ReplayResultReadbackV2, PostgresReplayResultOwnerErrorV2> {
+    ) -> Result<PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
         let result_bytes = result
             .to_canonical_bytes()
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
@@ -239,11 +294,11 @@ impl PostgresReplayResultOwnerV2 {
             return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
         }
         validate_transaction_principal(&mut transaction).await?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-        Ok(readback)
+        Ok(commit_disposition(
+            transaction.commit().await.is_ok(),
+            readback,
+            &result_dto,
+        ))
     }
 
     /// Resolves an existing aggregate through the exact Backtest Owner session only.
@@ -280,6 +335,60 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         Ok(readback)
     }
+
+    async fn resolve_exact_result_v2(
+        &self,
+        result_identity: &OpaqueIdentityV2,
+        request_identity: &OpaqueIdentityV2,
+        attempt_identity: &OpaqueIdentityV2,
+    ) -> Result<Option<ReplayResultReadbackV2>, PostgresReplayResultOwnerErrorV2> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        validate_transaction_principal(&mut transaction).await?;
+        validate_backtest_result_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        let query = format!(
+            "{READ_AGGREGATE} WHERE result.result_identity=$1 AND result.request_identity=$2 AND result.attempt_identity=$3"
+        );
+        let row = sqlx::query(sqlx::AssertSqlSafe(query))
+            .bind(result_identity.as_str())
+            .bind(request_identity.as_str())
+            .bind(attempt_identity.as_str())
+            .fetch_optional(&mut *transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        let readback = row.as_ref().map(decode_aggregate).transpose()?;
+        validate_transaction_principal(&mut transaction).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        Ok(readback)
+    }
+}
+
+fn commit_disposition(
+    commit_succeeded: bool,
+    readback: ReplayResultReadbackV2,
+    result: &ReplayResultDtoV2,
+) -> PostgresReplayResultCommitDispositionV2 {
+    if commit_succeeded {
+        PostgresReplayResultCommitDispositionV2::Committed(Box::new(readback))
+    } else {
+        submitted_or_unknown(result)
+    }
+}
+
+pub(crate) fn submitted_or_unknown(
+    result: &ReplayResultDtoV2,
+) -> PostgresReplayResultCommitDispositionV2 {
+    PostgresReplayResultCommitDispositionV2::SubmittedOrUnknown(
+        ReplayResultCommitRecoveryV2::for_result(result),
+    )
 }
 
 async fn validate_pool_principal(pool: &PgPool) -> Result<(), PostgresReplayResultOwnerErrorV2> {
@@ -372,16 +481,16 @@ async fn finish_existing(
     readback: ReplayResultReadbackV2,
     expected: &ReplayResultDtoV2,
     expected_bytes: &[u8],
-) -> Result<ReplayResultReadbackV2, PostgresReplayResultOwnerErrorV2> {
+) -> Result<PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
     if &readback.result != expected || readback.result_canonical_bytes != expected_bytes {
         return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
     }
     validate_transaction_principal(&mut transaction).await?;
-    transaction
-        .commit()
-        .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-    Ok(readback)
+    Ok(commit_disposition(
+        transaction.commit().await.is_ok(),
+        readback,
+        expected,
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
