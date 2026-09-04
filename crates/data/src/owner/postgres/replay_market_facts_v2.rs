@@ -1074,6 +1074,8 @@ impl ReplayCompositionOwnerV1 {
                 != joined.identity()
             || authenticated_joined.record().locator().joined_cut_digest() != joined.digest()
             || native_join.joined_cut_digest() != joined.digest()
+            || native_join.joined_cut_receipt_digest()
+                != authenticated_joined.record().joined_cut_receipt().digest()
             || sample.identity() != native_join.projection_receipt_digest()
             || sample.digest() != native_join.projection_receipt_digest()
             || validated_native_join.roles
