@@ -27,6 +27,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
@@ -48,16 +49,17 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 14 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all fourteen ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 15 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all fifteen ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
     [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[12]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -373,6 +375,51 @@ until timeout 3 docker exec "$impersonator_container" psql --quiet --username po
   sleep 1
 done
 
+port_mapping="$(docker port "$container" 5432/tcp)"
+postgres_port="${port_mapping##*:}"
+case "$postgres_port" in
+  '' | *[!0-9]*)
+    echo "ERROR: could not determine isolated PostgreSQL port." >&2
+    exit 1
+    ;;
+esac
+readonly published_postgres_port="$postgres_port"
+
+impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
+impersonator_port="${impersonator_port_mapping##*:}"
+case "$impersonator_port" in
+  '' | *[!0-9]*)
+    echo "ERROR: could not determine impersonating PostgreSQL port." >&2
+    exit 1
+    ;;
+esac
+
+postgres_endpoint="$(
+  select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
+)"
+read -r postgres_host postgres_port <<< "$postgres_endpoint"
+if [[ -f /.dockerenv ]]; then
+  postgres_alias_host="host.docker.internal"
+  postgres_alias_port="$published_postgres_port"
+else
+  postgres_alias_host="localhost"
+  postgres_alias_port="$published_postgres_port"
+fi
+readonly postgres_alias_host postgres_alias_port
+if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
+  exit 1
+fi
+if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
+  exit 1
+fi
+impersonator_endpoint="$(
+  select_reachable_postgres_endpoint \
+    "$impersonator_container" "$impersonator_port" "impersonating"
+)"
+read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
+
 docker exec --interactive "$impersonator_container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$impersonator_database" \
   --set=impersonator_database="$impersonator_database" \
@@ -421,23 +468,56 @@ REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 SQL
 
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname postgres \
-  --set=test_database="$test_database" \
-  --set=test_password="$test_password" << 'SQL'
-CREATE DATABASE :"test_database" OWNER postgres;
-SQL
+docker exec --interactive \
+  --env POSTGRES_USER=postgres \
+  --env POSTGRES_DB=postgres \
+  --env "RD_OWNER_DATABASE_NAME=${test_database}" \
+  --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
+  --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+  --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+  --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+  --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+  "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
+
+RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  cargo run \
+  --locked \
+  --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  --profile "$cargo_ci_profile" \
+  -- \
+  --materialize-schema
 
 docker exec --interactive \
   --env POSTGRES_HOST=127.0.0.1 \
   --env "POSTGRES_DATABASE=${test_database}" \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
   --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --set=test_database="$test_database" \
+  --set=test_password="$test_password" << 'SQL'
+CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+DO $database_access$
+BEGIN
+  EXECUTE pg_catalog.format(
+    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin',
+    :'test_database'
+  );
+END
+$database_access$;
+SQL
 
 readonly test_marker="rd-owner-isolated-${suffix}"
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -453,16 +533,19 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
   'operator_authorization_writer',
   'product_edge_owner',
   'rd_owner',
+  'rd_fact_writer',
+  'replay_policy_catalog_admin_writer',
   'qualification_writer',
-  'backtest_owner'
+  'backtest_owner',
+  'vibe_test_owner_topology_admin'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
 SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
@@ -475,7 +558,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
 REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, qualification_writer, backtest_owner;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -675,56 +758,14 @@ SQL
 legacy_replay_fingerprint_before="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_before
 
-port_mapping="$(docker port "$container" 5432/tcp)"
-postgres_port="${port_mapping##*:}"
-case "$postgres_port" in
-  '' | *[!0-9]*)
-    echo "ERROR: could not determine isolated PostgreSQL port." >&2
-    exit 1
-    ;;
-esac
-readonly published_postgres_port="$postgres_port"
-
-impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
-impersonator_port="${impersonator_port_mapping##*:}"
-case "$impersonator_port" in
-  '' | *[!0-9]*)
-    echo "ERROR: could not determine impersonating PostgreSQL port." >&2
-    exit 1
-    ;;
-esac
-
-postgres_endpoint="$(
-  select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
-)"
-read -r postgres_host postgres_port <<< "$postgres_endpoint"
-if [[ -f /.dockerenv ]]; then
-  postgres_alias_host="host.docker.internal"
-  postgres_alias_port="$published_postgres_port"
-else
-  postgres_alias_host="localhost"
-  postgres_alias_port="$published_postgres_port"
-fi
-readonly postgres_alias_host postgres_alias_port
-if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
-  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
-  exit 1
-fi
-if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
-  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
-  exit 1
-fi
-impersonator_endpoint="$(
-  select_reachable_postgres_endpoint \
-    "$impersonator_container" "$impersonator_port" "impersonating"
-)"
-read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
-
 export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"

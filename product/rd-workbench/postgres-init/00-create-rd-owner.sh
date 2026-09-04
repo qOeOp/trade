@@ -1,21 +1,40 @@
 #!/bin/sh
 set -eu
 
+: "${RD_OWNER_DATABASE_NAME:=rd_owner}"
+: "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+: "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  --set=rd_owner_database_name="$RD_OWNER_DATABASE_NAME" \
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
+  --set=fact_writer_password="$RD_FACT_WRITER_DB_PASSWORD" \
+  --set=catalog_admin_password="$REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
-  --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" << 'SQL'
+  --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
+  --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
+  --set=backtest_password="$BACKTEST_OWNER_DB_PASSWORD" << 'SQL'
+CREATE ROLE rd_database_owner NOLOGIN;
+CREATE ROLE replay_policy_catalog_owner NOLOGIN;
+CREATE ROLE composer_owner NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
-CREATE DATABASE rd_owner OWNER rd_owner;
+CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
+CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
+CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner;
 CREATE ROLE operator_authorization_owner NOLOGIN;
 CREATE ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 GRANT operator_authorization_owner TO operator_authorization_writer;
 CREATE ROLE product_edge_owner LOGIN PASSWORD :'edge_password';
+CREATE ROLE qualification_owner NOLOGIN;
+CREATE ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
+CREATE ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
 SQL
 
-psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname rd_owner << 'SQL'
+psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$RD_OWNER_DATABASE_NAME" << 'SQL'
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
-GRANT USAGE, CREATE ON SCHEMA public TO rd_owner, product_edge_owner;
+ALTER SCHEMA public OWNER TO rd_owner;
+GRANT USAGE, CREATE ON SCHEMA public TO rd_owner;
+GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
 CREATE SCHEMA product_edge_api AUTHORIZATION product_edge_owner;
 REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA product_edge_api TO rd_owner;

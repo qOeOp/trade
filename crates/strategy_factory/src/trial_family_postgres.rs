@@ -21,20 +21,110 @@ const FAMILY_FROZEN_EVENT: &str = "TRIAL_FAMILY_FROZEN_V1";
 const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
+macro_rules! table {
+    ($name:literal, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
+        crate::schema_materialization::PublicTableSpec {
+            name: $name,
+            columns: &[$(crate::schema_materialization::required($column, $data_type)),*],
+            constraints: &[$($constraint),*],
+            indexes: &[$(table!(@index $kind $keys)),*],
+        }
+    };
+    (@index primary $keys:literal) => { crate::schema_materialization::primary_index($keys) };
+    (@index unique $keys:literal) => { crate::schema_materialization::unique_index($keys) };
+}
+
+pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
+    table!("rd_trial_families_v1", [
+        ("trial_family_identity", "text"), ("intent_identity", "text"),
+        ("root_digest", "text"), ("root_json", "jsonb"),
+        ("root_receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
+    ], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
+    [primary "trial_family_identity", unique "intent_identity"]),
+    table!("rd_trial_family_members_v1", [
+        ("member_identity", "text"), ("trial_family_identity", "text"),
+        ("ordinal", "integer"), ("fact_identity", "text"), ("member_digest", "text"),
+        ("member_json", "jsonb"), ("membership_receipt_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:member_identity:::false:false:true:", "u:fact_identity:::false:false:true:",
+        "u:trial_family_identity,ordinal:::false:false:true:"
+    ], [primary "member_identity", unique "fact_identity", unique "trial_family_identity,ordinal"]),
+    table!("rd_trial_family_heads_v1", [
+        ("trial_family_identity", "text"), ("frontier_identity", "text"),
+        ("frontier_digest", "text"), ("frontier_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
+    ], [primary "trial_family_identity", unique "frontier_identity"]),
+    table!("rd_trial_family_attempt_cuts_v2", [
+        ("census_frontier_identity", "text"), ("trial_family_identity", "text"),
+        ("attempt_ordinal", "integer"), ("attempt_frontier_identity", "text"),
+        ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
+        ("attempt_frontier_json", "jsonb"), ("candidate_set_frontier_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:census_frontier_identity:::false:false:true:",
+        "u:attempt_frontier_identity:::false:false:true:",
+        "u:candidate_set_frontier_identity:::false:false:true:",
+        "u:trial_family_identity,attempt_ordinal:::false:false:true:"
+    ], [primary "census_frontier_identity", unique "attempt_frontier_identity", unique "candidate_set_frontier_identity", unique "trial_family_identity,attempt_ordinal"]),
+    table!("rd_artifact_trial_family_bindings_v1", [
+        ("binding_identity", "text"), ("artifact_identity", "text"),
+        ("build_receipt_identity", "text"), ("intent_identity", "text"),
+        ("trial_family_identity", "text"), ("binding_digest", "text"),
+        ("binding_json", "jsonb"), ("binding_receipt_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], [
+        "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
+        "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
+        "u:build_receipt_identity:::false:false:true:"
+    ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),
+    table!("rd_owner_outbox_v1", [
+        ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
+        ("payload_digest", "text"), ("payload_json", "jsonb"),
+        ("committed_at_epoch_ms", "bigint")
+    ], ["p:event_identity:::false:false:true:", "u:aggregate_identity,event_kind:::false:false:true:"],
+    [primary "event_identity", unique "aggregate_identity,event_kind", unique "aggregate_identity,event_kind"]),
+];
+
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
-    for statement in [
-        "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
-        "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-        "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
+    for (relation_name, statement) in [
+        (
+            "rd_trial_families_v1",
+            "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            "rd_trial_family_members_v1",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
+        ),
+        (
+            "rd_trial_family_heads_v1",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            "rd_trial_family_attempt_cuts_v2",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
+        ),
+        (
+            "rd_artifact_trial_family_bindings_v1",
+            "CREATE TABLE IF NOT EXISTS rd_artifact_trial_family_bindings_v1 (binding_identity TEXT PRIMARY KEY, artifact_identity TEXT NOT NULL UNIQUE, build_receipt_identity TEXT NOT NULL UNIQUE, intent_identity TEXT NOT NULL, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), binding_digest TEXT NOT NULL, binding_json JSONB NOT NULL, binding_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        ),
+        (
+            "rd_owner_outbox_v1",
+            "CREATE TABLE IF NOT EXISTS rd_owner_outbox_v1 (event_identity TEXT PRIMARY KEY, aggregate_identity TEXT NOT NULL, event_kind TEXT NOT NULL, payload_digest TEXT NOT NULL, payload_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (aggregate_identity, event_kind))",
+        ),
     ] {
-        sqlx::query(statement)
-            .execute(pool)
+        crate::schema_materialization::materialize_public_table(pool, relation_name, statement)
             .await
             .map_err(storage)?;
     }
+    crate::replay_policy_catalog_postgres_v2::migrate(pool)
+        .await
+        .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
     Ok(())
 }
 
@@ -86,6 +176,7 @@ pub(crate) async fn persist_initial_family(
         membership_receipt_identity: family.membership_receipt.receipt_identity().to_string(),
         census_frontier_identity: family.census_frontier.frontier_identity().to_string(),
         census_frontier_digest: family.census_frontier.frontier_digest().to_string(),
+        replay_execution_policy_v2: family.root.policy().replay_execution_policy_v2().cloned(),
     };
     persist_outbox(
         transaction,
@@ -255,6 +346,7 @@ pub(crate) async fn load_trial_family_in_transaction(
         .get("schema_version")
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(|| TrialFamilyError::Unavailable("family head schema missing".to_string()))?;
+
     match schema_version {
         1 => {}
         2 => {
@@ -272,6 +364,7 @@ pub(crate) async fn load_trial_family_in_transaction(
             ));
         }
     }
+
     if member_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census incomplete".to_string(),
@@ -314,6 +407,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if head.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head missing".to_string(),
@@ -354,6 +448,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
     let prior_member_count = prior.as_ref().map_or(1, |readback| readback.members.len());
     let next = append_attempt_to_census_v2(legacy_family, prior.as_ref(), append, now_epoch_ms)?;
     let committed_at = i64::try_from(now_epoch_ms).map_err(unavailable)?;
+
     for (member, receipt) in next
         .members
         .iter()
@@ -396,6 +491,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
         .execute(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if updated.rows_affected() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family census head changed concurrently".to_string(),
@@ -442,6 +538,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if roots.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "family root missing".to_string(),
@@ -463,6 +560,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if member_rows.len() < 3 || cut_rows.is_empty() || head_rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 family census incomplete".to_string(),
@@ -486,10 +584,12 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
     let (initial_member, initial_receipt) = legacy_initial_member_for_census_v2(&legacy_family);
     let mut members = vec![initial_member];
     let mut receipts = vec![initial_receipt];
+
     for row in member_rows.iter().skip(1) {
         let member_json = row.try_get("member_json").map_err(storage)?;
         let receipt_json = row.try_get("membership_receipt_json").map_err(storage)?;
         let (member, receipt) = admit_stored_census_member_v2(&member_json, &receipt_json)?;
+
         if row
             .try_get::<String, _>("member_identity")
             .map_err(storage)?
@@ -511,6 +611,7 @@ pub(crate) async fn load_trial_family_census_v2_in_transaction(
         receipts.push(receipt);
     }
     let mut latest = None;
+
     for (index, row) in cut_rows.iter().enumerate() {
         let census: TrialFamilyCensusFrontierV2 =
             decode(&row.try_get("census_frontier_json").map_err(storage)?)?;
@@ -726,6 +827,8 @@ fn verify_family_outbox_row(
         || payload.membership_receipt_identity != family.membership_receipt.receipt_identity()
         || payload.census_frontier_identity != family.census_frontier.frontier_identity()
         || payload.census_frontier_digest != family.census_frontier.frontier_digest()
+        || payload.replay_execution_policy_v2
+            != family.root.policy().replay_execution_policy_v2().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "family outbox mismatch".to_string(),
@@ -745,6 +848,7 @@ async fn verify_census_outbox_in_transaction(
         .fetch_all(&mut **transaction)
         .await
         .map_err(storage)?;
+
     if rows.len() != 1 {
         return Err(TrialFamilyError::Unavailable(
             "V2 census outbox missing".to_string(),
@@ -866,6 +970,8 @@ struct FamilyFrozenOutboxV1 {
     membership_receipt_identity: String,
     census_frontier_identity: String,
     census_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1627,6 +1733,7 @@ mod postgres_binding_tests {
             independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
             independence_basis_identity: "independence-basis-v1".to_string(),
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
+            replay_execution_policy_v2: None,
         }
     }
 

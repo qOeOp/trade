@@ -44,10 +44,14 @@ pub fn submitted_or_unknown_response(request_identity: &str) -> DevelopComposerO
 mod sealed {
     use crate::{
         develop_composer_operation_v2::{
-            DevelopComposerA0BuildPortV2, DevelopComposerRunRequestV2,
-            SealedDevelopComposerAcceptanceEvidenceV2,
+            DevelopComposerA0BuildPortV2, DevelopComposerFinalEvidencePortV2,
+            DevelopComposerRunRequestV2, SealedDevelopComposerAcceptanceEvidenceV2,
         },
-        develop_composer_postgres_v2::PostgresDevelopComposerStoreV2,
+        develop_composer_postgres_v2::{
+            DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
+            PostgresDevelopComposerStoreV2, SealedDevelopComposerReadbackV2,
+            read_accepted_in_transaction,
+        },
         develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
         develop_plugin_build_v2::{
             DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
@@ -149,6 +153,24 @@ mod sealed {
             self.store
                 .resolve_with_evidence(request_identity, &self.evidence, 1)
                 .await
+        }
+
+        pub async fn read_accepted_in_transaction(
+            &self,
+            transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+            locator: &DevelopComposerSealedReadLocatorV2,
+        ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+            let design_identity = match prepare_strategy_design_v2(&self.request.design) {
+                StrategyDesignPreparationV2::Prepared {
+                    design_identity, ..
+                } => design_identity,
+                _ => return Err(DevelopComposerSealedReadErrorV2::Unavailable),
+            };
+            let locked_evidence = self
+                .evidence
+                .lock_and_reread(self.request, design_identity, 1)
+                .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            read_accepted_in_transaction(transaction, locator, locked_evidence).await
         }
     }
 

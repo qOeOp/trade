@@ -5,7 +5,141 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=product/rd-workbench/scripts/check/common.bash
 . "$check_dir/common.bash"
 
+# The expression is the literal contract under inspection.
+# shellcheck disable=SC2016
+grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ": \"\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ": \"\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq 'GRANT USAGE, CREATE ON SCHEMA public TO rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq -- "--set=fact_writer_password=\"\$RD_FACT_WRITER_DB_PASSWORD\"" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq "CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq -- "--set=fact_writer_password=\"\$RD_FACT_WRITER_DB_PASSWORD\"" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "ALTER ROLE rd_fact_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';" "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq "ALTER ROLE replay_policy_catalog_admin_writer LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+postgres_compose=$(sed -n '/^  postgres:$/,/^  rd-owner-api:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$postgres_compose" | grep -Fq "RD_FACT_WRITER_DB_PASSWORD=\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+printf '%s\n' "$postgres_compose" | grep -Fq "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+custody_migrate_compose=$(sed -n '/^  authority-custody-migrate:$/,/^  replay-policy-catalog-bootstrap:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$custody_migrate_compose" | grep -Fq 'RD_FACT_WRITER_DB_PASSWORD: >-'
+printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+printf '%s\n' "$custody_migrate_compose" | grep -Fq "\${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+grep -Fq 'RD_FACT_WRITER_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
+grep -Fq 'REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=replace-with-local-random-value' "$package_dir/.env.example"
+ci_postgres_test="$package_dir/../../scripts/ci/test-rd-owner-postgres.bash"
+test "$(grep -Fc -- "--env \"RD_FACT_WRITER_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 2
+test "$(grep -Fc -- "--env \"REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=\${test_password}\"" "$ci_postgres_test")" -eq 2
+if grep -Fq "ALTER ROLE rd_fact_writer LOGIN PASSWORD :'test_password';" "$ci_postgres_test"; then
+  echo "disposable CI must use the canonical rd_fact_writer credential chain" >&2
+  exit 1
+fi
+if grep -Fq 'CREATE SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/00-create-rd-owner.sh" ||
+  grep -Fq 'CREATE SCHEMA composer_private' "$package_dir/postgres-init/00-create-rd-owner.sh"; then
+  echo "private custody must not exist before schema materialization" >&2
+  exit 1
+fi
+grep -Fq 'schema-materialize:' "$package_dir/docker-compose.yml"
+grep -Fq 'command: ["--materialize-schema"]' "$package_dir/docker-compose.yml"
+grep -Fq 'condition: service_completed_successfully' "$package_dir/docker-compose.yml"
+grep -Fq 'replay-policy-catalog-bootstrap:' "$package_dir/docker-compose.yml"
+grep -Fq 'replay-policy-catalog-authority-bootstrap' "$package_dir/Dockerfile.owner"
+catalog_bootstrap_compose=$(sed -n '/^  replay-policy-catalog-bootstrap:$/,/^  authority-bootstrap:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'authority-custody-migrate:'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'restart: "no"'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'profiles: ["authority-admin"]'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL:'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-bootstrap-request.json:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'replay-policy-catalog-trusted-verifier-public-key.hex:ro'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'condition: service_completed_successfully'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'read_only: true'
+printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'cap_drop:'
+if printf '%s\n' "$catalog_bootstrap_compose" | grep -Fq 'RD_FACT_WRITER_DATABASE_URL:'; then
+  echo "Catalog bootstrap must not reuse the Composer fact writer" >&2
+  exit 1
+fi
+catalog_readback_compose=$(sed -n '/^  replay-policy-catalog-owner-readback:$/,/^  authority-bootstrap:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$catalog_readback_compose" | grep -Fq 'RD_OWNER_DATABASE_URL:'
+printf '%s\n' "$catalog_readback_compose" | grep -Fq 'authority-custody-migrate:'
+if printf '%s\n' "$catalog_readback_compose" | grep -Fq 'profiles:'; then
+  echo "Catalog Owner readback must gate default startup" >&2
+  exit 1
+fi
+rd_owner_api_compose=$(sed -n '/^  rd-owner-api:$/,/^  schema-materialize:$/p' "$package_dir/docker-compose.yml")
+printf '%s\n' "$rd_owner_api_compose" | grep -Fq 'replay-policy-catalog-owner-readback:'
+if printf '%s\n' "$rd_owner_api_compose" | grep -Eq 'RD_FACT_WRITER|REPLAY_POLICY_CATALOG'; then
+  echo "R&D API must not receive Catalog bootstrap authority or inputs" >&2
+  exit 1
+fi
+catalog_bootstrap_source="$package_dir/../../crates/strategy_factory_rd_owner_api/src/bin/replay_policy_catalog_authority_bootstrap.rs"
+grep -Fq 'ensure_authenticated_replay_policy_catalog_genesis_v1(' "$catalog_bootstrap_source"
+catalog_readback_source="$package_dir/../../crates/strategy_factory_rd_owner_api/src/bin/replay_policy_catalog_owner_readback.rs"
+grep -Fq 'read_authenticated_replay_policy_catalog_genesis_v1(' "$catalog_readback_source"
+grep -Fq 'const MAX_SEALED_REQUEST_BYTES: usize = 64 * 1024;' "$catalog_bootstrap_source"
+grep -Fq 'const MAX_RECEIPT_BYTES: usize = 16 * 1024;' "$catalog_bootstrap_source"
+if grep -Eq '(policy_canonical_bytes|ReplayExecutionPolicyV2|generate.*policy|default.*policy)' "$catalog_bootstrap_source"; then
+  echo "Catalog bootstrap composition must not synthesize policy" >&2
+  exit 1
+fi
+sealed_compose="$package_dir/docker-compose.source-intake-sealed-acceptance.yml"
+test "$(grep -Fc 'profiles: !override []' "$sealed_compose")" -eq 4
+grep -Fq "QUALIFICATION_OWNER_DB_PASSWORD: \${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}" "$sealed_compose"
+grep -Fq "BACKTEST_OWNER_DB_PASSWORD: \${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}" "$sealed_compose"
+grep -A22 -F 'authority-custody-migrate:' "$sealed_compose" |
+  grep -Fq 'schema-materialize:'
+grep -Fq 'materialize_schema(&database_url)' "$package_dir/../../crates/strategy_factory_rd_owner_api/src/main.rs"
 grep -Fq 'ALTER TABLE operator_authorization_private.operator_authorization_issuances_v1 OWNER TO operator_authorization_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER DATABASE %I OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count=9 AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count=9 AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc "c.relkind='r' AND c.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
+cutover_gate_line=$(grep -nF "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
+private_schema_line=$(grep -nF 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
+test "$cutover_gate_line" -lt "$private_schema_line"
+if grep -Eq 'public_count\+private_count NOT IN \(0,(4|9)\)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "Catalog/Composer cutover must reject an absent materialized family" >&2
+  exit 1
+fi
+grep -Fq 'ALTER TABLE public.%I SET SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc "IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+grep -Fq "IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_function_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_relation_acl_cutover\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "count(*)=13 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "index_relation.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "DO \$catalog_composer_constraint_manifest\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "foreign-key dependency manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE ROLE rd_fact_writer LOGIN' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq ') TO replay_policy_catalog_admin_writer;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'lock_replay_policy_catalog_census_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Eq 'GRANT EXECUTE ON FUNCTION (replay_policy_catalog_api\.apply_replay_policy_catalog_command_v2|composer_owner_api\.commit_develop_composer_v2).* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "rd_owner must not execute Catalog/Composer mutation routines" >&2
+  exit 1
+fi
+if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo "rd_owner must use fixed Catalog/Composer APIs, not raw table grants" >&2
+  exit 1
+fi
 grep -Fq "tablename LIKE 'rd_%'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 if grep -Fq "tablename LIKE 'rd_%' OR tablename LIKE 'qualification_%'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
   echo "rd_owner must not own Qualification tables" >&2

@@ -11,13 +11,168 @@ use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::develop_composer_operation_v2::{
     DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
-    DevelopComposerFinalEvidencePortV2, DevelopComposerOperationDispositionV2,
-    DevelopComposerOperationResponseV2, DevelopComposerPreflightV2, DevelopComposerRunRequestV2,
-    StoredDevelopComposerPositiveV2, build_positive_record_from_preflight_v2, conflict_response,
-    preflight_develop_composer_v2, request_digest, resolve_positive_record_v2,
+    DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
+    DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
+    DevelopComposerPreflightV2, DevelopComposerRunRequestV2, StoredDevelopComposerPositiveV2,
+    build_positive_record_from_preflight_v2, conflict_response, preflight_develop_composer_v2,
+    request_digest, resolve_positive_record_v2,
 };
 
 const SEALED_READ_SCHEMA_V2: u16 = 2;
+const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
+const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
+const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea)";
+const COMMIT_FUNCTION_SOURCE_V2: &str = "DECLARE ordinal integer;
+BEGIN
+  IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required' USING ERRCODE='42501'; END IF;
+  IF cardinality(p_receipt_identities)<>cardinality(p_attempt_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_capsule_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_build_bytes) THEN RETURN false; END IF;
+  INSERT INTO composer_private.rd_develop_designs_v2 VALUES (p_design_identity,p_design_bytes);
+  INSERT INTO composer_private.rd_develop_plans_v2 VALUES (p_plan_digest,p_design_identity,p_plan_bytes);
+  INSERT INTO composer_private.rd_develop_artifacts_v2 VALUES (p_artifact_identity,p_plan_digest,p_package_bytes);
+  FOR ordinal IN SELECT generate_subscripts(p_module_bytes,1) LOOP INSERT INTO composer_private.rd_develop_artifact_modules_v2 VALUES (p_artifact_identity,ordinal-1,p_module_bytes[ordinal]); END LOOP;
+  FOR ordinal IN SELECT generate_subscripts(p_receipt_identities,1) LOOP INSERT INTO composer_private.rd_develop_build_receipts_v2 VALUES (p_receipt_identities[ordinal],p_attempt_identities[ordinal],p_capsule_identities[ordinal],p_artifact_identity,ordinal-1,p_build_bytes[ordinal]); END LOOP;
+  INSERT INTO composer_private.rd_develop_composer_receipts_v2 VALUES (p_artifact_identity,p_composer_bytes);
+  INSERT INTO composer_private.rd_develop_host_receipts_v2 VALUES (p_artifact_identity,p_host_bytes);
+  INSERT INTO composer_private.rd_develop_operations_v2 VALUES (p_request_identity,p_request_digest,p_research_identity,p_intent_identity,p_artifact_identity,p_operation_bytes,p_response_bytes);
+  INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
+  RETURN true;
+END";
+const COMPOSER_TABLES_V2: [&str; 9] = [
+    "rd_develop_designs_v2",
+    "rd_develop_plans_v2",
+    "rd_develop_artifacts_v2",
+    "rd_develop_artifact_modules_v2",
+    "rd_develop_build_receipts_v2",
+    "rd_develop_composer_receipts_v2",
+    "rd_develop_host_receipts_v2",
+    "rd_develop_operations_v2",
+    "rd_develop_outbox_v2",
+];
+macro_rules! composer_table {
+    ($name:literal, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
+        crate::schema_materialization::PublicTableSpec {
+            name: $name,
+            columns: &[$(crate::schema_materialization::required($column, $data_type)),*],
+            constraints: &[$($constraint),*],
+            indexes: &[$(composer_table!(@index $kind $keys)),*],
+        }
+    };
+    (@index primary $keys:literal) => { crate::schema_materialization::primary_index($keys) };
+    (@index unique $keys:literal) => { crate::schema_materialization::unique_index($keys) };
+}
+const COMPOSER_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTableSpec] = &[
+    composer_table!("rd_develop_designs_v2", [("design_identity", "bytea"), ("canonical_bytes", "bytea")],
+        ["p:design_identity:::false:false:true:"], [primary "design_identity"]),
+    composer_table!("rd_develop_plans_v2", [("plan_digest", "bytea"), ("design_identity", "bytea"), ("canonical_bytes", "bytea")], [
+        "f:design_identity:public.rd_develop_designs_v2(design_identity):a:a:s:false:false:true:",
+        "p:plan_digest:::false:false:true:", "u:design_identity:::false:false:true:"
+    ], [primary "plan_digest", unique "design_identity"]),
+    composer_table!("rd_develop_artifacts_v2", [("artifact_identity", "bytea"), ("plan_digest", "bytea"), ("package_bytes", "bytea")], [
+        "f:plan_digest:public.rd_develop_plans_v2(plan_digest):a:a:s:false:false:true:",
+        "p:artifact_identity:::false:false:true:", "u:plan_digest:::false:false:true:"
+    ], [primary "artifact_identity", unique "plan_digest"]),
+    composer_table!("rd_develop_artifact_modules_v2", [("artifact_identity", "bytea"), ("ordinal", "integer"), ("module_bytes", "bytea")], [
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
+        "p:artifact_identity,ordinal:::false:false:true:"
+    ], [primary "artifact_identity,ordinal"]),
+    composer_table!("rd_develop_build_receipts_v2", [
+        ("receipt_identity", "bytea"), ("build_attempt_identity", "bytea"),
+        ("capsule_identity", "bytea"), ("artifact_identity", "bytea"),
+        ("ordinal", "integer"), ("canonical_bytes", "bytea")
+    ], [
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
+        "p:receipt_identity:::false:false:true:", "u:artifact_identity,ordinal:::false:false:true:",
+        "u:build_attempt_identity:::false:false:true:", "u:capsule_identity:::false:false:true:"
+    ], [primary "receipt_identity", unique "artifact_identity,ordinal", unique "build_attempt_identity", unique "capsule_identity"]),
+    composer_table!("rd_develop_composer_receipts_v2", [("artifact_identity", "bytea"), ("canonical_bytes", "bytea")], [
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
+        "p:artifact_identity:::false:false:true:"
+    ], [primary "artifact_identity"]),
+    composer_table!("rd_develop_host_receipts_v2", [("artifact_identity", "bytea"), ("canonical_bytes", "bytea")], [
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
+        "p:artifact_identity:::false:false:true:"
+    ], [primary "artifact_identity"]),
+    composer_table!("rd_develop_operations_v2", [
+        ("request_identity", "text"), ("request_digest", "bytea"),
+        ("research_request_identity", "bytea"), ("intent_identity", "bytea"),
+        ("artifact_identity", "bytea"), ("canonical_receipt_bytes", "bytea"),
+        ("response_bytes", "bytea")
+    ], [
+        "f:artifact_identity:public.rd_develop_artifacts_v2(artifact_identity):a:a:s:false:false:true:",
+        "p:request_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
+        "u:intent_identity:::false:false:true:", "u:research_request_identity:::false:false:true:"
+    ], [primary "request_identity", unique "artifact_identity", unique "intent_identity", unique "research_request_identity"]),
+    composer_table!("rd_develop_outbox_v2", [("request_identity", "text"), ("canonical_bytes", "bytea")], [
+        "f:request_identity:public.rd_develop_operations_v2(request_identity):a:a:s:false:false:true:",
+        "p:request_identity:::false:false:true:"
+    ], [primary "request_identity"]),
+];
+const SEALED_READ_FUNCTION_SOURCE_V2: &str = "BEGIN
+  LOCK TABLE
+    composer_private.rd_develop_designs_v2,
+    composer_private.rd_develop_plans_v2,
+    composer_private.rd_develop_artifacts_v2,
+    composer_private.rd_develop_artifact_modules_v2,
+    composer_private.rd_develop_build_receipts_v2,
+    composer_private.rd_develop_composer_receipts_v2,
+    composer_private.rd_develop_host_receipts_v2,
+    composer_private.rd_develop_operations_v2,
+    composer_private.rd_develop_outbox_v2
+  IN SHARE MODE;
+  RETURN QUERY
+  SELECT operation.request_digest,
+         operation.research_request_identity,
+         operation.intent_identity,
+         operation.artifact_identity,
+         operation.canonical_receipt_bytes,
+         operation.response_bytes,
+         artifact.plan_digest,
+         artifact.package_bytes,
+         plan.design_identity,
+         plan.canonical_bytes,
+         design.canonical_bytes,
+         COALESCE(modules.ordinals, ARRAY[]::integer[]),
+         COALESCE(modules.canonical_bytes, ARRAY[]::bytea[]),
+         COALESCE(builds.ordinals, ARRAY[]::integer[]),
+         COALESCE(builds.receipt_identities, ARRAY[]::bytea[]),
+         COALESCE(builds.attempt_identities, ARRAY[]::bytea[]),
+         COALESCE(builds.capsule_identities, ARRAY[]::bytea[]),
+         COALESCE(builds.canonical_bytes, ARRAY[]::bytea[]),
+         composer.canonical_bytes,
+         host.canonical_bytes,
+         outbox.canonical_bytes
+    FROM composer_private.rd_develop_operations_v2 operation
+    JOIN composer_private.rd_develop_artifacts_v2 artifact
+      ON artifact.artifact_identity=operation.artifact_identity
+    JOIN composer_private.rd_develop_plans_v2 plan
+      ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design
+      ON design.design_identity=plan.design_identity
+    JOIN composer_private.rd_develop_composer_receipts_v2 composer
+      ON composer.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_host_receipts_v2 host
+      ON host.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_outbox_v2 outbox
+      ON outbox.request_identity=operation.request_identity
+    LEFT JOIN LATERAL (
+      SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,
+             array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes
+        FROM composer_private.rd_develop_artifact_modules_v2 module
+       WHERE module.artifact_identity=artifact.artifact_identity
+    ) modules ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT array_agg(receipt.ordinal ORDER BY receipt.ordinal) AS ordinals,
+             array_agg(receipt.receipt_identity ORDER BY receipt.ordinal) AS receipt_identities,
+             array_agg(receipt.build_attempt_identity ORDER BY receipt.ordinal) AS attempt_identities,
+             array_agg(receipt.capsule_identity ORDER BY receipt.ordinal) AS capsule_identities,
+             array_agg(receipt.canonical_bytes ORDER BY receipt.ordinal) AS canonical_bytes
+        FROM composer_private.rd_develop_build_receipts_v2 receipt
+       WHERE receipt.artifact_identity=artifact.artifact_identity
+    ) builds ON TRUE
+   WHERE operation.request_identity=p_request_identity;
+END";
 
 /// Untrusted exact claim for one accepted durable Composer operation.
 ///
@@ -250,10 +405,18 @@ where
         &self,
         locator: &DevelopComposerSealedReadLocatorV2,
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
-        let record = load_record(&self.store.pool, &locator.request_identity)
+        let mut transaction = self
+            .store
+            .pool
+            .begin()
             .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
-            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let record = load_record_via_sealed_routine_in_transaction(
+            &mut transaction,
+            &locator.request_identity,
+        )
+        .await?
+        .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
         if !locator_matches_record_keys(locator, &record) {
             return Err(DevelopComposerSealedReadErrorV2::Unavailable);
         }
@@ -264,9 +427,12 @@ where
                 self.read_cut_epoch_ms,
             )
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let response = resolve_positive_record_v2(&record, current)
+        let readback = read_accepted_in_transaction(&mut transaction, locator, current).await?;
+        transaction
+            .commit()
+            .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        seal_readback(locator, record, &response)
+        Ok(readback)
     }
 }
 
@@ -408,21 +574,10 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
             .begin()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        lock_composer_tables_for_consistent_read(&mut transaction).await?;
-        let record = load_record_in_transaction(&mut transaction, &locator.request_identity)
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
-            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let response = self
+        let readback = self
             .owner
-            .resolve(&locator.request_identity)
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        if !accepted_response_matches_locator(locator, &response) {
-            return Err(DevelopComposerSealedReadErrorV2::Unavailable);
-        }
-
-        let readback = seal_readback(locator, record, &response)?;
+            .read_accepted_in_transaction(&mut transaction, locator)
+            .await?;
         transaction
             .commit()
             .await
@@ -431,27 +586,443 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-async fn lock_composer_tables_for_consistent_read(
+/// Resolves one accepted Composer fact using exactly the caller's transaction and Owner-locked
+/// evidence. This function opens no connection or transaction and performs no writes.
+pub(crate) async fn read_accepted_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerSealedReadLocatorV2,
+    locked_evidence: DevelopComposerLockedEvidenceV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    let record =
+        load_record_via_sealed_routine_in_transaction(transaction, &locator.request_identity)
+            .await?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !locator_matches_record_keys(locator, &record) {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let response = resolve_positive_record_v2(&record, locked_evidence)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    seal_readback(locator, record, &response)
+}
+
+async fn load_record_via_sealed_routine_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    request_identity: &str,
+) -> Result<Option<StoredDevelopComposerPositiveV2>, DevelopComposerSealedReadErrorV2> {
+    verify_composer_read_authority_in_transaction(transaction).await?;
+    let Some(row) = sqlx::query(
+        "SELECT *
+           FROM composer_owner_api.lock_accepted_develop_composer_v2($1)",
+    )
+    .bind(request_identity)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+    else {
+        return Ok(None);
+    };
+
+    let module_ordinals: Vec<i32> = row
+        .try_get("module_ordinals")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let module_bytes: Vec<Vec<u8>> = row
+        .try_get("module_bytes")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    exact_ordinal_array(&module_ordinals, module_bytes.len())?;
+    let build_ordinals: Vec<i32> = row
+        .try_get("build_ordinals")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let build_receipt_bytes: Vec<Vec<u8>> = row
+        .try_get("build_receipt_bytes")
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    exact_ordinal_array(&build_ordinals, build_receipt_bytes.len())?;
+
+    Ok(Some(StoredDevelopComposerPositiveV2 {
+        request_identity: request_identity.to_owned(),
+        request_digest: sealed_digest_column(&row, "request_digest")?,
+        research_request_identity: sealed_digest_column(&row, "research_request_identity")?,
+        intent_identity: sealed_digest_column(&row, "intent_identity")?,
+        design_identity: sealed_digest_column(&row, "design_identity")?,
+        plan_digest: sealed_digest_column(&row, "plan_digest")?,
+        artifact_identity: sealed_digest_column(&row, "artifact_identity")?,
+        build_attempt_identities: sealed_digest_array(&row, "build_attempt_identities")?,
+        capsule_identities: sealed_digest_array(&row, "capsule_identities")?,
+        build_receipt_identities: sealed_digest_array(&row, "build_receipt_identities")?,
+        design_bytes: sealed_bytes_column(&row, "design_bytes")?,
+        plan_bytes: sealed_bytes_column(&row, "plan_bytes")?,
+        artifact_package_bytes: sealed_bytes_column(&row, "artifact_package_bytes")?,
+        module_bytes: module_bytes
+            .into_iter()
+            .map(Vec::into_boxed_slice)
+            .collect(),
+        build_receipt_bytes,
+        composer_receipt_bytes: sealed_bytes_column(&row, "composer_receipt_bytes")?,
+        host_receipt_bytes: sealed_bytes_column(&row, "host_receipt_bytes")?,
+        operation_receipt_bytes: sealed_bytes_column(&row, "operation_receipt_bytes")?,
+        outbox_bytes: sealed_bytes_column(&row, "outbox_bytes")?,
+        response_bytes: sealed_bytes_column(&row, "response_bytes")?,
+    }))
+}
+
+async fn verify_composer_read_authority_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), DevelopComposerSealedReadErrorV2> {
-    sqlx::query(
-        "LOCK TABLE
-           rd_develop_designs_v2,
-           rd_develop_plans_v2,
-           rd_develop_artifacts_v2,
-           rd_develop_artifact_modules_v2,
-           rd_develop_build_receipts_v2,
-           rd_develop_composer_receipts_v2,
-           rd_develop_host_receipts_v2,
-           rd_develop_operations_v2,
-           rd_develop_outbox_v2
-         IN SHARE MODE",
+    let authority_is_exact: bool = sqlx::query_scalar(
+        "WITH target AS (
+           SELECT procedure.oid,
+                  procedure.proowner,
+                  procedure.proacl,
+                  procedure.prosrc,
+                  procedure.prolang,
+                  procedure.prokind,
+                  procedure.proretset,
+                  procedure.prosecdef,
+                  procedure.provolatile,
+                  procedure.proparallel,
+                  procedure.proisstrict,
+                  procedure.proconfig,
+                  namespace.oid AS namespace_oid,
+                  namespace.nspowner,
+                  namespace.nspacl,
+                  object_owner.rolcanlogin,
+                  object_owner.rolsuper,
+                  object_owner.rolcreatedb,
+                  object_owner.rolcreaterole,
+                  object_owner.rolreplication,
+                  object_owner.rolbypassrls,
+                  caller.oid AS caller_oid,
+                  rd_owner.oid AS rd_owner_oid,
+                  fact_writer.oid AS fact_writer_oid
+             FROM pg_catalog.pg_proc procedure
+             JOIN pg_catalog.pg_namespace namespace
+               ON namespace.oid=procedure.pronamespace
+              AND namespace.nspname='composer_owner_api'
+             JOIN pg_catalog.pg_roles caller ON caller.rolname=current_user
+             JOIN pg_catalog.pg_roles object_owner ON object_owner.oid=procedure.proowner AND object_owner.rolname='composer_owner'
+             LEFT JOIN pg_catalog.pg_roles rd_owner ON rd_owner.rolname='rd_owner'
+             LEFT JOIN pg_catalog.pg_roles fact_writer ON fact_writer.rolname='rd_fact_writer'
+            WHERE procedure.oid=pg_catalog.to_regprocedure($1)
+              AND procedure.proname='lock_accepted_develop_composer_v2'
+         ), required(table_name) AS (
+           VALUES
+             ('rd_develop_designs_v2'),
+             ('rd_develop_plans_v2'),
+             ('rd_develop_artifacts_v2'),
+             ('rd_develop_artifact_modules_v2'),
+             ('rd_develop_build_receipts_v2'),
+             ('rd_develop_composer_receipts_v2'),
+             ('rd_develop_host_receipts_v2'),
+             ('rd_develop_operations_v2'),
+             ('rd_develop_outbox_v2')
+         ), relations AS (
+           SELECT relation.oid, relation.relowner, relation.relacl, relation.relpersistence, target.proowner
+             FROM required
+             CROSS JOIN target
+             JOIN pg_catalog.pg_namespace namespace
+               ON namespace.nspname='composer_private'
+             JOIN pg_catalog.pg_class relation
+               ON relation.relnamespace=namespace.oid
+              AND relation.relname=required.table_name
+              AND relation.relkind IN ('r','p')
+         )
+         SELECT count(*)=9
+            AND EXISTS(SELECT 1 FROM pg_catalog.pg_roles role WHERE role.rolname='rd_owner' AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls)
+            AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership JOIN pg_catalog.pg_roles granted ON granted.oid=membership.roleid JOIN pg_catalog.pg_roles member ON member.oid=membership.member WHERE granted.rolname='rd_owner' OR member.rolname='rd_owner')
+            AND (
+              SELECT count(*)=2
+                 AND bool_and(procedure.oid IN (
+                   pg_catalog.to_regprocedure($1),
+                   pg_catalog.to_regprocedure($3)
+                 ))
+                 AND bool_and((
+                   SELECT count(*)=CASE procedure.proname
+                            WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=procedure.proowner
+                          AND acl.privilege_type='EXECUTE'
+                      )=1
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=(
+                          SELECT oid FROM pg_catalog.pg_roles
+                           WHERE rolname='rd_fact_writer'
+                        )
+                          AND acl.privilege_type='EXECUTE'
+                          AND NOT acl.is_grantable
+                      )=1
+                      AND count(*) FILTER (
+                        WHERE acl.grantee=(
+                          SELECT oid FROM pg_catalog.pg_roles
+                           WHERE rolname='rd_owner'
+                        )
+                          AND acl.privilege_type='EXECUTE'
+                          AND NOT acl.is_grantable
+                      )=CASE procedure.proname
+                          WHEN 'commit_develop_composer_v2' THEN 0 ELSE 1 END
+                      AND count(*) FILTER (WHERE acl.grantee=0)=0
+                      AND count(*) FILTER (
+                        WHERE acl.privilege_type<>'EXECUTE'
+                           OR acl.grantee NOT IN (
+                             procedure.proowner,
+                             (SELECT oid FROM pg_catalog.pg_roles
+                               WHERE rolname='rd_owner'),
+                             (SELECT oid FROM pg_catalog.pg_roles
+                               WHERE rolname='rd_fact_writer')
+                           )
+                           OR (acl.grantee<>procedure.proowner AND acl.is_grantable)
+                      )=0
+                     FROM pg_catalog.aclexplode(COALESCE(
+                            procedure.proacl,
+                            pg_catalog.acldefault('f',procedure.proowner)
+                          )) acl
+                 ))
+                FROM pg_catalog.pg_proc procedure
+                JOIN pg_catalog.pg_namespace namespace
+                  ON namespace.oid=procedure.pronamespace
+               WHERE namespace.nspname='composer_owner_api'
+            )
+            AND bool_and(relpersistence='p' AND relowner=relations.proowner)
+            AND NOT bool_or(EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                       relacl,
+                       pg_catalog.acldefault('r', relowner)
+                     )) acl
+               WHERE acl.grantee<>relowner
+            ))
+            AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relations.oid AND NOT trigger_fact.tgisinternal))
+            AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid=relations.oid))
+            AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=relations.oid AND rewrite.rulename<>'_RETURN'))
+            AND NOT bool_or(EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid=relations.oid OR inheritance.inhparent=relations.oid))
+            AND (SELECT nspowner=proowner FROM target)
+            AND (SELECT prosrc=$2
+                   AND prolang=(
+                     SELECT oid FROM pg_catalog.pg_language WHERE lanname='plpgsql'
+                   )
+                   AND prokind='f'
+                   AND proretset
+                   AND prosecdef
+                   AND provolatile='v'
+                   AND proparallel='u'
+                   AND proisstrict
+                   AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreatedb AND NOT rolcreaterole
+                   AND NOT rolreplication AND NOT rolbypassrls
+                   AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+                   AND (
+                     caller_oid=proowner
+                     OR (
+                       caller_oid IN (rd_owner_oid,fact_writer_oid)
+                       AND NOT pg_catalog.pg_has_role(caller_oid, proowner, 'MEMBER')
+                       AND NOT pg_catalog.pg_has_role(proowner, caller_oid, 'MEMBER')
+                       AND pg_catalog.has_schema_privilege(caller_oid, namespace_oid, 'USAGE')
+                       AND pg_catalog.has_function_privilege(caller_oid, oid, 'EXECUTE')
+                     )
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                      FROM pg_catalog.aclexplode(COALESCE(
+                             proacl,
+                             pg_catalog.acldefault('f', proowner)
+                            )) acl
+                      WHERE acl.privilege_type<>'EXECUTE'
+                         OR acl.grantee NOT IN (proowner, rd_owner_oid, fact_writer_oid)
+                         OR (acl.grantee IN (rd_owner_oid,fact_writer_oid) AND acl.is_grantable)
+                   )
+                   AND NOT EXISTS (
+                     SELECT 1
+                      FROM pg_catalog.aclexplode(COALESCE(
+                             nspacl,
+                             pg_catalog.acldefault('n', nspowner)
+                            )) acl
+                      WHERE acl.privilege_type NOT IN ('USAGE','CREATE')
+                         OR acl.grantee NOT IN (nspowner, rd_owner_oid, fact_writer_oid)
+                         OR (acl.grantee IN (rd_owner_oid,fact_writer_oid)
+                             AND (acl.privilege_type<>'USAGE' OR acl.is_grantable))
+                   )
+                 FROM target)
+            AND NOT bool_or(
+              (SELECT caller_oid<>proowner FROM target)
+              AND pg_catalog.has_table_privilege(
+                (SELECT caller_oid FROM target),
+                relations.oid,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+              )
+            )
+           FROM relations",
     )
-    .execute(&mut **transaction)
+    .bind(SEALED_READ_FUNCTION_V2)
+    .bind(SEALED_READ_FUNCTION_SOURCE_V2)
+    .bind(COMMIT_FUNCTION_V2)
+    .fetch_one(&mut **transaction)
     .await
     .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !authority_is_exact {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let column_shape = sqlx::query_scalar::<_, String>("SELECT relation.relname||':'||attribute.attnum||':'||attribute.attname||':'||pg_catalog.format_type(attribute.atttypid,attribute.atttypmod)||':'||attribute.attnotnull||':'||COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) ORDER BY relation.relname,attribute.attnum")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_all(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let expected_column_shape = [
+        "rd_develop_artifact_modules_v2:1:artifact_identity:bytea:true:",
+        "rd_develop_artifact_modules_v2:2:ordinal:integer:true:",
+        "rd_develop_artifact_modules_v2:3:module_bytes:bytea:true:",
+        "rd_develop_artifacts_v2:1:artifact_identity:bytea:true:",
+        "rd_develop_artifacts_v2:2:plan_digest:bytea:true:",
+        "rd_develop_artifacts_v2:3:package_bytes:bytea:true:",
+        "rd_develop_build_receipts_v2:1:receipt_identity:bytea:true:",
+        "rd_develop_build_receipts_v2:2:build_attempt_identity:bytea:true:",
+        "rd_develop_build_receipts_v2:3:capsule_identity:bytea:true:",
+        "rd_develop_build_receipts_v2:4:artifact_identity:bytea:true:",
+        "rd_develop_build_receipts_v2:5:ordinal:integer:true:",
+        "rd_develop_build_receipts_v2:6:canonical_bytes:bytea:true:",
+        "rd_develop_composer_receipts_v2:1:artifact_identity:bytea:true:",
+        "rd_develop_composer_receipts_v2:2:canonical_bytes:bytea:true:",
+        "rd_develop_designs_v2:1:design_identity:bytea:true:",
+        "rd_develop_designs_v2:2:canonical_bytes:bytea:true:",
+        "rd_develop_host_receipts_v2:1:artifact_identity:bytea:true:",
+        "rd_develop_host_receipts_v2:2:canonical_bytes:bytea:true:",
+        "rd_develop_operations_v2:1:request_identity:text:true:",
+        "rd_develop_operations_v2:2:request_digest:bytea:true:",
+        "rd_develop_operations_v2:3:research_request_identity:bytea:true:",
+        "rd_develop_operations_v2:4:intent_identity:bytea:true:",
+        "rd_develop_operations_v2:5:artifact_identity:bytea:true:",
+        "rd_develop_operations_v2:6:canonical_receipt_bytes:bytea:true:",
+        "rd_develop_operations_v2:7:response_bytes:bytea:true:",
+        "rd_develop_outbox_v2:1:request_identity:text:true:",
+        "rd_develop_outbox_v2:2:canonical_bytes:bytea:true:",
+        "rd_develop_plans_v2:1:plan_digest:bytea:true:",
+        "rd_develop_plans_v2:2:design_identity:bytea:true:",
+        "rd_develop_plans_v2:3:canonical_bytes:bytea:true:",
+    ];
+
+    if column_shape
+        .iter()
+        .map(String::as_str)
+        .ne(expected_column_shape)
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let dependency_shape_is_exact: bool = sqlx::query_scalar("WITH family AS (SELECT relation.oid,relation.relname FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)) SELECT (SELECT count(*)=17 AND NOT bool_or((family.relname,constraint_fact.contype::text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES ('rd_develop_designs_v2','p','1'),('rd_develop_plans_v2','p','1'),('rd_develop_plans_v2','u','2'),('rd_develop_artifacts_v2','p','1'),('rd_develop_artifacts_v2','u','2'),('rd_develop_artifact_modules_v2','p','1 2'),('rd_develop_build_receipts_v2','p','1'),('rd_develop_build_receipts_v2','u','2'),('rd_develop_build_receipts_v2','u','3'),('rd_develop_build_receipts_v2','u','4 5'),('rd_develop_composer_receipts_v2','p','1'),('rd_develop_host_receipts_v2','p','1'),('rd_develop_operations_v2','p','1'),('rd_develop_operations_v2','u','3'),('rd_develop_operations_v2','u','4'),('rd_develop_operations_v2','u','5'),('rd_develop_outbox_v2','p','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u')) AND (SELECT count(*)=8 AND NOT bool_or((source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,pg_catalog.array_to_string(constraint_fact.confkey,' ')) NOT IN (VALUES ('rd_develop_plans_v2','2','rd_develop_designs_v2','1'),('rd_develop_artifacts_v2','2','rd_develop_plans_v2','1'),('rd_develop_artifact_modules_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_build_receipts_v2','4','rd_develop_artifacts_v2','1'),('rd_develop_composer_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_host_receipts_v2','1','rd_develop_artifacts_v2','1'),('rd_develop_operations_v2','5','rd_develop_artifacts_v2','1'),('rd_develop_outbox_v2','1','rd_develop_operations_v2','1'))) FROM pg_catalog.pg_constraint constraint_fact JOIN family source ON source.oid=constraint_fact.conrelid JOIN family target ON target.oid=constraint_fact.confrelid WHERE constraint_fact.contype='f') AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u','f')) AND (SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_fact.indexrelid)) FROM pg_catalog.pg_index index_fact WHERE index_fact.indrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family)) AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family) AND rewrite.rulename='_RETURN')")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !dependency_shape_is_exact {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let constraint_options_are_exact: bool = sqlx::query_scalar("SELECT NOT EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1) AND (NOT constraint_fact.convalidated OR constraint_fact.condeferrable OR constraint_fact.condeferred OR constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f')) OR (constraint_fact.contype='f' AND (constraint_fact.confupdtype<>'a' OR constraint_fact.confdeltype<>'a' OR constraint_fact.confmatchtype<>'s'))))")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !constraint_options_are_exact {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let index_options_are_exact: bool = sqlx::query_scalar("SELECT count(*)=17 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='composer_owner' AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation)) FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname='composer_private' AND relation.relname=ANY($1)")
+        .bind(COMPOSER_TABLES_V2.as_slice()).fetch_one(&mut **transaction).await.map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if !index_options_are_exact {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
     Ok(())
+}
+
+async fn verify_composer_commit_authority_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT SESSION_USER='rd_fact_writer' AND procedure.prosrc=$2
+            AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
+            AND language.lanname='plpgsql' AND procedure.prokind='f'
+            AND NOT procedure.proretset AND procedure.prosecdef AND procedure.proisstrict
+            AND procedure.provolatile='v' AND procedure.proparallel='u'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+            AND (
+              SELECT count(*)=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=procedure.proowner
+                     AND acl.privilege_type='EXECUTE'
+                 )=1
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=(
+                     SELECT oid FROM pg_catalog.pg_roles
+                      WHERE rolname='rd_fact_writer'
+                   )
+                     AND acl.privilege_type='EXECUTE'
+                     AND NOT acl.is_grantable
+                 )=1
+                 AND count(*) FILTER (WHERE acl.grantee=0)=0
+                 AND count(*) FILTER (
+                   WHERE acl.privilege_type<>'EXECUTE'
+                      OR acl.grantee NOT IN (
+                        procedure.proowner,
+                        (SELECT oid FROM pg_catalog.pg_roles
+                          WHERE rolname='rd_fact_writer')
+                      )
+                      OR (acl.grantee<>procedure.proowner AND acl.is_grantable)
+                 )=0
+                FROM pg_catalog.aclexplode(COALESCE(
+                       procedure.proacl,
+                       pg_catalog.acldefault('f',procedure.proowner)
+                     )) acl
+            )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(COMMIT_FUNCTION_V2)
+    .bind(COMMIT_FUNCTION_SOURCE_V2)
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer commit authority is unavailable".to_owned(),
+        ))
+    }
+}
+
+fn exact_ordinal_array(
+    ordinals: &[i32],
+    values_len: usize,
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
+    if ordinals.len() != values_len
+        || ordinals
+            .iter()
+            .enumerate()
+            .any(|(expected, actual)| usize::try_from(*actual).ok() != Some(expected))
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    Ok(())
+}
+
+fn sealed_digest_column(
+    row: &sqlx::postgres::PgRow,
+    name: &str,
+) -> Result<BindingDigest, DevelopComposerSealedReadErrorV2> {
+    let bytes = sealed_bytes_column(row, name)?;
+    let bytes: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    Ok(BindingDigest::from_untrusted_bytes(bytes))
+}
+
+fn sealed_digest_array(
+    row: &sqlx::postgres::PgRow,
+    name: &str,
+) -> Result<Vec<BindingDigest>, DevelopComposerSealedReadErrorV2> {
+    row.try_get::<Vec<Vec<u8>>, _>(name)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+        .into_iter()
+        .map(|bytes| {
+            let bytes: [u8; 32] = bytes
+                .try_into()
+                .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+            Ok(BindingDigest::from_untrusted_bytes(bytes))
+        })
+        .collect()
+}
+
+fn sealed_bytes_column(
+    row: &sqlx::postgres::PgRow,
+    name: &str,
+) -> Result<Vec<u8>, DevelopComposerSealedReadErrorV2> {
+    row.try_get(name)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
 }
 
 #[derive(Clone)]
@@ -460,6 +1031,69 @@ pub struct PostgresDevelopComposerStoreV2 {
 }
 
 impl PostgresDevelopComposerStoreV2 {
+    /// Materializes the complete public Composer family before its atomic custody cutover.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), sqlx::Error> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await?;
+
+        if !crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool).await? {
+            return Self::migrate(&pool).await;
+        }
+
+        for (relation_name, statement) in [
+            (
+                "rd_develop_designs_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_designs_v2 (design_identity BYTEA PRIMARY KEY, canonical_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_plans_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES public.rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_artifacts_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_artifacts_v2 (artifact_identity BYTEA PRIMARY KEY, plan_digest BYTEA NOT NULL UNIQUE REFERENCES public.rd_develop_plans_v2(plan_digest), package_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_artifact_modules_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_artifact_modules_v2 (artifact_identity BYTEA NOT NULL REFERENCES public.rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, module_bytes BYTEA NOT NULL, PRIMARY KEY (artifact_identity, ordinal))",
+            ),
+            (
+                "rd_develop_build_receipts_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_build_receipts_v2 (receipt_identity BYTEA PRIMARY KEY, build_attempt_identity BYTEA NOT NULL UNIQUE, capsule_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL REFERENCES public.rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, canonical_bytes BYTEA NOT NULL, UNIQUE (artifact_identity, ordinal))",
+            ),
+            (
+                "rd_develop_composer_receipts_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_composer_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES public.rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_host_receipts_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_host_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES public.rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_operations_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_operations_v2 (request_identity TEXT PRIMARY KEY, request_digest BYTEA NOT NULL, research_request_identity BYTEA NOT NULL UNIQUE, intent_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL UNIQUE REFERENCES public.rd_develop_artifacts_v2(artifact_identity), canonical_receipt_bytes BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
+            ),
+            (
+                "rd_develop_outbox_v2",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_outbox_v2 (request_identity TEXT PRIMARY KEY REFERENCES public.rd_develop_operations_v2(request_identity), canonical_bytes BYTEA NOT NULL)",
+            ),
+        ] {
+            crate::schema_materialization::materialize_public_table(
+                &pool,
+                relation_name,
+                statement,
+            )
+            .await?;
+        }
+        crate::schema_materialization::verify_materialized_public_tables(
+            &pool,
+            COMPOSER_PUBLIC_TABLE_SPECS_V2,
+        )
+        .await
+    }
+
     pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
@@ -470,10 +1104,13 @@ impl PostgresDevelopComposerStoreV2 {
     }
 
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
-        for &statement in MIGRATION_STATEMENTS_V2 {
-            sqlx::query(statement).execute(pool).await?;
-        }
-        Ok(())
+        let mut transaction = pool.begin().await?;
+        verify_composer_read_authority_in_transaction(&mut transaction)
+            .await
+            .map_err(|_| {
+                sqlx::Error::Protocol("Composer authority topology is unavailable".to_owned())
+            })?;
+        transaction.rollback().await
     }
 
     pub async fn resolve(
@@ -544,6 +1181,15 @@ impl PostgresDevelopComposerStoreV2 {
         let existing =
             match load_record_in_transaction(&mut transaction, &request.request_identity).await {
                 Ok(existing) => existing,
+                Err(sqlx::Error::Protocol(message))
+                    if message == SEALED_READ_UNAVAILABLE_PROTOCOL_V2 =>
+                {
+                    transaction.rollback().await?;
+                    return Ok(unavailable_response(
+                        &request.request_identity,
+                        SEALED_READ_UNAVAILABLE_PROTOCOL_V2,
+                    ));
+                }
                 Err(e) if is_record_integrity_error(&e) => {
                     transaction.rollback().await?;
                     return Ok(unavailable_response(
@@ -584,13 +1230,6 @@ impl PostgresDevelopComposerStoreV2 {
             }
         };
         acquire_advisory_locks(&mut transaction, &preflight_lock_keys(&preflight)).await?;
-        if preflight_identity_conflicts(&mut transaction, &preflight).await? {
-            transaction.rollback().await?;
-            return Ok(conflict_response(
-                &request.request_identity,
-                "operation.semantic_identity",
-            ));
-        }
         let (record, current) = match build_positive_record_from_preflight_v2(
             builder,
             evidence,
@@ -605,13 +1244,6 @@ impl PostgresDevelopComposerStoreV2 {
             }
         };
         acquire_advisory_locks(&mut transaction, &postbuild_lock_keys(&record)).await?;
-        if identity_conflicts(&mut transaction, &record).await? {
-            transaction.rollback().await?;
-            return Ok(conflict_response(
-                &request.request_identity,
-                "operation.semantic_identity",
-            ));
-        }
 
         if let Err(e) = persist_record(
             &mut transaction,
@@ -634,7 +1266,21 @@ impl PostgresDevelopComposerStoreV2 {
             }
             return Err(e);
         }
-        let response = match resolve_positive_record_v2(&record, current) {
+        let stored = match load_record_via_sealed_routine_in_transaction(
+            &mut transaction,
+            &request.request_identity,
+        )
+        .await
+        {
+            Ok(Some(stored)) => stored,
+            _ => {
+                transaction.rollback().await?;
+                return Err(sqlx::Error::Protocol(
+                    "fresh Composer custody is absent or malformed".to_owned(),
+                ));
+            }
+        };
+        let response = match resolve_positive_record_v2(&stored, current) {
             Ok(response) => response,
             Err(terminal) => {
                 transaction.rollback().await?;
@@ -768,69 +1414,6 @@ fn request_lock_key(request_identity: &str) -> String {
     )
 }
 
-async fn preflight_identity_conflicts(
-    transaction: &mut Transaction<'_, Postgres>,
-    preflight: &DevelopComposerPreflightV2,
-) -> Result<bool, sqlx::Error> {
-    let research_or_intent = sqlx::query_scalar::<_, Vec<u8>>(
-        "SELECT request_digest
-           FROM rd_develop_operations_v2
-          WHERE research_request_identity=$1 OR intent_identity=$2
-          LIMIT 1",
-    )
-    .bind(preflight.research_request_identity.as_bytes().as_slice())
-    .bind(preflight.intent_identity.as_bytes().as_slice())
-    .fetch_optional(&mut **transaction)
-    .await?;
-
-    if digest_conflicts(research_or_intent.as_deref(), preflight.request_digest) {
-        return Ok(true);
-    }
-    let design = sqlx::query_scalar::<_, Vec<u8>>(
-        "SELECT operation.request_digest
-           FROM rd_develop_plans_v2 plan
-           JOIN rd_develop_artifacts_v2 artifact ON artifact.plan_digest=plan.plan_digest
-           JOIN rd_develop_operations_v2 operation ON operation.artifact_identity=artifact.artifact_identity
-          WHERE plan.design_identity=$1
-          LIMIT 1",
-    )
-    .bind(preflight.design_identity.as_bytes().as_slice())
-    .fetch_optional(&mut **transaction)
-    .await?;
-
-    if digest_conflicts(design.as_deref(), preflight.request_digest) {
-        return Ok(true);
-    }
-
-    for (attempt, capsule) in preflight
-        .build_attempt_identities
-        .iter()
-        .zip(&preflight.capsule_identities)
-    {
-        let build = sqlx::query_scalar::<_, Vec<u8>>(
-            "SELECT operation.request_digest
-               FROM rd_develop_build_receipts_v2 receipt
-               JOIN rd_develop_operations_v2 operation
-                 ON operation.artifact_identity=receipt.artifact_identity
-              WHERE receipt.build_attempt_identity=$1 OR receipt.capsule_identity=$2
-              LIMIT 1",
-        )
-        .bind(attempt.as_bytes().as_slice())
-        .bind(capsule.as_bytes().as_slice())
-        .fetch_optional(&mut **transaction)
-        .await?;
-
-        if digest_conflicts(build.as_deref(), preflight.request_digest) {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-fn digest_conflicts(existing: Option<&[u8]>, request_digest: BindingDigest) -> bool {
-    existing.is_some_and(|digest| digest != request_digest.as_bytes())
-}
-
 fn terminal_response(
     request: &DevelopComposerRunRequestV2,
     terminal: crate::develop_composer_v2::DevelopComposerTerminalV2,
@@ -859,176 +1442,74 @@ fn terminal_response(
     }
 }
 
-async fn identity_conflicts(
-    transaction: &mut Transaction<'_, Postgres>,
-    record: &StoredDevelopComposerPositiveV2,
-) -> Result<bool, sqlx::Error> {
-    let existing = sqlx::query_scalar::<_, Vec<u8>>(
-        "SELECT request_digest
-           FROM rd_develop_operations_v2
-          WHERE research_request_identity=$1 OR intent_identity=$2 OR artifact_identity=$3
-          LIMIT 1",
-    )
-    .bind(record.research_request_identity.as_bytes().as_slice())
-    .bind(record.intent_identity.as_bytes().as_slice())
-    .bind(record.artifact_identity.as_bytes().as_slice())
-    .fetch_optional(&mut **transaction)
-    .await?;
-
-    if existing
-        .as_deref()
-        .is_some_and(|digest| digest != record.request_digest.as_bytes())
-    {
-        return Ok(true);
-    }
-
-    for identity in &record.build_receipt_identities {
-        let existing = sqlx::query_scalar::<_, Vec<u8>>(
-            "SELECT operation.request_digest
-               FROM rd_develop_build_receipts_v2 receipt
-               JOIN rd_develop_operations_v2 operation
-                 ON operation.artifact_identity=receipt.artifact_identity
-              WHERE receipt.receipt_identity=$1",
-        )
-        .bind(identity.as_bytes().as_slice())
-        .fetch_optional(&mut **transaction)
-        .await?;
-
-        if existing
-            .as_deref()
-            .is_some_and(|digest| digest != record.request_digest.as_bytes())
-        {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
-const MIGRATION_STATEMENTS_V2: &[&str] = &[
-    "CREATE TABLE IF NOT EXISTS rd_develop_designs_v2 (design_identity BYTEA PRIMARY KEY, canonical_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_artifacts_v2 (artifact_identity BYTEA PRIMARY KEY, plan_digest BYTEA NOT NULL UNIQUE REFERENCES rd_develop_plans_v2(plan_digest), package_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_artifact_modules_v2 (artifact_identity BYTEA NOT NULL REFERENCES rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, module_bytes BYTEA NOT NULL, PRIMARY KEY (artifact_identity, ordinal))",
-    "CREATE TABLE IF NOT EXISTS rd_develop_build_receipts_v2 (receipt_identity BYTEA PRIMARY KEY, build_attempt_identity BYTEA NOT NULL UNIQUE, capsule_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL REFERENCES rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, canonical_bytes BYTEA NOT NULL, UNIQUE (artifact_identity, ordinal))",
-    "CREATE TABLE IF NOT EXISTS rd_develop_composer_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_host_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_operations_v2 (request_identity TEXT PRIMARY KEY, request_digest BYTEA NOT NULL, research_request_identity BYTEA NOT NULL UNIQUE, intent_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL UNIQUE REFERENCES rd_develop_artifacts_v2(artifact_identity), canonical_receipt_bytes BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
-    "CREATE TABLE IF NOT EXISTS rd_develop_outbox_v2 (request_identity TEXT PRIMARY KEY REFERENCES rd_develop_operations_v2(request_identity), canonical_bytes BYTEA NOT NULL)",
-    "REVOKE ALL ON TABLE rd_develop_designs_v2, rd_develop_plans_v2, rd_develop_artifacts_v2, rd_develop_artifact_modules_v2, rd_develop_build_receipts_v2, rd_develop_composer_receipts_v2, rd_develop_host_receipts_v2, rd_develop_operations_v2, rd_develop_outbox_v2 FROM PUBLIC",
-];
-
 async fn persist_record(
     transaction: &mut Transaction<'_, Postgres>,
     record: &StoredDevelopComposerPositiveV2,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
-    let mut boundary = 0_usize;
+    verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,
         current_bindings,
     )
     .map_err(sqlx::Error::Protocol)?;
-    sqlx::query(
-        "INSERT INTO rd_develop_designs_v2 (design_identity, canonical_bytes) VALUES ($1,$2)",
-    )
-    .bind(plan.design_identity().as_bytes().as_slice())
-    .bind(&record.design_bytes)
-    .execute(&mut **transaction)
-    .await?;
-    fail(fail_after_boundary, &mut boundary)?;
-    sqlx::query("INSERT INTO rd_develop_plans_v2 (plan_digest, design_identity, canonical_bytes) VALUES ($1,$2,$3)")
-        .bind(plan.canonical_plan_digest().as_bytes().as_slice())
-        .bind(plan.design_identity().as_bytes().as_slice())
-        .bind(&record.plan_bytes)
-        .execute(&mut **transaction)
-        .await?;
-    fail(fail_after_boundary, &mut boundary)?;
-    sqlx::query("INSERT INTO rd_develop_artifacts_v2 (artifact_identity, plan_digest, package_bytes) VALUES ($1,$2,$3)")
-        .bind(record.artifact_identity.as_bytes().as_slice())
-        .bind(plan.canonical_plan_digest().as_bytes().as_slice())
-        .bind(&record.artifact_package_bytes)
-        .execute(&mut **transaction)
-        .await?;
-    fail(fail_after_boundary, &mut boundary)?;
-
-    for (ordinal, bytes) in record.module_bytes.iter().enumerate() {
-        sqlx::query("INSERT INTO rd_develop_artifact_modules_v2 (artifact_identity, ordinal, module_bytes) VALUES ($1,$2,$3)")
-            .bind(record.artifact_identity.as_bytes().as_slice())
-            .bind(i32::try_from(ordinal).map_err(|_| sqlx::Error::Protocol("module ordinal overflow".to_owned()))?)
-            .bind(bytes.as_ref())
-            .execute(&mut **transaction)
-            .await?;
-        fail(fail_after_boundary, &mut boundary)?;
+    if let Some(boundary) = fail_after_boundary {
+        return Err(sqlx::Error::Protocol(format!(
+            "injected Composer write-boundary failure {boundary}"
+        )));
     }
-
-    for (ordinal, (((identity, attempt), capsule), bytes)) in record
+    let module_bytes = record
+        .module_bytes
+        .iter()
+        .map(|bytes| bytes.to_vec())
+        .collect::<Vec<_>>();
+    let receipt_identities = record
         .build_receipt_identities
         .iter()
-        .zip(&record.build_attempt_identities)
-        .zip(&record.capsule_identities)
-        .zip(&record.build_receipt_bytes)
-        .enumerate()
-    {
-        sqlx::query("INSERT INTO rd_develop_build_receipts_v2 (receipt_identity, build_attempt_identity, capsule_identity, artifact_identity, ordinal, canonical_bytes) VALUES ($1,$2,$3,$4,$5,$6)")
-            .bind(identity.as_bytes().as_slice())
-            .bind(attempt.as_bytes().as_slice())
-            .bind(capsule.as_bytes().as_slice())
-            .bind(record.artifact_identity.as_bytes().as_slice())
-            .bind(i32::try_from(ordinal).map_err(|_| sqlx::Error::Protocol("receipt ordinal overflow".to_owned()))?)
-            .bind(bytes)
-            .execute(&mut **transaction)
-            .await?;
-        fail(fail_after_boundary, &mut boundary)?;
-    }
-
-    for (statement, bytes) in [
-        (
-            "INSERT INTO rd_develop_composer_receipts_v2 (artifact_identity, canonical_bytes) VALUES ($1,$2)",
-            &record.composer_receipt_bytes,
-        ),
-        (
-            "INSERT INTO rd_develop_host_receipts_v2 (artifact_identity, canonical_bytes) VALUES ($1,$2)",
-            &record.host_receipt_bytes,
-        ),
-    ] {
-        sqlx::query(statement)
-            .bind(record.artifact_identity.as_bytes().as_slice())
-            .bind(bytes)
-            .execute(&mut **transaction)
-            .await?;
-        fail(fail_after_boundary, &mut boundary)?;
-    }
-    sqlx::query("INSERT INTO rd_develop_operations_v2 (request_identity, request_digest, research_request_identity, intent_identity, artifact_identity, canonical_receipt_bytes, response_bytes) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+        .map(|value| value.as_bytes().to_vec())
+        .collect::<Vec<_>>();
+    let attempt_identities = record
+        .build_attempt_identities
+        .iter()
+        .map(|value| value.as_bytes().to_vec())
+        .collect::<Vec<_>>();
+    let capsule_identities = record
+        .capsule_identities
+        .iter()
+        .map(|value| value.as_bytes().to_vec())
+        .collect::<Vec<_>>();
+    let committed: bool = sqlx::query_scalar("SELECT composer_owner_api.commit_develop_composer_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)")
         .bind(&record.request_identity)
         .bind(record.request_digest.as_bytes().as_slice())
         .bind(record.research_request_identity.as_bytes().as_slice())
         .bind(record.intent_identity.as_bytes().as_slice())
         .bind(record.artifact_identity.as_bytes().as_slice())
+        .bind(plan.design_identity().as_bytes().as_slice())
+        .bind(plan.canonical_plan_digest().as_bytes().as_slice())
+        .bind(&record.design_bytes)
+        .bind(&record.plan_bytes)
+        .bind(&record.artifact_package_bytes)
+        .bind(module_bytes)
+        .bind(receipt_identities)
+        .bind(attempt_identities)
+        .bind(capsule_identities)
+        .bind(&record.build_receipt_bytes)
+        .bind(&record.composer_receipt_bytes)
+        .bind(&record.host_receipt_bytes)
         .bind(&record.operation_receipt_bytes)
         .bind(&record.response_bytes)
-        .execute(&mut **transaction)
+        .bind(&record.outbox_bytes)
+        .fetch_one(&mut **transaction)
         .await?;
-    fail(fail_after_boundary, &mut boundary)?;
-    sqlx::query(
-        "INSERT INTO rd_develop_outbox_v2 (request_identity, canonical_bytes) VALUES ($1,$2)",
-    )
-    .bind(&record.request_identity)
-    .bind(&record.outbox_bytes)
-    .execute(&mut **transaction)
-    .await?;
-    fail(fail_after_boundary, &mut boundary)?;
-    Ok(())
-}
 
-fn fail(target: Option<usize>, boundary: &mut usize) -> Result<(), sqlx::Error> {
-    *boundary += 1;
-    if target == Some(*boundary) {
-        return Err(sqlx::Error::Protocol(format!(
-            "injected Composer write-boundary failure {boundary}"
-        )));
+    if committed {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer owner rejected commit envelope".to_owned(),
+        ))
     }
-    Ok(())
 }
 
 async fn load_record(
@@ -1045,92 +1526,9 @@ async fn load_record_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, sqlx::Error> {
-    let Some(operation) = sqlx::query("SELECT request_digest, research_request_identity, intent_identity, artifact_identity, canonical_receipt_bytes, response_bytes FROM rd_develop_operations_v2 WHERE request_identity=$1")
-        .bind(request_identity)
-        .fetch_optional(&mut **transaction)
-        .await?
-    else {
-        return Ok(None);
-    };
-    let artifact_identity = digest_column(&operation, "artifact_identity")?;
-    let artifact = sqlx::query(
-        "SELECT plan_digest, package_bytes FROM rd_develop_artifacts_v2 WHERE artifact_identity=$1",
-    )
-    .bind(artifact_identity.as_bytes().as_slice())
-    .fetch_one(&mut **transaction)
-    .await?;
-    let plan_digest = digest_column(&artifact, "plan_digest")?;
-    let plan = sqlx::query(
-        "SELECT design_identity, canonical_bytes FROM rd_develop_plans_v2 WHERE plan_digest=$1",
-    )
-    .bind(plan_digest.as_bytes().as_slice())
-    .fetch_one(&mut **transaction)
-    .await?;
-    let design_identity = digest_column(&plan, "design_identity")?;
-    let design_bytes = sqlx::query_scalar::<_, Vec<u8>>(
-        "SELECT canonical_bytes FROM rd_develop_designs_v2 WHERE design_identity=$1",
-    )
-    .bind(design_identity.as_bytes().as_slice())
-    .fetch_one(&mut **transaction)
-    .await?;
-    let modules = sqlx::query("SELECT ordinal, module_bytes FROM rd_develop_artifact_modules_v2 WHERE artifact_identity=$1 ORDER BY ordinal")
-        .bind(artifact_identity.as_bytes().as_slice())
-        .fetch_all(&mut **transaction)
-        .await?;
-    let mut module_bytes = Vec::with_capacity(modules.len());
-    for (expected, row) in modules.into_iter().enumerate() {
-        exact_ordinal(&row, expected)?;
-        module_bytes.push(
-            row.try_get::<Vec<u8>, _>("module_bytes")?
-                .into_boxed_slice(),
-        );
-    }
-    let build_rows = sqlx::query("SELECT ordinal, receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes FROM rd_develop_build_receipts_v2 WHERE artifact_identity=$1 ORDER BY ordinal")
-        .bind(artifact_identity.as_bytes().as_slice())
-        .fetch_all(&mut **transaction)
-        .await?;
-    let mut build_receipt_identities = Vec::with_capacity(build_rows.len());
-    let mut build_attempt_identities = Vec::with_capacity(build_rows.len());
-    let mut capsule_identities = Vec::with_capacity(build_rows.len());
-    let mut build_receipt_bytes = Vec::with_capacity(build_rows.len());
-    for (expected, row) in build_rows.into_iter().enumerate() {
-        exact_ordinal(&row, expected)?;
-        build_receipt_identities.push(digest_column(&row, "receipt_identity")?);
-        build_attempt_identities.push(digest_column(&row, "build_attempt_identity")?);
-        capsule_identities.push(digest_column(&row, "capsule_identity")?);
-        build_receipt_bytes.push(row.try_get("canonical_bytes")?);
-    }
-    Ok(Some(StoredDevelopComposerPositiveV2 {
-        request_identity: request_identity.to_owned(),
-        request_digest: digest_column(&operation, "request_digest")?,
-        research_request_identity: digest_column(&operation, "research_request_identity")?,
-        intent_identity: digest_column(&operation, "intent_identity")?,
-        design_identity,
-        plan_digest,
-        artifact_identity,
-        build_attempt_identities,
-        capsule_identities,
-        build_receipt_identities,
-        design_bytes,
-        plan_bytes: plan.try_get("canonical_bytes")?,
-        artifact_package_bytes: artifact.try_get("package_bytes")?,
-        module_bytes,
-        build_receipt_bytes,
-        composer_receipt_bytes: sqlx::query_scalar("SELECT canonical_bytes FROM rd_develop_composer_receipts_v2 WHERE artifact_identity=$1")
-            .bind(artifact_identity.as_bytes().as_slice())
-            .fetch_one(&mut **transaction)
-            .await?,
-        host_receipt_bytes: sqlx::query_scalar("SELECT canonical_bytes FROM rd_develop_host_receipts_v2 WHERE artifact_identity=$1")
-            .bind(artifact_identity.as_bytes().as_slice())
-            .fetch_one(&mut **transaction)
-            .await?,
-        operation_receipt_bytes: operation.try_get("canonical_receipt_bytes")?,
-        outbox_bytes: sqlx::query_scalar("SELECT canonical_bytes FROM rd_develop_outbox_v2 WHERE request_identity=$1")
-            .bind(request_identity)
-            .fetch_one(&mut **transaction)
-            .await?,
-        response_bytes: operation.try_get("response_bytes")?,
-    }))
+    load_record_via_sealed_routine_in_transaction(transaction, request_identity)
+        .await
+        .map_err(|_| sqlx::Error::Protocol(SEALED_READ_UNAVAILABLE_PROTOCOL_V2.to_owned()))
 }
 
 fn exact_ordinal(row: &sqlx::postgres::PgRow, expected: usize) -> Result<(), sqlx::Error> {
@@ -1176,5 +1574,113 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
                 || message.ends_with(" is not an exact 32-byte digest")
         }
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    #[rstest]
+    fn public_materializer_covers_the_complete_composer_family() {
+        assert_eq!(super::COMPOSER_TABLES_V2.len(), 9);
+        assert_eq!(super::COMPOSER_PUBLIC_TABLE_SPECS_V2.len(), 9);
+        assert!(super::COMPOSER_TABLES_V2.iter().all(|name| {
+            super::COMPOSER_PUBLIC_TABLE_SPECS_V2
+                .iter()
+                .any(|spec| spec.name == *name)
+        }));
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        assert!(source.contains("pg_catalog.array_to_string(constraint_fact.conkey,' ')"));
+        assert!(
+            source.contains(
+                "constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f'))"
+            )
+        );
+    }
+
+    #[rstest]
+    fn composer_authority_requires_permanent_tables_and_indexes() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        let read_authority = source
+            .split("async fn verify_composer_read_authority_in_transaction")
+            .nth(1)
+            .expect("Composer read authority")
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .next()
+            .expect("bounded Composer read authority");
+
+        assert!(read_authority.contains("relation.relpersistence"));
+        assert!(read_authority.contains("relpersistence='p'"));
+        assert!(read_authority.contains("index_relation.relpersistence='p'"));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
+    async fn composer_unlogged_drift_is_unavailable_to_migration_and_runtime() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = database.mutation();
+        let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
+        let topology_admin_pool = database.owner_topology_admin_pool();
+        super::PostgresDevelopComposerStoreV2::migrate(pool)
+            .await
+            .unwrap();
+
+        sqlx::query("ALTER TABLE composer_private.rd_develop_outbox_v2 SET UNLOGGED")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        assert!(
+            super::PostgresDevelopComposerStoreV2::migrate(pool)
+                .await
+                .is_err()
+        );
+        let mut transaction = pool.begin().await.unwrap();
+        assert!(
+            super::load_record_via_sealed_routine_in_transaction(
+                &mut transaction,
+                "unknown-composer-operation",
+            )
+            .await
+            .is_err()
+        );
+        transaction.rollback().await.unwrap();
+
+        sqlx::query("ALTER TABLE composer_private.rd_develop_outbox_v2 SET LOGGED")
+            .execute(topology_admin_pool)
+            .await
+            .unwrap();
+        super::PostgresDevelopComposerStoreV2::migrate(pool)
+            .await
+            .unwrap();
+    }
+
+    #[rstest]
+    fn composer_authority_rejects_public_execute_on_commit() {
+        let source = include_str!("develop_composer_postgres_v2.rs");
+        let read_authority = source
+            .split("async fn verify_composer_read_authority_in_transaction")
+            .nth(1)
+            .expect("Composer read authority")
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .next()
+            .expect("bounded Composer read authority");
+        assert!(read_authority.contains("pg_catalog.to_regprocedure($3)"));
+        assert!(read_authority.contains(".bind(COMMIT_FUNCTION_V2)"));
+        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 2 ELSE 3 END"));
+        assert!(read_authority.contains("WHEN 'commit_develop_composer_v2' THEN 0 ELSE 1 END"));
+        assert!(read_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
+
+        let commit_authority = source
+            .split("async fn verify_composer_commit_authority_in_transaction")
+            .nth(1)
+            .expect("Composer commit authority")
+            .split("fn exact_ordinal_array")
+            .next()
+            .expect("bounded Composer commit authority");
+        assert!(commit_authority.contains("SESSION_USER='rd_fact_writer'"));
+        assert!(commit_authority.contains("SELECT count(*)=2"));
+        assert!(commit_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
     }
 }

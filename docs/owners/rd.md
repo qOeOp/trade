@@ -271,11 +271,56 @@ implicit fallback.
 
 The sole Catalog writer is a private audited R&D Catalog Administration Port. It owns policy creation, immutable
 version append, explicit current-head advancement, and revocation. Each admitted administration command records
-its authenticated administrative identity, exact predecessor/head, resulting content identity, audit fact, and
-outbox atomically. Ordinary callers, Product Edge, Windmill, providers, and other Owners cannot invoke that port,
-select a policy version, advance the head, revoke a version, or write Catalog storage. Environment values,
-defaults, migrations, deployment configuration, and runtime selectors cannot seed or synthesize a policy or
-current head.
+its authenticated administrative identity, exact predecessor/head, resulting content identity, and immutable audit
+fact atomically. That audit fact is the durable command receipt. Catalog authority consists only of the immutable
+record, singleton head, revocation, and audit tables; there is no separate administration receipt or outbox table.
+Ordinary callers, Product Edge, Windmill, providers, and other Owners cannot invoke that port, select a policy
+version, advance the head, revoke a version, or write Catalog storage. Environment values, defaults, migrations,
+deployment configuration, and runtime selectors cannot seed or synthesize a policy or current head.
+
+The only product composition allowed to bootstrap an empty Catalog is a dedicated, opt-in, one-shot
+`authority-admin` composition. It has no API route and is not callable by Product Edge, Windmill, the R&D API, a
+default service, a migration, or a runtime selector. It alone uses the separately supplied broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to reach the fixed Catalog Administration Port. The Rust composition
+verifies the sealed Ed25519 request before database access; PostgreSQL does not independently verify Ed25519 and
+trusts the exclusive `replay_policy_catalog_admin_writer` principal as that broker's mutation boundary. This
+credential must never be distributed to operators, ordinary services, Windmill, or generic SQL clients;
+possession or use outside the broker is a trust-boundary breach. `rd_fact_writer` retains Composer-only writes and
+cannot invoke Catalog mutation.
+
+Its private V1 request is a sealed, deny-unknown-fields document signed with Ed25519 and binds the request schema
+version, bootstrap identity, administrator identity, separately trusted verifier identity, Catalog record
+identity, complete canonical policy bytes, deterministic create and head-advance command identities, event time,
+and signature. Before opening a database connection, the composition must parse the exact V1 schema, reject every
+unknown or malformed field, verify the signature against the separately trusted verifier identity and key, and
+cross-check every bound identity and canonical policy digest. The `authentication_fact_digest` is derived only
+from that verified evidence; it is never accepted from the request, credential, environment, or caller assertion.
+
+The transaction first locks and classifies the complete records/head/revocations/audits census. Only exact
+`0/0/0/0` storage may create version 1 and advance the explicit current head to that
+record, and atomically commits both deterministic commands as immutable authenticated audit facts. The sole public
+projection is one deterministic typed Owner readback reconstructed from the exact sealed request and audited
+record/head state. Resolution requires exact `1/1/0/2` plus exact record, head, and audit bytes; the record's null
+genesis predecessor and signed actor/time provenance and the head's signed actor/time provenance must also match.
+Every other partial, extra, or provenance-mismatched shape conflicts unchanged. First success and exact response-loss or restart replay return that same readback byte-for-byte
+without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its bytes. Changing
+any bootstrap, create-command, or head-advance identity or meaning, or encountering an orphaned, divergent,
+revoked, tampered, partially initialized, unauthenticated, or otherwise non-canonical state, is a conflict with
+zero Catalog record, head, revocation, or audit change. Response loss and process restart may only resolve the same
+deterministic commands; they cannot synthesize a replacement policy, identity, head, receipt, outbox, or success
+result.
+
+Deployment ordering is strict: bounded schema materialization, then custody cutover, then an explicitly invoked
+`authority-admin` Catalog bootstrap. Default startup runs only the signed exact `rd_owner` readback, and only then may the R&D API
+listen. No implicit policy or current head exists. Missing, unverifiable, mismatched, or unresolved bootstrap
+readback fails startup closed.
+
+This bounded composition remains **TARGET / NOT_ADMITTED** until its merged implementation and named acceptance
+evidence prove authentication rejection, empty-store creation, exact replay, changed-identity and changed-meaning
+conflict, response-loss/restart resolution, tamper rejection, every zero-change failure, and a subsequent accepted
+TrialFamily formation against fresh disposable PostgreSQL and the isolated Windmill topology. Only then may the
+bounded bootstrap composition be described as **CURRENT**. That status does not establish production deployment,
+Workbench product readiness, provider readiness, or any real-trading authority.
 
 Successful TrialFamily formation permanently seals the complete policy and its Catalog identity, version, digest,
 grammar/parser identity, and digest cross-binding into the family. Later Replay or Composer composition uses only

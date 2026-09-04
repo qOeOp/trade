@@ -131,6 +131,22 @@ Edge、Windmill、caller、provider、environment value、default、migration �
 创建或选择 version、推进 head、撤销 version、seed Catalog 或合成 fallback。只有私有且受审计的 R&D
 Catalog Administration Port 拥有这些写入。
 
+另行授权的 Catalog bootstrap composition 始终位于 Product Edge 之外。它是独立、显式启用、
+单次运行的 `authority-admin` unit，不提供 HTTP 或 Windmill route。Rust composition 使用 Ed25519 和另行
+信任的 verifier identity/key 认证拒绝未知字段的密封 V1 request 后，才使用 broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`。PostgreSQL 不重复该 cryptographic verification，而是只信任
+独占的 `replay_policy_catalog_admin_writer` broker principal。把该 credential 分发或用于 Product Edge、
+Windmill、ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
+`authentication_fact_digest` 在 database access 之前从已验证 evidence 派生。Product Edge 不得提供
+request、verifier、key、administrator identity、policy bytes、command identity、event time、signature 或
+canonical Owner readback，也不得启动 R&D API。product startup boundary 只有在 schema materialization、
+custody cutover、显式 Catalog bootstrap 或准确解析，以及 byte-identical Owner readback 验证完成后，
+才准许 API 启动。该 byte-identical typed Owner readback 由准确 sealed request 与 immutable audited
+record/head state 重建。首次 success 与准确 response-loss 或 restart replay 返回相同 bytes；不得使用
+attempt-local `CREATED`/`RESOLVED` field 区分两者。immutable audit fact 是持久 command receipt，该 typed
+readback 是唯一 projection，不存在 administration receipt 或 outbox。bootstrap custody 缺失或 conflict 时，
+startup 必须在无 default 的情况下 fail closed。
+
 公开 Composer `RUN` 只接收不受信的 request identity、Research custody reference、Design proposal、
 binding request 和有界 plugin-source capsule。这些值只能是 proposal 与 locator，绝不是 verified fact。
 operation 必须在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以
@@ -192,7 +208,9 @@ Windmill project/workspace、network、ingress allocation 与 volumes，不能�
 mutable state。固定且内容寻址的 Replay Policy Catalog fixture 仅用于测试：隔离 harness 通过私有
 administration port 创建它并显式推进其 head，再形成 disposable TrialFamily；后续验收步骤只消费
 family-sealed policy。fixture、administration hook 与 policy bytes 只存在于编译期 `SEALED_ACCEPTANCE`
-composition；它们不是 runtime default、migration seed、production artifact 或 deployment selector。
+composition；它们不是 runtime default、migration seed、production artifact 或 deployment selector。该固定 fixture
+hook 与密封的单次 product bootstrap 彼此独立；两条路径都不向 Product Edge 或 Windmill 授予 Catalog
+authority。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
 

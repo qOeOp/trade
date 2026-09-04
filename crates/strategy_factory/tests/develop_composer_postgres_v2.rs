@@ -14,11 +14,13 @@ use vibe_strategy_factory::{
         SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
     },
 };
-use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
+use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 #[rstest]
 fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority() {
     let source = include_str!("../src/develop_composer_postgres_v2.rs");
+    let migration =
+        include_str!("../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh");
     assert!(source.contains("pg_advisory_xact_lock"));
     assert!(source.contains("10:rd.develop.research.v2"));
     assert!(source.contains("20:rd.develop.intent.v2"));
@@ -27,15 +29,56 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(source.contains("50:rd.develop.capsule.v2"));
     assert!(source.contains("60:rd.develop.artifact.v2"));
     assert!(source.contains("is_unique_violation"));
-    assert!(source.contains("build_attempt_identity BYTEA NOT NULL UNIQUE"));
-    assert!(source.contains("capsule_identity BYTEA NOT NULL UNIQUE"));
-    assert!(source.contains("canonical_bytes BYTEA NOT NULL"));
-    assert!(source.contains("module_bytes BYTEA NOT NULL"));
-    assert!(source.contains("REVOKE ALL ON TABLE"));
+    assert!(migration.contains("build_attempt_identity BYTEA NOT NULL UNIQUE"));
+    assert!(migration.contains("capsule_identity BYTEA NOT NULL UNIQUE"));
+    assert!(migration.contains("canonical_bytes BYTEA NOT NULL"));
+    assert!(migration.contains("module_bytes BYTEA NOT NULL"));
+    assert!(migration.contains("REVOKE ALL ON ALL TABLES IN SCHEMA"));
     assert!(!source.contains("JSONB"));
     assert!(!source.contains("serde_json"));
     assert!(source.contains("current Owner evidence is unavailable for public durable RESOLVE"));
     assert!(source.contains("pub trait DevelopComposerSealedReadPortV2"));
+    let transactional_read = source
+        .split("pub(crate) async fn read_accepted_in_transaction")
+        .nth(1)
+        .expect("Composer transaction-bound sealed read")
+        .split("async fn load_record_via_sealed_routine_in_transaction")
+        .next()
+        .expect("bounded transaction-read body");
+    assert!(transactional_read.contains("load_record_via_sealed_routine_in_transaction"));
+    assert!(transactional_read.contains("resolve_positive_record_v2"));
+    assert!(transactional_read.contains("seal_readback"));
+    assert!(!transactional_read.contains(".begin()"));
+    assert!(!transactional_read.contains(".commit()"));
+    assert!(!transactional_read.contains("PgPool"));
+    assert!(migration.contains("SECURITY DEFINER"));
+    assert!(migration.contains("SET search_path = pg_catalog, pg_temp"));
+    assert!(migration.contains(
+        "REVOKE ALL ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC"
+    ));
+    assert!(migration.contains(
+        "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner"
+    ));
+    assert!(source.contains("pg_catalog.pg_has_role(caller_oid, proowner, 'MEMBER')"));
+    assert!(source.contains("caller_oid IN (rd_owner_oid,fact_writer_oid)"));
+    assert!(source.contains("acl.grantee NOT IN (proowner, rd_owner_oid, fact_writer_oid)"));
+    assert!(source.contains("SESSION_USER='rd_fact_writer'"));
+    assert!(source.contains("pg_catalog.has_table_privilege"));
+    let pinned_source = source
+        .split("const SEALED_READ_FUNCTION_SOURCE_V2: &str = \"")
+        .nth(1)
+        .expect("pinned Composer routine source")
+        .split("\";")
+        .next()
+        .expect("bounded pinned Composer routine source");
+    let installed_source = migration
+        .split("AS $composer_read$")
+        .nth(1)
+        .expect("installed Composer routine source")
+        .split("$composer_read$")
+        .next()
+        .expect("bounded installed Composer routine source");
+    assert_eq!(installed_source, pinned_source);
     assert!(source.contains("sealed_read_port::RdOwned"));
     assert!(source.contains("pub struct SealedDevelopComposerReadbackV2"));
     assert!(!source.contains("impl Serialize for SealedDevelopComposerReadbackV2"));
@@ -72,15 +115,15 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     );
 
     for table in [
-        "rd_develop_designs_v2",
-        "rd_develop_plans_v2",
-        "rd_develop_artifacts_v2",
-        "rd_develop_artifact_modules_v2",
-        "rd_develop_build_receipts_v2",
-        "rd_develop_composer_receipts_v2",
-        "rd_develop_host_receipts_v2",
-        "rd_develop_operations_v2",
-        "rd_develop_outbox_v2",
+        "composer_private.rd_develop_designs_v2",
+        "composer_private.rd_develop_plans_v2",
+        "composer_private.rd_develop_artifacts_v2",
+        "composer_private.rd_develop_artifact_modules_v2",
+        "composer_private.rd_develop_build_receipts_v2",
+        "composer_private.rd_develop_composer_receipts_v2",
+        "composer_private.rd_develop_host_receipts_v2",
+        "composer_private.rd_develop_operations_v2",
+        "composer_private.rd_develop_outbox_v2",
     ] {
         assert!(source.contains(table));
     }
@@ -89,22 +132,24 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL"]
 async fn postgres_migration_materializes_only_private_binary_authority() {
-    let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
-        .expect("dedicated local PostgreSQL admission");
+        .expect("canonical disposable Owner topology");
     let mutation = database.mutation();
-    PostgresDevelopComposerStoreV2::migrate(mutation.pool())
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    PostgresDevelopComposerStoreV2::migrate(rd_pool)
         .await
         .expect("Composer migration");
     let rows = sqlx::query(
         "SELECT table_name, data_type
            FROM information_schema.columns
-          WHERE table_schema='public'
+          WHERE table_schema='composer_private'
             AND table_name LIKE 'rd_develop_%_v2'
             AND column_name IN ('canonical_bytes','module_bytes','package_bytes','canonical_receipt_bytes','response_bytes')
           ORDER BY table_name, column_name",
     )
-    .fetch_all(mutation.pool())
+    .fetch_all(topology_admin_pool)
     .await
     .expect("migration readback");
     assert!(!rows.is_empty());
@@ -118,12 +163,14 @@ async fn postgres_migration_materializes_only_private_binary_authority() {
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
 async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
-    let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
-        .expect("dedicated local PostgreSQL admission");
-    let first_owner = SealedDevelopComposerAcceptanceV2::connect(database.database_url())
-        .await
-        .expect("first sealed Composer owner");
+        .expect("canonical disposable Owner topology");
+    let first_owner = SealedDevelopComposerAcceptanceV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("first sealed Composer owner");
     let run = first_owner.run().await.expect("sealed Composer RUN");
     assert_eq!(
         run.disposition,
@@ -137,9 +184,11 @@ async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
     assert!(run.artifact.is_some());
 
     drop(first_owner);
-    let restarted_owner = SealedDevelopComposerAcceptanceV2::connect(database.database_url())
-        .await
-        .expect("restarted sealed Composer owner");
+    let restarted_owner = SealedDevelopComposerAcceptanceV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("restarted sealed Composer owner");
     let resolved = restarted_owner
         .resolve(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2)
         .await
@@ -151,13 +200,15 @@ async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
 async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
-    let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
-        .expect("dedicated local PostgreSQL admission");
-    let mutation = database.mutation();
-    let reader = SealedDevelopComposerAcceptanceReadPortV2::connect(database.database_url())
-        .await
-        .expect("sealed Composer read port");
+        .expect("canonical disposable Owner topology");
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let reader = SealedDevelopComposerAcceptanceReadPortV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("sealed Composer read port");
     let unknown = DevelopComposerSealedReadLocatorV2 {
         schema_version: 2,
         request_identity: "unknown-composer-operation".to_owned(),
@@ -171,15 +222,17 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
         reader.read_accepted(&unknown).await,
         Err(DevelopComposerSealedReadErrorV2::Unavailable)
     );
-    assert_eq!(custody_counts(mutation.pool()).await, [0; 9]);
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 9]);
 
-    let owner = SealedDevelopComposerAcceptanceV2::connect(database.database_url())
-        .await
-        .expect("sealed Composer owner");
+    let owner = SealedDevelopComposerAcceptanceV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("sealed Composer owner");
     let run = owner.run().await.expect("sealed Composer RUN");
     let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
         .expect("positive response locator");
-    let before_reads = custody_counts(mutation.pool()).await;
+    let before_reads = custody_counts(topology_admin_pool).await;
     let first = reader
         .read_accepted(&locator)
         .await
@@ -193,9 +246,11 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
     assert!(!first.host_receipt_bytes().is_empty());
 
     drop(reader);
-    let restarted = SealedDevelopComposerAcceptanceReadPortV2::connect(database.database_url())
-        .await
-        .expect("restarted sealed Composer read port");
+    let restarted = SealedDevelopComposerAcceptanceReadPortV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("restarted sealed Composer read port");
     let restarted_read = restarted
         .read_accepted(&locator)
         .await
@@ -229,10 +284,9 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
     for read in [read_a, read_b, read_c, read_d] {
         assert_eq!(read.expect("concurrent sealed read"), first);
     }
-    assert_eq!(custody_counts(mutation.pool()).await, before_reads);
+    assert_eq!(custody_counts(topology_admin_pool).await, before_reads);
 
-    let mut in_flight_corruption = mutation
-        .pool()
+    let mut in_flight_corruption = topology_admin_pool
         .begin()
         .await
         .expect("in-flight corruption transaction");
@@ -259,19 +313,212 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
     );
 
     sqlx::query(
-        "UPDATE rd_develop_plans_v2
+        "UPDATE composer_private.rd_develop_plans_v2
             SET canonical_bytes=set_byte(canonical_bytes, 0, get_byte(canonical_bytes, 0) # 1)
           WHERE plan_digest=$1",
     )
     .bind(locator.canonical_plan_digest.as_bytes().as_slice())
-    .execute(mutation.pool())
+    .execute(topology_admin_pool)
     .await
     .expect("corrupt dedicated Plan bytes");
     assert_eq!(
         restarted.read_accepted(&locator).await,
         Err(DevelopComposerSealedReadErrorV2::Unavailable)
     );
-    assert_eq!(custody_counts(mutation.pool()).await, before_reads);
+    assert_eq!(custody_counts(topology_admin_pool).await, before_reads);
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[tokio::test]
+#[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
+async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothing() {
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let mutation = database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let owner = SealedDevelopComposerAcceptanceV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("sealed Composer owner");
+
+    let mut transaction = rd_pool.begin().await.expect("caller transaction");
+    let backend_before: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("caller backend before missing read");
+    let unknown = DevelopComposerSealedReadLocatorV2 {
+        schema_version: 2,
+        request_identity: "unknown-composer-operation".to_owned(),
+        operation_receipt_identity: BindingDigest::from_untrusted_bytes([0x11; 32]),
+        artifact_locator: "unknown-artifact".to_owned(),
+        artifact_identity: BindingDigest::from_untrusted_bytes([0x12; 32]),
+        canonical_plan_digest: BindingDigest::from_untrusted_bytes([0x13; 32]),
+        design_digest: BindingDigest::from_untrusted_bytes([0x14; 32]),
+    };
+    assert_eq!(
+        owner
+            .read_accepted_in_transaction(&mut transaction, &unknown)
+            .await,
+        Err(DevelopComposerSealedReadErrorV2::Unavailable)
+    );
+    let backend_after: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("caller backend after missing read");
+    assert_eq!(backend_after, backend_before);
+    transaction.rollback().await.expect("missing-read rollback");
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 9]);
+
+    let run = owner.run().await.expect("sealed Composer RUN");
+    let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
+        .expect("positive response locator");
+    let before = custody_counts(topology_admin_pool).await;
+    let mut transaction = rd_pool.begin().await.expect("caller transaction");
+    let backend_before: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *transaction)
+        .await
+        .expect("caller backend before positive read");
+    let readback = owner
+        .read_accepted_in_transaction(&mut transaction, &locator)
+        .await
+        .expect("transaction-bound positive read");
+    assert!(!readback.design_bytes().is_empty());
+    assert!(!readback.plan_bytes().is_empty());
+    assert!(!readback.artifact_package_bytes().is_empty());
+    let (backend_after, has_table_lock, wrote_rows): (i32, bool, bool) = sqlx::query_as(
+        "SELECT pg_backend_pid(), EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_locks
+            WHERE pid=pg_backend_pid()
+              AND relation='composer_private.rd_develop_operations_v2'::regclass
+              AND mode='ShareLock'
+              AND granted
+         ), EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_stat_xact_user_tables
+            WHERE n_tup_ins<>0 OR n_tup_upd<>0 OR n_tup_del<>0
+         )",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .expect("borrowed backend lock readback");
+    assert_eq!(backend_after, backend_before);
+    assert!(has_table_lock);
+    assert!(!wrote_rows);
+    assert_eq!(custody_counts(topology_admin_pool).await, before);
+    transaction
+        .rollback()
+        .await
+        .expect("positive-read rollback");
+    assert_eq!(custody_counts(topology_admin_pool).await, before);
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[tokio::test]
+#[ignore = "requires an admitted disposable superuser RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
+async fn transaction_bound_read_rejects_wrong_owner_acl_and_stale_custody() {
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let mutation = database.mutation();
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let owner = SealedDevelopComposerAcceptanceV2::connect(
+        database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+    )
+    .await
+    .expect("sealed Composer owner");
+    let run = owner.run().await.expect("sealed Composer RUN");
+    let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
+        .expect("positive response locator");
+    let before = custody_counts(topology_admin_pool).await;
+
+    sqlx::query("GRANT SELECT ON composer_private.rd_develop_operations_v2 TO PUBLIC")
+        .execute(topology_admin_pool)
+        .await
+        .expect("inject public ACL");
+    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    sqlx::query("REVOKE SELECT ON composer_private.rd_develop_operations_v2 FROM PUBLIC")
+        .execute(topology_admin_pool)
+        .await
+        .expect("restore public ACL");
+
+    sqlx::query(
+        "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO PUBLIC",
+    )
+    .execute(topology_admin_pool)
+    .await
+    .expect("inject public routine ACL");
+    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    sqlx::query(
+        "REVOKE EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC",
+    )
+    .execute(topology_admin_pool)
+    .await
+    .expect("restore routine ACL");
+
+    sqlx::query(
+        "ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) SET search_path=public",
+    )
+    .execute(topology_admin_pool)
+    .await
+    .expect("inject unsafe routine metadata");
+    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    sqlx::query(
+        "ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) SET search_path=pg_catalog, pg_temp",
+    )
+    .execute(topology_admin_pool)
+    .await
+    .expect("restore routine metadata");
+
+    sqlx::query("ALTER TABLE composer_private.rd_develop_operations_v2 OWNER TO replay_policy_catalog_owner")
+        .execute(topology_admin_pool)
+        .await
+        .expect("inject wrong Composer owner");
+    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    sqlx::query("ALTER TABLE composer_private.rd_develop_operations_v2 OWNER TO composer_owner")
+        .execute(topology_admin_pool)
+        .await
+        .expect("restore Composer table owner");
+
+    sqlx::query(
+        "UPDATE composer_private.rd_develop_operations_v2
+            SET research_request_identity=$1
+          WHERE request_identity=$2",
+    )
+    .bind(
+        BindingDigest::from_untrusted_bytes([0xe1; 32])
+            .as_bytes()
+            .as_slice(),
+    )
+    .bind(&locator.request_identity)
+    .execute(topology_admin_pool)
+    .await
+    .expect("inject stale Research binding");
+    assert_transactional_read_unavailable(&owner, rd_pool, &locator).await;
+    assert_eq!(custody_counts(topology_admin_pool).await, before);
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+async fn assert_transactional_read_unavailable(
+    owner: &SealedDevelopComposerAcceptanceV2,
+    pool: &sqlx::PgPool,
+    locator: &DevelopComposerSealedReadLocatorV2,
+) {
+    let mut transaction = pool.begin().await.expect("caller transaction");
+    assert_eq!(
+        owner
+            .read_accepted_in_transaction(&mut transaction, locator)
+            .await,
+        Err(DevelopComposerSealedReadErrorV2::Unavailable)
+    );
+    transaction
+        .rollback()
+        .await
+        .expect("unavailable read rollback");
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -280,7 +527,7 @@ async fn corrupt_plan_bytes(
     plan_digest: BindingDigest,
 ) {
     sqlx::query(
-        "UPDATE rd_develop_plans_v2
+        "UPDATE composer_private.rd_develop_plans_v2
             SET canonical_bytes=set_byte(canonical_bytes, 0, get_byte(canonical_bytes, 0) # 1)
           WHERE plan_digest=$1",
     )
@@ -294,15 +541,15 @@ async fn corrupt_plan_bytes(
 async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 9] {
     let row = sqlx::query(
         "SELECT
-           (SELECT count(*) FROM rd_develop_designs_v2) AS designs,
-           (SELECT count(*) FROM rd_develop_plans_v2) AS plans,
-           (SELECT count(*) FROM rd_develop_artifacts_v2) AS artifacts,
-           (SELECT count(*) FROM rd_develop_artifact_modules_v2) AS modules,
-           (SELECT count(*) FROM rd_develop_build_receipts_v2) AS build_receipts,
-           (SELECT count(*) FROM rd_develop_composer_receipts_v2) AS composer_receipts,
-           (SELECT count(*) FROM rd_develop_host_receipts_v2) AS host_receipts,
-           (SELECT count(*) FROM rd_develop_operations_v2) AS operations,
-           (SELECT count(*) FROM rd_develop_outbox_v2) AS outbox",
+           (SELECT count(*) FROM composer_private.rd_develop_designs_v2) AS designs,
+           (SELECT count(*) FROM composer_private.rd_develop_plans_v2) AS plans,
+           (SELECT count(*) FROM composer_private.rd_develop_artifacts_v2) AS artifacts,
+           (SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2) AS modules,
+           (SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2) AS build_receipts,
+           (SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2) AS composer_receipts,
+           (SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2) AS host_receipts,
+           (SELECT count(*) FROM composer_private.rd_develop_operations_v2) AS operations,
+           (SELECT count(*) FROM composer_private.rd_develop_outbox_v2) AS outbox",
     )
     .fetch_one(pool)
     .await

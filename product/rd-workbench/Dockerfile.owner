@@ -2,23 +2,28 @@
 FROM public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777 AS builder
 WORKDIR /workspace
 ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+ENV CARGO_BUILD_JOBS=1
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY patches ./patches
 COPY examples/tutorials ./examples/tutorials
 COPY product/rd-workbench/Dockerfile.sandbox ./product/rd-workbench/Dockerfile.sandbox
+COPY product/rd-workbench/postgres-init/10-migrate-authority-custody.sh ./product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
-    cargo build --locked --release -p vibe-strategy-factory-rd-owner-api --bin strategy-factory-rd-owner-api \
+    cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
+      --bin strategy-factory-rd-owner-api --bin replay-policy-catalog-authority-bootstrap --bin replay-policy-catalog-owner-readback \
     && cargo build --locked --release -p vibe-product-edge-admin --bin product-edge-authority-bootstrap \
     && cargo build --locked --release -p vibe-product-edge-admin --bin product-edge-recover-expired-manifests \
     && mkdir -p /out \
-    && cp target/release/strategy-factory-rd-owner-api target/release/product-edge-authority-bootstrap target/release/product-edge-recover-expired-manifests /out/
+    && cp target/release/strategy-factory-rd-owner-api target/release/replay-policy-catalog-authority-bootstrap target/release/replay-policy-catalog-owner-readback target/release/product-edge-authority-bootstrap target/release/product-edge-recover-expired-manifests /out/
 
 FROM public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777
 RUN useradd --create-home --uid 10001 rd-owner
 COPY --from=builder /out/strategy-factory-rd-owner-api /usr/local/bin/strategy-factory-rd-owner-api
+COPY --from=builder /out/replay-policy-catalog-authority-bootstrap /usr/local/bin/replay-policy-catalog-authority-bootstrap
+COPY --from=builder /out/replay-policy-catalog-owner-readback /usr/local/bin/replay-policy-catalog-owner-readback
 COPY --from=builder /out/product-edge-authority-bootstrap /usr/local/bin/product-edge-authority-bootstrap
 COPY --from=builder /out/product-edge-recover-expired-manifests /usr/local/bin/product-edge-recover-expired-manifests
 USER 10001:10001

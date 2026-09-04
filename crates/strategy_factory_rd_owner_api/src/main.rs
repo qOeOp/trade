@@ -146,8 +146,20 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    let arguments = env::args().skip(1).collect::<Vec<_>>();
+    if schema_materialization_requested(&arguments)? {
+        let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+        PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
+        PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
+        vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        source_intake::materialize_schema(&database_url).await?;
+        return Ok(());
+    }
     let market_data_research_pit = bootstrap_deployment_store_admission().await?;
     let database_url = required_env("RD_OWNER_DATABASE_URL")?;
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    let composer_writer_database_url = required_env("RD_FACT_WRITER_DATABASE_URL")?;
     let qualification_database_url = required_env("QUALIFICATION_OWNER_DATABASE_URL")?;
     let product_edge_database_url = required_env("PRODUCT_EDGE_DATABASE_URL")?;
     let token = required_env("RD_OWNER_API_TOKEN")?;
@@ -180,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
     );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let develop_composer =
-        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&database_url).await?);
+        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&composer_writer_database_url).await?);
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -278,6 +290,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(listen = %address, "R&D Owner API ready");
     axum::serve(listener, app).await?;
     Ok(())
+}
+
+fn schema_materialization_requested(arguments: &[String]) -> anyhow::Result<bool> {
+    match arguments {
+        [] => Ok(false),
+        [argument] if argument == "--materialize-schema" => Ok(true),
+        _ => anyhow::bail!("unsupported strategy-factory-rd-owner-api arguments"),
+    }
 }
 
 async fn bootstrap_deployment_store_admission()
@@ -1555,6 +1575,28 @@ mod tests {
 
     use super::*;
 
+    #[rstest]
+    fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {
+        assert!(!schema_materialization_requested(&[]).unwrap());
+        assert!(schema_materialization_requested(&["--materialize-schema".to_owned()]).unwrap());
+        assert!(schema_materialization_requested(&["--unknown".to_owned()]).is_err());
+        assert!(
+            schema_materialization_requested(&[
+                "--materialize-schema".to_owned(),
+                "--unknown".to_owned(),
+            ])
+            .is_err()
+        );
+        let materializer = include_str!("main.rs")
+            .split("if schema_materialization_requested(&arguments)?")
+            .nth(1)
+            .expect("materialization mode")
+            .split("return Ok(())")
+            .next()
+            .expect("materialization boundary");
+        assert!(materializer.contains("PostgresDevelopComposerStoreV2::materialize_schema"));
+    }
+
     #[tokio::test]
     async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
         assert!(
@@ -1832,7 +1874,7 @@ mod tests {
             #[cfg(feature = "sealed-develop-composer-acceptance")]
             develop_composer: Arc::new(
                 SealedDevelopComposerAcceptanceV2::connect(
-                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
                 .await
                 .unwrap(),

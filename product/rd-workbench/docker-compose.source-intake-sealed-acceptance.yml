@@ -11,8 +11,11 @@ services:
       POSTGRES_PASSWORD: ${SEALED_POSTGRES_PASSWORD:?set SEALED_POSTGRES_PASSWORD}
       POSTGRES_DB: ${SEALED_WINDMILL_DATABASE:?set SEALED_WINDMILL_DATABASE}
       RD_OWNER_DB_PASSWORD: ${SEALED_RD_OWNER_DB_PASSWORD:?set SEALED_RD_OWNER_DB_PASSWORD}
+      REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD: ${SEALED_REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set SEALED_REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}
       OPERATOR_AUTHORIZATION_DB_PASSWORD: ${SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD:?set SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD}
+      QUALIFICATION_OWNER_DB_PASSWORD: ${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}
       PRODUCT_EDGE_DB_PASSWORD: ${SEALED_PRODUCT_EDGE_DB_PASSWORD:?set SEALED_PRODUCT_EDGE_DB_PASSWORD}
+      BACKTEST_OWNER_DB_PASSWORD: ${SEALED_BACKTEST_OWNER_DB_PASSWORD:?set SEALED_BACKTEST_OWNER_DB_PASSWORD}
     volumes:
       - sealed-postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -23,10 +26,23 @@ services:
       retries: 60
     networks:
       - sealed-internal
-    security_opt:
-      - no-new-privileges:true
+
+  schema-materialize:
+    profiles: !override []
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    command: ["--materialize-schema"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${SEALED_RD_OWNER_DATABASE_URL:?set SEALED_RD_OWNER_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - sealed-internal
 
   authority-custody-migrate:
+    profiles: !override []
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     pull_policy: never
     restart: "no"
@@ -35,6 +51,7 @@ services:
       POSTGRES_DATABASE: rd_owner
       POSTGRES_PASSWORD: ${SEALED_POSTGRES_PASSWORD:?set SEALED_POSTGRES_PASSWORD}
       RD_OWNER_DB_PASSWORD: ${SEALED_RD_OWNER_DB_PASSWORD:?set SEALED_RD_OWNER_DB_PASSWORD}
+      REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD: ${SEALED_REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set SEALED_REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}
       OPERATOR_AUTHORIZATION_DB_PASSWORD: ${SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD:?set SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD}
       QUALIFICATION_OWNER_DB_PASSWORD: ${SEALED_QUALIFICATION_OWNER_DB_PASSWORD:?set SEALED_QUALIFICATION_OWNER_DB_PASSWORD}
       PRODUCT_EDGE_DB_PASSWORD: ${SEALED_PRODUCT_EDGE_DB_PASSWORD:?set SEALED_PRODUCT_EDGE_DB_PASSWORD}
@@ -43,14 +60,41 @@ services:
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      schema-materialize:
+        condition: service_completed_successfully
     networks:
       - sealed-internal
-    security_opt:
-      - no-new-privileges:true
+
+  replay-policy-catalog-bootstrap:
+    profiles: !override []
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    environment:
+      REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL: ${SEALED_REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL:?set SEALED_REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL}
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: ${SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
+    volumes: !override
+      - ${SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+    networks:
+      - sealed-internal
+
+  replay-policy-catalog-owner-readback:
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    environment:
+      RD_OWNER_DATABASE_URL: ${SEALED_RD_OWNER_DATABASE_URL:?set SEALED_RD_OWNER_DATABASE_URL}
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: ${SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
+    volumes: !override
+      - ${SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+    depends_on:
+      replay-policy-catalog-bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - sealed-internal
 
   authority-bootstrap:
+    profiles: !override []
     image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
     pull_policy: never
     restart: "no"
@@ -70,8 +114,6 @@ services:
         condition: service_completed_successfully
     networks:
       - sealed-internal
-    security_opt:
-      - no-new-privileges:true
 
   rd-owner-api:
     image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
@@ -106,8 +148,6 @@ services:
       - sealed-internal
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
 
   windmill-server:
     image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
@@ -127,8 +167,6 @@ services:
       retries: 60
     networks:
       - sealed-internal
-    security_opt:
-      - no-new-privileges:true
 
   windmill-worker:
     image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916
@@ -154,8 +192,6 @@ services:
       - sealed-internal
     cap_drop:
       - ALL
-    security_opt:
-      - no-new-privileges:true
 
 volumes:
   sealed-postgres-data:

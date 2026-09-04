@@ -150,6 +150,23 @@ callers, providers, environment values, defaults, migrations, and deployment con
 select a version, advance the head, revoke a version, seed the Catalog, or synthesize a fallback. Only the private
 audited R&D Catalog Administration Port owns those writes.
 
+The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated, opt-in,
+one-shot `authority-admin` unit with no HTTP or Windmill route and uses the broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after the Rust composition has authenticated its sealed,
+deny-unknown-fields V1 request by Ed25519 against a separately trusted verifier identity and key. PostgreSQL does
+not repeat that cryptographic verification; it trusts only the exclusive `replay_policy_catalog_admin_writer`
+broker principal. Distributing or using that credential in Product Edge, Windmill, an ordinary service, an
+operator workflow, or a generic SQL client is a trust-boundary breach. The `authentication_fact_digest` derives
+from the verified evidence before database access. Product Edge cannot
+provide the request, verifier, key, administrator identity, policy bytes, command identities, event time, signature,
+or canonical Owner readback, and cannot start the R&D API. The product startup boundary admits the API only after
+schema materialization, custody cutover, explicit Catalog bootstrap or exact resolution, and verification of the
+byte-identical typed Owner readback reconstructed from the exact sealed request and immutable audited record/head
+state. First success and exact response-loss or restart replay return the same bytes; an attempt-local
+`CREATED`/`RESOLVED` field cannot distinguish them. The immutable audit facts are the durable command receipts and
+that typed readback is the sole projection, with no administration receipt or outbox. Missing or conflicting
+bootstrap custody fails startup closed without a default.
+
 The public Composer `RUN` accepts only an untrusted request identity, Research custody reference, Design proposal,
 binding requests, and bounded plugin-source capsule. These values are proposals and locators, never verified facts.
 In the same process, the operation must invoke the accepted A0 deterministic build boundary, preserve its opaque
@@ -216,7 +233,9 @@ mutable state shared with production or another run. A fixed content-addressed R
 test-only: the isolated harness creates it and explicitly advances its head through the private administration
 port before forming the disposable TrialFamily; later acceptance steps consume only the family-sealed policy. The
 fixture, administration hook, and policy bytes exist only in the compile-time `SEALED_ACCEPTANCE` composition;
-they are not a runtime default, migration seed, production artifact, or deployment selector.
+they are not a runtime default, migration seed, production artifact, or deployment selector. That fixed fixture
+hook is distinct from the sealed one-shot product bootstrap: neither path gives Product Edge or Windmill Catalog
+authority.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
 

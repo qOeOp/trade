@@ -7,9 +7,14 @@ services:
       - POSTGRES_PASSWORD
       - POSTGRES_DB=windmill
       - RD_OWNER_DB_PASSWORD
+      - RD_FACT_WRITER_DB_PASSWORD=${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}
+      # yamllint disable rule:line-length
+      - REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}
+      # yamllint enable rule:line-length
       - OPERATOR_AUTHORIZATION_DB_PASSWORD
       - QUALIFICATION_OWNER_DB_PASSWORD
       - PRODUCT_EDGE_DB_PASSWORD
+      - BACKTEST_OWNER_DB_PASSWORD
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - ./postgres-init/00-create-rd-owner.sh:/docker-entrypoint-initdb.d/00-create-rd-owner.sh:ro
@@ -47,8 +52,8 @@ services:
       RD_SANDBOX_SOCKET: /run/trade-rd-sandbox/build.sock
       RUST_LOG: info
     depends_on:
-      postgres:
-        condition: service_healthy
+      replay-policy-catalog-owner-readback:
+        condition: service_completed_successfully
     expose:
       - 8080
     volumes:
@@ -61,23 +66,99 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  schema-materialize:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    command: ["--materialize-schema"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+
   authority-custody-migrate:
-    profiles: ["authority-admin"]
     image: postgres:16.10-alpine@sha256:029660641a0cfc575b14f336ba448fb8a75fd595d42e1fa316b9fb4378742297
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
       RD_OWNER_DB_PASSWORD: ${RD_OWNER_DB_PASSWORD:?set RD_OWNER_DB_PASSWORD}
+      RD_FACT_WRITER_DB_PASSWORD: >-
+        ${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}
+      REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD: >-
+        ${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}
       OPERATOR_AUTHORIZATION_DB_PASSWORD: >-
         ${OPERATOR_AUTHORIZATION_DB_PASSWORD:?set OPERATOR_AUTHORIZATION_DB_PASSWORD}
       QUALIFICATION_OWNER_DB_PASSWORD: >-
         ${QUALIFICATION_OWNER_DB_PASSWORD:?set QUALIFICATION_OWNER_DB_PASSWORD}
       PRODUCT_EDGE_DB_PASSWORD: ${PRODUCT_EDGE_DB_PASSWORD:?set PRODUCT_EDGE_DB_PASSWORD}
+      BACKTEST_OWNER_DB_PASSWORD: ${BACKTEST_OWNER_DB_PASSWORD:?set BACKTEST_OWNER_DB_PASSWORD}
     entrypoint: ["/bin/sh", "/opt/trade/10-migrate-authority-custody.sh"]
     volumes:
       - ./postgres-init/10-migrate-authority-custody.sh:/opt/trade/10-migrate-authority-custody.sh:ro
     depends_on:
-      postgres:
-        condition: service_healthy
+      schema-materialize:
+        condition: service_completed_successfully
+    security_opt:
+      - no-new-privileges:true
+
+  replay-policy-catalog-bootstrap:
+    profiles: ["authority-admin"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-authority-bootstrap"]
+    environment:
+      REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL: >-
+        ${REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL:?set REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL}
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: >-
+        ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
+        /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
+    volumes:
+      # yamllint disable rule:line-length
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+      # yamllint enable rule:line-length
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  replay-policy-catalog-owner-readback:
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    restart: "no"
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-owner-readback"]
+    environment:
+      RD_OWNER_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: >-
+        /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY: >-
+        ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY}
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
+        /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
+    volumes:
+      # yamllint disable rule:line-length
+      - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
+      - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+      # yamllint enable rule:line-length
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    read_only: true
+    cap_drop:
+      - ALL
     security_opt:
       - no-new-privileges:true
 

@@ -171,7 +171,95 @@ struct LegacyRequestMeaningV1<'a> {
     context: &'a serde_json::Value,
 }
 
+const ARTIFACT_BUILD_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_artifact_build_attempts_v1",
+        columns: &[
+            crate::schema_materialization::required("build_request_identity", "text"),
+            crate::schema_materialization::required("attempt_identity", "text"),
+            crate::schema_materialization::required("semantic_digest", "text"),
+            crate::schema_materialization::required("attempt_json", "jsonb"),
+            crate::schema_materialization::required("prepared_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "p:build_request_identity:::false:false:true:",
+            "u:attempt_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("build_request_identity"),
+            crate::schema_materialization::unique_index("attempt_identity"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
+        name: "rd_strategy_artifacts_v1",
+        columns: &[
+            crate::schema_materialization::required("artifact_digest", "text"),
+            crate::schema_materialization::required("intent_identity", "text"),
+            crate::schema_materialization::required("attempt_identity", "text"),
+            crate::schema_materialization::required("identity_json", "jsonb"),
+            crate::schema_materialization::required("wasm_bytes", "bytea"),
+            crate::schema_materialization::required("source_capsule", "bytea"),
+            crate::schema_materialization::required("build_recipe", "bytea"),
+            crate::schema_materialization::required("build_receipt_json", "jsonb"),
+            crate::schema_materialization::required("artifact_review_json", "jsonb"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "p:artifact_digest:::false:false:true:",
+            "u:attempt_identity:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("artifact_digest"),
+            crate::schema_materialization::unique_index("attempt_identity"),
+        ],
+    },
+];
+
 impl PostgresArtifactBuildOwnerV1 {
+    /// Materializes Artifact tables during the bounded pre-cutover deployment phase.
+    pub async fn materialize_schema(database_url: &str) -> Result<(), ArtifactBuildError> {
+        let database_endpoint_resource_fingerprint =
+            crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
+                database_url,
+            )?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+
+        let materialization =
+            crate::schema_materialization::pre_cutover_materialization_is_admitted(&pool)
+                .await
+                .map_err(storage)?;
+        let owner = Self {
+            pool,
+            database_endpoint_resource_fingerprint,
+            sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(
+                "/schema-materialization-no-sandbox",
+            )),
+            attempt_timeout_ms: 0,
+            clock: Arc::new(current_epoch_ms),
+        };
+
+        if materialization {
+            owner.migrate().await?;
+            crate::schema_materialization::verify_materialized_public_tables(
+                &owner.pool,
+                ARTIFACT_BUILD_TABLES,
+            )
+            .await
+            .map_err(storage)
+        } else {
+            crate::schema_materialization::require_existing_public_tables(
+                &owner.pool,
+                ARTIFACT_BUILD_TABLES,
+            )
+            .await
+            .map_err(storage)
+        }
+    }
+
     pub async fn connect(
         database_url: &str,
         sandbox_socket: &str,
@@ -193,20 +281,34 @@ impl PostgresArtifactBuildOwnerV1 {
             attempt_timeout_ms,
             clock: Arc::new(current_epoch_ms),
         };
-        owner.migrate().await?;
+        crate::schema_materialization::require_existing_public_tables(
+            &owner.pool,
+            ARTIFACT_BUILD_TABLES,
+        )
+        .await
+        .map_err(storage)?;
         owner.assert_activation_safe().await?;
         Ok(owner)
     }
 
     async fn migrate(&self) -> Result<(), ArtifactBuildError> {
-        for statement in [
-            "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1 (artifact_digest TEXT PRIMARY KEY, intent_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL UNIQUE, identity_json JSONB NOT NULL, wasm_bytes BYTEA NOT NULL, source_capsule BYTEA NOT NULL, build_recipe BYTEA NOT NULL, build_receipt_json JSONB NOT NULL, artifact_review_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+        for (relation_name, statement) in [
+            (
+                "rd_artifact_build_attempts_v1",
+                "CREATE TABLE IF NOT EXISTS rd_artifact_build_attempts_v1 (build_request_identity TEXT PRIMARY KEY, attempt_identity TEXT NOT NULL UNIQUE, semantic_digest TEXT NOT NULL, attempt_json JSONB NOT NULL, prepared_at_epoch_ms BIGINT NOT NULL)",
+            ),
+            (
+                "rd_strategy_artifacts_v1",
+                "CREATE TABLE IF NOT EXISTS rd_strategy_artifacts_v1 (artifact_digest TEXT PRIMARY KEY, intent_identity TEXT NOT NULL, attempt_identity TEXT NOT NULL UNIQUE, identity_json JSONB NOT NULL, wasm_bytes BYTEA NOT NULL, source_capsule BYTEA NOT NULL, build_recipe BYTEA NOT NULL, build_receipt_json JSONB NOT NULL, artifact_review_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            ),
         ] {
-            sqlx::query(statement)
-                .execute(&self.pool)
-                .await
-                .map_err(storage)?;
+            crate::schema_materialization::materialize_public_table(
+                &self.pool,
+                relation_name,
+                statement,
+            )
+            .await
+            .map_err(storage)?;
         }
         require_rd_owner_api_schema(&self.pool)
             .await
