@@ -280,9 +280,11 @@ deployment configuration, and runtime selectors cannot seed or synthesize a poli
 
 The only product composition allowed to bootstrap an empty Catalog is a dedicated, opt-in, one-shot
 `authority-admin` composition. It has no API route and is not callable by Product Edge, Windmill, the R&D API, a
-default service, a migration, or a runtime selector. It alone uses the separately supplied
-`RD_FACT_WRITER_DATABASE_URL` to reach the fixed Catalog Administration Port; possession of that credential does
-not authenticate an administrator or supply policy meaning.
+default service, a migration, or a runtime selector. It alone uses the separately supplied broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to reach the fixed Catalog Administration Port. The underlying
+`replay_policy_catalog_admin_writer` infrastructure capability is unavailable to operators and ordinary services;
+possession of it neither authenticates an administrator nor supplies policy meaning. `rd_fact_writer` retains
+Composer-only writes and cannot invoke Catalog mutation.
 
 Its private V1 request is a sealed, deny-unknown-fields document signed with Ed25519 and binds the request schema
 version, bootstrap identity, administrator identity, separately trusted verifier identity, Catalog record
@@ -292,10 +294,12 @@ unknown or malformed field, verify the signature against the separately trusted 
 cross-check every bound identity and canonical policy digest. The `authentication_fact_digest` is derived only
 from that verified evidence; it is never accepted from the request, credential, environment, or caller assertion.
 
-On genuinely empty Catalog storage, one transaction creates version 1, advances the explicit current head to that
+The transaction first locks and classifies the complete records/head/revocations/audits census. Only exact
+`0/0/0/0` storage may create version 1 and advance the explicit current head to that
 record, and atomically commits both deterministic commands as immutable authenticated audit facts. The sole public
 projection is one deterministic typed Owner readback reconstructed from the exact sealed request and audited
-record/head state. First success and exact response-loss or restart replay return that same readback byte-for-byte
+record/head state. Resolution requires exact `1/1/0/2` plus exact record, head, and audit bytes; every other partial
+or extra shape conflicts unchanged. First success and exact response-loss or restart replay return that same readback byte-for-byte
 without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its bytes. Changing
 any bootstrap, create-command, or head-advance identity or meaning, or encountering an orphaned, divergent,
 revoked, tampered, partially initialized, unauthenticated, or otherwise non-canonical state, is a conflict with
@@ -303,8 +307,8 @@ zero Catalog record, head, revocation, or audit change. Response loss and proces
 deterministic commands; they cannot synthesize a replacement policy, identity, head, receipt, outbox, or success
 result.
 
-Deployment ordering is strict: bounded schema materialization, then custody cutover, then explicit Catalog
-bootstrap or exact resolution plus verification of its canonical Owner readback, and only then may the R&D API
+Deployment ordering is strict: bounded schema materialization, then custody cutover, then an explicitly invoked
+`authority-admin` Catalog bootstrap. Default startup runs only the signed exact `rd_owner` readback, and only then may the R&D API
 listen. No implicit policy or current head exists. Missing, unverifiable, mismatched, or unresolved bootstrap
 readback fails startup closed.
 

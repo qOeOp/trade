@@ -262,9 +262,10 @@ policy 或 current head。
 
 唯一可以 bootstrap 空 Catalog 的产品 composition 是一个独立、显式启用、单次运行的
 `authority-admin` composition。它不提供 API route，Product Edge、Windmill、R&D API、default service、
-migration 与 runtime selector 均不能调用它。只有该 composition 使用另行提供的
-`RD_FACT_WRITER_DATABASE_URL` 访问固定 Catalog Administration Port；仅持有该 credential 既不能
-认证 administrator，也不能提供 policy 含义。
+migration 与 runtime selector 均不能调用它。只有该 composition 使用另行提供且 broker-only 的
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 访问固定 Catalog Administration Port。底层
+`replay_policy_catalog_admin_writer` infrastructure capability 不向 operator 或 ordinary service 开放；仅持有它既不能
+认证 administrator，也不能提供 policy 含义。`rd_fact_writer` 只保留 Composer 写入，不能调用 Catalog mutation。
 
 其私有 V1 request 是由 Ed25519 签名、拒绝未知字段的密封文档，它绑定 request schema
 version、bootstrap identity、administrator identity、单独信任的 verifier identity、Catalog record
@@ -274,9 +275,12 @@ signature。在打开 database connection 之前，composition 必须按准确 V
 绑定 identity 与 canonical policy digest。`authentication_fact_digest` 只能从该已验证证据派生；
 不得从 request、credential、environment 或 caller assertion 接收它。
 
-当 Catalog storage 确实为空时，单个 transaction 创建 version 1，把显式 current head 推进到该
+transaction 必须先锁定并分类完整 records/head/revocations/audits census。只有准确 `0/0/0/0` storage
+可以创建 version 1，把显式 current head 推进到该
 record，并把两个确定性 command 作为 immutable authenticated audit fact 原子提交。唯一公开
 projection 是从准确 sealed request 与 audited record/head state 重建的一份确定性 typed Owner readback。
+resolution 要求准确 `1/1/0/2` 以及准确 record、head 与 audit bytes；任何其他 partial 或 extra shape
+都保持不变并 conflict。
 首次 success 与准确 response-loss 或 restart replay 都必须以零写入返回该逐字节相同 readback；任何
 attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。任何 bootstrap、
 create-command 或 head-advance identity 或 meaning 改变，或遇到 orphaned、divergent、revoked、tampered、
@@ -284,8 +288,9 @@ partially initialized、unauthenticated 或其他非规范状态时，必须返�
 head、revocation 与 audit 全部零变化。response loss 与 process restart 只能解析同一组确定性
 command，不得合成 replacement policy、identity、head、receipt、outbox 或 success result。
 
-deployment 顺序严格固定为：有界 schema materialization，然后 custody cutover，再执行显式 Catalog
-bootstrap 或准确解析并验证其 canonical Owner readback，之后 R&D API 才能开始 listen。不存在
+deployment 顺序严格固定为：有界 schema materialization，然后 custody cutover，再显式执行
+`authority-admin` Catalog bootstrap。default startup 只执行已签名的准确 `rd_owner` readback，之后 R&D API
+才能开始 listen。不存在
 隐式 policy 或 current head。bootstrap readback 缺失、无法验证、不匹配或尚未解析时，startup 必须
 fail closed。
 

@@ -54,6 +54,12 @@ path = "src/bin/replay_policy_catalog_authority_bootstrap.rs"
 doc = false
 test = false
 
+[[bin]]
+name = "replay-policy-catalog-owner-readback"
+path = "src/bin/replay_policy_catalog_owner_readback.rs"
+doc = false
+test = false
+
 [[test]]
 name = "rd_owner_api_main"
 path = "src/main.rs"

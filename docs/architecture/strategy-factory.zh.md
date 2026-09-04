@@ -13,8 +13,9 @@ Qualification 的 PostgreSQL custody 在物理上独立：`qualification_owner` 
 Replay Policy Catalog 与 durable Composer custody 采用相同的物理隔离。`rd_database_owner` 是仅负责
 database/public schema 的 NOLOGIN custodian；`replay_policy_catalog_owner` 与 `composer_owner` 是分别拥有
 private data/API schema 的 NOLOGIN object owner。`rd_owner` 没有 membership、ownership、schema `CREATE`、
-raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的 `rd_fact_writer` LOGIN
-获得 Catalog 管理与 Composer commit routine 的不可转授 `EXECUTE`。所有 routine 都使用全限定关系、
+raw table 权限或 mutation `EXECUTE`，只保留固定 lock/read API。只有另行提供的
+`replay_policy_catalog_admin_writer` LOGIN 获得 Catalog 管理 routine 的不可转授 `EXECUTE`；
+`rd_fact_writer` 只保留 Composer commit 权限。所有 routine 都使用全限定关系、
 `search_path=pg_catalog,pg_temp` 并运行在调用方既有事务中。fresh deployment 必须先在 `rd_owner` 仍拥有
 `public` 时运行同一套有界 Rust schema materializer；完成后 custody migration 才能把 database/schema
 移交给 `rd_database_owner` 并撤销 `rd_owner` 的 schema `CREATE`。随后必须完成显式、单次运行的
@@ -742,14 +743,18 @@ grammar/parser ID 的 `u32 length || bytes`、32-byte grammar/parser digest、po
 
 Catalog bootstrap 是独立、显式启用、单次运行的 `authority-admin` composition，绝不是 R&D API
 route、Product Edge/Windmill operation、default service、migration 或 runtime selector。它只使用
-`RD_FACT_WRITER_DATABASE_URL` 调用固定私有 write port。其拒绝未知字段的密封 V1 request 由
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 调用固定私有 write port。该 broker-only 基础设施 capability
+对 operator 与 ordinary service 不可用，也不提供 administrator identity 或 policy meaning；两者都由拒绝未知字段的
+密封 V1 request 提供。该 request 由
 Ed25519 签名，并绑定 schema version、bootstrap identity、administrator identity、单独信任的
 verifier identity、Catalog record identity、完整 canonical policy bytes、确定性 create 与 head-advance
 command identity、event time 与 signature。composition 必须在任何 database access 之前验证准确
 schema、signature、受信 verifier identity/key、已绑定 identity 与 canonical digest，再从该已验证
 evidence 派生 `authentication_fact_digest`，不得接受 caller 或 credential 自行声明的值。
 
-只有确实为空的 storage 可以在同一 transaction 中创建 version 1 并推进其 head。准确 identity 与
+transaction 必须先锁定并分类 records/head/revocations/audits 四表 census：只有准确 `0/0/0/0` 可以在同一
+transaction 中创建 version 1 并推进其 head；resolution 只接受准确 `1/1/0/2` 以及准确 record、head 与 audit
+bytes。任何其他 partial 或 extra shape 都保持不变并 conflict。准确 identity 与
 逐字节相同 meaning 必须从准确 sealed request 与 immutable audited record/head state 重建一份确定性
 typed Owner readback。首次 success 与准确 response-loss 或 restart replay 都以零写入返回该逐字节相同
 readback；任何 attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。

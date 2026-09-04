@@ -151,7 +151,8 @@ select a version, advance the head, revoke a version, seed the Catalog, or synth
 audited R&D Catalog Administration Port owns those writes.
 
 The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated, opt-in,
-one-shot `authority-admin` unit with no HTTP or Windmill route and uses `RD_FACT_WRITER_DATABASE_URL` only after its
+one-shot `authority-admin` unit with no HTTP or Windmill route and uses the broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after its
 sealed, deny-unknown-fields V1 request has been authenticated by Ed25519 against a separately trusted verifier
 identity and key. Neither that database credential nor any request field may self-assert authentication;
 `authentication_fact_digest` derives from the verified evidence before database access. Product Edge cannot

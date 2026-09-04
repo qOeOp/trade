@@ -27,7 +27,7 @@ adapters and their deployment authority are separately available.
 
 ## Start
 
-Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL`, `RD_OWNER_DATABASE_URL`, and `RD_FACT_WRITER_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD`, `RD_OWNER_DB_PASSWORD`, and `RD_FACT_WRITER_DB_PASSWORD` respectively. Do not commit it.
+Create a private environment file outside the repository or copy `.env.example` and replace every placeholder with a local value. `WINDMILL_DATABASE_URL`, `RD_OWNER_DATABASE_URL`, `RD_FACT_WRITER_DATABASE_URL`, and `REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` must be private PostgreSQL connection URLs for the Compose `postgres` service, with credentials matching `POSTGRES_PASSWORD`, `RD_OWNER_DB_PASSWORD`, `RD_FACT_WRITER_DB_PASSWORD`, and `REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD` respectively. Do not commit it.
 
 Operator Authorization and Product Edge genesis remain explicit administrative
 operations and never run as part of service startup. Replay Policy Catalog
@@ -49,9 +49,12 @@ run the idempotent custody migration. It creates/updates only PostgreSQL roles,
 ownership, and grants; it
 also performs the single-transaction Catalog/Composer private-owner cutover.
 The database/public schema custodian and both object owners are NOLOGIN roles.
-`rd_owner` uses only fixed lock/read APIs; mutation requires the dedicated
-`rd_fact_writer` credential provisioned from the explicitly supplied
-`RD_FACT_WRITER_DB_PASSWORD`. No default or fallback credential exists.
+`rd_owner` uses only fixed lock/read APIs. Composer mutation retains the dedicated
+`rd_fact_writer` credential. Catalog mutation instead requires the broker-only
+`replay_policy_catalog_admin_writer` credential provisioned from the explicitly supplied
+`REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD`. This infrastructure capability is unavailable
+to operators and ordinary services and supplies no administrator identity or policy meaning;
+the sealed Ed25519 request supplies both before database access. No default or fallback credential exists.
 Existing relations are moved with `SET SCHEMA` without row rewrites. The
 migration does not insert, update, delete, backfill, or reinterpret an Owner fact:
 
@@ -65,7 +68,7 @@ docker compose \
 
 The default R&D API startup additionally requires a sealed Replay Policy Catalog
 genesis request and independently trusted verifier configuration. Set
-`RD_FACT_WRITER_DATABASE_URL` to the dedicated Catalog writer connection, set
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to the dedicated Catalog broker connection, set
 `REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST` to the absolute path of the sealed JSON
 request, set `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY`, and set
 `REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY` to the absolute path of its
@@ -74,7 +77,7 @@ The verifier key is mounted separately from the request; no Product Edge,
 Windmill, deployment, or environment setting can supply or generate policy
 meaning.
 
-`replay-policy-catalog-bootstrap` is a one-shot default service. It runs only
+`replay-policy-catalog-bootstrap` is an opt-in `authority-admin` one-shot service. It runs only
 after successful custody migration, calls the Strategy Factory authenticated
 ensure operation, and exits only after canonical Catalog readback. It prints one
 bounded receipt JSON to stdout without the request, signature, key, or database
@@ -87,7 +90,7 @@ docker compose \
   --project-name trade-rd-workbench \
   --env-file /absolute/path/to/private.env \
   -f product/rd-workbench/docker-compose.yml \
-  run --rm replay-policy-catalog-bootstrap
+  --profile authority-admin run --rm replay-policy-catalog-bootstrap
 ```
 
 Then an administrator may explicitly run the one-time bootstrap with the
@@ -133,9 +136,10 @@ The service is opt-in under `authority-admin` and never runs during default
 startup.
 
 After those explicit administrative steps, start the default services; the
-`authority-admin` profile remains disabled. Compose reruns the idempotent
-schema-materialization, custody-migration, and Catalog-bootstrap chain and starts
-the API only after all three one-shot services exit successfully:
+`authority-admin` profile remains disabled. Compose reruns schema materialization and
+custody migration, then performs only the signed, exact `rd_owner` Catalog readback.
+The readback locks and classifies the four-table census, accepts only exact `1/1/0/2`
+state and exact records/head/audits, writes nothing, and must finish before the API listens:
 
 ```bash
 docker compose \

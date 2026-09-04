@@ -14,8 +14,8 @@ Replay Policy Catalog and durable Composer custody use the same physical separat
 is the NOLOGIN database/public-schema custodian; `replay_policy_catalog_owner` and `composer_owner` are
 distinct NOLOGIN object owners of private data and fixed API schemas. `rd_owner` has neither membership,
 ownership, schema `CREATE`, raw table access, nor mutation `EXECUTE`; it retains only fixed lock/read APIs.
-The separately supplied `rd_fact_writer` LOGIN alone receives non-grantable `EXECUTE` on the Catalog
-administration and Composer commit routines. All routines use `search_path=pg_catalog,pg_temp` inside the
+The separately supplied `replay_policy_catalog_admin_writer` LOGIN alone receives non-grantable `EXECUTE` on the
+Catalog administration routine, while `rd_fact_writer` retains only Composer commit authority. All routines use `search_path=pg_catalog,pg_temp` inside the
 caller's existing transaction. A fresh deployment first runs the same bounded Rust schema materializers while
 `rd_owner` still owns `public`; only after they finish may the custody migration transfer the database/schema
 to `rd_database_owner` and revoke `rd_owner` schema `CREATE`. The explicit, one-shot Catalog bootstrap or exact
@@ -784,7 +784,9 @@ ASCII grammar/parser ID as `u32 length || bytes`, the 32 grammar/parser-digest b
 
 The Catalog bootstrap is a dedicated opt-in, one-shot `authority-admin` composition, never an R&D API route,
 Product Edge/Windmill operation, default service, migration, or runtime selector. It uses only
-`RD_FACT_WRITER_DATABASE_URL` to invoke the fixed private write port. Its deny-unknown-fields sealed V1 request is
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to invoke the fixed private write port. That broker-only infrastructure
+capability is unavailable to operators and ordinary services and supplies neither administrator identity nor policy
+meaning; the deny-unknown-fields sealed V1 request supplies both. The request is
 Ed25519-signed and binds the schema version, bootstrap identity, administrator identity, separately trusted
 verifier identity, Catalog record identity, complete canonical policy bytes, deterministic create and head-advance
 command identities, event time, and signature. The composition verifies the exact schema, signature, trusted
@@ -792,7 +794,9 @@ verifier identity/key, bound identities, and canonical digests before any databa
 `authentication_fact_digest` from the verified evidence rather than accepting a caller- or credential-asserted
 value.
 
-Only genuinely empty storage may create version 1 and advance its head, together in one transaction. Exact identity
+The transaction locks and classifies the census of records/head/revocations/audits before acting: only exact
+`0/0/0/0` may create version 1 and advance its head, and resolution requires exact `1/1/0/2` plus exact record,
+head, and audit bytes. Every other partial or extra shape conflicts unchanged. Exact identity
 and byte-identical meaning reconstruct one deterministic typed Owner readback from the exact sealed request and
 immutable audited record/head state. First success and exact response-loss or restart replay return that readback
 byte-for-byte without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its

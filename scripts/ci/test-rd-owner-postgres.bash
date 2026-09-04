@@ -474,6 +474,7 @@ docker exec --interactive \
   --env "RD_OWNER_DATABASE_NAME=${test_database}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
@@ -495,6 +496,7 @@ docker exec --interactive \
   --env "POSTGRES_PASSWORD=${test_password}" \
   --env "RD_OWNER_DB_PASSWORD=${test_password}" \
   --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
   --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
   --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
   --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
@@ -510,7 +512,7 @@ GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_ad
 DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, vibe_test_owner_topology_admin',
+    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin',
     :'test_database'
   );
 END
@@ -531,8 +533,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -540,6 +542,7 @@ FROM unnest(ARRAY[
   'product_edge_owner',
   'rd_owner',
   'rd_fact_writer',
+  'replay_policy_catalog_admin_writer',
   'qualification_writer',
   'backtest_owner',
   'vibe_test_owner_topology_admin'
@@ -555,7 +558,7 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
 REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -761,6 +764,7 @@ export OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authoriza
 export PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"

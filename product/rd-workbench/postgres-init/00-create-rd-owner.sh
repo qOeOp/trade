@@ -3,11 +3,13 @@ set -eu
 
 : "${RD_OWNER_DATABASE_NAME:=rd_owner}"
 : "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
+: "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
 
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
   --set=rd_owner_database_name="$RD_OWNER_DATABASE_NAME" \
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
   --set=fact_writer_password="$RD_FACT_WRITER_DB_PASSWORD" \
+  --set=catalog_admin_password="$REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
   --set=qualification_password="$QUALIFICATION_OWNER_DB_PASSWORD" \
@@ -17,6 +19,7 @@ CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
 CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
+CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';
 CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner;
 CREATE ROLE operator_authorization_owner NOLOGIN;
 CREATE ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';

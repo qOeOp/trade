@@ -6,9 +6,9 @@ use std::{
 
 use anyhow::Context;
 use sqlx::postgres::PgPoolOptions;
-use vibe_strategy_factory::ensure_authenticated_replay_policy_catalog_genesis_v1;
+use vibe_strategy_factory::read_authenticated_replay_policy_catalog_genesis_v1;
 
-const DATABASE_URL_ENV: &str = "REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL";
+const DATABASE_URL_ENV: &str = "RD_OWNER_DATABASE_URL";
 const SEALED_REQUEST_PATH_ENV: &str = "REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH";
 const TRUSTED_VERIFIER_IDENTITY_ENV: &str = "REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY";
 const TRUSTED_VERIFIER_PUBLIC_KEY_PATH_ENV: &str =
@@ -20,7 +20,6 @@ const MAX_RECEIPT_BYTES: usize = 16 * 1024;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     require_no_arguments(std::env::args().skip(1))?;
-
     let database_url = require_environment(DATABASE_URL_ENV)?;
     let sealed_request_path = require_environment(SEALED_REQUEST_PATH_ENV)?;
     let trusted_verifier_identity = require_environment(TRUSTED_VERIFIER_IDENTITY_ENV)?;
@@ -37,7 +36,6 @@ async fn main() -> anyhow::Result<()> {
         MAX_SEALED_REQUEST_BYTES,
         "sealed Catalog bootstrap request",
     )?;
-
     if sealed_request_json.is_empty() {
         anyhow::bail!("sealed Catalog bootstrap request must not be empty");
     }
@@ -45,20 +43,19 @@ async fn main() -> anyhow::Result<()> {
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .connect_lazy(&database_url)
-        .context("Replay Policy Catalog admin database URL is invalid")?;
-    let receipt = ensure_authenticated_replay_policy_catalog_genesis_v1(
+        .context("R&D Owner database URL is invalid")?;
+    let receipt = read_authenticated_replay_policy_catalog_genesis_v1(
         &pool,
         &sealed_request_json,
         &trusted_verifier_identity,
         trusted_verifier_public_key_hex,
     )
     .await
-    .map_err(|_| anyhow::anyhow!("Replay Policy Catalog bootstrap was not accepted"))?;
+    .map_err(|_| anyhow::anyhow!("Replay Policy Catalog Owner readback was not accepted"))?;
     let canonical_receipt = serde_json::to_vec(&receipt)
-        .context("Replay Policy Catalog bootstrap receipt serialization failed")?;
-
+        .context("Replay Policy Catalog Owner readback receipt serialization failed")?;
     if canonical_receipt.len() > MAX_RECEIPT_BYTES {
-        anyhow::bail!("Replay Policy Catalog bootstrap receipt exceeds the output bound");
+        anyhow::bail!("Replay Policy Catalog Owner readback receipt exceeds the output bound");
     }
     let mut stdout = io::stdout().lock();
     stdout.write_all(&canonical_receipt)?;
@@ -68,7 +65,7 @@ async fn main() -> anyhow::Result<()> {
 
 fn require_no_arguments(mut arguments: impl Iterator<Item = String>) -> anyhow::Result<()> {
     if arguments.next().is_some() {
-        anyhow::bail!("Replay Policy Catalog bootstrap accepts no command-line arguments");
+        anyhow::bail!("Replay Policy Catalog Owner readback accepts no command-line arguments");
     }
     Ok(())
 }
@@ -79,16 +76,13 @@ fn require_environment(name: &'static str) -> anyhow::Result<String> {
 
 fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::Result<Vec<u8>> {
     let metadata = fs::metadata(path).with_context(|| format!("{label} file is unavailable"))?;
-
     if !metadata.is_file() {
         anyhow::bail!("{label} path must identify a regular file");
     }
-
     if metadata.len() > limit as u64 {
         anyhow::bail!("{label} file exceeds its byte bound");
     }
     let bytes = fs::read(path).with_context(|| format!("{label} file is unreadable"))?;
-
     if bytes.len() > limit {
         anyhow::bail!("{label} file exceeds its byte bound");
     }
@@ -113,7 +107,6 @@ fn canonical_public_key_hex(bytes: &[u8]) -> anyhow::Result<&str> {
         .strip_suffix("\r\n")
         .or_else(|| text.strip_suffix('\n'))
         .unwrap_or(text);
-
     if value.len() != 64
         || !value
             .bytes()
@@ -122,46 +115,4 @@ fn canonical_public_key_hex(bytes: &[u8]) -> anyhow::Result<&str> {
         anyhow::bail!("trusted verifier public key must be canonical lowercase hex");
     }
     Ok(value)
-}
-
-#[cfg(test)]
-mod tests {
-    use rstest::rstest;
-
-    use super::*;
-
-    #[rstest]
-    fn public_key_requires_exact_lowercase_hex_without_ambient_whitespace() {
-        let key = "01abcdef".repeat(8);
-        assert_eq!(canonical_public_key_hex(key.as_bytes()).unwrap(), key);
-        assert_eq!(
-            canonical_public_key_hex(format!("{key}\n").as_bytes()).unwrap(),
-            key
-        );
-        assert!(canonical_public_key_hex(key.to_uppercase().as_bytes()).is_err());
-        assert!(canonical_public_key_hex(format!(" {key}").as_bytes()).is_err());
-        assert!(canonical_public_key_hex(format!("{key}\n\n").as_bytes()).is_err());
-    }
-
-    #[rstest]
-    fn verifier_identity_and_arguments_are_bounded() {
-        assert_eq!(
-            require_trusted_verifier_identity("verifier-v1").unwrap(),
-            "verifier-v1"
-        );
-        assert!(require_trusted_verifier_identity("").is_err());
-        assert!(require_trusted_verifier_identity(" verifier-v1").is_err());
-        assert!(require_trusted_verifier_identity("verifier\nv1").is_err());
-        assert!(require_trusted_verifier_identity(&"v".repeat(257)).is_err());
-        assert!(require_no_arguments(std::iter::empty()).is_ok());
-        assert!(require_no_arguments(["unexpected".to_owned()].into_iter()).is_err());
-    }
-
-    #[rstest]
-    fn database_pool_is_lazy_until_core_verifies_the_request() {
-        let source = include_str!("replay_policy_catalog_authority_bootstrap.rs");
-        let eager_connect = [".", "connect("].concat();
-        assert!(source.contains(".connect_lazy(&database_url)"));
-        assert!(!source.contains(&eager_connect));
-    }
 }
