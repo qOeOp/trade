@@ -1511,7 +1511,6 @@ mod postgres_tests {
         let mutation = database.mutation();
         let pool = mutation.pool(CanonicalOwnerTestRoleV1::RdFactWriter);
         let topology_admin_pool = database.owner_topology_admin_pool();
-        crate::trial_family_postgres::migrate(pool).await.unwrap();
 
         verify_catalog_storage_authority(pool).await.unwrap();
         let external_write_grants: i64 = sqlx::query_scalar(
