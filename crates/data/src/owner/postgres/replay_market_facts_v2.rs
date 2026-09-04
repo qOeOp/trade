@@ -91,9 +91,17 @@ const COMPOSER_CUT_LOCK_SOURCE_V1: &str = "BEGIN
   IF session_user NOT IN ('market_data_reader','market_data_owner') OR current_user<>'composer_owner' THEN
     RAISE EXCEPTION 'Replay composition cut caller mismatch' USING ERRCODE='42501';
   END IF;
-  PERFORM pg_catalog.pg_advisory_xact_lock_shared(
-    pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0)
-  );
+  IF session_user='market_data_owner' THEN
+    IF NOT pg_catalog.pg_try_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0)
+    ) THEN
+      RETURN 0;
+    END IF;
+  ELSE
+    PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+      pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0)
+    );
+  END IF;
   RETURN pg_catalog.pg_backend_pid();
 END";
 const MARKET_OWNER_COMPOSER_ACL_QUERY_V1: &str = "SELECT

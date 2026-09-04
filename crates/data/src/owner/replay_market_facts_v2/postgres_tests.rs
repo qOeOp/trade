@@ -54,6 +54,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("verify_owner_domain_and_reader_challenge_v1("));
     assert!(source.contains("verify_market_challenge_v1("));
     assert!(source.contains("pg_try_advisory_xact_lock"));
+    assert!(source.contains("if owner_backend != caller_backend"));
     assert!(source.contains("pg_control_system"));
     assert!(source.contains("pg_postmaster_start_time"));
     assert!(source.contains("pg_is_in_recovery"));
@@ -185,6 +186,9 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
         .next()
         .expect("bounded Composer replay cut facade");
     assert!(cut_source.contains("pg_advisory_xact_lock_shared"));
+    assert!(cut_source.contains("session_user='market_data_owner'"));
+    assert!(cut_source.contains("pg_try_advisory_xact_lock_shared"));
+    assert!(cut_source.contains("RETURN 0"));
     assert!(!cut_source.contains("LOCK TABLE"));
     let commit_source = migration
         .split("CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2")
@@ -790,6 +794,83 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     sqlx::query("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1(request_identity,native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6)")
         .bind(&composer_locator.request_identity).bind(native_join.receipt_digest().as_bytes().as_slice()).bind(native_join.projection_receipt_digest().as_bytes().as_slice()).bind(native_join.joined_cut_digest().as_bytes().as_slice()).bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice()).bind(native_join.canonical_bytes()).execute(&mut *composer_tx).await.unwrap();
     composer_tx.commit().await.unwrap();
+
+    let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
+    let mut reader_cut = reader_pool.begin().await.unwrap();
+    let reader_backend: i64 =
+        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+            .bind(&composer_locator.request_identity)
+            .fetch_one(&mut *reader_cut)
+            .await
+            .unwrap();
+    assert!(reader_backend > 0);
+    let (writer_backend_sender, writer_backend_receiver) = tokio::sync::oneshot::channel();
+    let writer_admin = admin.clone();
+    let writer_request_identity = composer_locator.request_identity.clone();
+    let queued_writer = tokio::spawn(async move {
+        let mut writer = writer_admin.begin().await.unwrap();
+        sqlx::query("SET LOCAL ROLE composer_owner")
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        let writer_backend: i32 = sqlx::query_scalar("SELECT pg_catalog.pg_backend_pid()")
+            .fetch_one(&mut *writer)
+            .await
+            .unwrap();
+        writer_backend_sender.send(writer_backend).unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+            .bind(writer_request_identity)
+            .execute(&mut *writer)
+            .await
+            .unwrap();
+        writer.commit().await.unwrap();
+    });
+    let writer_backend = writer_backend_receiver.await.unwrap();
+    for _ in 0..100 {
+        let writer_is_queued: bool = sqlx::query_scalar(
+            "SELECT EXISTS(
+               SELECT 1 FROM pg_catalog.pg_locks
+                WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
+             )",
+        )
+        .bind(writer_backend)
+        .fetch_one(admin)
+        .await
+        .unwrap();
+        if writer_is_queued {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let writer_is_queued: bool = sqlx::query_scalar(
+        "SELECT EXISTS(
+           SELECT 1 FROM pg_catalog.pg_locks
+            WHERE pid=$1 AND locktype='advisory' AND mode='ExclusiveLock' AND NOT granted
+         )",
+    )
+    .bind(writer_backend)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(writer_is_queued, "exclusive Composer writer must be queued");
+    let mut market_cut = market_mutation_pool.begin().await.unwrap();
+    let market_backend: i64 = tokio::time::timeout(
+        Duration::from_secs(1),
+        sqlx::query_scalar("SELECT composer_owner_api.lock_replay_composition_cut_v1($1)")
+            .bind(&composer_locator.request_identity)
+            .fetch_one(&mut *market_cut),
+    )
+    .await
+    .expect("Market shared-cut attempt must return without waiting for the queued writer")
+    .unwrap();
+    assert_eq!(market_backend, 0);
+    market_cut.rollback().await.unwrap();
+    assert!(!queued_writer.is_finished());
+    reader_cut.rollback().await.unwrap();
+    tokio::time::timeout(Duration::from_secs(1), queued_writer)
+        .await
+        .expect("exclusive Composer writer completes after reader cut release")
+        .unwrap();
 
     let semantics_receipt = base.semantics.receipt();
     let composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
