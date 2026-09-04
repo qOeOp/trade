@@ -116,9 +116,15 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
         .expect("retained Market challenge");
     assert!(
         issue_body
-            .find("verify_owner_domain_and_reader_challenge_v1(")
-            .expect("same-domain and reader challenge proof")
+            .find("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .expect("exact Market BEGIN")
             < market_challenge
+    );
+    assert!(
+        market_challenge
+            < issue_body
+                .find("verify_owner_domain_and_reader_challenge_v1(")
+                .expect("same-domain and reader challenge proof")
     );
     assert!(
         market_challenge
@@ -140,6 +146,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
             ".begin_with(\"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY\")"
         )
     );
+    assert!(source.contains(".begin_with(\"BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE\")"));
     assert!(source.contains("current_setting('transaction_isolation')"));
     assert!(source.contains("current_setting('transaction_read_only')"));
     assert!(source.contains("reader_isolation != \"repeatable read\""));
@@ -239,6 +246,23 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
     );
     assert!(failure.contains("prove_market_transaction_terminal_v1("));
     assert!(failure.contains("Err(operation_error)"));
+    let pre_domain = issue_body
+        .split("if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(")
+        .nth(1)
+        .expect("pre-domain failure branch")
+        .split("let outcome =")
+        .next()
+        .expect("bounded pre-domain branch");
+    assert!(pre_domain.contains("transaction.rollback().await.is_err()"));
+    assert!(pre_domain.contains("prove_market_transaction_terminal_from_pool_v1("));
+    assert!(
+        pre_domain
+            .find("prove_market_transaction_terminal_from_pool_v1(")
+            .expect("fresh Market observer terminal proof")
+            < pre_domain
+                .find("reader_transaction\n                .rollback()")
+                .expect("reader release after fresh observer proof")
+    );
     let handoff = source
         .split("async fn verify_market_challenge_v1")
         .nth(1)
@@ -249,7 +273,10 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
     assert!(handoff.contains("market_challenge: &OwnerChallengeV1"));
     assert!(!handoff.contains("begin_owner_challenge_v1(market"));
     assert!(source.contains("async fn prove_market_transaction_terminal_v1"));
+    assert!(source.contains("async fn prove_market_transaction_terminal_from_pool_v1"));
+    assert!(source.contains("async fn try_acquire_market_challenge_v1"));
     assert!(source.contains("pg_catalog.pg_sleep(0.01)"));
+    assert!(source.contains("pg_catalog.pg_try_advisory_xact_lock($1)"));
     let terminal_proof = source
         .split("async fn prove_market_transaction_terminal_v1")
         .nth(1)

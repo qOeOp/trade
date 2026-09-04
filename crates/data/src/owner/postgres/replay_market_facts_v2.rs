@@ -57,7 +57,7 @@ use crate::owner::{
     universe_selection::UniverseSelectionResolverV1,
 };
 use sha2::{Digest, Sha256};
-use sqlx::{Row, postgres::PgPoolOptions};
+use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
 
 const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_issuances_v1 (request_identity BYTEA PRIMARY KEY, request_meaning_digest BYTEA NOT NULL UNIQUE, request_bytes BYTEA NOT NULL, binding_identity BYTEA NOT NULL UNIQUE, binding_digest BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
@@ -548,39 +548,18 @@ impl ReplayCompositionOwnerV1 {
             }
         };
         let receipt = authenticated_role_set.receipt();
-        let Ok(mut transaction) = self.owner.pool.begin().await else {
+        let Ok(mut transaction) = self
+            .owner
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .await
+        else {
             reader_transaction
                 .rollback()
                 .await
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
-        if sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-            .execute(&mut *transaction)
-            .await
-            .is_err()
-        {
-            let _ = transaction.rollback().await;
-            reader_transaction
-                .rollback()
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
-        }
-        if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(
-            &mut reader_transaction,
-            &mut transaction,
-            &reader_challenge,
-        )
-        .await
-        {
-            let _ = transaction.rollback().await;
-            reader_transaction
-                .rollback()
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            return Err(operation_error);
-        }
         let Ok(market_challenge) = begin_owner_challenge_v1(
             &mut transaction,
             issuance_locator.request_identity(),
@@ -595,6 +574,23 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
+        if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(
+            &mut reader_transaction,
+            &mut transaction,
+            &reader_challenge,
+        )
+        .await
+        {
+            if transaction.rollback().await.is_err() {
+                prove_market_transaction_terminal_from_pool_v1(&self.owner.pool, &market_challenge)
+                    .await;
+            }
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(operation_error);
+        }
         let outcome = Box::pin(async {
         verify_market_challenge_v1(
             &mut reader_transaction,
@@ -1282,12 +1278,7 @@ async fn prove_market_transaction_terminal_v1(
     market_challenge: &OwnerChallengeV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     loop {
-        let acquired: bool = sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
-            .bind(market_challenge.key)
-            .fetch_one(&mut **reader)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        if acquired {
+        if try_acquire_market_challenge_v1(reader, market_challenge).await? {
             return Ok(());
         }
         sqlx::query("SELECT pg_catalog.pg_sleep(0.01)")
@@ -1295,6 +1286,37 @@ async fn prove_market_transaction_terminal_v1(
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
     }
+}
+
+async fn prove_market_transaction_terminal_from_pool_v1(
+    pool: &sqlx::PgPool,
+    market_challenge: &OwnerChallengeV1,
+) {
+    loop {
+        let Ok(mut observer) = pool.acquire().await else {
+            continue;
+        };
+        match try_acquire_market_challenge_v1(&mut observer, market_challenge).await {
+            Ok(true) => return,
+            Ok(false) => {
+                let _ = sqlx::query("SELECT pg_catalog.pg_sleep(0.01)")
+                    .execute(&mut *observer)
+                    .await;
+            }
+            Err(_) => {}
+        }
+    }
+}
+
+async fn try_acquire_market_challenge_v1(
+    observer: &mut PgConnection,
+    market_challenge: &OwnerChallengeV1,
+) -> Result<bool, ReplayCompositionBindingErrorV1> {
+    sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
+        .bind(market_challenge.key)
+        .fetch_one(observer)
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
 }
 
 async fn lock_issuance_identity(
