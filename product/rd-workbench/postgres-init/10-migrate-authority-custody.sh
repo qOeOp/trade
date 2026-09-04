@@ -1400,19 +1400,6 @@ BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock_shared(
     pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0)
   );
-  LOCK TABLE
-    composer_private.rd_develop_designs_v2,
-    composer_private.rd_develop_plans_v2,
-    composer_private.rd_develop_artifacts_v2,
-    composer_private.rd_develop_artifact_modules_v2,
-    composer_private.rd_develop_build_receipts_v2,
-    composer_private.rd_develop_composer_receipts_v2,
-    composer_private.rd_develop_host_receipts_v2,
-    composer_private.rd_develop_operations_v2,
-    composer_private.rd_develop_strategy_design_role_set_attestations_v1,
-    composer_private.rd_develop_strategy_design_native_joins_v1,
-    composer_private.rd_develop_outbox_v2
-  IN SHARE MODE;
   RETURN pg_catalog.pg_backend_pid();
 END
 $replay_composition_cut$;

@@ -39,6 +39,9 @@ fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
 fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
     let role_set = include_str!("../strategy_design_role_set.rs");
+    let migration = include_str!(
+        "../../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+    );
     assert!(source.contains("replay_composition_issuances_v1"));
     assert!(source.contains("request_identity BYTEA PRIMARY KEY"));
     assert!(source.contains("request_meaning_digest BYTEA NOT NULL UNIQUE"));
@@ -48,7 +51,8 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains("let native_join = Self::resolve_native_join_attestation("));
     assert!(source.contains("validate_native_join_v4(&mut transaction, &native_join)"));
     assert!(source.contains("let mut reader_transaction = self\n            .rd_role_set_pool"));
-    assert!(source.contains("verify_owner_handoff_v1("));
+    assert!(source.contains("verify_owner_domain_and_reader_challenge_v1("));
+    assert!(source.contains("verify_market_challenge_v1("));
     assert!(source.contains("pg_try_advisory_xact_lock"));
     assert!(source.contains("pg_control_system"));
     assert!(source.contains("pg_postmaster_start_time"));
@@ -93,6 +97,37 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
         .expect("positive issuance body");
     assert!(
         issue_body
+            .find("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .expect("exact reader BEGIN")
+            < issue_body
+                .find("current_setting('transaction_read_only')")
+                .expect("reader mode verification")
+    );
+    assert!(
+        issue_body
+            .find("current_setting('transaction_read_only')")
+            .expect("reader mode verification")
+            < issue_body
+                .find("begin_owner_challenge_v1(")
+                .expect("first reader challenge")
+    );
+    let market_challenge = issue_body
+        .find("let Ok(market_challenge) = begin_owner_challenge_v1(")
+        .expect("retained Market challenge");
+    assert!(
+        issue_body
+            .find("verify_owner_domain_and_reader_challenge_v1(")
+            .expect("same-domain and reader challenge proof")
+            < market_challenge
+    );
+    assert!(
+        market_challenge
+            < issue_body
+                .find("verify_market_challenge_v1(")
+                .expect("handoff consumes supplied challenge")
+    );
+    assert!(
+        issue_body
             .find("lock_composer_cut_v1(")
             .expect("Composer owner lock")
             < issue_body
@@ -100,6 +135,41 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .expect("first Market fact read")
     );
     assert!(source.contains("rd_role_set_pool"));
+    assert!(
+        source.contains(
+            ".begin_with(\"BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY\")"
+        )
+    );
+    assert!(source.contains("current_setting('transaction_isolation')"));
+    assert!(source.contains("current_setting('transaction_read_only')"));
+    assert!(source.contains("reader_isolation != \"repeatable read\""));
+    assert!(source.contains("reader_read_only != \"on\""));
+    let cut_source = migration
+        .split("CREATE OR REPLACE FUNCTION composer_owner_api.lock_replay_composition_cut_v1")
+        .nth(1)
+        .expect("Composer replay cut facade")
+        .split("ALTER FUNCTION composer_owner_api.lock_replay_composition_cut_v1")
+        .next()
+        .expect("bounded Composer replay cut facade");
+    assert!(cut_source.contains("pg_advisory_xact_lock_shared"));
+    assert!(!cut_source.contains("LOCK TABLE"));
+    let commit_source = migration
+        .split("CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2")
+        .nth(1)
+        .expect("Composer commit facade")
+        .split("ALTER FUNCTION composer_owner_api.commit_develop_composer_v2")
+        .next()
+        .expect("bounded Composer commit facade");
+    assert!(
+        commit_source
+            .find("pg_advisory_xact_lock(")
+            .expect("exclusive Composer writer key")
+            < commit_source
+                .find("INSERT INTO")
+                .expect("first Composer write")
+    );
+    assert!(migration.contains("ALTER ROLE composer_owner NOLOGIN"));
+    assert!(migration.contains("NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))"));
     assert!(!source.contains("issue_composer_native_join_v1"));
     assert!(
         issue_body
@@ -111,7 +181,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     );
     assert!(
         issue_body
-            .find("verify_owner_handoff_v1(")
+            .find("verify_market_challenge_v1(")
             .expect("live database handoff")
             < issue_body
                 .find("persist_replay_composition_binding_in_transaction_v1")
@@ -142,9 +212,19 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
             .find("let market_terminal = transaction.commit().await;")
             .expect("Market commit terminal")
             < success
-                .find("let reader_terminal = reader_transaction.rollback().await;")
+                .find("reader_transaction\n                        .rollback()")
                 .expect("reader release after Market commit")
     );
+    assert!(success.contains("prove_market_transaction_terminal_v1("));
+    assert!(
+        success
+            .find("reader_transaction\n                        .rollback()")
+            .expect("reader release")
+            < success
+                .find("self.recover_issuance_v1(issuance_locator)")
+                .expect("exact recovery after terminal proof and reader release")
+    );
+    assert!(success.contains("recovered.canonical_bytes() == response.canonical_bytes()"));
     let failure = finalizer
         .split("Err(operation_error) =>")
         .nth(1)
@@ -154,10 +234,32 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
             .find("let market_terminal = transaction.rollback().await;")
             .expect("Market rollback terminal")
             < failure
-                .find("let reader_terminal = reader_transaction.rollback().await;")
+                .find("reader_transaction\n                    .rollback()")
                 .expect("reader release after Market rollback")
     );
+    assert!(failure.contains("prove_market_transaction_terminal_v1("));
     assert!(failure.contains("Err(operation_error)"));
+    let handoff = source
+        .split("async fn verify_market_challenge_v1")
+        .nth(1)
+        .expect("handoff verifier")
+        .split("async fn lock_issuance_identity")
+        .next()
+        .expect("bounded handoff verifier");
+    assert!(handoff.contains("market_challenge: &OwnerChallengeV1"));
+    assert!(!handoff.contains("begin_owner_challenge_v1(market"));
+    assert!(source.contains("async fn prove_market_transaction_terminal_v1"));
+    assert!(source.contains("pg_catalog.pg_sleep(0.01)"));
+    let terminal_proof = source
+        .split("async fn prove_market_transaction_terminal_v1")
+        .nth(1)
+        .expect("Market terminal proof")
+        .split("async fn lock_issuance_identity")
+        .next()
+        .expect("bounded terminal proof source");
+    assert!(terminal_proof.contains("loop {"));
+    assert!(!terminal_proof.contains("for _ in"));
+    assert!(!terminal_proof.contains("0.."));
 }
 
 #[rstest]
@@ -588,6 +690,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .execute(&mut *composer_tx)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *composer_tx)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO composer_private.rd_develop_designs_v2(design_identity,canonical_bytes) VALUES($1,$2)")
         .bind(base.binding_requests[0].strategy_design_identity.as_bytes().as_slice()).bind(b"w3-design".as_slice()).execute(&mut *composer_tx).await.unwrap();
     sqlx::query("INSERT INTO composer_private.rd_develop_plans_v2(plan_digest,design_identity,canonical_bytes) VALUES($1,$2,$3)")
@@ -698,6 +805,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .execute(&mut *splice_tx)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *splice_tx)
+        .await
+        .unwrap();
     let spliced = sqlx::query(
         "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
          SET native_join_digest=$1 WHERE request_identity=$2",
@@ -719,6 +831,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .execute(&mut *restore_tx)
         .await
         .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *restore_tx)
+        .await
+        .unwrap();
     let restored = sqlx::query(
         "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
          SET native_join_digest=$1 WHERE request_identity=$2",
@@ -732,10 +849,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     restore_tx.commit().await.unwrap();
 
     sqlx::query(
-        "CREATE FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()
+        "CREATE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()
          RETURNS trigger LANGUAGE plpgsql AS $function$
          BEGIN
-           RAISE EXCEPTION 'injected deferred replay composition issuance commit failure';
+           PERFORM pg_catalog.pg_terminate_backend(pg_catalog.pg_backend_pid());
+           RETURN NEW;
          END
          $function$",
     )
@@ -743,10 +861,10 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .await
     .unwrap();
     sqlx::query(
-        "CREATE CONSTRAINT TRIGGER reject_replay_composition_issuance_commit_v1
+        "CREATE CONSTRAINT TRIGGER terminate_replay_composition_issuance_commit_v1
          AFTER INSERT ON market_data_private.replay_composition_issuances_v1
          DEFERRABLE INITIALLY DEFERRED
-         FOR EACH ROW EXECUTE FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()",
+         FOR EACH ROW EXECUTE FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
     )
     .execute(market_mutation_pool)
     .await
@@ -757,16 +875,18 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     assert!(owner.issue_binding_v1(&commit_fault).await.is_err());
     assert_eq!(replay_positive_state(admin).await, before);
     sqlx::query(
-        "DROP TRIGGER reject_replay_composition_issuance_commit_v1
+        "DROP TRIGGER terminate_replay_composition_issuance_commit_v1
          ON market_data_private.replay_composition_issuances_v1",
     )
     .execute(market_mutation_pool)
     .await
     .unwrap();
-    sqlx::query("DROP FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()")
-        .execute(market_mutation_pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "DROP FUNCTION market_data_private.terminate_replay_composition_issuance_commit_v1()",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
 
     let mut blocker = admin.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
@@ -790,13 +910,30 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     blocker.rollback().await.unwrap();
     let first = issue.await.unwrap().unwrap();
-    let retry = owner.issue_binding_v1(&command).await.unwrap();
-    let recovered = owner
+    let fresh_owner = ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+        .await
+        .unwrap();
+    let retry = fresh_owner.issue_binding_v1(&command).await.unwrap();
+    let recovered = fresh_owner
         .recover_issuance_v1(command.issuance_locator())
         .await
         .unwrap();
     assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
+    let commit_fault_first = fresh_owner.issue_binding_v1(&commit_fault).await.unwrap();
+    let commit_fault_retry = fresh_owner.issue_binding_v1(&commit_fault).await.unwrap();
+    let commit_fault_recovered = fresh_owner
+        .recover_issuance_v1(commit_fault.issuance_locator())
+        .await
+        .unwrap();
+    assert_eq!(
+        commit_fault_first.canonical_bytes(),
+        commit_fault_retry.canonical_bytes()
+    );
+    assert_eq!(
+        commit_fault_first.canonical_bytes(),
+        commit_fault_recovered.canonical_bytes()
+    );
 
     let committed = replay_positive_state(admin).await;
     let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
@@ -819,7 +956,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         command.composition().corporate_action_locator(),
     );
     let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
-    assert!(owner.issue_binding_v1(&bad).await.is_err());
+    assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
     assert_eq!(replay_positive_state(admin).await, committed);
 }
 

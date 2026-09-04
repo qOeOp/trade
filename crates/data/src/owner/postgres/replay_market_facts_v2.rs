@@ -93,19 +93,6 @@ const COMPOSER_CUT_LOCK_SOURCE_V1: &str = "BEGIN
   PERFORM pg_catalog.pg_advisory_xact_lock_shared(
     pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0)
   );
-  LOCK TABLE
-    composer_private.rd_develop_designs_v2,
-    composer_private.rd_develop_plans_v2,
-    composer_private.rd_develop_artifacts_v2,
-    composer_private.rd_develop_artifact_modules_v2,
-    composer_private.rd_develop_build_receipts_v2,
-    composer_private.rd_develop_composer_receipts_v2,
-    composer_private.rd_develop_host_receipts_v2,
-    composer_private.rd_develop_operations_v2,
-    composer_private.rd_develop_strategy_design_role_set_attestations_v1,
-    composer_private.rd_develop_strategy_design_native_joins_v1,
-    composer_private.rd_develop_outbox_v2
-  IN SHARE MODE;
   RETURN pg_catalog.pg_backend_pid();
 END";
 const MARKET_OWNER_COMPOSER_ACL_QUERY_V1: &str = "SELECT
@@ -512,14 +499,20 @@ impl ReplayCompositionOwnerV1 {
         let replay = request.replay_request();
         let mut reader_transaction = self
             .rd_role_set_pool
-            .begin()
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
         let reader_preflight = async {
-            sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
-                .execute(&mut *reader_transaction)
-                .await
-                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            let (reader_isolation, reader_read_only): (String, String) = sqlx::query_as(
+                "SELECT pg_catalog.current_setting('transaction_isolation'),
+                        pg_catalog.current_setting('transaction_read_only')",
+            )
+            .fetch_one(&mut *reader_transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            if reader_isolation != "repeatable read" || reader_read_only != "on" {
+                return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+            }
             let reader_challenge = begin_owner_challenge_v1(
                 &mut reader_transaction,
                 issuance_locator.request_identity(),
@@ -562,16 +555,52 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
-        let outcome = Box::pin(async {
-            sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        if sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .execute(&mut *transaction)
             .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        verify_owner_handoff_v1(
+            .is_err()
+        {
+            let _ = transaction.rollback().await;
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+        }
+        if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(
             &mut reader_transaction,
             &mut transaction,
+            &reader_challenge,
+        )
+        .await
+        {
+            let _ = transaction.rollback().await;
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(operation_error);
+        }
+        let Ok(market_challenge) = begin_owner_challenge_v1(
+            &mut transaction,
             issuance_locator.request_identity(),
-            reader_challenge,
+            "market",
+        )
+        .await
+        else {
+            let _ = transaction.rollback().await;
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+        };
+        let outcome = Box::pin(async {
+        verify_market_challenge_v1(
+            &mut reader_transaction,
+            &mut transaction,
+            &reader_challenge,
+            &market_challenge,
         )
         .await?;
         lock_composer_cut_v1(
@@ -1005,21 +1034,45 @@ impl ReplayCompositionOwnerV1 {
         match outcome {
             Ok(response) => {
                 let market_terminal = transaction.commit().await;
-                let reader_terminal = reader_transaction.rollback().await;
-                if market_terminal.is_err() || reader_terminal.is_err() {
-                    Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
-                } else {
-                    Ok(response)
+                if market_terminal.is_err() {
+                    prove_market_transaction_terminal_v1(
+                        &mut reader_transaction,
+                        &market_challenge,
+                    )
+                    .await?;
+                    reader_transaction
+                        .rollback()
+                        .await
+                        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+                    return match self.recover_issuance_v1(issuance_locator).await {
+                        Ok(recovered)
+                            if recovered.canonical_bytes() == response.canonical_bytes() =>
+                        {
+                            Ok(recovered)
+                        }
+                        _ => Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable),
+                    };
                 }
+                reader_transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+                Ok(response)
             }
             Err(operation_error) => {
                 let market_terminal = transaction.rollback().await;
-                let reader_terminal = reader_transaction.rollback().await;
-                if market_terminal.is_err() || reader_terminal.is_err() {
-                    Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
-                } else {
-                    Err(operation_error)
+                if market_terminal.is_err() {
+                    prove_market_transaction_terminal_v1(
+                        &mut reader_transaction,
+                        &market_challenge,
+                    )
+                    .await?;
                 }
+                reader_transaction
+                    .rollback()
+                    .await
+                    .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+                Err(operation_error)
             }
         }
     }
@@ -1172,11 +1225,10 @@ async fn begin_owner_challenge_v1(
     })
 }
 
-async fn verify_owner_handoff_v1(
+async fn verify_owner_domain_and_reader_challenge_v1(
     reader: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     market: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    request_identity: BindingDigest,
-    reader_challenge: OwnerChallengeV1,
+    reader_challenge: &OwnerChallengeV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     if owner_database_domain_v1(reader).await? != owner_database_domain_v1(market).await? {
         return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
@@ -1190,7 +1242,15 @@ async fn verify_owner_handoff_v1(
     if market_can_take_reader {
         return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
     }
-    let market_challenge = begin_owner_challenge_v1(market, request_identity, "market").await?;
+    Ok(())
+}
+
+async fn verify_market_challenge_v1(
+    reader: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    market: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    reader_challenge: &OwnerChallengeV1,
+    market_challenge: &OwnerChallengeV1,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
     let reader_can_take_market: bool =
         sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
             .bind(market_challenge.key)
@@ -1215,6 +1275,26 @@ async fn verify_owner_handoff_v1(
         return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
     }
     Ok(())
+}
+
+async fn prove_market_transaction_terminal_v1(
+    reader: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    market_challenge: &OwnerChallengeV1,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    loop {
+        let acquired: bool = sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
+            .bind(market_challenge.key)
+            .fetch_one(&mut **reader)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        if acquired {
+            return Ok(());
+        }
+        sqlx::query("SELECT pg_catalog.pg_sleep(0.01)")
+            .execute(&mut **reader)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+    }
 }
 
 async fn lock_issuance_identity(
