@@ -6,6 +6,7 @@ use super::{
     },
     *,
 };
+use rstest::rstest;
 
 fn digest(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
@@ -181,7 +182,6 @@ fn request_meaning_binds_rule_bytes_and_identity() {
 #[rstest]
 fn instrument_master_adapter_consumes_only_owner_selected_members() {
     use crate::owner::instrument_master::InstrumentMasterUniverseMembershipResolver;
-    use rstest::rstest;
 
     let readback = select(
         &request(vec![0, 1, 2, b'A'], 7, 20),

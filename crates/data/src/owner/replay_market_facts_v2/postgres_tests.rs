@@ -4,6 +4,7 @@ use super::postgres::{
     sealed_storage_manifest_for_test, store_generation_identity_for_test,
     validate_storage_manifest_for_test, validate_stored_row_for_test,
 };
+use rstest::rstest;
 
 #[rstest]
 fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
@@ -125,7 +126,6 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
 #[rstest]
 fn additive_v4_dependency_tag_does_not_rename_legacy_v2_tag_seven() {
     use crate::owner::replay_market_facts_v2::ReplayMarketDependencyKindV2;
-    use rstest::rstest;
 
     assert_eq!(
         ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV2 as u16,

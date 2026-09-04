@@ -24,6 +24,7 @@ use crate::owner::{
         MarketDataClockCutKind,
     },
 };
+use rstest::rstest;
 
 fn d(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
