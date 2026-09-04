@@ -466,10 +466,19 @@ backfill、infer、按 latest 选择或通过 full scan 发现。
 `StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
 准确 Research request、Composer aggregate 与
 `StrategyDesignV2`、按规范顺序排列的 typed role、每个 semantic coordinate 与完整 role coverage。其内容寻址
-准确 locator 在发送前已知。唯一跨 Owner surface 是 R&D-owned、按准确 locator 读取的 database function；其
-ACL 只授予固定 Market Data reader `EXECUTE`，不授予 raw-table `SELECT` 或 DML；不存在 public positive
-constructor/deserializer、receipt/readback input、bearer token、cryptographic-key authority、latest/history/full
-scan，Market Data 也不解析 R&D table。
+准确 locator 在发送前已知。Replay Policy V2 composition 由 R&D-owned A1 跨两个 Owner-isolated transaction
+协调。固定 `market_data_reader` 打开一个 read-only transaction，取得 Composer request 的 shared writer-key cut
+lock，只调用 Composer Owner 按 locator 读取的 `SECURITY DEFINER` lock/read function，校验完整 canonical
+evidence，并保持该 transaction 直到 Market terminal decision。随后 Market Data Owner 打开一个 SERIALIZABLE
+transaction，证明两条连接共享同一 live primary、database、postmaster incarnation 与 advisory lock manager；固定
+`market_data_owner` login principal 在任何 Market lock 或 write 前取得同一个 shared Composer cut lock。该
+principal 只对自己的 `market_data_private` relation 保留 raw authority，不获得 Composer 或 R&D raw access。
+Composer writer 在每次 mutation 前都必须持有匹配的 exclusive lock；因此 reader 丢失时，只要 Market
+transaction 仍持有 handoff lock，就不能重新打开 mutation window。两个 principal 都不获得另一 Owner 的
+raw-table `SELECT` 或 DML、role membership、generic query surface、public positive constructor/deserializer、
+receipt/readback input、bearer token、cryptographic-key authority、latest/history/full scan 或 cross-Owner parser。
+该边界保证 guarded window 内 Composer evidence 稳定以及 Market write 原子性；它不声称 shared XID、MVCC
+snapshot 或 cross-Owner atomic commit。
 
 W3 issuance 只接受该不受信 R&D attestation locator 与准确 Market dependency locator。Market Data 在内部校验
 恢复的 attestation，随后独立重新解析每条持久 registry declaration、完整 observation census、未改变的 V1

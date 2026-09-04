@@ -337,14 +337,20 @@ policy 与 cross-binding，绝不把 Catalog 重读为 authority。Catalog rerea
 admissibility；后续 Catalog version、revocation、deletion、unavailability 或 tamper 不能替换 policy，也不能
 使已形成 family 失效。
 
-后续 Replay Policy V2 composition 在 R&D、Composer 与 Market Data 路径上共用一个已准入 R&D PostgreSQL
-transaction domain。只有 R&D-owned composition resolver/A1 持有该 transaction capability，并把它传给
-每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确 transaction
-上执行自己的 lock、规范回读、校验与 sealing。Owner 或 composition resolver 都不能为 composition 打开另
-一个 pool、connection 或 transaction，不能读取其他
-Owner 的 raw table、重建 sealed evidence 或转移 fact authority。Composer 或 Market Data evidence 不可用、
-过期、不匹配、跨 cut 或 wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入
-前失败。随后 R&D 在同一 transaction 上原子提交形成的 fact、receipt 与 R&D outbox。
+后续 Replay Policy V2 composition 使用一个 R&D-owned A1 orchestration，跨两个边界明确的 Owner
+transaction。read-only `market_data_reader` transaction 先取得准确 Composer request 的 shared cut lock，
+通过 Owner-owned sealed function lock 并规范回读完整 Composer aggregate，完成校验，并保持开启直到 Market
+terminal decision。只有此后，固定 `market_data_owner` login principal 才可打开一个 SERIALIZABLE
+transaction，证明两条连接到达同一 live primary、database、postmaster incarnation 与 advisory lock manager，
+取得同一个 shared Composer cut lock 作为 database-level handoff，并执行全部 Market Data lock、规范回读、
+校验、seal 与 positive write。Composer writer 在每次 mutation 前都使用匹配的 exclusive cut lock，因此任一
+存续 shared lock 都会阻止 Composer 漂移，直至 Market transaction commit 或 rollback。任何 Owner 或 A1 都
+不得读取另一 Owner 的 raw table、重建 sealed evidence、转移 fact authority、获得另一 Owner 的 raw access，
+或声称 shared XID、MVCC snapshot 或 cross-Owner atomic commit。`market_data_owner` 仅对自己的 private Market
+Data relation 保留 raw authority。任何 unavailable、stale、mismatched、cross-cut、wrong-owner 或
+wrong-database evidence、lock-manager proof 失败，或 family-sealed policy cross-binding 无效，都必须在第一笔
+positive Market write 前失败。Binding、Replay fact、receipt、outbox 与 issuance response bytes 只在 Market
+Data Owner transaction 内原子提交；Composer evidence 在 guarded window 中保持稳定，但此前已经独立提交。
 
 disposable Catalog fixture 仅用于测试。隔离的 `SEALED_ACCEPTANCE` harness 可以通过私有 administration
 port 在其 fresh PostgreSQL instance 中创建并显式推进一个固定的内容寻址 policy head。fixture、
