@@ -671,7 +671,7 @@ DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
     'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin',
-    :'test_database'
+    pg_catalog.current_database()
   );
 END
 $database_access$;
