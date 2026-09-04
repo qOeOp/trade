@@ -375,6 +375,51 @@ until timeout 3 docker exec "$impersonator_container" psql --quiet --username po
   sleep 1
 done
 
+port_mapping="$(docker port "$container" 5432/tcp)"
+postgres_port="${port_mapping##*:}"
+case "$postgres_port" in
+  '' | *[!0-9]*)
+    echo "ERROR: could not determine isolated PostgreSQL port." >&2
+    exit 1
+    ;;
+esac
+readonly published_postgres_port="$postgres_port"
+
+impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
+impersonator_port="${impersonator_port_mapping##*:}"
+case "$impersonator_port" in
+  '' | *[!0-9]*)
+    echo "ERROR: could not determine impersonating PostgreSQL port." >&2
+    exit 1
+    ;;
+esac
+
+postgres_endpoint="$(
+  select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
+)"
+read -r postgres_host postgres_port <<< "$postgres_endpoint"
+if [[ -f /.dockerenv ]]; then
+  postgres_alias_host="host.docker.internal"
+  postgres_alias_port="$published_postgres_port"
+else
+  postgres_alias_host="localhost"
+  postgres_alias_port="$published_postgres_port"
+fi
+readonly postgres_alias_host postgres_alias_port
+if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
+  exit 1
+fi
+if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
+  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
+  exit 1
+fi
+impersonator_endpoint="$(
+  select_reachable_postgres_endpoint \
+    "$impersonator_container" "$impersonator_port" "impersonating"
+)"
+read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
+
 docker exec --interactive "$impersonator_container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$impersonator_database" \
   --set=impersonator_database="$impersonator_database" \
@@ -423,12 +468,25 @@ REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner;
 SQL
 
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname postgres \
-  --set=test_database="$test_database" \
-  --set=test_password="$test_password" << 'SQL'
-CREATE DATABASE :"test_database" OWNER postgres;
-SQL
+docker exec --interactive \
+  --env POSTGRES_USER=postgres \
+  --env POSTGRES_DB=postgres \
+  --env "RD_OWNER_DATABASE_NAME=${test_database}" \
+  --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+  --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+  --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+  --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+  "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
+
+RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  cargo run \
+  --locked \
+  --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  --profile "$cargo_ci_profile" \
+  -- \
+  --materialize-schema
 
 docker exec --interactive \
   --env POSTGRES_HOST=127.0.0.1 \
@@ -695,51 +753,6 @@ SQL
 
 legacy_replay_fingerprint_before="$(legacy_replay_fingerprint)"
 readonly legacy_replay_fingerprint_before
-
-port_mapping="$(docker port "$container" 5432/tcp)"
-postgres_port="${port_mapping##*:}"
-case "$postgres_port" in
-  '' | *[!0-9]*)
-    echo "ERROR: could not determine isolated PostgreSQL port." >&2
-    exit 1
-    ;;
-esac
-readonly published_postgres_port="$postgres_port"
-
-impersonator_port_mapping="$(docker port "$impersonator_container" 5432/tcp)"
-impersonator_port="${impersonator_port_mapping##*:}"
-case "$impersonator_port" in
-  '' | *[!0-9]*)
-    echo "ERROR: could not determine impersonating PostgreSQL port." >&2
-    exit 1
-    ;;
-esac
-
-postgres_endpoint="$(
-  select_reachable_postgres_endpoint "$container" "$postgres_port" "isolated"
-)"
-read -r postgres_host postgres_port <<< "$postgres_endpoint"
-if [[ -f /.dockerenv ]]; then
-  postgres_alias_host="host.docker.internal"
-  postgres_alias_port="$published_postgres_port"
-else
-  postgres_alias_host="localhost"
-  postgres_alias_port="$published_postgres_port"
-fi
-readonly postgres_alias_host postgres_alias_port
-if [[ "$postgres_alias_host" == "$postgres_host" && "$postgres_alias_port" == "$postgres_port" ]]; then
-  echo "ERROR: isolated PostgreSQL alias endpoint is not distinct." >&2
-  exit 1
-fi
-if ! probe_tcp_endpoint "$postgres_alias_host" "$postgres_alias_port"; then
-  echo "ERROR: isolated PostgreSQL alias endpoint is unreachable from the caller after 15 seconds." >&2
-  exit 1
-fi
-impersonator_endpoint="$(
-  select_reachable_postgres_endpoint \
-    "$impersonator_container" "$impersonator_port" "impersonating"
-)"
-read -r impersonator_host impersonator_port <<< "$impersonator_endpoint"
 
 export RD_OWNER_FRESH_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export QUALIFICATION_WRITER_FRESH_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"

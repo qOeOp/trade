@@ -1,7 +1,10 @@
 #!/bin/sh
 set -eu
 
+: "${RD_OWNER_DATABASE_NAME:=rd_owner}"
+
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+  --set=rd_owner_database_name="$RD_OWNER_DATABASE_NAME" \
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
   --set=issuer_password="$OPERATOR_AUTHORIZATION_DB_PASSWORD" \
   --set=edge_password="$PRODUCT_EDGE_DB_PASSWORD" \
@@ -12,7 +15,7 @@ CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
 CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
-CREATE DATABASE rd_owner OWNER rd_owner;
+CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner;
 CREATE ROLE operator_authorization_owner NOLOGIN;
 CREATE ROLE operator_authorization_writer LOGIN PASSWORD :'issuer_password';
 GRANT operator_authorization_owner TO operator_authorization_writer;
@@ -22,7 +25,7 @@ CREATE ROLE qualification_writer LOGIN PASSWORD :'qualification_password';
 CREATE ROLE backtest_owner LOGIN PASSWORD :'backtest_password';
 SQL
 
-psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname rd_owner << 'SQL'
+psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$RD_OWNER_DATABASE_NAME" << 'SQL'
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 ALTER SCHEMA public OWNER TO rd_owner;
 GRANT USAGE, CREATE ON SCHEMA public TO rd_owner;
