@@ -496,11 +496,15 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable Owner topology");
+    let mutation = database.mutation();
+    let market_mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
     let admin = database.owner_topology_admin_pool();
-    let base =
-        Box::pin(replay_composition_market_base_fixture_v1(owner_url, reader_url, admin)).await;
+    let base = Box::pin(replay_composition_market_base_fixture_v1(
+        owner_url, reader_url, admin,
+    ))
+    .await;
     let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
     let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
     let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
@@ -688,6 +692,81 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
     assert!(owner.issue_binding_v1(&missing).await.is_err());
     assert_eq!(replay_positive_state(admin).await, before);
+
+    let mut splice_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *splice_tx)
+        .await
+        .unwrap();
+    let spliced = sqlx::query(
+        "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
+         SET native_join_digest=$1 WHERE request_identity=$2",
+    )
+    .bind(d(249).as_bytes().as_slice())
+    .bind(&composer_locator.request_identity)
+    .execute(&mut *splice_tx)
+    .await
+    .unwrap();
+    assert_eq!(spliced.rows_affected(), 1);
+    splice_tx.commit().await.unwrap();
+    let cross_spliced =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(223), command.composition().clone())
+            .unwrap();
+    assert!(owner.issue_binding_v1(&cross_spliced).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+    let mut restore_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *restore_tx)
+        .await
+        .unwrap();
+    let restored = sqlx::query(
+        "UPDATE composer_private.rd_develop_strategy_design_native_joins_v1
+         SET native_join_digest=$1 WHERE request_identity=$2",
+    )
+    .bind(native_join.receipt_digest().as_bytes().as_slice())
+    .bind(&composer_locator.request_identity)
+    .execute(&mut *restore_tx)
+    .await
+    .unwrap();
+    assert_eq!(restored.rows_affected(), 1);
+    restore_tx.commit().await.unwrap();
+
+    sqlx::query(
+        "CREATE FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()
+         RETURNS trigger LANGUAGE plpgsql AS $function$
+         BEGIN
+           RAISE EXCEPTION 'injected deferred replay composition issuance commit failure';
+         END
+         $function$",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE CONSTRAINT TRIGGER reject_replay_composition_issuance_commit_v1
+         AFTER INSERT ON market_data_private.replay_composition_issuances_v1
+         DEFERRABLE INITIALLY DEFERRED
+         FOR EACH ROW EXECUTE FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let commit_fault =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(224), command.composition().clone())
+            .unwrap();
+    assert!(owner.issue_binding_v1(&commit_fault).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+    sqlx::query(
+        "DROP TRIGGER reject_replay_composition_issuance_commit_v1
+         ON market_data_private.replay_composition_issuances_v1",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query("DROP FUNCTION market_data_private.reject_replay_composition_issuance_commit_v1()")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
 
     let mut blocker = admin.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
