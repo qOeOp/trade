@@ -181,7 +181,7 @@ impl AuthenticatedComposerNativeJoinV1 {
     }
 }
 
-fn composer_join_claim_digest_v1(
+pub(in crate::owner) fn composer_join_claim_digest_v1(
     claim: &super::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
 ) -> BindingDigest {
     let mut hasher = Sha256::new();
