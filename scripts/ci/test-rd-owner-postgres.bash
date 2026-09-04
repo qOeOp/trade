@@ -9,6 +9,7 @@ readonly guarded_roots=(
   crates/qualification
   crates/backtest_owner
   crates/backtest_result_custody
+  crates/data
   crates/strategy_factory
   crates/strategy_factory_rd_owner_api
 )
@@ -146,10 +147,19 @@ isolated_test_database_guards = (
     "CanonicalOwnerPostgresTestDatabaseV1",
 )
 failures = []
+# These legacy internal harnesses predate the canonical Owner topology and are
+# not selected by this entrypoint. Keep their debt explicit while enforcing the
+# admitted capability on every selected/new vibe-data destructive oracle.
+legacy_data_destructive_tests = {
+    "crates/data/src/owner/postgres/sample_projection_v4.rs",
+    "crates/data/src/owner/postgres/tests.rs",
+}
 for root in map(Path, sys.argv[1:]):
     for path in root.rglob("*.rs"):
         text = path.read_text(encoding="utf-8")
         if not destructive.search(text):
+            continue
+        if path.as_posix() in legacy_data_destructive_tests:
             continue
         recovery_owned_qualification = path.as_posix() in {
             "crates/qualification/src/postgres.rs",
@@ -165,6 +175,20 @@ for root in map(Path, sys.argv[1:]):
             or ".mutation()" not in text
         ):
             failures.append(str(path))
+w3_oracle = Path("crates/data/src/owner/replay_market_facts_v2/postgres_tests.rs")
+w3_text = w3_oracle.read_text(encoding="utf-8")
+w3_fault_ddl = re.compile(
+    r'["\']\s*(?:CREATE\s+CONSTRAINT\s+TRIGGER|DROP\s+(?:TRIGGER|FUNCTION))\b',
+    re.I,
+)
+if (
+    w3_fault_ddl.search(w3_text)
+    and (
+        "CanonicalOwnerPostgresTestDatabaseV1" not in w3_text
+        or ".mutation()" not in w3_text
+    )
+):
+    failures.append(str(w3_oracle))
 if failures:
     print("ERROR: destructive PostgreSQL test SQL lacks dedicated-database admission:", file=sys.stderr)
     for failure in failures:
