@@ -58,6 +58,7 @@ use crate::owner::{
 };
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row, postgres::PgPoolOptions};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_issuances_v1 (request_identity BYTEA PRIMARY KEY, request_meaning_digest BYTEA NOT NULL UNIQUE, request_bytes BYTEA NOT NULL, binding_identity BYTEA NOT NULL UNIQUE, binding_digest BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
@@ -560,14 +561,17 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
-        let Ok(market_challenge) = begin_owner_challenge_v1(
-            &mut transaction,
-            issuance_locator.request_identity(),
-            "market",
-        )
-        .await
+        let market_challenge_key =
+            owner_challenge_key_v1(issuance_locator.request_identity(), "market");
+        let Ok(market_challenge) =
+            begin_owner_challenge_with_key_v1(&mut transaction, market_challenge_key).await
         else {
-            let _ = transaction.rollback().await;
+            terminalize_market_before_domain_v1(
+                transaction,
+                &self.owner.pool,
+                market_challenge_key,
+            )
+            .await;
             reader_transaction
                 .rollback()
                 .await
@@ -581,10 +585,12 @@ impl ReplayCompositionOwnerV1 {
         )
         .await
         {
-            if transaction.rollback().await.is_err() {
-                prove_market_transaction_terminal_from_pool_v1(&self.owner.pool, &market_challenge)
-                    .await;
-            }
+            terminalize_market_before_domain_v1(
+                transaction,
+                &self.owner.pool,
+                market_challenge.key,
+            )
+            .await;
             reader_transaction
                 .rollback()
                 .await
@@ -1201,19 +1207,43 @@ async fn begin_owner_challenge_v1(
     request_identity: BindingDigest,
     side: &str,
 ) -> Result<OwnerChallengeV1, ReplayCompositionBindingErrorV1> {
-    let (key, backend, transaction_identity): (i64, i64, String) = sqlx::query_as(
-        "SELECT pg_catalog.hashtextextended(pg_catalog.encode($1,'hex')||':'||$2||':'||pg_catalog.random()::text||':'||pg_catalog.clock_timestamp()::text,pg_catalog.pg_backend_pid()::bigint),pg_catalog.pg_backend_pid()::bigint,pg_catalog.txid_current()::text",
+    begin_owner_challenge_with_key_v1(transaction, owner_challenge_key_v1(request_identity, side))
+        .await
+}
+
+static OWNER_CHALLENGE_NONCE_V1: AtomicU64 = AtomicU64::new(1);
+
+fn owner_challenge_key_v1(request_identity: BindingDigest, side: &str) -> i64 {
+    let nonce = OWNER_CHALLENGE_NONCE_V1.fetch_add(1, Ordering::Relaxed);
+    let observed_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let mut hasher = Sha256::new();
+    hasher.update(b"market-data.owner-challenge.v1\0");
+    hasher.update(request_identity.as_bytes());
+    hasher.update(side.as_bytes());
+    hasher.update(std::process::id().to_be_bytes());
+    hasher.update(nonce.to_be_bytes());
+    hasher.update(observed_at.to_be_bytes());
+    let digest = hasher.finalize();
+    let mut key = [0_u8; 8];
+    key.copy_from_slice(&digest[..8]);
+    i64::from_be_bytes(key)
+}
+
+async fn begin_owner_challenge_with_key_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    key: i64,
+) -> Result<OwnerChallengeV1, ReplayCompositionBindingErrorV1> {
+    let (backend, transaction_identity): (i64, String) = sqlx::query_as(
+        "SELECT pg_catalog.pg_backend_pid()::bigint,pg_catalog.txid_current()::text
+           FROM (SELECT pg_catalog.pg_advisory_xact_lock($1)) AS challenge_lock",
     )
-    .bind(request_identity.as_bytes().as_slice())
-    .bind(side)
+    .bind(key)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock($1)")
-        .bind(key)
-        .execute(&mut **transaction)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
     Ok(OwnerChallengeV1 {
         key,
         backend,
@@ -1278,7 +1308,7 @@ async fn prove_market_transaction_terminal_v1(
     market_challenge: &OwnerChallengeV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     loop {
-        if try_acquire_market_challenge_v1(reader, market_challenge).await? {
+        if try_acquire_market_challenge_v1(reader, market_challenge.key).await? {
             return Ok(());
         }
         sqlx::query("SELECT pg_catalog.pg_sleep(0.01)")
@@ -1290,13 +1320,13 @@ async fn prove_market_transaction_terminal_v1(
 
 async fn prove_market_transaction_terminal_from_pool_v1(
     pool: &sqlx::PgPool,
-    market_challenge: &OwnerChallengeV1,
+    market_challenge_key: i64,
 ) {
     loop {
         let Ok(mut observer) = pool.acquire().await else {
             continue;
         };
-        match try_acquire_market_challenge_v1(&mut observer, market_challenge).await {
+        match try_acquire_market_challenge_v1(&mut observer, market_challenge_key).await {
             Ok(true) => return,
             Ok(false) => {
                 let _ = sqlx::query("SELECT pg_catalog.pg_sleep(0.01)")
@@ -1308,12 +1338,22 @@ async fn prove_market_transaction_terminal_from_pool_v1(
     }
 }
 
+async fn terminalize_market_before_domain_v1(
+    transaction: sqlx::Transaction<'_, sqlx::Postgres>,
+    pool: &sqlx::PgPool,
+    market_challenge_key: i64,
+) {
+    if transaction.rollback().await.is_err() {
+        prove_market_transaction_terminal_from_pool_v1(pool, market_challenge_key).await;
+    }
+}
+
 async fn try_acquire_market_challenge_v1(
     observer: &mut PgConnection,
-    market_challenge: &OwnerChallengeV1,
+    market_challenge_key: i64,
 ) -> Result<bool, ReplayCompositionBindingErrorV1> {
     sqlx::query_scalar("SELECT pg_catalog.pg_try_advisory_xact_lock($1)")
-        .bind(market_challenge.key)
+        .bind(market_challenge_key)
         .fetch_one(observer)
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)

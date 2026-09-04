@@ -111,15 +111,19 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("begin_owner_challenge_v1(")
                 .expect("first reader challenge")
     );
+    let market_challenge_key = issue_body
+        .find("let market_challenge_key =")
+        .expect("client-retained Market challenge key");
     let market_challenge = issue_body
-        .find("let Ok(market_challenge) = begin_owner_challenge_v1(")
-        .expect("retained Market challenge");
+        .find("begin_owner_challenge_with_key_v1(")
+        .expect("atomic Market challenge acquisition");
     assert!(
         issue_body
             .find("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .expect("exact Market BEGIN")
-            < market_challenge
+            < market_challenge_key
     );
+    assert!(market_challenge_key < market_challenge);
     assert!(
         market_challenge
             < issue_body
@@ -253,15 +257,30 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
         .split("let outcome =")
         .next()
         .expect("bounded pre-domain branch");
-    assert!(pre_domain.contains("transaction.rollback().await.is_err()"));
-    assert!(pre_domain.contains("prove_market_transaction_terminal_from_pool_v1("));
+    assert!(pre_domain.contains("terminalize_market_before_domain_v1("));
     assert!(
         pre_domain
-            .find("prove_market_transaction_terminal_from_pool_v1(")
-            .expect("fresh Market observer terminal proof")
+            .find("terminalize_market_before_domain_v1(")
+            .expect("pre-domain Market terminalizer")
             < pre_domain
                 .find("reader_transaction\n                .rollback()")
-                .expect("reader release after fresh observer proof")
+                .expect("reader release after pre-domain terminalizer")
+    );
+    let challenge_acquire_failure = issue_body
+        .split("begin_owner_challenge_with_key_v1(")
+        .nth(1)
+        .expect("recoverable challenge acquisition")
+        .split("if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(")
+        .next()
+        .expect("bounded challenge acquisition failure branch");
+    assert!(challenge_acquire_failure.contains("terminalize_market_before_domain_v1("));
+    assert!(
+        challenge_acquire_failure
+            .find("terminalize_market_before_domain_v1(")
+            .expect("lost challenge response terminalizer")
+            < challenge_acquire_failure
+                .find("reader_transaction")
+                .expect("reader release after lost challenge response proof")
     );
     let handoff = source
         .split("async fn verify_market_challenge_v1")
@@ -274,6 +293,20 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
     assert!(!handoff.contains("begin_owner_challenge_v1(market"));
     assert!(source.contains("async fn prove_market_transaction_terminal_v1"));
     assert!(source.contains("async fn prove_market_transaction_terminal_from_pool_v1"));
+    assert!(source.contains("fn owner_challenge_key_v1("));
+    assert!(source.contains("async fn begin_owner_challenge_with_key_v1("));
+    assert!(
+        source.contains("FROM (SELECT pg_catalog.pg_advisory_xact_lock($1)) AS challenge_lock")
+    );
+    let pre_domain_terminalizer = source
+        .split("async fn terminalize_market_before_domain_v1")
+        .nth(1)
+        .expect("pre-domain Market terminalizer")
+        .split("async fn try_acquire_market_challenge_v1")
+        .next()
+        .expect("bounded pre-domain terminalizer");
+    assert!(pre_domain_terminalizer.contains("transaction.rollback().await.is_err()"));
+    assert!(pre_domain_terminalizer.contains("prove_market_transaction_terminal_from_pool_v1("));
     assert!(source.contains("async fn try_acquire_market_challenge_v1"));
     assert!(source.contains("pg_catalog.pg_sleep(0.01)"));
     assert!(source.contains("pg_catalog.pg_try_advisory_xact_lock($1)"));
