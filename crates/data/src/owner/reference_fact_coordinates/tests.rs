@@ -1,4 +1,5 @@
 use super::*;
+use rstest::rstest;
 
 type CoordinateMutation = Box<dyn Fn(&mut ReferenceFactCoordinateClaimV1)>;
 
@@ -70,13 +71,13 @@ fn coordinate_claim() -> ReferenceFactCoordinateClaimV1 {
     }
 }
 
-#[test]
+#[rstest]
 fn verifies_complete_comparable_coordinates() {
     let verified = VerifiedReferenceFactCoordinatesV1::verify(coordinate_claim()).unwrap();
     assert_eq!(verified.claim().pit.snapshot_identity, d(3));
 }
 
-#[test]
+#[rstest]
 fn rejects_zero_and_empty_coordinate_fields() {
     let cases: Vec<CoordinateMutation> = vec![
         Box::new(|claim| claim.pit.snapshot_identity = d(0)),
@@ -99,7 +100,7 @@ fn rejects_zero_and_empty_coordinate_fields() {
     }
 }
 
-#[test]
+#[rstest]
 fn rejects_unadmitted_source_and_bad_frontiers() {
     let mut unavailable = coordinate_claim();
     unavailable.source.admitted = false;
@@ -123,7 +124,7 @@ fn rejects_unadmitted_source_and_bad_frontiers() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_invalid_intervals_gaps_and_ordering() {
     let mut replay = coordinate_claim();
     replay.replay_end_event_ns_exclusive = replay.replay_start_event_ns;
@@ -159,7 +160,7 @@ fn rejects_invalid_intervals_gaps_and_ordering() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_future_and_incomparable_coordinates() {
     let mut future = coordinate_claim();
     future.time.owner_observation_ns = 101;
@@ -191,7 +192,7 @@ fn rejects_future_and_incomparable_coordinates() {
     );
 }
 
-#[test]
+#[rstest]
 fn canonical_fact_bytes_are_bounded_and_digest_checked() {
     let bytes = b"canonical-fact";
     let identity = VerifiedReferenceFactCanonicalV1::derive_identity(
@@ -277,7 +278,7 @@ fn manifest_claim(facts: Vec<BindingDigest>) -> ReferenceFactCutManifestClaimV1 
     }
 }
 
-#[test]
+#[rstest]
 fn verifies_nonempty_and_explicit_empty_complete_manifests() {
     let nonempty =
         VerifiedReferenceFactCutManifestV1::verify(manifest_claim(vec![d(21), d(22)]), false)
@@ -292,7 +293,7 @@ fn verifies_nonempty_and_explicit_empty_complete_manifests() {
     assert!(empty.fact_identities().is_empty());
 }
 
-#[test]
+#[rstest]
 fn rejects_incomplete_noncanonical_and_cross_spliced_manifests() {
     assert_eq!(
         VerifiedReferenceFactCutManifestV1::verify(manifest_claim(vec![]), false),
@@ -348,7 +349,7 @@ fn custody_claim_for_store(
     }
 }
 
-#[test]
+#[rstest]
 fn custody_is_deterministic_write_once_and_cross_splice_safe() {
     let first = VerifiedReferenceFactCustodyV1::verify(custody_claim(1)).unwrap();
     assert_eq!(
@@ -389,7 +390,7 @@ fn custody_is_deterministic_write_once_and_cross_splice_safe() {
     );
 }
 
-#[test]
+#[rstest]
 fn custody_is_bound_to_one_nonzero_store_generation() {
     let first_store = custody_claim_for_store(1, d(29));
     let second_store = custody_claim_for_store(1, d(28));
@@ -403,7 +404,7 @@ fn custody_is_bound_to_one_nonzero_store_generation() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_zero_and_overflowing_append_sequences() {
     assert_eq!(
         VerifiedReferenceFactCustodyV1::verify(custody_claim(0)),
@@ -416,7 +417,7 @@ fn rejects_zero_and_overflowing_append_sequences() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_manifest_capacity_and_empty_bytes() {
     let mut empty_bytes = manifest_claim(vec![d(21)]);
     empty_bytes.canonical_bytes = Box::new([]);

@@ -1,4 +1,5 @@
 use super::{CorrectionPolicyProjectionErrorV1 as Error, authority, codec};
+use rstest::rstest;
 
 #[allow(clippy::too_many_arguments, reason = "compact projection test matrix")]
 fn p(
@@ -14,7 +15,7 @@ fn p(
     authority::projection_for_test(root, binding, fact, version, stream, seq, frontier, from)
 }
 
-#[test]
+#[rstest]
 fn first_projection_is_canonical_and_deterministic() {
     let a = authority::first_for_test(p(1, 2, 3, 1, b"corrections", 7, 4, 100)).unwrap();
     let b = authority::first_for_test(p(1, 2, 3, 1, b"corrections", 7, 4, 100)).unwrap();
@@ -24,7 +25,7 @@ fn first_projection_is_canonical_and_deterministic() {
     assert!(a.canonical_bytes().starts_with(&[0, 1, 0, 0, 0, 0, 0, 11]));
 }
 
-#[test]
+#[rstest]
 fn replay_w3_can_consume_the_complete_typed_projection() {
     let value = p(1, 2, 3, 1, b"corrections", 7, 4, 100);
     assert_eq!(value.stream_identity(), b"corrections");
@@ -48,7 +49,7 @@ fn replay_w3_can_consume_the_complete_typed_projection() {
     assert_eq!(value.r0_coordinate_digest().as_bytes(), &[11; 32]);
 }
 
-#[test]
+#[rstest]
 fn identical_later_version_coalesces_without_earlier_availability() {
     let first = p(1, 2, 3, 1, b"corrections", 7, 4, 100);
     let mut later = p(1, 2, 6, 2, b"corrections", 7, 4, 200);
@@ -75,7 +76,7 @@ fn identical_later_version_coalesces_without_earlier_availability() {
     assert_eq!(current.r0_coordinate_digest(), first.r0_coordinate_digest());
 }
 
-#[test]
+#[rstest]
 fn direct_distinct_successor_closes_prior_half_open_interval() {
     let first = p(1, 2, 3, 1, b"corrections", 7, 4, 100);
     let next = p(1, 2, 6, 2, b"corrections", 8, 7, 200);
@@ -85,7 +86,7 @@ fn direct_distinct_successor_closes_prior_half_open_interval() {
     codec::verify(closed.canonical_bytes(), closed.identity()).unwrap();
 }
 
-#[test]
+#[rstest]
 fn lineage_and_frontier_splices_fail_closed() {
     let prior = p(1, 2, 3, 2, b"corrections", 7, 4, 100);
     let cases = [
@@ -118,7 +119,7 @@ fn lineage_and_frontier_splices_fail_closed() {
     }
 }
 
-#[test]
+#[rstest]
 fn branch_same_sequence_with_changed_frontier_and_bad_interval_fail() {
     let prior = p(1, 2, 3, 1, b"corrections", 7, 4, 100);
     assert_eq!(
@@ -131,7 +132,7 @@ fn branch_same_sequence_with_changed_frontier_and_bad_interval_fail() {
     );
 }
 
-#[test]
+#[rstest]
 fn canonical_verifier_rejects_corruption_trailing_and_capacity() {
     let value = p(1, 2, 3, 1, b"corrections", 7, 4, 100);
     let mut corrupt = value.canonical_bytes().to_vec();

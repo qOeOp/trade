@@ -10,6 +10,7 @@ use crate::owner::{
         StrategyInputJoinRoleClaimV1, derive_strategy_input_join_identity_v2,
     },
 };
+use rstest::rstest;
 
 fn digest(byte: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([byte; 32])
@@ -94,7 +95,7 @@ fn request(trigger: u64) -> UntrustedObservationCensusRequestV1 {
     )
 }
 
-#[test]
+#[rstest]
 fn positive_census_core_is_default_build_reachable_and_rejects_cross_pit_frames() {
     let (open_binding, open_frame, _, _) =
         crate::owner::sample_fact::tests::point_event_projection_fixture_variant_v2(
@@ -141,7 +142,7 @@ fn positive_census_core_is_default_build_reachable_and_rejects_cross_pit_frames(
     );
 }
 
-#[test]
+#[rstest]
 fn same_id_with_changed_join_meaning_has_distinct_recovery_meaning() {
     assert_eq!(
         request(10).request_identity(),
@@ -157,7 +158,7 @@ fn same_id_with_changed_join_meaning_has_distinct_recovery_meaning() {
     );
 }
 
-#[test]
+#[rstest]
 fn checked_request_codec_rejects_oversized_role_text() {
     let mut value = request(10);
     value.join_claim.roles[0].semantic_id = "x".repeat(codec::MAX_JOIN_TEXT_BYTES + 1);
@@ -167,7 +168,7 @@ fn checked_request_codec_rejects_oversized_role_text() {
     );
 }
 
-#[test]
+#[rstest]
 fn full_request_codec_round_trips_and_every_meaning_field_is_bound() {
     let expected = request(10);
     let bytes = authority::encode_observation_census_request_v1(&expected).unwrap();
@@ -378,7 +379,7 @@ fn full_request_codec_round_trips_and_every_meaning_field_is_bound() {
     );
 }
 
-#[test]
+#[rstest]
 fn request_codec_rejects_corruption_version_trailing_and_capacity() {
     let mut corrupted = authority::encode_observation_census_request_v1(&request(10))
         .unwrap()
@@ -473,7 +474,7 @@ fn census_readback() -> ObservationCensusReadbackV1 {
     ObservationCensusReadbackV1 { record, receipt }
 }
 
-#[test]
+#[rstest]
 fn complete_storage_codec_round_trips_move_only_readback() {
     let expected = census_readback();
     let bytes = authority::encode_observation_census_storage_v1(&expected).unwrap();
@@ -482,7 +483,7 @@ fn complete_storage_codec_round_trips_move_only_readback() {
     assert!(verify_observation_census_readback_v1(&actual));
 }
 
-#[test]
+#[rstest]
 fn storage_codec_rejects_corruption_and_trailing_bytes() {
     let mut corrupted = authority::encode_observation_census_storage_v1(&census_readback())
         .unwrap()
@@ -502,7 +503,7 @@ fn storage_codec_rejects_corruption_and_trailing_bytes() {
     );
 }
 
-#[test]
+#[rstest]
 fn verifier_rejects_scalar_bytes_cross_splice() {
     let mut readback = census_readback();
     readback.record.entries[0].logical_time += 1;

@@ -5,7 +5,7 @@ use super::postgres::{
     validate_storage_manifest_for_test, validate_stored_row_for_test,
 };
 
-#[test]
+#[rstest]
 fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
     let schema = REPLAY_MARKET_FACTS_SCHEMA_V2.join("\n");
     assert!(schema.contains("market_data_private.replay_market_facts_v2"));
@@ -34,7 +34,7 @@ fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
     assert!(!schema.contains("REFERENCES market_data_private.strategy_input_sample_projection"));
 }
 
-#[test]
+#[rstest]
 fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
     let role_set = include_str!("../strategy_design_role_set.rs");
@@ -100,9 +100,10 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     );
 }
 
-#[test]
+#[rstest]
 fn additive_v4_dependency_tag_does_not_rename_legacy_v2_tag_seven() {
     use crate::owner::replay_market_facts_v2::ReplayMarketDependencyKindV2;
+    use rstest::rstest;
 
     assert_eq!(
         ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV2 as u16,
@@ -122,7 +123,7 @@ fn additive_v4_dependency_tag_does_not_rename_legacy_v2_tag_seven() {
     );
 }
 
-#[test]
+#[rstest]
 fn composer_native_join_attestation_is_exact_and_tamper_evident() {
     use crate::owner::{
         replay_market_facts_v2::AuthenticatedComposerNativeJoinV1,
@@ -169,7 +170,7 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
     );
 }
 
-#[test]
+#[rstest]
 fn complete_manifest_recovers_exact_receipt_and_outbox_bytes() {
     let row = fixture_row();
     let manifest = sealed_storage_manifest_for_test(&row, "replay-test", 3, 3);
@@ -184,7 +185,7 @@ fn complete_manifest_recovers_exact_receipt_and_outbox_bytes() {
     );
 }
 
-#[test]
+#[rstest]
 fn manifest_rejects_missing_extra_corrupt_and_cross_spliced_rows() {
     let row = fixture_row();
     let valid = sealed_storage_manifest_for_test(&row, "replay-test", 1, 1);
@@ -225,7 +226,7 @@ fn manifest_rejects_missing_extra_corrupt_and_cross_spliced_rows() {
     );
 }
 
-#[test]
+#[rstest]
 fn store_generation_is_deterministic_and_database_scoped() {
     assert_eq!(
         store_generation_identity_for_test("replay-test"),
@@ -237,7 +238,7 @@ fn store_generation_is_deterministic_and_database_scoped() {
     );
 }
 
-#[test]
+#[rstest]
 fn negative_resolver_has_no_positive_type() {
     let _: fn(
         &super::postgres::StoredReplayMarketFactsRowV2,
@@ -245,7 +246,7 @@ fn negative_resolver_has_no_positive_type() {
         negative_resolution_for_test;
 }
 
-#[test]
+#[rstest]
 fn bound_storage_meaning_is_exact_binding_scoped_and_legacy_is_unbound() {
     use super::postgres::{bound_meaning_identity, meaning_identity};
 
@@ -257,7 +258,7 @@ fn bound_storage_meaning_is_exact_binding_scoped_and_legacy_is_unbound() {
     assert!(fixture_row().composition_binding_identity.is_none());
 }
 
-#[test]
+#[rstest]
 fn resolver_rejects_corrupt_and_cross_spliced_dependency_rows() {
     let valid = fixture_row();
     assert_eq!(
@@ -281,7 +282,7 @@ fn resolver_rejects_corrupt_and_cross_spliced_dependency_rows() {
     );
 }
 
-#[test]
+#[rstest]
 fn identity_and_meaning_collisions_fail_closed() {
     let existing = fixture_row();
     assert_eq!(

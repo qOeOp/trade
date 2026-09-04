@@ -731,6 +731,7 @@ mod tests {
     use crate::owner::strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
     };
+    use rstest::rstest;
 
     fn d(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
@@ -799,7 +800,7 @@ mod tests {
         .unwrap()
     }
 
-    #[test]
+    #[rstest]
     fn authenticated_registration_requires_exact_complete_role_coverage() {
         let first = request();
         let mut second = first.clone();
@@ -823,7 +824,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn schema_is_private_bounded_and_omits_positive_or_caller_authority() {
         assert_eq!(MAX_STRATEGY_INPUT_BINDING_REQUEST_BYTES_V1, 64 * 1024);
         let schema = STRATEGY_INPUT_BINDING_REGISTRY_SCHEMA_V1.join("\n");
@@ -837,7 +838,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn instrument_version_coordinate_keeps_readback_fact_and_cut_distinct() {
         let coordinate = NativeInstrumentMasterCoordinateV1 {
             readback: d(12),
@@ -880,7 +881,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn instrument_cut_locator_requires_exactly_one_well_formed_request_identity() {
         assert_eq!(
             exact_instrument_request_identity(&[vec![12; 32]]),
@@ -900,7 +901,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn stored_recovery_byte_verifies_key_meaning_and_owner_digest() {
         let request = request();
         let bytes = codec::encode_request_v1(&request).unwrap();

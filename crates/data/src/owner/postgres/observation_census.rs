@@ -592,8 +592,9 @@ fn map_registry_error(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn schema_keeps_records_dependencies_outbox_and_state_write_once() {
         assert_eq!(OBSERVATION_CENSUS_SCHEMA_V1.len(), 8);
         let schema = OBSERVATION_CENSUS_SCHEMA_V1.join("\n");
@@ -611,7 +612,7 @@ mod tests {
         assert_eq!(schema.matches("REVOKE ALL ON TABLE").count(), 4);
     }
 
-    #[test]
+    #[rstest]
     fn transaction_leaf_has_no_pool_or_caller_frame_columns() {
         let schema = OBSERVATION_CENSUS_SCHEMA_V1.join("\n");
         assert!(!schema.contains("caller"));
@@ -621,7 +622,7 @@ mod tests {
         assert!(schema.contains("request_bytes"));
     }
 
-    #[test]
+    #[rstest]
     fn production_composition_registers_only_census_and_not_replay_v2() {
         let composition = include_str!("../postgres.rs");
         assert!(composition.contains("install_observation_census_schema_v1(&mut transaction)"));

@@ -4,6 +4,7 @@ use crate::owner::reference_fact_coordinates::{
     ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
     VerifiedReferenceFactCoordinatesV1,
 };
+use rstest::rstest;
 
 fn d(value: u8) -> TimeZoneIdentity {
     TimeZoneIdentity::from_untrusted_bytes([value; 32])
@@ -116,7 +117,7 @@ fn proposals() -> Vec<TimeZoneFactProposalV1> {
     vec![first, proposal(15, Some(25), 2, Some(first_id), 36_000)]
 }
 
-#[test]
+#[rstest]
 fn complete_transition_cut_round_trips_and_receipt_equals_outbox() {
     let prepared = authority::prepare_resolution_v1(request(), proposals(), d(16), d(17)).unwrap();
     let readback = authority::seal_readback_v1(prepared, d(18), 1).unwrap();
@@ -129,7 +130,7 @@ fn complete_transition_cut_round_trips_and_receipt_equals_outbox() {
     assert_eq!(readback.facts()[1].utc_offset_seconds(), 36_000);
 }
 
-#[test]
+#[rstest]
 fn receipt_is_generation_bound() {
     let left = authority::seal_readback_v1(
         authority::prepare_resolution_v1(request(), proposals(), d(16), d(17)).unwrap(),
@@ -147,7 +148,7 @@ fn receipt_is_generation_bound() {
     assert_eq!(right.receipt().identity(), right.outbox_identity());
 }
 
-#[test]
+#[rstest]
 fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
     let first = proposal(5, Some(14), 1, None, 0);
     let first_id = authority::issue_fact_v1(first.clone()).unwrap().identity();
@@ -190,7 +191,7 @@ fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_cross_splice_zero_and_corrupt_aggregate() {
     let coordinates = VerifiedReferenceFactCoordinatesV1::verify({
         let mut claim = dependencies(5, Some(25), 1, None)
@@ -236,7 +237,7 @@ fn rejects_cross_splice_zero_and_corrupt_aggregate() {
     );
 }
 
-#[test]
+#[rstest]
 fn rejects_unknown_tags_trailing_bytes_capacity_and_changed_meaning() {
     let prepared = authority::prepare_resolution_v1(request(), proposals(), d(16), d(17)).unwrap();
     let readback = authority::seal_readback_v1(prepared, d(18), 1).unwrap();

@@ -779,6 +779,7 @@ fn storage(error: &sqlx::Error) -> BacktestResultCustodyErrorV2 {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
     use serde::Serialize;
     use vibe_backtest_owner_contracts::{
         ComponentObservationLocatorV2, DiagnosticCategoryV2, DiagnosticEvidenceDtoV2,
@@ -803,7 +804,7 @@ mod tests {
         diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
     }
 
-    #[test]
+    #[rstest]
     fn topology_census_requires_durable_heap_tables_and_indexes() {
         assert!(RESULT_TABLE_CENSUS_QUERY.contains("relation.relpersistence='p'"));
         assert!(RESULT_TABLE_CENSUS_QUERY.contains("access_method.amname='heap'"));
@@ -811,7 +812,7 @@ mod tests {
         assert!(RESULT_TABLE_CENSUS_QUERY.contains("index_method.amname<>'btree'"));
     }
 
-    #[test]
+    #[rstest]
     fn topology_census_rejects_after_insert_trigger_drift() {
         assert!(RESULT_TABLE_CENSUS_QUERY.contains(
             "SELECT 1 FROM pg_catalog.pg_trigger trigger_fact\n     WHERE trigger_fact.tgrelid IN (SELECT oid FROM family)"
@@ -819,7 +820,7 @@ mod tests {
         assert!(!RESULT_TABLE_CENSUS_QUERY.contains("NOT trigger_fact.tgisinternal"));
     }
 
-    #[test]
+    #[rstest]
     fn topology_census_covers_exact_structural_boundaries() {
         for required in [
             "pg_catalog.count(*)=31",
@@ -1056,7 +1057,7 @@ mod tests {
         })
     }
 
-    #[test]
+    #[rstest]
     fn valid_canonical_aggregates_cannot_be_cross_spliced() {
         let (result_a, result_bytes_a) = result_fixture("a", 'a');
         let (receipt_a, receipt_bytes_a, outbox_a, outbox_bytes_a) = custody_fixture(&result_a, 1);

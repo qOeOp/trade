@@ -1599,8 +1599,9 @@ impl<'a> ReplayMarketFactsDependencyPortsV2<'a> {
 #[cfg(test)]
 mod composer_facade_tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn composer_reads_use_only_the_exact_owner_facade() {
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_ROLE_SET_RESOLVER_V1));
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_NATIVE_JOIN_RESOLVER_V1));
@@ -1620,7 +1621,7 @@ mod composer_facade_tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn composer_reader_requires_execute_only_without_owner_membership() {
         let exact = || ComposerReaderAclV1 {
             schema_usage: true,

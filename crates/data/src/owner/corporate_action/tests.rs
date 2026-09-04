@@ -1,4 +1,5 @@
 use super::{authority, codec, *};
+use rstest::rstest;
 
 fn id(byte: u8) -> CorporateActionIdentity {
     CorporateActionIdentity::from_untrusted_bytes([byte; 32])
@@ -97,7 +98,7 @@ fn readback() -> CorporateActionReadbackV1 {
     authority::issue_readback_v1(facts, cut, id(50), 1, id(9)).unwrap()
 }
 
-#[test]
+#[rstest]
 fn exact_readback_roundtrip_and_receipt_is_outbox() {
     let value = readback();
     let decoded = authority::decode_and_verify_readback_v1(value.canonical_bytes()).unwrap();
@@ -105,7 +106,7 @@ fn exact_readback_roundtrip_and_receipt_is_outbox() {
     assert_eq!(value.outbox_identity(), value.receipt().identity());
 }
 
-#[test]
+#[rstest]
 fn explicit_empty_instrument_census_is_canonical() {
     let proposal = proposal(vec![b"AAA", b"BBB"]);
     let mut authenticated = inputs(Vec::new());
@@ -119,7 +120,7 @@ fn explicit_empty_instrument_census_is_canonical() {
     assert!(authority::decode_and_verify_readback_v1(readback.canonical_bytes()).is_ok());
 }
 
-#[test]
+#[rstest]
 fn request_binds_ordered_census_and_locators_but_not_request_key() {
     let original = proposal(vec![b"AAA", b"BBB"]);
     let mut key = original.clone();
@@ -136,7 +137,7 @@ fn request_binds_ordered_census_and_locators_but_not_request_key() {
     );
 }
 
-#[test]
+#[rstest]
 fn unsorted_or_duplicate_instruments_fail_closed() {
     let proposal = proposal(vec![b"BBB", b"AAA"]);
     assert_eq!(
@@ -145,7 +146,7 @@ fn unsorted_or_duplicate_instruments_fail_closed() {
     );
 }
 
-#[test]
+#[rstest]
 fn split_direction_and_cash_adjustment_are_fixed() {
     let split = CorporateActionTermsV1::Split {
         numerator: 3,
@@ -165,7 +166,7 @@ fn split_direction_and_cash_adjustment_are_fixed() {
     );
 }
 
-#[test]
+#[rstest]
 fn all_closed_action_terms_roundtrip_without_normalization() {
     let proposal = proposal(vec![b"AAA"]);
     let terms = vec![
@@ -201,7 +202,7 @@ fn all_closed_action_terms_roundtrip_without_normalization() {
     );
 }
 
-#[test]
+#[rstest]
 fn invalid_ratio_or_self_transition_is_rejected() {
     let p = proposal(vec![b"AAA"]);
     let bad = inputs(vec![entry(
@@ -229,7 +230,7 @@ fn invalid_ratio_or_self_transition_is_rejected() {
     );
 }
 
-#[test]
+#[rstest]
 fn tamper_and_unknown_term_tag_fail_closed() {
     let value = readback();
     let mut trailing = value.canonical_bytes().to_vec();
@@ -244,7 +245,7 @@ fn tamper_and_unknown_term_tag_fail_closed() {
     );
 }
 
-#[test]
+#[rstest]
 fn correction_requires_direct_same_action_successor() {
     let first = readback().facts()[0].clone();
     let mut next = first.clone();
@@ -266,7 +267,7 @@ fn correction_requires_direct_same_action_successor() {
     );
 }
 
-#[test]
+#[rstest]
 fn generation_changes_receipt_identity() {
     let p = proposal(vec![b"AAA"]);
     let input = inputs(vec![entry(1, b"AAA", CorporateActionTermsV1::Expiry)]);

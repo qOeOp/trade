@@ -72,7 +72,7 @@ fn select(
     issue_universe_selection_readback_v1(request, membership, digest(9), 1)
 }
 
-#[test]
+#[rstest]
 fn derives_complete_canonical_partition_without_caller_members() {
     let readback = select(
         &request(vec![0, 1, 2, b'A'], 7, 20),
@@ -94,7 +94,7 @@ fn derives_complete_canonical_partition_without_caller_members() {
     assert!(verify_universe_selection_readback_v1(&readback));
 }
 
-#[test]
+#[rstest]
 fn omitted_manifest_member_and_future_correction_fail_closed() {
     let request = request(vec![0, 1, 1], 7, 20);
     assert_eq!(
@@ -114,7 +114,7 @@ fn omitted_manifest_member_and_future_correction_fail_closed() {
     assert_eq!(readback.record().membership()[0].decision_cut(), 7);
 }
 
-#[test]
+#[rstest]
 fn unsupported_or_absent_evaluator_is_typed_unavailable() {
     let request = request(vec![9], 7, 20);
     let source = vec![issue_source_fact_v1(fact(b"AAPL", b"AAPL.XNAS", 7, 20)).unwrap()];
@@ -134,7 +134,7 @@ fn unsupported_or_absent_evaluator_is_typed_unavailable() {
     );
 }
 
-#[test]
+#[rstest]
 fn durable_codec_recovers_exact_identity_and_rejects_tampering() {
     let readback = select(
         &request(vec![0, 1, 1], 7, 20),
@@ -166,7 +166,7 @@ fn durable_codec_recovers_exact_identity_and_rejects_tampering() {
     );
 }
 
-#[test]
+#[rstest]
 fn request_meaning_binds_rule_bytes_and_identity() {
     assert_ne!(
         request(vec![0, 1, 1], 7, 20).request_meaning_digest(),
@@ -178,9 +178,10 @@ fn request_meaning_binds_rule_bytes_and_identity() {
     );
 }
 
-#[test]
+#[rstest]
 fn instrument_master_adapter_consumes_only_owner_selected_members() {
     use crate::owner::instrument_master::InstrumentMasterUniverseMembershipResolver;
+    use rstest::rstest;
 
     let readback = select(
         &request(vec![0, 1, 2, b'A'], 7, 20),

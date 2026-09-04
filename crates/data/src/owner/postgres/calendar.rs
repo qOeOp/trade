@@ -403,8 +403,9 @@ fn store_error(_: sqlx::Error) -> CalendarErrorV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn schema_is_private_bounded_and_not_global_registration() {
         let joined = CALENDAR_SCHEMA_V1.join("\n");
         assert!(joined.contains("REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC"));

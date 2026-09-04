@@ -1,4 +1,5 @@
 use super::*;
+use rstest::rstest;
 
 fn d(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
@@ -32,7 +33,7 @@ fn request() -> UntrustedStrategyInputBindingRequest {
     }
 }
 
-#[test]
+#[rstest]
 fn declaration_codec_round_trips_and_every_field_changes_meaning() {
     let original = request();
     let bytes = codec::encode_request_v1(&original).unwrap();
@@ -74,7 +75,7 @@ fn declaration_codec_round_trips_and_every_field_changes_meaning() {
     }
 }
 
-#[test]
+#[rstest]
 fn declaration_codec_rejects_version_trailing_bytes_and_caps() {
     let bytes = codec::encode_request_v1(&request()).unwrap();
     let mut wrong_version = bytes.clone();

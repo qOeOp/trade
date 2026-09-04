@@ -223,7 +223,7 @@ fn proposals() -> Vec<CalendarFactProposalV1> {
     ]
 }
 
-#[test]
+#[rstest]
 fn complete_open_closed_cut_is_canonical_and_roundtrips() {
     let request = request();
     let instrument = instrument_readback("XNYS-CALENDAR-V1");
@@ -251,7 +251,7 @@ fn complete_open_closed_cut_is_canonical_and_roundtrips() {
     verify_calendar_readback_v1(&readback).unwrap();
 }
 
-#[test]
+#[rstest]
 fn request_digest_covers_every_meaning_field_and_range_is_bounded() {
     let baseline = request();
     let expected = request_meaning_digest(&baseline).unwrap();
@@ -386,7 +386,7 @@ fn request_digest_covers_every_meaning_field_and_range_is_bounded() {
     ));
 }
 
-#[test]
+#[rstest]
 fn missing_duplicate_or_dependency_spliced_days_fail_closed() {
     let request = request();
     let instrument = instrument_readback("XNYS-CALENDAR-V1");
@@ -438,7 +438,7 @@ fn missing_duplicate_or_dependency_spliced_days_fail_closed() {
     ));
 }
 
-#[test]
+#[rstest]
 fn correction_shape_and_nested_tamper_are_rejected() {
     let request = request();
     let instrument = instrument_readback("XNYS-CALENDAR-V1");

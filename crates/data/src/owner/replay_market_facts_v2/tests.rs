@@ -355,7 +355,7 @@ fn composition_evidence(seed: u8) -> ReplayCompositionBindingEvidenceV1 {
     }
 }
 
-#[test]
+#[rstest]
 fn sealed_binding_composes_exact_existing_v2_path() {
     let replay = request(71);
     let binding = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
@@ -387,7 +387,7 @@ fn sealed_binding_composes_exact_existing_v2_path() {
     assert_eq!(readback.facts().frontier().dependencies().len(), 7);
 }
 
-#[test]
+#[rstest]
 fn binding_exact_bytes_round_trip_and_mutation_or_reordering_fail_closed() {
     let replay = request(71);
     let binding = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
@@ -433,7 +433,7 @@ fn binding_exact_bytes_round_trip_and_mutation_or_reordering_fail_closed() {
     );
 }
 
-#[test]
+#[rstest]
 fn composition_fails_closed_on_incomplete_roles_and_exact_locator_mismatch() {
     let replay = request(71);
     let mut incomplete = composition_evidence(1);
@@ -464,7 +464,7 @@ fn composition_fails_closed_on_incomplete_roles_and_exact_locator_mismatch() {
     );
 }
 
-#[test]
+#[rstest]
 fn binding_identity_changes_with_authenticated_design_and_joined_cut() {
     let replay = request(71);
     let first = issue_replay_composition_binding_v1(&replay, composition_evidence(1))
