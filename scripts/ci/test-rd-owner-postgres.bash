@@ -644,6 +644,70 @@ docker exec --interactive \
   --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
 
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" << 'SQL'
+CREATE ROLE surprise_replay_grantee NOLOGIN;
+CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
+  request_identity text PRIMARY KEY,
+  request_digest text NOT NULL,
+  build_request_identity text NOT NULL,
+  attempt_identity text NOT NULL,
+  intent_identity text NOT NULL,
+  trial_family_identity text NOT NULL,
+  artifact_identity text NOT NULL,
+  build_receipt_identity text NOT NULL,
+  artifact_family_binding_identity text NOT NULL,
+  census_frontier_identity text NOT NULL,
+  frozen_json jsonb NOT NULL,
+  receipt_json jsonb NOT NULL,
+  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
+  committed_at_epoch_ms bigint NOT NULL,
+  request_schema_version smallint NOT NULL DEFAULT 1,
+  v2_canonical_request_bytes bytea,
+  v2_meaning_digest text,
+  v2_seal_digest text,
+  v2_receipt_json jsonb
+);
+ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
+REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
+GRANT SELECT, UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
+GRANT SELECT(request_identity), UPDATE(lifecycle_state)
+  ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
+INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
+  request_identity,
+  request_digest,
+  build_request_identity,
+  attempt_identity,
+  intent_identity,
+  trial_family_identity,
+  artifact_identity,
+  build_receipt_identity,
+  artifact_family_binding_identity,
+  census_frontier_identity,
+  frozen_json,
+  receipt_json,
+  lifecycle_state,
+  committed_at_epoch_ms,
+  request_schema_version
+) VALUES (
+  'internal-continuity-replay-v1',
+  'sha256:internal-continuity-request-v1',
+  'internal-continuity-build-v1',
+  'internal-continuity-attempt-v1',
+  'internal-continuity-intent-v1',
+  'internal-continuity-family-v1',
+  'sha256:internal-continuity-artifact-v1',
+  'internal-continuity-build-receipt-v1',
+  'internal-continuity-family-binding-v1',
+  'internal-continuity-census-v1',
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity','schema_version',1),
+  pg_catalog.jsonb_build_object('kind','internal-custody-continuity-receipt','schema_version',1),
+  'FROZEN',
+  1700000000000,
+  1
+);
+SQL
+
 RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
   cargo run \
   --locked \
@@ -768,7 +832,6 @@ SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
-CREATE ROLE surprise_replay_grantee NOLOGIN;
 CREATE TABLE public.rd_exploratory_replay_requests_v1 (
   replay_request_identity text PRIMARY KEY,
   run_attempt_identity text NOT NULL UNIQUE,
@@ -816,66 +879,6 @@ SELECT
   'sha256:legacy-seal-' || ordinal::text,
   pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
 FROM pg_catalog.generate_series(0,25) ordinal;
-
-CREATE TABLE public.rd_exploratory_replay_request_custody_v1 (
-  request_identity text PRIMARY KEY,
-  request_digest text NOT NULL,
-  build_request_identity text NOT NULL,
-  attempt_identity text NOT NULL,
-  intent_identity text NOT NULL,
-  trial_family_identity text NOT NULL,
-  artifact_identity text NOT NULL,
-  build_receipt_identity text NOT NULL,
-  artifact_family_binding_identity text NOT NULL,
-  census_frontier_identity text NOT NULL,
-  frozen_json jsonb NOT NULL,
-  receipt_json jsonb NOT NULL,
-  lifecycle_state text NOT NULL DEFAULT 'FROZEN',
-  committed_at_epoch_ms bigint NOT NULL,
-  request_schema_version smallint NOT NULL DEFAULT 1,
-  v2_canonical_request_bytes bytea,
-  v2_meaning_digest text,
-  v2_seal_digest text,
-  v2_receipt_json jsonb
-);
-ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner;
-REVOKE ALL ON TABLE public.rd_exploratory_replay_request_custody_v1 FROM PUBLIC;
-GRANT SELECT, UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
-GRANT SELECT(request_identity), UPDATE(lifecycle_state)
-  ON TABLE public.rd_exploratory_replay_request_custody_v1 TO surprise_replay_grantee;
-INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
-  request_identity,
-  request_digest,
-  build_request_identity,
-  attempt_identity,
-  intent_identity,
-  trial_family_identity,
-  artifact_identity,
-  build_receipt_identity,
-  artifact_family_binding_identity,
-  census_frontier_identity,
-  frozen_json,
-  receipt_json,
-  lifecycle_state,
-  committed_at_epoch_ms,
-  request_schema_version
-) VALUES (
-  'internal-continuity-replay-v1',
-  'sha256:internal-continuity-request-v1',
-  'internal-continuity-build-v1',
-  'internal-continuity-attempt-v1',
-  'internal-continuity-intent-v1',
-  'internal-continuity-family-v1',
-  'sha256:internal-continuity-artifact-v1',
-  'internal-continuity-build-receipt-v1',
-  'internal-continuity-family-binding-v1',
-  'internal-continuity-census-v1',
-  pg_catalog.jsonb_build_object('kind','internal-custody-continuity','schema_version',1),
-  pg_catalog.jsonb_build_object('kind','internal-custody-continuity-receipt','schema_version',1),
-  'FROZEN',
-  1700000000000,
-  1
-);
 SQL
 
 legacy_replay_fingerprint() {
