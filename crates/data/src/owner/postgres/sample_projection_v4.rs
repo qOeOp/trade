@@ -82,6 +82,7 @@ impl MarketDataOwnerPostgres {
         let readback =
             persist_strategy_input_sample_projection_in_transaction_v4(&mut transaction, prepared)
                 .await?;
+
         if rollback {
             return Err(StrategyInputSampleProjectionErrorV4::CommitInterrupted);
         }
@@ -160,6 +161,7 @@ pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4(
     let stored = load(transaction, prepared.receipt_digest())
         .await?
         .ok_or(StrategyInputSampleProjectionErrorV4::CommitInterrupted)?;
+
     if stored.canonical_bytes() != prepared.canonical_bytes()
         || stored.kind() != prepared.kind()
         || stored.subject_identity() != prepared.subject_identity()

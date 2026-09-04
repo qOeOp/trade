@@ -101,6 +101,8 @@ pub use rd_owner_postgres_custody::{
 pub mod receipt;
 pub mod replay_execution_policy_v2;
 mod replay_policy_catalog_postgres_v2;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub mod replay_policy_catalog_sealed_acceptance_v2;
 mod replay_policy_catalog_v2;
 pub use replay_policy_catalog_postgres_v2::{
     ensure_authenticated_replay_policy_catalog_genesis_v1,

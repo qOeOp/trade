@@ -288,6 +288,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")
     );
+
     for coordinate in [
         "native_join.strategy_design_identity()",
         "native_join.join_identity()",
@@ -677,7 +678,7 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
         role_set.design_digest,
         role_set.canonical_design_digest,
         role_set.roles.clone(),
-        role_set.joins.clone(),
+        role_set.joins,
     )
     .unwrap();
     assert!(
