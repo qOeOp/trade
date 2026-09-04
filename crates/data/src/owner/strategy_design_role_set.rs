@@ -37,6 +37,7 @@ pub struct StrategyDesignNativeJoinReceiptV1 {
     composer_locator: StrategyDesignRoleSetLocatorV1,
     projection_receipt_digest: BindingDigest,
     joined_cut_digest: BindingDigest,
+    joined_cut_receipt_digest: BindingDigest,
     schedule_dependency_set_digest: BindingDigest,
     canonical_bytes: Vec<u8>,
     receipt_digest: BindingDigest,
@@ -66,12 +67,14 @@ impl StrategyDesignNativeJoinReceiptV1 {
         canonical_bytes.extend_from_slice(composer_locator.design_digest.as_bytes());
         canonical_bytes.extend_from_slice(projection_receipt_digest.as_bytes());
         canonical_bytes.extend_from_slice(native_join.joined_cut_digest().as_bytes());
+        canonical_bytes.extend_from_slice(native_join.joined_cut_receipt_digest().as_bytes());
         canonical_bytes.extend_from_slice(native_join.schedule_dependency_set_digest().as_bytes());
         let receipt_digest = domain_digest(NATIVE_JOIN_DOMAIN, &canonical_bytes);
         Ok(Self {
             composer_locator,
             projection_receipt_digest,
             joined_cut_digest: native_join.joined_cut_digest(),
+            joined_cut_receipt_digest: native_join.joined_cut_receipt_digest(),
             schedule_dependency_set_digest: native_join.schedule_dependency_set_digest(),
             canonical_bytes,
             receipt_digest,
@@ -84,6 +87,10 @@ impl StrategyDesignNativeJoinReceiptV1 {
 
     pub const fn joined_cut_digest(&self) -> BindingDigest {
         self.joined_cut_digest
+    }
+
+    pub const fn joined_cut_receipt_digest(&self) -> BindingDigest {
+        self.joined_cut_receipt_digest
     }
 
     pub const fn schedule_dependency_set_digest(&self) -> BindingDigest {
@@ -126,6 +133,7 @@ impl StrategyDesignNativeJoinReceiptV1 {
         let design_digest = decoder.digest()?;
         let projection_receipt_digest = decoder.digest()?;
         let joined_cut_digest = decoder.digest()?;
+        let joined_cut_receipt_digest = decoder.digest()?;
         let schedule_dependency_set_digest = decoder.digest()?;
         decoder.finish()?;
 
@@ -138,6 +146,7 @@ impl StrategyDesignNativeJoinReceiptV1 {
             || design_digest != expected_locator.design_digest
             || projection_receipt_digest.as_bytes() == &[0; 32]
             || joined_cut_digest.as_bytes() == &[0; 32]
+            || joined_cut_receipt_digest.as_bytes() == &[0; 32]
             || schedule_dependency_set_digest.as_bytes() == &[0; 32]
         {
             return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
@@ -146,6 +155,7 @@ impl StrategyDesignNativeJoinReceiptV1 {
             composer_locator: expected_locator.clone(),
             projection_receipt_digest,
             joined_cut_digest,
+            joined_cut_receipt_digest,
             schedule_dependency_set_digest,
             canonical_bytes: canonical_bytes.to_vec(),
             receipt_digest: expected_digest,

@@ -74,6 +74,7 @@ pub struct UntrustedComposerNativeJoinRequestV1 {
 pub struct AuthenticatedComposerNativeJoinV1 {
     locator: UntrustedStrategyInputSampleProjectionLocatorV4,
     joined_cut_digest: BindingDigest,
+    joined_cut_receipt_digest: BindingDigest,
     schedule_dependency_set_digest: BindingDigest,
 }
 
@@ -89,6 +90,11 @@ impl AuthenticatedComposerNativeJoinV1 {
     }
 
     #[must_use]
+    pub const fn joined_cut_receipt_digest(&self) -> BindingDigest {
+        self.joined_cut_receipt_digest
+    }
+
+    #[must_use]
     pub const fn schedule_dependency_set_digest(&self) -> BindingDigest {
         self.schedule_dependency_set_digest
     }
@@ -97,11 +103,13 @@ impl AuthenticatedComposerNativeJoinV1 {
     pub(in crate::owner) const fn from_owner_readback(
         locator: UntrustedStrategyInputSampleProjectionLocatorV4,
         joined_cut_digest: BindingDigest,
+        joined_cut_receipt_digest: BindingDigest,
         schedule_dependency_set_digest: BindingDigest,
     ) -> Self {
         Self {
             locator,
             joined_cut_digest,
+            joined_cut_receipt_digest,
             schedule_dependency_set_digest,
         }
     }
