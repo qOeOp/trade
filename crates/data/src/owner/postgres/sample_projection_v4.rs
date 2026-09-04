@@ -124,7 +124,7 @@ impl MarketDataOwnerPostgres {
             .bind(i64::from(prepared.component_count()))
             .bind(prepared.canonical_bytes())
             .bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|error| map_insert(&error))?;
+            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
         for (index, dependency) in prepared.dependencies().iter().enumerate() {
             insert_dependency(
                 &mut transaction,
@@ -136,10 +136,10 @@ impl MarketDataOwnerPostgres {
         }
         sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_readbacks_v4(receipt_digest,readback_bytes,custody_digest) VALUES($1,$2,$3)")
             .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|error| map_insert(&error))?;
+            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
         sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) VALUES($1,$2,$3)")
             .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|error| map_insert(&error))?;
+            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
         if rollback {
             return Err(StrategyInputSampleProjectionErrorV4::CommitInterrupted);
         }
@@ -453,7 +453,7 @@ async fn insert_dependency(
         .bind(dependency.binding_receipt_digest.as_slice()).bind(dependency.timeframe_projection_digest.as_slice())
         .bind(dependency.schedule_readback_identity.as_slice()).bind(dependency.schedule_fact_digest.as_slice())
         .bind(dependency.schedule_cut_identity.as_slice()).bind(dependency.schedule_cut_digest.as_slice())
-        .bind(dependency.schedule_receipt_identity.as_slice()).execute(&mut **transaction).await.map_err(|error| map_insert(&error))?;
+        .bind(dependency.schedule_receipt_identity.as_slice()).execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
     Ok(())
 }
 

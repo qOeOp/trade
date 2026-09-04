@@ -266,7 +266,7 @@ pub(super) async fn resolve_and_commit_observation_census_v1(
             &role_identities,
         )
         .await
-        .map_err(|error| map_registry_error(&error))?;
+        .map_err(|e| map_registry_error(&e))?;
     let (census, joined) = authority::issue_observation_census_and_joined_cut_v1(
         request,
         &bindings,
