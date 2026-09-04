@@ -2264,8 +2264,13 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
         handoff.locator().clone(),
     );
     let instrument = owner.resolve_instrument_master(&exact, None).await.unwrap();
-    let fixture =
-        strategy_input_binding_registry_postgres_oracle(&owner, &source, &instrument, &clock).await;
+    let fixture = Box::pin(strategy_input_binding_registry_postgres_oracle(
+        &owner,
+        &source,
+        &instrument,
+        &clock,
+    ))
+    .await;
     let coordinates = replay_reference_coordinates_v1(&fixture.r0);
     ReplayCompositionMarketBaseFixtureV1 {
         source,
