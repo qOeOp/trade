@@ -1000,6 +1000,19 @@ run_authority_migration() {
   run_authority_migration_for_database "$test_database"
 }
 
+wait_for_authority_fixture_recovery() {
+  local attempt=1
+  until docker exec "$container" pg_isready --username postgres \
+    --dbname "$test_database" > /dev/null 2>&1; do
+    if [[ "$attempt" -ge 30 ]]; then
+      echo "ERROR: isolated PostgreSQL did not recover after an expected authority-migration rejection." >&2
+      return 1
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+  done
+}
+
 verify_authority_lock_schema_sibling_fails_closed() {
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
@@ -1022,6 +1035,7 @@ SQL
     echo "ERROR: authority migration accepted a sibling in the authority-lock schema." >&2
     return 1
   fi
+  wait_for_authority_fixture_recovery
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
@@ -1056,6 +1070,7 @@ SQL
     echo "ERROR: authority migration accepted an object in the authority-lock schema." >&2
     return 1
   fi
+  wait_for_authority_fixture_recovery
 
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
