@@ -343,7 +343,8 @@ fn store_error<E>(_e: E) -> SessionErrorV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
+    use rstest::rstest;
+    #[rstest]
     fn schema_private_and_unregistered() {
         let s = SESSION_SCHEMA_V1.join("\n");
         assert_eq!(s.matches("REVOKE ALL ON TABLE").count(), 7);

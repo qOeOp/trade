@@ -325,8 +325,9 @@ fn extract_owner_observation(bytes: &[u8]) -> Result<i128, UniverseSelectionErro
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn schema_and_queries_require_one_caller_transaction_and_complete_manifest() {
         assert!(
             UNIVERSE_SELECTION_SCHEMA_V1
@@ -345,7 +346,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn aggregate_cap_rejects_overflow() {
         assert_eq!(MAX_UNIVERSE_SELECTION_AGGREGATE_BYTES_V1, 8 * 1024 * 1024);
     }

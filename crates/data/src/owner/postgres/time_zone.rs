@@ -317,7 +317,8 @@ fn store_error<E>(_error: E) -> TimeZoneErrorV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
+    use rstest::rstest;
+    #[rstest]
     fn schema_is_private_complete_and_unregistered() {
         let schema = TIME_ZONE_SCHEMA_V1.join("\n");
         for relation in [

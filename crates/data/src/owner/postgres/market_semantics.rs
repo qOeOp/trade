@@ -496,8 +496,9 @@ fn store_error(_: impl std::fmt::Debug) -> MarketSemanticsErrorV1 {
 #[cfg(test)]
 mod tests {
     use super::MARKET_SEMANTICS_SCHEMA_V1;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn schema_is_private_write_once_and_outbox_equals_receipt_identity() {
         let schema = MARKET_SEMANTICS_SCHEMA_V1.join("\n");
         assert!(schema.contains("market_semantics_facts_v1"));

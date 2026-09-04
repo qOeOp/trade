@@ -462,6 +462,7 @@ mod tests {
         },
         source_binding::BindingDigest,
     };
+    use rstest::rstest;
 
     fn frame_fixture() -> (
         DecodedStrategyInputSampleProjectionV3,
@@ -503,7 +504,7 @@ mod tests {
         (projection, dependencies)
     }
 
-    #[test]
+    #[rstest]
     fn frame_codec_binds_exact_v3_component_and_schedule_set() {
         let (projection, dependencies) = frame_fixture();
         let prepared = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
@@ -537,7 +538,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn schedule_or_component_substitution_changes_or_rejects_identity() {
         let (projection, mut dependencies) = frame_fixture();
         let original = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
@@ -560,7 +561,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest]
     fn decoder_rejects_kind_lifecycle_reserved_count_and_trailing_bytes() {
         let (projection, dependencies) = frame_fixture();
         let prepared = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {

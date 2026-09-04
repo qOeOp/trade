@@ -881,6 +881,7 @@ fn digest(domain: &[u8], bytes: &[u8]) -> R0IdentityV1 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn id(byte: u8) -> R0IdentityV1 {
         R0IdentityV1::from_untrusted_bytes([byte; 32])
@@ -943,7 +944,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn durable_r0_round_trip_rehashes_complete_aggregate() {
         let request = request();
         let (record, cut) = issue_record_and_cut_v1(&request, evidence()).unwrap();
@@ -953,7 +954,7 @@ mod tests {
         assert_eq!(recovered.outbox_identity(), recovered.receipt().identity());
     }
 
-    #[test]
+    #[rstest]
     fn request_meaning_binds_every_repeated_scalar() {
         let request = request();
         for changed in [

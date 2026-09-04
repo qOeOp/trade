@@ -1,4 +1,5 @@
 use super::{authority, codec, *};
+use rstest::rstest;
 
 fn id(byte: u8) -> MarketSemanticsIdentity {
     MarketSemanticsIdentity::from_untrusted_bytes([byte; 32])
@@ -105,7 +106,7 @@ fn readback() -> MarketSemanticsReadbackV1 {
     authority::issue_readback_v1(fact, cut, id(50), 1, proposal.stable_correlation).unwrap()
 }
 
-#[test]
+#[rstest]
 fn exact_readback_round_trip_verifies_every_nested_domain() {
     let readback = readback();
     let decoded = authority::decode_and_verify_readback_v1(readback.canonical_bytes()).unwrap();
@@ -113,7 +114,7 @@ fn exact_readback_round_trip_verifies_every_nested_domain() {
     assert_eq!(readback.outbox_identity(), readback.receipt().identity());
 }
 
-#[test]
+#[rstest]
 fn request_meaning_excludes_idempotency_key_but_binds_locators() {
     let original = proposal();
     let mut changed_key = original.clone();
@@ -130,7 +131,7 @@ fn request_meaning_excludes_idempotency_key_but_binds_locators() {
     );
 }
 
-#[test]
+#[rstest]
 fn first_leaf_rejects_later_replay_consumer() {
     let mut proposal = proposal();
     proposal.consumer = MarketSemanticsConsumerV1::ReplayMarketFactsV2;
@@ -141,7 +142,7 @@ fn first_leaf_rejects_later_replay_consumer() {
     );
 }
 
-#[test]
+#[rstest]
 fn untrusted_typed_value_cannot_override_registry() {
     let mut proposal = proposal();
     proposal.value.price_adjustment = MarketSemanticsPriceAdjustmentV1::SplitAdjusted;
@@ -152,7 +153,7 @@ fn untrusted_typed_value_cannot_override_registry() {
     );
 }
 
-#[test]
+#[rstest]
 fn trailing_or_tampered_custody_fails_closed() {
     let readback = readback();
     let mut trailing = readback.canonical_bytes().to_vec();
@@ -167,7 +168,7 @@ fn trailing_or_tampered_custody_fails_closed() {
     );
 }
 
-#[test]
+#[rstest]
 fn unknown_closed_enum_tag_is_rejected() {
     let fact = readback().facts()[0].clone();
     let mut bytes = fact.canonical_bytes().to_vec();
@@ -180,7 +181,7 @@ fn unknown_closed_enum_tag_is_rejected() {
     );
 }
 
-#[test]
+#[rstest]
 fn generation_changes_receipt_and_outbox_remains_receipt() {
     let proposal = proposal();
     let inputs = inputs();
@@ -192,7 +193,7 @@ fn generation_changes_receipt_and_outbox_remains_receipt() {
     assert_eq!(second.outbox_identity(), second.receipt().identity());
 }
 
-#[test]
+#[rstest]
 fn correction_requires_current_direct_advancing_successor() {
     let first = readback().facts()[0].clone();
     let mut proposal = proposal();

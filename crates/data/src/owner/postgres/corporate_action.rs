@@ -221,7 +221,8 @@ fn store_error(_: impl std::fmt::Debug) -> CorporateActionErrorV1 {
 #[cfg(test)]
 mod tests {
     use super::CORPORATE_ACTION_SCHEMA_V1;
-    #[test]
+    use rstest::rstest;
+    #[rstest]
     fn schema_is_private_write_once_complete_and_outbox_equals_receipt() {
         let schema = CORPORATE_ACTION_SCHEMA_V1.join("\n");
         for name in [

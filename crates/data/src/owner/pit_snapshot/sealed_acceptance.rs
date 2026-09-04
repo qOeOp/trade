@@ -682,8 +682,9 @@ fn exact_binding_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn exact_instrument_six_bar_frame_is_stable_and_complete() {
         let first = issue_strategy_input_exact_instrument_bar_frame().expect("exact BAR frame");
         let repeated = issue_strategy_input_exact_instrument_bar_frame().expect("stable replay");

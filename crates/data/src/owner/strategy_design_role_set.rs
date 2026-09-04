@@ -702,6 +702,7 @@ impl<'a> Decoder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
 
     fn d(value: u8) -> BindingDigest {
         BindingDigest::from_untrusted_bytes([value; 32])
@@ -723,7 +724,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn integrity_requires_sorted_complete_role_and_join_coordinates() {
         let locator = StrategyDesignRoleSetLocatorV1 {
             schema_version: 2,

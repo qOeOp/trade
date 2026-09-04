@@ -917,7 +917,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest]
     fn postgres_commit_response_loss_is_typed_submitted_or_unknown() {
         let request = request();
         let result = commit_owner_result(&request, draft(&request)).expect("sealed result");

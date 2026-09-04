@@ -12,6 +12,7 @@ use crate::owner::{
         VerifiedTimeZoneDependenciesV1,
     },
 };
+use rstest::rstest;
 
 fn d(value: u8) -> SessionIdentityV1 {
     SessionIdentityV1::from_untrusted_bytes([value; 32])
@@ -248,7 +249,7 @@ fn instrument() -> InstrumentMasterReferenceV1 {
     }
 }
 
-#[test]
+#[rstest]
 fn request_meaning_binds_exact_native_locators_and_instrument_reference() {
     let baseline = authority::request_meaning_digest_v1(&request(), &instrument()).unwrap();
     let mut changed = request();
@@ -265,7 +266,7 @@ fn request_meaning_binds_exact_native_locators_and_instrument_reference() {
     );
 }
 
-#[test]
+#[rstest]
 fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
     let calendar = calendar(true);
     let time_zone = time_zone(0, 0);
@@ -313,7 +314,7 @@ fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
     );
 }
 
-#[test]
+#[rstest]
 fn fold_requires_authenticated_choice_and_gap_never_shifts() {
     let unique = time_zone(0, 0);
     let unique_boundary = LocalBoundaryV1 {
@@ -363,7 +364,7 @@ fn fold_requires_authenticated_choice_and_gap_never_shifts() {
     );
 }
 
-#[test]
+#[rstest]
 fn census_requires_closed_zero_members_and_open_contiguous_ordinals() {
     assert!(
         authority::validate_census(&request(), &calendar(false), &[]).unwrap()[0]
@@ -435,7 +436,7 @@ fn empty_prepared() -> PreparedSessionResolutionV1 {
     }
 }
 
-#[test]
+#[rstest]
 fn all_closed_cut_round_trips_with_generation_bound_receipt_outbox() {
     let left = authority::seal_readback_v1(empty_prepared(), d(61), 1).unwrap();
     assert!(left.facts().is_empty());
@@ -448,7 +449,7 @@ fn all_closed_cut_round_trips_with_generation_bound_receipt_outbox() {
     assert_ne!(left.receipt.identity, right.receipt.identity);
 }
 
-#[test]
+#[rstest]
 fn corrupt_missing_and_extra_bytes_fail_closed() {
     let readback = authority::seal_readback_v1(empty_prepared(), d(61), 1).unwrap();
     let mut corrupt = readback.canonical_bytes().to_vec();
