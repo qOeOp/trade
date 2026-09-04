@@ -1013,6 +1013,20 @@ wait_for_authority_fixture_recovery() {
   done
 }
 
+expect_authority_migration_topology_rejection() {
+  local rejection_output
+  if rejection_output="$(run_authority_migration_for_database "$test_database" 2>&1)"; then
+    printf '%s\n' "$rejection_output"
+    echo "ERROR: authority migration accepted a poisoned topology." >&2
+    return 1
+  fi
+  printf '%s\n' "$rejection_output"
+  if [[ "$rejection_output" != *'ERROR:  Backtest Result topology mismatch'* ]]; then
+    echo "ERROR: authority migration failed without the expected topology rejection." >&2
+    return 1
+  fi
+}
+
 verify_authority_lock_schema_sibling_fails_closed() {
   docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
     --username postgres --dbname "$test_database" << 'SQL'
@@ -1024,7 +1038,7 @@ SET search_path = pg_catalog, pg_temp AS 'SELECT true';
 COMMIT;
 SQL
 
-  if run_authority_migration_for_database "$test_database"; then
+  if ! expect_authority_migration_topology_rejection; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
@@ -1032,7 +1046,6 @@ SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backte
 DROP FUNCTION IF EXISTS backtest_authority_lock_api.poisoned_sibling_v1();
 COMMIT;
 SQL
-    echo "ERROR: authority migration accepted a sibling in the authority-lock schema." >&2
     return 1
   fi
   wait_for_authority_fixture_recovery
@@ -1059,7 +1072,7 @@ GRANT SELECT ON TABLE backtest_authority_lock_api.poisoned_relation_v1 TO PUBLIC
 COMMIT;
 SQL
 
-  if run_authority_migration_for_database "$test_database"; then
+  if ! expect_authority_migration_topology_rejection; then
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
@@ -1067,7 +1080,6 @@ SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backte
 DROP TABLE IF EXISTS backtest_authority_lock_api.poisoned_relation_v1;
 COMMIT;
 SQL
-    echo "ERROR: authority migration accepted an object in the authority-lock schema." >&2
     return 1
   fi
   wait_for_authority_fixture_recovery
