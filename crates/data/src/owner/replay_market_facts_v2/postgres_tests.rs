@@ -134,7 +134,7 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
         .nth(1)
         .expect("single outer transaction finalizer");
     let success = finalizer
-        .split("Err(error) =>")
+        .split("Err(operation_error) =>")
         .next()
         .expect("success terminal branch");
     assert!(
@@ -146,7 +146,7 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
                 .expect("reader release after Market commit")
     );
     let failure = finalizer
-        .split("Err(error) =>")
+        .split("Err(operation_error) =>")
         .nth(1)
         .expect("failure terminal branch");
     assert!(
@@ -157,7 +157,7 @@ fn owner_transactions_are_explicitly_terminal_before_reader_release() {
                 .find("let reader_terminal = reader_transaction.rollback().await;")
                 .expect("reader release after Market rollback")
     );
-    assert!(failure.contains("Err(error)"));
+    assert!(failure.contains("Err(operation_error)"));
 }
 
 #[rstest]
@@ -499,9 +499,10 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
     let admin = database.owner_topology_admin_pool();
-    let base = replay_composition_market_base_fixture_v1(&owner_url, &reader_url, admin).await;
-    let market = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
-    let joined = persist_replay_joined_projection_fixture_v1(&market, &base).await;
+    let base =
+        Box::pin(replay_composition_market_base_fixture_v1(owner_url, reader_url, admin)).await;
+    let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
+    let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
     let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
     let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
         source_binding: &base.source_readback,
@@ -655,7 +656,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
     let owner = Arc::new(
-        ReplayCompositionOwnerV1::connect(&owner_url, &reader_url)
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
             .unwrap(),
     );

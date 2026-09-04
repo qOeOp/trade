@@ -546,12 +546,12 @@ impl ReplayCompositionOwnerV1 {
         .await;
         let (reader_challenge, authenticated_role_set, native_join) = match reader_preflight {
             Ok(preflight) => preflight,
-            Err(error) => {
+            Err(operation_error) => {
                 reader_transaction
                     .rollback()
                     .await
                     .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-                return Err(error);
+                return Err(operation_error);
             }
         };
         let receipt = authenticated_role_set.receipt();
@@ -1012,13 +1012,13 @@ impl ReplayCompositionOwnerV1 {
                     Ok(response)
                 }
             }
-            Err(error) => {
+            Err(operation_error) => {
                 let market_terminal = transaction.rollback().await;
                 let reader_terminal = reader_transaction.rollback().await;
                 if market_terminal.is_err() || reader_terminal.is_err() {
                     Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
                 } else {
-                    Err(error)
+                    Err(operation_error)
                 }
             }
         }
