@@ -25,6 +25,246 @@ const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
+const RESULT_TABLE_CENSUS_QUERY: &str = "
+WITH family AS (
+  SELECT relation.oid,relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+   WHERE namespace.nspname='public'
+     AND relation.relname IN (
+       'backtest_replay_results_v2',
+       'backtest_replay_result_receipts_v1',
+       'backtest_replay_result_outbox_v1'
+     )
+)
+SELECT
+  (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+            relation.relkind='r'
+        AND relation.relpersistence='p'
+        AND access_method.amname='heap'
+        AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian'
+        AND NOT relation.relrowsecurity
+        AND NOT relation.relforcerowsecurity
+        AND relation.relreplident='d'
+        AND NOT relation.relispartition
+        AND relation.reltablespace=0
+        AND relation.reloptions IS NULL
+      )
+     FROM family
+     JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+     JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam)
+  AND NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE namespace.nspname<>'public'
+       AND relation.relname IN (
+         'backtest_replay_results_v2',
+         'backtest_replay_result_receipts_v1',
+         'backtest_replay_result_outbox_v1'
+       )
+  )
+  AND (SELECT pg_catalog.count(*)=31 AND NOT pg_catalog.bool_or(
+        (family.relname,attribute.attnum,attribute.attname,
+         pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull)
+        NOT IN (VALUES
+          ('backtest_replay_results_v2',1::smallint,'result_identity','text',true),
+          ('backtest_replay_results_v2',2::smallint,'result_digest','text',true),
+          ('backtest_replay_results_v2',3::smallint,'request_identity','text',true),
+          ('backtest_replay_results_v2',4::smallint,'request_meaning_digest','text',true),
+          ('backtest_replay_results_v2',5::smallint,'attempt_identity','text',true),
+          ('backtest_replay_results_v2',6::smallint,'terminal','text',true),
+          ('backtest_replay_results_v2',7::smallint,'canonical_bytes','bytea',true),
+          ('backtest_replay_results_v2',8::smallint,'canonical_bytes_blake3','text',true),
+          ('backtest_replay_result_receipts_v1',1::smallint,'result_identity','text',true),
+          ('backtest_replay_result_receipts_v1',2::smallint,'receipt_identity','text',true),
+          ('backtest_replay_result_receipts_v1',3::smallint,'receipt_digest','text',true),
+          ('backtest_replay_result_receipts_v1',4::smallint,'request_identity','text',true),
+          ('backtest_replay_result_receipts_v1',5::smallint,'request_meaning_digest','text',true),
+          ('backtest_replay_result_receipts_v1',6::smallint,'result_digest','text',true),
+          ('backtest_replay_result_receipts_v1',7::smallint,'namespace','text',true),
+          ('backtest_replay_result_receipts_v1',8::smallint,'outbox_event_identity','text',true),
+          ('backtest_replay_result_receipts_v1',9::smallint,'committed_at_epoch_ms','bigint',true),
+          ('backtest_replay_result_receipts_v1',10::smallint,'canonical_bytes','bytea',true),
+          ('backtest_replay_result_receipts_v1',11::smallint,'canonical_bytes_blake3','text',true),
+          ('backtest_replay_result_outbox_v1',1::smallint,'result_identity','text',true),
+          ('backtest_replay_result_outbox_v1',2::smallint,'event_identity','text',true),
+          ('backtest_replay_result_outbox_v1',3::smallint,'event_digest','text',true),
+          ('backtest_replay_result_outbox_v1',4::smallint,'receipt_identity','text',true),
+          ('backtest_replay_result_outbox_v1',5::smallint,'request_identity','text',true),
+          ('backtest_replay_result_outbox_v1',6::smallint,'request_meaning_digest','text',true),
+          ('backtest_replay_result_outbox_v1',7::smallint,'result_digest','text',true),
+          ('backtest_replay_result_outbox_v1',8::smallint,'namespace','text',true),
+          ('backtest_replay_result_outbox_v1',9::smallint,'payload_digest','text',true),
+          ('backtest_replay_result_outbox_v1',10::smallint,'committed_at_epoch_ms','bigint',true),
+          ('backtest_replay_result_outbox_v1',11::smallint,'canonical_bytes','bytea',true),
+          ('backtest_replay_result_outbox_v1',12::smallint,'canonical_bytes_blake3','text',true)
+        )
+        OR attribute.atthasdef
+        OR attribute.attidentity<>''
+        OR attribute.attgenerated<>''
+        OR attribute.attacl IS NOT NULL
+        OR attribute.attcollation<>attribute_type.typcollation
+        OR attribute.attndims<>0
+        OR NOT attribute.attislocal
+        OR attribute.attinhcount<>0
+      )
+     FROM family
+     JOIN pg_catalog.pg_attribute attribute
+       ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+     JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid)
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_attribute attribute
+     WHERE attribute.attrelid IN (SELECT oid FROM family)
+       AND attribute.attnum>0 AND attribute.attisdropped
+  )
+  AND (SELECT pg_catalog.count(*)=8 AND NOT pg_catalog.bool_or(
+        (family.relname,constraint_fact.contype::pg_catalog.text,
+         pg_catalog.array_to_string(constraint_fact.conkey,' '))
+        NOT IN (VALUES
+          ('backtest_replay_results_v2','p','1'),
+          ('backtest_replay_results_v2','u','3 5'),
+          ('backtest_replay_result_receipts_v1','p','1'),
+          ('backtest_replay_result_receipts_v1','u','2'),
+          ('backtest_replay_result_receipts_v1','u','8'),
+          ('backtest_replay_result_outbox_v1','p','1'),
+          ('backtest_replay_result_outbox_v1','u','2'),
+          ('backtest_replay_result_outbox_v1','u','4')
+        )
+        OR constraint_fact.condeferrable
+        OR constraint_fact.condeferred
+        OR NOT constraint_fact.convalidated
+        OR NOT constraint_fact.connoinherit
+        OR NOT constraint_fact.conislocal
+        OR constraint_fact.coninhcount<>0
+      )
+     FROM pg_catalog.pg_constraint constraint_fact
+     JOIN family ON family.oid=constraint_fact.conrelid
+    WHERE constraint_fact.contype IN ('p','u'))
+  AND (SELECT pg_catalog.count(*)=5 AND NOT pg_catalog.bool_or(
+        (family.relname,pg_catalog.pg_get_expr(
+          constraint_fact.conbin,constraint_fact.conrelid,false
+        ))
+        NOT IN (VALUES
+          ('backtest_replay_results_v2',
+           '(terminal = ANY (ARRAY[''RUN_REJECTED''::text, ''TERMINAL_RESULT''::text, ''INVALID_REPLAY_EVIDENCE''::text]))'),
+          ('backtest_replay_result_receipts_v1','(namespace = ''EXPLORATORY''::text)'),
+          ('backtest_replay_result_receipts_v1','(committed_at_epoch_ms >= 0)'),
+          ('backtest_replay_result_outbox_v1','(namespace = ''EXPLORATORY''::text)'),
+          ('backtest_replay_result_outbox_v1','(committed_at_epoch_ms >= 0)')
+        )
+        OR constraint_fact.condeferrable
+        OR constraint_fact.condeferred
+        OR NOT constraint_fact.convalidated
+        OR constraint_fact.connoinherit
+        OR NOT constraint_fact.conislocal
+        OR constraint_fact.coninhcount<>0
+      )
+     FROM pg_catalog.pg_constraint constraint_fact
+     JOIN family ON family.oid=constraint_fact.conrelid
+    WHERE constraint_fact.contype='c')
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+     WHERE constraint_fact.conrelid IN (SELECT oid FROM family)
+       AND constraint_fact.contype NOT IN ('p','u','c')
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+     WHERE constraint_fact.confrelid IN (SELECT oid FROM family)
+  )
+  AND (SELECT pg_catalog.count(*)=8 AND NOT pg_catalog.bool_or(
+        (family.relname,index_fact.indisprimary,
+         pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
+        NOT IN (VALUES
+          ('backtest_replay_results_v2',true,'1'),
+          ('backtest_replay_results_v2',false,'3 5'),
+          ('backtest_replay_result_receipts_v1',true,'1'),
+          ('backtest_replay_result_receipts_v1',false,'2'),
+          ('backtest_replay_result_receipts_v1',false,'8'),
+          ('backtest_replay_result_outbox_v1',true,'1'),
+          ('backtest_replay_result_outbox_v1',false,'2'),
+          ('backtest_replay_result_outbox_v1',false,'4')
+        )
+        OR NOT index_fact.indisunique
+        OR index_fact.indisexclusion
+        OR NOT index_fact.indimmediate
+        OR index_fact.indisclustered
+        OR NOT index_fact.indisvalid
+        OR NOT index_fact.indisready
+        OR NOT index_fact.indislive
+        OR index_fact.indisreplident
+        OR index_fact.indnullsnotdistinct
+        OR index_fact.indnkeyatts<>index_fact.indnatts
+        OR index_fact.indexprs IS NOT NULL
+        OR index_fact.indpred IS NOT NULL
+        OR index_relation.relkind<>'i'
+        OR index_relation.relpersistence<>'p'
+        OR index_relation.reltablespace<>0
+        OR index_relation.reloptions IS NOT NULL
+        OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'backtest_custodian'
+        OR index_method.amname<>'btree'
+        OR NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+           WHERE constraint_fact.conindid=index_relation.oid
+        )
+        OR EXISTS (
+          SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value
+           WHERE option_value<>0
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid
+            JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid
+           WHERE NOT operator_class.opcdefault
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM pg_catalog.unnest(index_fact.indkey::smallint[])
+                 WITH ORDINALITY key_fact(attnum,ordinality)
+            JOIN pg_catalog.unnest(index_fact.indcollation::oid[])
+                 WITH ORDINALITY collation_fact(collation_oid,ordinality)
+              USING(ordinality)
+            JOIN pg_catalog.pg_attribute attribute
+              ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+           WHERE collation_fact.collation_oid<>attribute.attcollation
+        )
+      )
+     FROM pg_catalog.pg_index index_fact
+     JOIN family ON family.oid=index_fact.indrelid
+     JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+     JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_trigger trigger_fact
+     WHERE trigger_fact.tgrelid IN (SELECT oid FROM family)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_policy policy
+     WHERE policy.polrelid IN (SELECT oid FROM family)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_rewrite rewrite
+     WHERE rewrite.ev_class IN (SELECT oid FROM family)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_inherits inheritance
+     WHERE inheritance.inhrelid IN (SELECT oid FROM family)
+        OR inheritance.inhparent IN (SELECT oid FROM family)
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_publication_rel publication
+     WHERE publication.prrelid IN (SELECT oid FROM family)
+  )
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication publication WHERE publication.puballtables)
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_publication_namespace publication_namespace
+     JOIN pg_catalog.pg_namespace namespace ON namespace.oid=publication_namespace.pnnspid
+    WHERE namespace.nspname='public'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_statistic_ext statistic
+     WHERE statistic.stxrelid IN (SELECT oid FROM family)
+  )
+";
 
 /// A caller-owned lookup. It carries no Result authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,7 +337,7 @@ pub async fn resolve_exploratory_replay_result_v2(
     .bind(locator.attempt_identity)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|error| storage(&error))?;
+    .map_err(|e| storage(&e))?;
     envelope
         .map(|value| validate_envelope(value, locator))
         .transpose()
@@ -113,7 +353,7 @@ pub async fn validate_backtest_result_writer_topology_v2(
     )
     .execute(&mut **transaction)
     .await
-    .map_err(|error| storage(&error))?;
+    .map_err(|e| storage(&e))?;
     validate_topology(transaction, "backtest_owner").await?;
     Ok(())
 }
@@ -127,7 +367,7 @@ async fn acquire_topology_fence(
     .bind(TOPOLOGY_FENCE)
     .execute(&mut **transaction)
     .await
-    .map_err(|error| storage(&error))?;
+    .map_err(|e| storage(&e))?;
     let exact_lock: bool = sqlx::query_scalar(
         "SELECT CASE WHEN
           (SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='postgres'
@@ -182,7 +422,7 @@ async fn acquire_topology_fence(
     .bind(AUTHORITY_LOCK_FUNCTION)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|error| storage(&error))?;
+    .map_err(|e| storage(&e))?;
     if !exact_lock {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }
@@ -193,6 +433,13 @@ async fn validate_topology(
     transaction: &mut Transaction<'_, Postgres>,
     expected_principal: &str,
 ) -> Result<(), BacktestResultCustodyErrorV2> {
+    let exact_census: bool = sqlx::query_scalar(RESULT_TABLE_CENSUS_QUERY)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+    if !exact_census {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
     let exact: bool = sqlx::query_scalar(
         "SELECT session_user=$3 AND current_user=$3
         AND (SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)='backtest_custodian'
@@ -242,7 +489,7 @@ async fn validate_topology(
     .bind(expected_principal)
     .fetch_one(&mut **transaction)
     .await
-    .map_err(|error| storage(&error))?;
+    .map_err(|e| storage(&e))?;
     if exact {
         Ok(())
     } else {
@@ -541,6 +788,59 @@ mod tests {
 
     use super::*;
 
+    #[derive(Serialize)]
+    struct ResultDigestPreimageV2<'a> {
+        schema_version: u16,
+        request_identity: &'a OpaqueIdentityV2,
+        request_meaning_digest: &'a CanonicalDigestV2,
+        namespace: ReplayNamespaceV2,
+        replay_authority: &'a ReplayAuthorityClaimV2,
+        attempt_identity: &'a OpaqueIdentityV2,
+        terminal: ReplayTerminalV2,
+        reconciliation: &'a [ReconciliationAtomDtoV2],
+        semantic_trace:
+            Option<&'a vibe_backtest_owner_contracts::ConsumedComponentObservationDtoV2>,
+        diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
+    }
+
+    #[test]
+    fn topology_census_requires_durable_heap_tables_and_indexes() {
+        assert!(RESULT_TABLE_CENSUS_QUERY.contains("relation.relpersistence='p'"));
+        assert!(RESULT_TABLE_CENSUS_QUERY.contains("access_method.amname='heap'"));
+        assert!(RESULT_TABLE_CENSUS_QUERY.contains("index_relation.relpersistence<>'p'"));
+        assert!(RESULT_TABLE_CENSUS_QUERY.contains("index_method.amname<>'btree'"));
+    }
+
+    #[test]
+    fn topology_census_rejects_after_insert_trigger_drift() {
+        assert!(RESULT_TABLE_CENSUS_QUERY.contains(
+            "SELECT 1 FROM pg_catalog.pg_trigger trigger_fact\n     WHERE trigger_fact.tgrelid IN (SELECT oid FROM family)"
+        ));
+        assert!(!RESULT_TABLE_CENSUS_QUERY.contains("NOT trigger_fact.tgisinternal"));
+    }
+
+    #[test]
+    fn topology_census_covers_exact_structural_boundaries() {
+        for required in [
+            "pg_catalog.count(*)=31",
+            "pg_catalog.count(*)=8",
+            "pg_catalog.count(*)=5",
+            "constraint_fact.contype NOT IN ('p','u','c')",
+            "constraint_fact.confrelid IN (SELECT oid FROM family)",
+            "pg_catalog.pg_rewrite",
+            "pg_catalog.pg_inherits",
+            "pg_catalog.pg_publication_rel",
+            "pg_catalog.pg_publication_namespace",
+            "pg_catalog.pg_statistic_ext",
+            "namespace.nspname<>'public'",
+        ] {
+            assert!(
+                RESULT_TABLE_CENSUS_QUERY.contains(required),
+                "missing {required}"
+            );
+        }
+    }
+
     fn identity(value: impl Into<String>) -> OpaqueIdentityV2 {
         OpaqueIdentityV2::try_from(value.into()).expect("fixture identity")
     }
@@ -600,20 +900,6 @@ mod tests {
             diagnostic_census,
         };
 
-        #[derive(Serialize)]
-        struct ResultDigestPreimageV2<'a> {
-            schema_version: u16,
-            request_identity: &'a OpaqueIdentityV2,
-            request_meaning_digest: &'a CanonicalDigestV2,
-            namespace: ReplayNamespaceV2,
-            replay_authority: &'a ReplayAuthorityClaimV2,
-            attempt_identity: &'a OpaqueIdentityV2,
-            terminal: ReplayTerminalV2,
-            reconciliation: &'a [ReconciliationAtomDtoV2],
-            semantic_trace:
-                Option<&'a vibe_backtest_owner_contracts::ConsumedComponentObservationDtoV2>,
-            diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
-        }
         let preimage = ResultDigestPreimageV2 {
             schema_version: result.schema_version,
             request_identity: &result.request_identity,
