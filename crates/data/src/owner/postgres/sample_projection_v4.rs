@@ -69,12 +69,6 @@ impl MarketDataOwnerPostgres {
         rollback: bool,
         response_loss: bool,
     ) -> Result<StrategyInputSampleProjectionReadbackV4, StrategyInputSampleProjectionErrorV4> {
-        let decoded = decode_v4(prepared.canonical_bytes(), prepared.receipt_digest())?;
-        if schedule_set_digest(prepared.dependencies()) != prepared.schedule_dependency_set_digest()
-            || prepared.dependencies().len() != prepared.component_count() as usize
-        {
-            return Err(StrategyInputSampleProjectionErrorV4::ScheduleDependencyMismatch);
-        }
         let mut transaction = self
             .pool
             .begin()
@@ -84,63 +78,9 @@ impl MarketDataOwnerPostgres {
             .execute(&mut *transaction)
             .await
             .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?;
-        lock(&mut transaction, prepared.receipt_digest()).await?;
-        if prepared.kind()
-            == crate::owner::sample_projection_v4::StrategyInputSampleProjectionKindV4::JoinedCut
-        {
-            validate_joined_subject(&mut transaction, &decoded).await?;
-        }
-        validate_v3_dependencies(&mut transaction, prepared.dependencies()).await?;
-        validate_exact_v3_components(&mut transaction, &decoded, prepared.dependencies()).await?;
-        if let Some(existing) = load(&mut transaction, prepared.receipt_digest()).await? {
-            if existing.canonical_bytes() != prepared.canonical_bytes()
-                || existing.kind() != prepared.kind()
-                || existing.subject_identity() != prepared.subject_identity()
-                || existing.schedule_dependency_set_digest()
-                    != prepared.schedule_dependency_set_digest()
-            {
-                return Err(StrategyInputSampleProjectionErrorV4::IdentityConflict);
-            }
-            transaction
-                .commit()
-                .await
-                .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?;
-            return if response_loss {
-                Err(StrategyInputSampleProjectionErrorV4::ResponseLost)
-            } else {
-                Ok(existing)
-            };
-        }
-        let custody = custody_digest(
-            prepared.receipt_digest(),
-            prepared.canonical_bytes(),
-            prepared.schedule_dependency_set_digest(),
-        );
-        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v4(receipt_digest,kind,lifecycle,subject_identity,schedule_dependency_set_digest,component_count,receipt_bytes,custody_digest) VALUES($1,$2,2,$3,$4,$5,$6,$7)")
-            .bind(prepared.receipt_digest().as_slice())
-            .bind(i16::from(prepared.kind() as u8))
-            .bind(prepared.subject_identity().as_slice())
-            .bind(prepared.schedule_dependency_set_digest().as_slice())
-            .bind(i64::from(prepared.component_count()))
-            .bind(prepared.canonical_bytes())
-            .bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
-
-        for (index, dependency) in prepared.dependencies().iter().enumerate() {
-            insert_dependency(
-                &mut transaction,
-                prepared.receipt_digest(),
-                index,
-                dependency,
-            )
-            .await?;
-        }
-        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_readbacks_v4(receipt_digest,readback_bytes,custody_digest) VALUES($1,$2,$3)")
-            .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
-        sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) VALUES($1,$2,$3)")
-            .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
-            .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
+        let readback =
+            persist_strategy_input_sample_projection_in_transaction_v4(&mut transaction, prepared)
+                .await?;
         if rollback {
             return Err(StrategyInputSampleProjectionErrorV4::CommitInterrupted);
         }
@@ -151,9 +91,7 @@ impl MarketDataOwnerPostgres {
         if response_loss {
             Err(StrategyInputSampleProjectionErrorV4::ResponseLost)
         } else {
-            Ok(StrategyInputSampleProjectionReadbackV4::from_verified(
-                decoded,
-            ))
+            Ok(readback)
         }
     }
 
@@ -163,6 +101,64 @@ impl MarketDataOwnerPostgres {
     ) -> Result<StrategyInputSampleProjectionReadbackV4, StrategyInputSampleProjectionErrorV4> {
         resolve_from_pool(&self.pool, locator.receipt_digest()).await
     }
+}
+
+pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &PreparedStrategyInputSampleProjectionV4,
+) -> Result<StrategyInputSampleProjectionReadbackV4, StrategyInputSampleProjectionErrorV4> {
+    let decoded = decode_v4(prepared.canonical_bytes(), prepared.receipt_digest())?;
+    if schedule_set_digest(prepared.dependencies()) != prepared.schedule_dependency_set_digest()
+        || prepared.dependencies().len() != prepared.component_count() as usize
+    {
+        return Err(StrategyInputSampleProjectionErrorV4::ScheduleDependencyMismatch);
+    }
+    lock(transaction, prepared.receipt_digest()).await?;
+    if prepared.kind()
+        == crate::owner::sample_projection_v4::StrategyInputSampleProjectionKindV4::JoinedCut
+    {
+        validate_joined_subject(transaction, &decoded).await?;
+    }
+    validate_v3_dependencies(transaction, prepared.dependencies()).await?;
+    validate_exact_v3_components(transaction, &decoded, prepared.dependencies()).await?;
+    if let Some(existing) = load(transaction, prepared.receipt_digest()).await? {
+        if existing.canonical_bytes() != prepared.canonical_bytes()
+            || existing.kind() != prepared.kind()
+            || existing.subject_identity() != prepared.subject_identity()
+            || existing.schedule_dependency_set_digest()
+                != prepared.schedule_dependency_set_digest()
+        {
+            return Err(StrategyInputSampleProjectionErrorV4::IdentityConflict);
+        }
+        return Ok(existing);
+    }
+    let custody = custody_digest(
+        prepared.receipt_digest(),
+        prepared.canonical_bytes(),
+        prepared.schedule_dependency_set_digest(),
+    );
+    sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_receipts_v4(receipt_digest,kind,lifecycle,subject_identity,schedule_dependency_set_digest,component_count,receipt_bytes,custody_digest) VALUES($1,$2,2,$3,$4,$5,$6,$7)")
+        .bind(prepared.receipt_digest().as_slice())
+        .bind(i16::from(prepared.kind() as u8))
+        .bind(prepared.subject_identity().as_slice())
+        .bind(prepared.schedule_dependency_set_digest().as_slice())
+        .bind(i64::from(prepared.component_count()))
+        .bind(prepared.canonical_bytes())
+        .bind(custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
+
+    for (index, dependency) in prepared.dependencies().iter().enumerate() {
+        insert_dependency(transaction, prepared.receipt_digest(), index, dependency).await?;
+    }
+    sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_readbacks_v4(receipt_digest,readback_bytes,custody_digest) VALUES($1,$2,$3)")
+        .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
+    sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) VALUES($1,$2,$3)")
+        .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
+        .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
+    Ok(StrategyInputSampleProjectionReadbackV4::from_verified(
+        decoded,
+    ))
 }
 
 async fn validate_joined_subject(
@@ -538,6 +534,7 @@ pub(crate) mod tests {
             crate::owner::sample_projection_v4::PreparedStrategyInputSampleProjectionV4,
         pub(crate) joined:
             crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+        pub(crate) frame_projection_digests: Vec<crate::owner::source_binding::BindingDigest>,
     }
 
     pub(crate) async fn commit_joined_bar_projection_fixture_v4(
@@ -595,6 +592,7 @@ pub(crate) mod tests {
             schedule_indices.push(index);
         }
         let mut stored_projections = Vec::with_capacity(bindings.len());
+        let mut frame_projection_digests = Vec::with_capacity(bindings.len());
         for ((binding, frame), schedule_index) in bindings.iter().zip(frames).zip(schedule_indices)
         {
             let schedule = &schedules[schedule_index];
@@ -628,6 +626,9 @@ pub(crate) mod tests {
                 .commit_strategy_input_sample_projection_v3(&prepared_v3)
                 .await
                 .unwrap();
+            frame_projection_digests.push(BindingDigest::from_untrusted_bytes(
+                prepared_v3.receipt_digest(),
+            ));
             let mut transaction = owner.pool.begin().await.unwrap();
             let stored = load_strategy_input_sample_projection_v3(
                 &mut transaction,
@@ -680,7 +681,11 @@ pub(crate) mod tests {
             .commit_strategy_input_sample_projection_v4(&joined_prepared)
             .await
             .unwrap();
-        JoinedBarProjectionFixtureV4 { frame, joined }
+        JoinedBarProjectionFixtureV4 {
+            frame,
+            joined,
+            frame_projection_digests,
+        }
     }
 
     #[tokio::test]

@@ -2556,6 +2556,7 @@ pub(crate) struct ReplayJoinedProjectionFixtureV1 {
     pub(crate) joined: crate::owner::observation_census::StrategyInputJoinedCutReadbackV1,
     pub(crate) projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    pub(crate) frame_projection_digests: [crate::owner::source_binding::BindingDigest; 6],
     pub(crate) wrong_day_projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) cross_splice_projection:
@@ -2717,24 +2718,29 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         anchor_identity: d(208),
         ..minute_schedule.clone()
     };
-    let projection = super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
-        owner,
-        &[
-            minute_schedule.clone(),
-            minute_schedule.clone(),
-            minute_schedule.clone(),
-            minute_schedule.clone(),
-            hour_schedule.clone(),
-            day_schedule.clone(),
-        ],
-        &base.bindings,
-        &frames,
-        &base.batch,
-        &base.instrument,
-        joined.record().joined_cut_receipt(),
-    )
-    .await
-    .joined;
+    let projection_fixture =
+        super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
+            owner,
+            &[
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                hour_schedule.clone(),
+                day_schedule.clone(),
+            ],
+            &base.bindings,
+            &frames,
+            &base.batch,
+            &base.instrument,
+            joined.record().joined_cut_receipt(),
+        )
+        .await;
+    let frame_projection_digests = projection_fixture
+        .frame_projection_digests
+        .try_into()
+        .expect("exact six-role V3 FRAME corpus");
+    let projection = projection_fixture.joined;
     let cross_splice_projection =
         super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
             owner,
@@ -2777,6 +2783,7 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         census_request,
         joined,
         projection,
+        frame_projection_digests,
         wrong_day_projection,
         cross_splice_projection,
         cross_splice_receipt_digest: cross_splice_joined.record().joined_cut_receipt().digest(),

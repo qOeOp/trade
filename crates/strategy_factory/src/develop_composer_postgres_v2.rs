@@ -12,6 +12,7 @@ use std::{
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1;
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_design_role_set::{
     StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetErrorV1,
@@ -1708,6 +1709,49 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
+    pub(crate) async fn resolve_with_native_join(
+        &self,
+        request_identity: &str,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        read_cut_epoch_ms: u64,
+        native_join: &AuthenticatedComposerNativeJoinV1,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        let record = match load_record(self, request_identity).await {
+            Ok(Some(record)) => record,
+            Ok(None) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "terminal is unavailable",
+                ));
+            }
+            Err(e) if is_record_integrity_error(&e) => {
+                return Ok(unavailable_response(
+                    request_identity,
+                    "stored terminal custody is incomplete or malformed",
+                ));
+            }
+            Err(e) => return Err(e),
+        };
+        let response = resolve_loaded_record_with_evidence(&record, evidence, read_cut_epoch_ms);
+        if response.disposition != DevelopComposerOperationDispositionV2::Success {
+            return Ok(response);
+        }
+        let role_set = project_role_set_from_record(&record, &response)
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+            role_set.composer_locator.clone(),
+            native_join,
+        )
+        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        if !native_join_matches_owner_port(self, &role_set.composer_locator, &expected).await? {
+            return Ok(unavailable_response(
+                request_identity,
+                "stored native join custody is absent, mismatched, or malformed",
+            ));
+        }
+        Ok(response)
+    }
+
     pub(crate) async fn run(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1717,6 +1761,25 @@ impl PostgresDevelopComposerStoreV2 {
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         self.run_with_fault(builder, evidence, request, read_cut_epoch_ms, None)
             .await
+    }
+
+    pub(crate) async fn run_with_native_join(
+        &self,
+        builder: &mut impl DevelopComposerA0BuildPortV2,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        request: &DevelopComposerRunRequestV2,
+        read_cut_epoch_ms: u64,
+        native_join: &AuthenticatedComposerNativeJoinV1,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.run_inner(
+            builder,
+            evidence,
+            request,
+            read_cut_epoch_ms,
+            None,
+            Some(native_join),
+        )
+        .await
     }
 
     async fn run_with_fault(
@@ -1733,6 +1796,7 @@ impl PostgresDevelopComposerStoreV2 {
             request,
             read_cut_epoch_ms,
             fail_after_boundary,
+            None,
         )
         .await
     }
@@ -1744,6 +1808,7 @@ impl PostgresDevelopComposerStoreV2 {
         request: &DevelopComposerRunRequestV2,
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
+        native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let existing = match load_record(self, &request.request_identity).await {
             Ok(existing) => existing,
@@ -1765,7 +1830,7 @@ impl PostgresDevelopComposerStoreV2 {
         };
 
         if let Some(existing) = existing {
-            let response = if existing.request_digest == request_digest(request) {
+            let mut response = if existing.request_digest == request_digest(request) {
                 evidence
                     .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
                     .and_then(|current| resolve_positive_record_v2(&existing, current))
@@ -1783,6 +1848,25 @@ impl PostgresDevelopComposerStoreV2 {
                     ),
                 }
             };
+            if response.disposition == DevelopComposerOperationDispositionV2::Success
+                && let Some(native_join) = native_join
+            {
+                let role_set = project_role_set_from_record(&existing, &response)
+                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+                    role_set.composer_locator.clone(),
+                    native_join,
+                )
+                .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                if !native_join_matches_owner_port(self, &role_set.composer_locator, &expected)
+                    .await?
+                {
+                    response = unavailable_response(
+                        &request.request_identity,
+                        "stored native join custody is absent, mismatched, or malformed",
+                    );
+                }
+            }
             return Ok(response);
         }
         let mut transaction = self.begin_mutation_transaction().await?;
@@ -1826,12 +1910,21 @@ impl PostgresDevelopComposerStoreV2 {
         };
         let role_set = project_role_set_from_record(&record, &response)
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        let native_join_receipt = native_join
+            .map(|native_join| {
+                StrategyDesignNativeJoinReceiptV1::from_market_owner(
+                    role_set.composer_locator.clone(),
+                    native_join,
+                )
+            })
+            .transpose()
+            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         if let Err(e) = persist_record(
             &mut transaction,
             &self.database_fingerprint,
             &record,
             &role_set,
-            None,
+            native_join_receipt.as_ref(),
             current.bindings.clone(),
             fail_after_boundary,
         )
@@ -2000,6 +2093,60 @@ fn terminal_response(
         coordinate: Some(terminal.coordinate),
         reason: Some(terminal.reason),
     }
+}
+
+async fn native_join_matches_owner_port(
+    store: &PostgresDevelopComposerStoreV2,
+    locator: &StrategyDesignRoleSetLocatorV1,
+    expected: &StrategyDesignNativeJoinReceiptV1,
+) -> Result<bool, sqlx::Error> {
+    let mut transaction = store.begin_read_transaction().await?;
+    let row = sqlx::query(
+        "SELECT native_join_digest,projection_receipt_digest,joined_cut_digest,schedule_dependency_set_digest,canonical_bytes
+           FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(&locator.request_identity)
+    .bind(i32::from(locator.schema_version))
+    .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+    .bind(&locator.artifact_locator)
+    .bind(locator.artifact_identity.as_bytes().as_slice())
+    .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+    .bind(locator.design_digest.as_bytes().as_slice())
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let matches = if let Some(row) = row {
+        let digest = composer_native_join_digest_column(&row, "native_join_digest")?;
+        let projection = composer_native_join_digest_column(&row, "projection_receipt_digest")?;
+        let joined_cut = composer_native_join_digest_column(&row, "joined_cut_digest")?;
+        let schedule = composer_native_join_digest_column(&row, "schedule_dependency_set_digest")?;
+        let canonical_bytes: Vec<u8> = row.try_get("canonical_bytes")?;
+        StrategyDesignNativeJoinReceiptV1::from_durable_attestation(
+            locator,
+            &canonical_bytes,
+            digest,
+        )
+        .is_ok_and(|decoded| {
+            decoded == *expected
+                && projection == expected.projection_receipt_digest()
+                && joined_cut == expected.joined_cut_digest()
+                && schedule == expected.schedule_dependency_set_digest()
+        })
+    } else {
+        false
+    };
+    transaction.commit().await?;
+    Ok(matches)
+}
+
+fn composer_native_join_digest_column(
+    row: &sqlx::postgres::PgRow,
+    name: &str,
+) -> Result<BindingDigest, sqlx::Error> {
+    let bytes: Vec<u8> = row.try_get(name)?;
+    let exact: [u8; 32] = bytes
+        .try_into()
+        .map_err(|_| sqlx::Error::Protocol(format!("Composer native join {name} is malformed")))?;
+    Ok(BindingDigest::from_untrusted_bytes(exact))
 }
 
 async fn persist_record(

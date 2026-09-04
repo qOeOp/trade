@@ -6,12 +6,13 @@
 #![allow(dead_code, reason = "W0 freezes the bounded Replay W1 dependency seam")]
 
 use crate::owner::replay_market_facts_v2::{
-    ReplayCompositionBindingErrorV1, ReplayCompositionBindingLocatorV1,
-    ReplayCompositionDurableIssuanceResponseV1, ReplayCompositionIssuanceLocatorV1,
-    ReplayCompositionIssuanceResponseV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
-    ReplayCompositionOwnerV1, ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2,
-    ReplayMarketDependencyRefV2, ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2,
-    ReplayReferenceFactTimeV2, ReplayReferenceFactValueV2, ReplayTimestampBasisV2,
+    AuthenticatedComposerNativeJoinV1, ReplayCompositionBindingErrorV1,
+    ReplayCompositionBindingLocatorV1, ReplayCompositionDurableIssuanceResponseV1,
+    ReplayCompositionIssuanceLocatorV1, ReplayCompositionIssuanceResponseV1,
+    ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
+    ReplayCorporateActionTermsV2, ReplayMarketDependencyKindV2, ReplayMarketDependencyRefV2,
+    ReplayPriceAdjustmentV2, ReplayReferenceFactKindV2, ReplayReferenceFactTimeV2,
+    ReplayReferenceFactValueV2, ReplayTimestampBasisV2, UntrustedComposerNativeJoinRequestV1,
     UntrustedReplayMarketFactsCompositionRequestV1,
     authority::{
         ReplayMarketFactsEvidenceV2, ReplayNativeChainEvidenceV2, ReplayReferenceFactCutProposalV2,
@@ -44,7 +45,11 @@ use crate::owner::{
         ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
         VerifiedReferenceFactCoordinatesV1,
     },
-    sample_projection_v4::{ScheduleDependencyV4, StrategyInputSampleProjectionKindV4},
+    sample_projection_v4::{
+        ScheduleDependencyV4, StrategyInputSampleProjectionErrorV4,
+        StrategyInputSampleProjectionKindV4, UntrustedStrategyInputSampleProjectionLocatorV4,
+        VerifiedV3ProjectionSourceV4, prepare_joined_cut_v4,
+    },
     session::UntrustedSessionLocatorV1,
     source_binding::BindingDigest,
     strategy_design_role_set::{
@@ -56,7 +61,9 @@ use crate::owner::{
         MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
         UntrustedStrategyInputScope, request_matches_authenticated_role_v1,
     },
-    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
+    strategy_input_joined_cut::{
+        StrategyInputJoinedCutReceiptV1, UntrustedStrategyInputJoinClaimV1,
+    },
     time_zone::UntrustedTimeZoneLocatorV1,
     universe_selection::UntrustedUniverseSelectionLocatorV1,
 };
@@ -182,6 +189,19 @@ fn composer_reader_acl_is_exact(
 struct ValidatedNativeJoinV4 {
     roles: Vec<(BindingDigest, BindingDigest)>,
     dependencies: Vec<ScheduleDependencyV4>,
+}
+
+const fn map_sample_projection_v4_error(
+    error: StrategyInputSampleProjectionErrorV4,
+) -> ReplayCompositionBindingErrorV1 {
+    match error {
+        StrategyInputSampleProjectionErrorV4::StoreUnavailable
+        | StrategyInputSampleProjectionErrorV4::CommitInterrupted
+        | StrategyInputSampleProjectionErrorV4::ResponseLost => {
+            ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+        }
+        _ => ReplayCompositionBindingErrorV1::DependencyMismatch,
+    }
 }
 
 async fn validate_native_join_v4(
@@ -439,6 +459,7 @@ impl ReplayCompositionOwnerV1 {
 async fn validate_replay_first_corpus_v1(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     role_set: &StrategyDesignRoleSetReceiptV1,
+    claim: &UntrustedStrategyInputJoinClaimV1,
     declarations: &[super::strategy_input_binding_registry::StrategyInputBindingDeclarationReadbackV1],
     joined: &StrategyInputJoinedCutReceiptV1,
     native_join: &ValidatedNativeJoinV4,
@@ -450,11 +471,21 @@ async fn validate_replay_first_corpus_v1(
     if role_set.roles.len() != 6
         || declarations.len() != 6
         || join.roles.len() != 6
-        || native_join.dependencies.len() != 6
-        || join.alignment_semantic_id != "strategy.input-join.latest-not-after-trigger.v1"
-        || joined.join_identity() != join.join_identity
-        || joined.alignment_semantic_id() != join.alignment_semantic_id
-        || joined.trigger_input_id() != join.trigger_input_id
+        || claim.strategy_design_identity != role_set.design_identity
+        || claim.join_semantic_id != join.semantic_id
+        || claim.join_identity != join.join_identity
+        || claim.alignment_semantic_id != join.alignment_semantic_id
+        || claim.trigger_input_id != join.trigger_input_id
+        || claim.max_staleness_ns != join.max_staleness_ns
+        || claim.roles.len() != join.roles.len()
+        || !join
+            .roles
+            .iter()
+            .zip(&claim.roles)
+            .all(|(expected, actual)| {
+                expected.semantic_id == actual.semantic_id
+                    && expected.role_identity == actual.input_role_identity
+            })
     {
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
     }
@@ -475,6 +506,41 @@ async fn validate_replay_first_corpus_v1(
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
     }
 
+    validate_replay_first_corpus_claim_v1(transaction, claim, declarations, joined, native_join)
+        .await
+}
+
+async fn validate_replay_first_corpus_claim_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    claim: &UntrustedStrategyInputJoinClaimV1,
+    declarations: &[super::strategy_input_binding_registry::StrategyInputBindingDeclarationReadbackV1],
+    joined: &StrategyInputJoinedCutReceiptV1,
+    native_join: &ValidatedNativeJoinV4,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    if claim.roles.len() != 6
+        || declarations.len() != 6
+        || joined.components().len() != 6
+        || native_join.dependencies.len() != 6
+        || claim.alignment_semantic_id != "strategy.input-join.latest-not-after-trigger.v1"
+        || joined.strategy_design_identity() != claim.strategy_design_identity
+        || joined.join_identity() != claim.join_identity
+        || joined.alignment_semantic_id() != claim.alignment_semantic_id
+        || joined.trigger_input_id() != claim.trigger_input_id
+    {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+
+    let mut joined_role_identities = claim
+        .roles
+        .iter()
+        .map(|role| role.input_role_identity)
+        .collect::<Vec<_>>();
+    joined_role_identities.sort_unstable();
+    joined_role_identities.dedup();
+    if joined_role_identities.len() != 6 {
+        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+    }
+
     let first_request = declarations
         .first()
         .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?
@@ -489,7 +555,7 @@ async fn validate_replay_first_corpus_v1(
     let trigger_component = joined
         .components()
         .iter()
-        .filter(|component| component.role_semantic_id() == join.trigger_input_id)
+        .filter(|component| component.role_semantic_id() == claim.trigger_input_id)
         .collect::<Vec<_>>();
     let [trigger_component] = trigger_component.as_slice() else {
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
@@ -508,11 +574,13 @@ async fn validate_replay_first_corpus_v1(
 
     for declaration in declarations {
         let request = declaration.request();
-        let role = role_set
-            .role(request.input_role_identity)
+        let join_role = claim
+            .roles
+            .iter()
+            .find(|role| role.input_role_identity == request.input_role_identity)
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
 
-        if !request_matches_authenticated_role_v1(request, role)
+        if request.strategy_design_identity != claim.strategy_design_identity
             || request.channel != StrategyInputChannel::Market
             || request.unit != StrategyInputUnit::Price
             || request.scale != common_scale
@@ -524,11 +592,6 @@ async fn validate_replay_first_corpus_v1(
         {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
-        let join_role = join
-            .roles
-            .iter()
-            .find(|join_role| join_role.role_identity == request.input_role_identity)
-            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let components = joined
             .components()
             .iter()
@@ -581,7 +644,7 @@ async fn validate_replay_first_corpus_v1(
             return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
         }
 
-        if join_role.semantic_id == join.trigger_input_id {
+        if join_role.semantic_id == claim.trigger_input_id {
             trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
                 && joined.trigger_digest() == component.frame_digest();
         }
@@ -708,6 +771,184 @@ impl ReplayCompositionOwnerV1 {
             owner,
             rd_role_set_pool,
         })
+    }
+
+    /// Issues or recovers the exact six-role BAR join selected for sealed Composer.
+    ///
+    /// The request contains untrusted locators only. Market Data resolves the unchanged joined cut
+    /// and every V3 FRAME dependency, then writes and re-reads V4 in the same serializable Owner
+    /// transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed composition error when any locator, custody row, schedule dependency,
+    /// exact component, V4 write, or readback is absent, conflicting, or corrupt.
+    pub async fn issue_composer_native_join_v1(
+        &self,
+        request: &UntrustedComposerNativeJoinRequestV1,
+    ) -> Result<AuthenticatedComposerNativeJoinV1, ReplayCompositionBindingErrorV1> {
+        let joined_locator =
+            crate::owner::observation_census::UntrustedStrategyInputJoinedCutLocatorV1::from_untrusted(
+                request.joined_cut_identity,
+                request.joined_cut_digest,
+            );
+        let mut transaction = self
+            .owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+
+        let (joined_request, joined_custody, joined_cut_receipt_digest) =
+            super::observation_census::load_strategy_input_joined_cut_custody_v1(
+                &mut transaction,
+                &joined_locator,
+            )
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &joined_request,
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        if joined.record().identity() != request.joined_cut_identity
+            || joined.record().digest() != request.joined_cut_digest
+            || joined.record().canonical_bytes() != joined_custody.as_ref()
+            || joined.record().joined_cut_receipt().digest() != joined_cut_receipt_digest
+            || joined_cut_receipt_digest == request.joined_cut_digest
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+
+        let mut stored = Vec::with_capacity(request.frame_projection_digests.len());
+        let mut dependencies = Vec::with_capacity(request.frame_projection_digests.len());
+        for digest in request.frame_projection_digests {
+            let projection = super::load_strategy_input_sample_projection_v3(
+                &mut transaction,
+                *digest.as_bytes(),
+            )
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+            let source_dependencies = super::load_sample_projection_schedule_dependencies_v3(
+                &mut transaction,
+                *digest.as_bytes(),
+            )
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            super::validate_sample_projection_dependencies_v3(
+                &mut transaction,
+                &projection.decoded,
+                &source_dependencies,
+                true,
+            )
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+            if projection.decoded.component_count() != 1 || source_dependencies.len() != 1 {
+                return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
+            }
+            let component = &projection.decoded.components()[0];
+            let dependency = &source_dependencies[0];
+            dependencies.push(vec![ScheduleDependencyV4 {
+                source_projection_digest: projection.decoded.receipt_digest(),
+                role_identity: dependency.role_identity,
+                binding_receipt_digest: dependency.binding_receipt_digest,
+                timeframe_projection_digest: component.timeframe_projection_digest(),
+                schedule_readback_identity: *dependency.schedule_readback_identity.as_bytes(),
+                schedule_fact_digest: *dependency.schedule_fact_digest.as_bytes(),
+                schedule_cut_identity: *dependency.schedule_cut_identity.as_bytes(),
+                schedule_cut_digest: *dependency.schedule_cut_digest.as_bytes(),
+                schedule_receipt_identity: *dependency.schedule_receipt_identity.as_bytes(),
+            }]);
+            stored.push(projection);
+        }
+        let sources = stored
+            .iter()
+            .zip(&dependencies)
+            .map(|(projection, dependencies)| VerifiedV3ProjectionSourceV4 {
+                projection: &projection.decoded,
+                dependencies,
+            })
+            .collect::<Vec<_>>();
+        let validated_native_join = ValidatedNativeJoinV4 {
+            roles: dependencies
+                .iter()
+                .flatten()
+                .map(|dependency| {
+                    (
+                        BindingDigest::from_untrusted_bytes(dependency.role_identity),
+                        BindingDigest::from_untrusted_bytes(dependency.binding_receipt_digest),
+                    )
+                })
+                .collect(),
+            dependencies: dependencies.iter().flatten().copied().collect(),
+        };
+        let claim = joined_request.join_claim();
+        let mut declarations = Vec::with_capacity(claim.roles.len());
+        for role in &claim.roles {
+            declarations.push(
+                super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
+                    &mut transaction,
+                    joined_request.pit_locator().request_identity,
+                    claim.strategy_design_identity,
+                    role.input_role_identity,
+                )
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?,
+            );
+        }
+        validate_replay_first_corpus_claim_v1(
+            &mut transaction,
+            claim,
+            &declarations,
+            joined.record().joined_cut_receipt(),
+            &validated_native_join,
+        )
+        .await?;
+        let prepared = prepare_joined_cut_v4(joined.record().joined_cut_receipt(), &sources)
+            .map_err(map_sample_projection_v4_error)?;
+        if prepared.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
+            || prepared.component_count() != 6
+            || prepared.subject_identity() != *joined_cut_receipt_digest.as_bytes()
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+        let readback =
+            super::sample_projection_v4::persist_strategy_input_sample_projection_in_transaction_v4(
+                &mut transaction,
+                &prepared,
+            )
+            .await
+            .map_err(map_sample_projection_v4_error)?;
+        if readback.receipt_digest() != prepared.receipt_digest()
+            || readback.kind() != prepared.kind()
+            || readback.subject_identity() != prepared.subject_identity()
+            || readback.schedule_dependency_set_digest()
+                != prepared.schedule_dependency_set_digest()
+            || readback.component_count() != prepared.component_count()
+            || readback.canonical_bytes() != prepared.canonical_bytes()
+        {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+
+        Ok(AuthenticatedComposerNativeJoinV1::from_owner_readback(
+            UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+                readback.receipt_digest(),
+            ),
+            request.joined_cut_digest,
+            joined_cut_receipt_digest,
+            BindingDigest::from_untrusted_bytes(readback.schedule_dependency_set_digest()),
+        ))
     }
 
     /// Exact response-loss recovery. No latest/history/full scan is admitted.
@@ -1078,6 +1319,7 @@ impl ReplayCompositionOwnerV1 {
         validate_replay_first_corpus_v1(
             &mut transaction,
             receipt,
+            census_request.join_claim(),
             &declarations,
             authenticated_joined.record().joined_cut_receipt(),
             &validated_native_join,
@@ -2254,7 +2496,10 @@ mod composer_facade_tests {
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_ROLE_SET_RESOLVER_V1));
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_NATIVE_JOIN_RESOLVER_V1));
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_CUT_LOCK_V1));
-        assert!(COMPOSER_CUT_LOCK_QUERY_V1.contains(COMPOSER_CUT_LOCK_V1));
+        assert!(
+            COMPOSER_CUT_LOCK_QUERY_V1
+                .contains("composer_owner_api.lock_replay_composition_cut_v1(")
+        );
         assert!(COMPOSER_ROLE_SET_RESOLVE_QUERY_V1.contains(
             "FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)"
         ));
