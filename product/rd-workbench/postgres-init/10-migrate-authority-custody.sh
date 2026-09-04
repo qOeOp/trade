@@ -88,6 +88,10 @@ $database_owner$;
 DO $catalog_composer_database_access$
 BEGIN
   EXECUTE pg_catalog.format(
+    'REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC',
+    pg_catalog.current_database()
+  );
+  EXECUTE pg_catalog.format(
     'REVOKE ALL PRIVILEGES ON DATABASE %I FROM market_data_reader',
     pg_catalog.current_database()
   );
@@ -975,6 +979,7 @@ CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_p
 CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_api AUTHORIZATION replay_policy_catalog_owner;
 CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner;
 CREATE SCHEMA IF NOT EXISTS composer_owner_api AUTHORIZATION composer_owner;
+CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner;
 ALTER SCHEMA replay_policy_catalog_private OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA replay_policy_catalog_api OWNER TO replay_policy_catalog_owner;
 ALTER SCHEMA composer_private OWNER TO composer_owner;
@@ -1449,6 +1454,7 @@ GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_c
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
 DO $catalog_composer_readback$
 DECLARE exact boolean;
 BEGIN
