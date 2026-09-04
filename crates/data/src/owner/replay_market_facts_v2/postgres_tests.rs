@@ -1094,6 +1094,28 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         ),
     );
     let command = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(220), composition).unwrap();
+    let composition_with_sample_projection =
+        |sample_projection_locator: ReplayCompositionContentLocatorV1| {
+            ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+                command.composition().composer_locator().clone(),
+                command.composition().pit_locator().clone(),
+                command.composition().source_binding_locator().clone(),
+                command.composition().replay_start_event_ns(),
+                command.composition().replay_end_event_ns_exclusive(),
+                command.composition().instrument_master_locator(),
+                command.composition().universe_selection_locator(),
+                command.composition().observation_census_locator(),
+                command.composition().joined_cut_locator(),
+                sample_projection_locator,
+                command.composition().reference_fact_r0_locator(),
+                command.composition().calendar_locator(),
+                command.composition().session_locator(),
+                command.composition().time_zone_locator(),
+                command.composition().market_semantics_locator(),
+                command.composition().correction_policy_locator(),
+                command.composition().corporate_action_locator(),
+            )
+        };
     let owner = Arc::new(
         ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
@@ -1122,9 +1144,17 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .await
         .unwrap();
     cross_splice_tx.commit().await.unwrap();
-    let cross_splice =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(254), command.composition().clone())
-            .unwrap();
+    let cross_splice_projection_digest = BindingDigest::from_untrusted_bytes(
+        joined.cross_splice_projection.receipt_digest(),
+    );
+    let cross_splice = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        d(254),
+        composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(
+            cross_splice_projection_digest,
+            cross_splice_projection_digest,
+        )),
+    )
+    .unwrap();
     assert!(owner.issue_binding_v1(&cross_splice).await.is_err());
     assert_eq!(replay_positive_state(admin).await, before);
 
@@ -1149,9 +1179,16 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .await
         .unwrap();
     wrong_day_tx.commit().await.unwrap();
-    let wrong_day =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), command.composition().clone())
-            .unwrap();
+    let wrong_day_projection_digest =
+        BindingDigest::from_untrusted_bytes(joined.wrong_day_projection.receipt_digest());
+    let wrong_day = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
+        d(252),
+        composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(
+            wrong_day_projection_digest,
+            wrong_day_projection_digest,
+        )),
+    )
+    .unwrap();
     assert!(owner.issue_binding_v1(&wrong_day).await.is_err());
     assert_eq!(replay_positive_state(admin).await, before);
     let mut correct_day_tx = admin.begin().await.unwrap();
