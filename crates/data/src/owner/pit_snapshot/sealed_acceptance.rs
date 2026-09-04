@@ -709,6 +709,7 @@ mod tests {
                 .iter()
                 .all(|coordinate| coordinate.0 == EXACT_INSTRUMENT)
         );
+
         for expected in [
             ("MARKET_DATA.BAR.OPEN.PRICE.V1", "1M"),
             ("MARKET_DATA.BAR.HIGH.PRICE.V1", "1M"),

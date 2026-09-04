@@ -99,6 +99,7 @@ pub(super) fn encode_request_meaning(
         u32::try_from(request.instruments.len())
             .map_err(|_| CorporateActionErrorV1::CapacityExceeded)?,
     );
+
     for instrument in &request.instruments {
         e.bytes(instrument)?;
     }
@@ -209,6 +210,7 @@ pub(super) fn encode_cut(cut: &CorporateActionCutV1) -> Result<Box<[u8]>, Corpor
             u32::try_from(census.actions.len())
                 .map_err(|_| CorporateActionErrorV1::CapacityExceeded)?,
         );
+
         for action in &census.actions {
             e.i128(action.effective_from_ns);
             e.identity(action.action_identity);
@@ -251,6 +253,7 @@ pub(super) fn encode_readback(
         u32::try_from(readback.facts.len())
             .map_err(|_| CorporateActionErrorV1::CapacityExceeded)?,
     );
+
     for fact in &readback.facts {
         e.identity(fact.identity);
         e.bytes(&fact.canonical_bytes)?;
@@ -534,6 +537,7 @@ pub(super) fn decode_readback(
     let receipt = decode_receipt(&receipt_bytes)?;
     let outbox_identity = d.identity()?;
     d.finish()?;
+
     if cut_identity != cut.identity || receipt_identity != receipt.identity {
         return Err(CorporateActionErrorV1::DigestMismatch);
     }

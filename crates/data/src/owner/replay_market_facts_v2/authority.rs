@@ -1316,6 +1316,7 @@ fn validate_stored_dependencies(
         .iter()
         .map(ReplayMarketDependencyRefV2::kind)
         .collect::<Vec<_>>();
+
     if dependencies.len() != REQUIRED_DEPENDENCY_KINDS.len()
         || (kinds.as_slice() != REQUIRED_DEPENDENCY_KINDS
             && kinds.as_slice() != REQUIRED_DEPENDENCY_KINDS_V4)

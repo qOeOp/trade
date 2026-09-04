@@ -185,9 +185,11 @@ impl VerifiedReferenceFactCanonicalV1 {
         if bytes.is_empty() {
             return Err(ReferenceFactCoordinateErrorV1::InvalidCanonicalBytes);
         }
+
         if bytes.len() > MAX_CANONICAL_FACT_BYTES {
             return Err(ReferenceFactCoordinateErrorV1::CapacityExceeded);
         }
+
         if fact_identity(kind, &bytes) != claimed_identity {
             return Err(ReferenceFactCoordinateErrorV1::DigestMismatch);
         }
@@ -267,11 +269,13 @@ impl VerifiedReferenceFactCutManifestV1 {
         if claim.decision_cut == 0 {
             return Err(ReferenceFactCoordinateErrorV1::InvalidPitCut);
         }
+
         if claim.fact_identities.len() > MAX_FACTS_PER_CUT
             || claim.canonical_bytes.len() > MAX_CANONICAL_CUT_BYTES
         {
             return Err(ReferenceFactCoordinateErrorV1::CapacityExceeded);
         }
+
         if claim.canonical_bytes.is_empty() {
             return Err(ReferenceFactCoordinateErrorV1::InvalidCanonicalBytes);
         }
@@ -282,6 +286,7 @@ impl VerifiedReferenceFactCutManifestV1 {
             _ => return Err(ReferenceFactCoordinateErrorV1::IncompleteCut),
         }
         let mut previous = None;
+
         for identity in &claim.fact_identities {
             require_digest(*identity)?;
             if previous.is_some_and(|value| value >= *identity) {
@@ -297,6 +302,7 @@ impl VerifiedReferenceFactCutManifestV1 {
             &claim.fact_identities,
             &claim.canonical_bytes,
         )?;
+
         if expected != claim.claimed_identity {
             return Err(ReferenceFactCoordinateErrorV1::DigestMismatch);
         }
@@ -382,6 +388,7 @@ impl VerifiedReferenceFactCustodyV1 {
         ] {
             require_digest(identity)?;
         }
+
         if claim.append_sequence == 0 {
             return Err(ReferenceFactCoordinateErrorV1::InvalidCustody);
         }
@@ -394,6 +401,7 @@ impl VerifiedReferenceFactCustodyV1 {
             claim.stable_correlation,
             claim.append_sequence,
         );
+
         if claim.receipt_identity != receipt || claim.outbox_identity != receipt {
             return Err(ReferenceFactCoordinateErrorV1::CustodyCrossSplice);
         }
@@ -469,6 +477,7 @@ fn validate_source(
     if !source.admitted {
         return Err(ReferenceFactCoordinateErrorV1::SourceUnavailable);
     }
+
     for identity in [
         source.binding_identity,
         source.binding_fact_digest,
@@ -476,6 +485,7 @@ fn validate_source(
     ] {
         require_digest(identity)?;
     }
+
     if source.lineage_version == 0 {
         return Err(ReferenceFactCoordinateErrorV1::InvalidSourceFrontier);
     }
@@ -551,6 +561,7 @@ fn validate_time(
     if !overlaps {
         return Err(ReferenceFactCoordinateErrorV1::InvalidEffectiveInterval);
     }
+
     if time.provider_available_ns <= 0
         || time.retrieval_ns <= 0
         || time.correction_publication_ns <= 0

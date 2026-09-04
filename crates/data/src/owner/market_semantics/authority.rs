@@ -27,6 +27,7 @@ pub(crate) fn derive_registry_key_v1(
         return Err(MarketSemanticsErrorV1::UnauthenticatedInput);
     };
     let evidence = &r0.record().evidence;
+
     if !source.is_admitted()
         || !verify_instrument_master_readback(instrument)
         || pit.snapshot_identity() != evidence.pit_snapshot_identity
@@ -115,6 +116,7 @@ pub(crate) fn authenticate_market_semantics_inputs_from_r0_v1(
         instrument,
         r0,
     )?;
+
     if derived.identity != registry.key.identity
         || derived.canonical_bytes != registry.key.canonical_bytes
     {
@@ -267,6 +269,7 @@ pub(crate) fn verify_readback_v1(
     let [entry] = readback.cut.entries.as_ref() else {
         return Err(MarketSemanticsErrorV1::IncompleteCut);
     };
+
     if !valid_fact(fact)
         || !readback.cut.gaps.is_empty()
         || entry.scope_identity != fact.compatibility_scope_identity
@@ -388,6 +391,7 @@ fn validate_proposal(
         proposal.value.size_unit_identity,
         proposal.stable_correlation,
     ];
+
     if proposal.consumer != MarketSemanticsConsumerV1::StrategyInputBindingRegistry
         || !identities.into_iter().all(nonzero)
         || proposal.request_meaning_digest != request_meaning_digest_v1(proposal)?

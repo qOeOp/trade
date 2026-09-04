@@ -331,6 +331,7 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+
         for statement in super::replay_market_facts_v2::postgres::REPLAY_MARKET_FACTS_SCHEMA_V2 {
             sqlx::query(statement)
                 .execute(&mut *transaction)
@@ -2236,6 +2237,7 @@ impl StrategyInputJoinedCutOwnerResolverV1 for MarketDataOwnerPostgres {
             &request,
         )
         .await?;
+
         if joined.record().identity() != locator.joined_cut_identity()
             || joined.record().canonical_bytes() != custody_bytes.as_ref()
             || joined.record().joined_cut_receipt().digest() != receipt_digest

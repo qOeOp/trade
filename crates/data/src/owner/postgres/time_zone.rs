@@ -69,6 +69,7 @@ pub(super) async fn resolve_time_zone_in_transaction_v1(
         r0_cut_digest,
     )
     .await;
+
     match result {
         Ok(readback) => {
             sqlx::query("RELEASE SAVEPOINT market_data_time_zone_v1")
@@ -113,6 +114,7 @@ async fn resolve_inner(
         .map_err(store_error)?;
     let mut state: Option<(Vec<u8>, i64)> = sqlx::query_as("SELECT store_generation_identity,append_sequence FROM market_data_private.time_zone_state_v1 WHERE singleton FOR UPDATE")
         .fetch_optional(&mut **transaction).await.map_err(store_error)?;
+
     if state.is_none() {
         let seed: String = sqlx::query_scalar(
             "SELECT current_database() || ':' || pg_catalog.gen_random_uuid()::text",
@@ -227,6 +229,7 @@ async fn load(
     let append_sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
     let outbox_identity = digest_from_row(row.try_get("outbox_identity").map_err(store_error)?)?;
     let outbox_payload: Vec<u8> = row.try_get("outbox_payload").map_err(store_error)?;
+
     if cut_identity
         != codec::digest(codec::CUT_DOMAIN, &cut_bytes)
             .as_bytes()
@@ -252,6 +255,7 @@ async fn load(
     let Some((generation, store_sequence)) = state else {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     };
+
     if cut_meaning
         != readback
             .cut()
@@ -277,9 +281,11 @@ async fn load(
     {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
+
     for fact in readback.facts() {
         let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1)")
             .bind(fact.lineage_root().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+
         if !exists {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
@@ -321,6 +327,7 @@ mod tests {
     #[rstest]
     fn schema_is_private_complete_and_unregistered() {
         let schema = TIME_ZONE_SCHEMA_V1.join("\n");
+
         for relation in [
             "time_zone_state_v1",
             "time_zone_facts_v1",

@@ -4,7 +4,7 @@
 //! Composer locator through the deployment-fixed R&D Owner port; callers cannot promote these DTOs
 //! to R&D custody merely by recomputing the hash.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -128,6 +128,7 @@ impl StrategyDesignNativeJoinReceiptV1 {
         let joined_cut_digest = decoder.digest()?;
         let schedule_dependency_set_digest = decoder.digest()?;
         decoder.finish()?;
+
         if schema_version != expected_locator.schema_version
             || request_identity != expected_locator.request_identity
             || operation_receipt_identity != expected_locator.operation_receipt_identity
@@ -375,6 +376,7 @@ impl StrategyDesignRoleSetReceiptV1 {
             canonical_bytes: canonical_bytes.to_vec(),
             receipt_digest: expected_digest,
         };
+
         if receipt.composer_locator != *expected_locator || !receipt.has_valid_integrity() {
             return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
         }
@@ -461,7 +463,7 @@ pub enum StrategyDesignRoleSetErrorV1 {
 }
 
 impl Display for StrategyDesignRoleSetErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }
@@ -493,6 +495,7 @@ fn validate_projection(
     {
         return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
     }
+
     for role in &receipt.roles {
         if role.semantic_id.is_empty()
             || role.fact_class.is_empty()
@@ -506,6 +509,7 @@ fn validate_projection(
             return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
         }
     }
+
     for join in &receipt.joins {
         if join.semantic_id.is_empty()
             || join.roles.len() < 2
@@ -587,6 +591,7 @@ fn encode_canonical(
         push_string(&mut bytes, &join.trigger_input_id)?;
         bytes.extend(join.max_staleness_ns.to_be_bytes());
     }
+
     if bytes.len() > MAX_RECEIPT_BYTES {
         return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
     }

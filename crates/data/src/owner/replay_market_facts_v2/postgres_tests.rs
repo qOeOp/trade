@@ -807,6 +807,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let (writer_backend_sender, writer_backend_receiver) = tokio::sync::oneshot::channel();
     let writer_admin = admin.clone();
     let writer_request_identity = composer_locator.request_identity.clone();
+
     let queued_writer = tokio::spawn(async move {
         let mut writer = writer_admin.begin().await.unwrap();
         sqlx::query("SET LOCAL ROLE composer_owner")
@@ -826,6 +827,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         writer.commit().await.unwrap();
     });
     let writer_backend = writer_backend_receiver.await.unwrap();
+
     for _ in 0..100 {
         let writer_is_queued: bool = sqlx::query_scalar(
             "SELECT EXISTS(
@@ -837,6 +839,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .fetch_one(admin)
         .await
         .unwrap();
+
         if writer_is_queued {
             break;
         }
@@ -1058,9 +1061,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let issue_command = command.clone();
     let issue = tokio::spawn(async move { issue_owner.issue_binding_v1(&issue_command).await });
     let mut observed_two_owner_transactions = false;
+
     for _ in 0..100 {
         let holders: i64 = sqlx::query_scalar("SELECT count(DISTINCT activity.usename) FROM pg_catalog.pg_locks lock_fact JOIN pg_catalog.pg_stat_activity activity ON activity.pid=lock_fact.pid WHERE lock_fact.locktype='advisory' AND lock_fact.granted AND activity.usename IN ('market_data_reader','market_data_owner')")
             .fetch_one(admin).await.unwrap();
+
         if holders == 2 {
             observed_two_owner_transactions = true;
             break;

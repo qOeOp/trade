@@ -9,7 +9,7 @@
     reason = "the private native leaf intentionally awaits Strategy Input Binding Registry composition"
 )]
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::source_binding::BindingDigest;
 
@@ -342,7 +342,7 @@ pub(crate) enum MarketSemanticsErrorV1 {
 }
 
 impl Display for MarketSemanticsErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

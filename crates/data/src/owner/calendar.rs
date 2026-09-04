@@ -5,7 +5,7 @@
 //! evidence. The PostgreSQL leaf remains transaction-bound and is not registered as a product
 //! resolver by this module.
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::source_binding::BindingDigest;
 
@@ -312,7 +312,7 @@ pub enum CalendarErrorV1 {
 }
 
 impl Display for CalendarErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

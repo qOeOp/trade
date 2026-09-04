@@ -1,5 +1,7 @@
 //! PostgreSQL custody for durable R0 observation evidence.
 
+use std::fmt::Debug;
+
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
@@ -74,6 +76,7 @@ pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
         .await
         .map_err(|_| ReferenceFactR0ErrorV1::EvidenceUnavailable)?
         .ok_or(ReferenceFactR0ErrorV1::EvidenceUnavailable)?;
+
     if pit.receipt().locator() != &pit_locator
         || pit.fact().source_binding_identity() != source_readback.binding_id()
         || pit.fact().source_binding_lineage_root() != source_readback.lineage_root()
@@ -119,6 +122,7 @@ pub(super) async fn resolve_reference_fact_r0_in_transaction_v1(
     let event_end = event_effective
         .checked_add(1)
         .ok_or(ReferenceFactR0ErrorV1::EvidenceMismatch)?;
+
     if request.replay_start_event_ns != event_effective
         || request.replay_end_event_ns_exclusive != event_end
         || request.effective_from_ns != event_effective
@@ -320,6 +324,6 @@ fn digest(domain: &[u8], bytes: &[u8]) -> R0IdentityV1 {
     h.update(bytes);
     R0IdentityV1::from_untrusted_bytes(*h.finalize().as_bytes())
 }
-fn store_error(_: impl std::fmt::Debug) -> ReferenceFactR0ErrorV1 {
+fn store_error(_: impl Debug) -> ReferenceFactR0ErrorV1 {
     ReferenceFactR0ErrorV1::StoreUnavailable
 }

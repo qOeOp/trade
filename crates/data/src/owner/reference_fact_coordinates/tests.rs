@@ -93,6 +93,7 @@ fn rejects_zero_and_empty_coordinate_fields() {
         Box::new(|claim| claim.stable_correlation = d(0)),
         Box::new(|claim| claim.predecessor_identity = Some(d(0))),
     ];
+
     for mutate in cases {
         let mut claim = coordinate_claim();
         mutate(&mut claim);
@@ -299,6 +300,7 @@ fn rejects_incomplete_noncanonical_and_cross_spliced_manifests() {
         VerifiedReferenceFactCutManifestV1::verify(manifest_claim(vec![]), false),
         Err(ReferenceFactCoordinateErrorV1::IncompleteCut)
     );
+
     for facts in [vec![d(22), d(21)], vec![d(21), d(21)]] {
         assert_eq!(
             VerifiedReferenceFactCutManifestV1::verify(manifest_claim(facts), false),

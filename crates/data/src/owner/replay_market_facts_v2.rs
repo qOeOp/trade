@@ -21,7 +21,7 @@
 //! let _: ReplayMarketFactsReadbackV2 = serde_json::from_str("{}").unwrap();
 //! ```
 
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -107,10 +107,10 @@ impl AuthenticatedComposerNativeJoinV1 {
     }
 }
 
-impl std::fmt::Debug for ReplayCompositionOwnerV1 {
+impl Debug for ReplayCompositionOwnerV1 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("ReplayCompositionOwnerV1")
+            .debug_struct(stringify!(ReplayCompositionOwnerV1))
             .finish_non_exhaustive()
     }
 }
@@ -747,7 +747,7 @@ pub enum ReplayMarketFactsErrorV2 {
 }
 
 impl Display for ReplayMarketFactsErrorV2 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

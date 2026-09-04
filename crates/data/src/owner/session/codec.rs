@@ -114,6 +114,7 @@ impl<'a> Decoder<'a> {
                 .try_into()
                 .map_err(|_| SessionErrorV1::StoreUntrusted)?,
         );
+
         if !nonzero(v) {
             return Err(SessionErrorV1::StoreUntrusted);
         }

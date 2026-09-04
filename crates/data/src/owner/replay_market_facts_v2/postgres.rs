@@ -222,6 +222,7 @@ pub(crate) async fn persist_replay_composition_binding_in_transaction_v1(
         .execute(&mut **transaction)
         .await
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+
     if let Ok(existing) =
         recover_replay_composition_binding_in_transaction_v1(transaction, locator).await
     {
@@ -279,6 +280,7 @@ pub(crate) async fn recover_replay_composition_binding_in_transaction_v1(
     let outbox_identity = digest_array(row_bytes(&row, "outbox_identity")?)?;
     let outbox_binding_identity = digest_array(row_bytes(&row, "outbox_binding_identity")?)?;
     let outbox_receipt_identity = digest_array(row_bytes(&row, "outbox_receipt_identity")?)?;
+
     if identity != *locator.binding_identity().as_bytes()
         || digest != *locator.binding_digest().as_bytes()
         || outbox_binding_identity != identity
@@ -293,6 +295,7 @@ pub(crate) async fn recover_replay_composition_binding_in_transaction_v1(
     let readback =
         decode_replay_composition_binding_v1(&record_bytes, &receipt_bytes, &outbox_bytes)
             .map_err(|_| ReplayMarketFactsPostgresErrorV2::BindingConflict)?;
+
     if readback.record().locator() != locator
         || *readback.receipt().identity().as_bytes() != receipt_identity
         || readback.record().canonical_bytes() != record_bytes
@@ -319,12 +322,15 @@ pub(crate) async fn persist_replay_market_facts_in_transaction_v2(
     if let Some(existing) = load_by_identity(transaction, prepared.row.facts_identity).await? {
         return classify_existing(&existing.row, &prepared.row);
     }
+
     if let Some(existing) = load_by_meaning(transaction, prepared.row.meaning_identity).await? {
         return classify_existing(&existing.row, &prepared.row);
     }
+
     if let Some(existing) = load_by_receipt(transaction, prepared.row.receipt_identity).await? {
         return classify_existing(&existing.row, &prepared.row);
     }
+
     if any_storage_fragment_exists(transaction, &prepared.row).await? {
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
@@ -563,6 +569,7 @@ async fn load_by_identity(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+
     match meaning {
         Some(meaning) => load_by_meaning(transaction, digest_array(meaning)?).await,
         None => Ok(None),
@@ -580,6 +587,7 @@ async fn load_by_receipt(
         .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+
     match meaning {
         Some(meaning) => load_by_meaning(transaction, digest_array(meaning)?).await,
         None => Ok(None),
@@ -859,12 +867,14 @@ fn validate_frontier_envelope(
         return Err(ReplayMarketFactsPostgresErrorV2::CorruptRecord);
     }
     let mut dependencies = Vec::with_capacity(REQUIRED_DEPENDENCY_COUNT);
+
     for expected_kind in 1_u16..=6 {
         let kind = cursor.u16()?;
         let dependency = OpaqueDependencyLocatorV2 {
             identity: cursor.digest()?,
             digest: cursor.digest()?,
         };
+
         if kind != expected_kind
             || dependency.identity == [0; DIGEST_BYTES]
             || dependency.digest == [0; DIGEST_BYTES]
@@ -881,6 +891,7 @@ fn validate_frontier_envelope(
         identity: cursor.digest()?,
         digest: cursor.digest()?,
     };
+
     if projection_dependency.identity == [0; DIGEST_BYTES]
         || projection_dependency.digest == [0; DIGEST_BYTES]
     {
@@ -902,6 +913,7 @@ fn validate_frontier_envelope(
     for _ in 0..reference_count {
         let _ = cursor.digest()?;
     }
+
     if !cursor.is_finished()
         || observation != dependencies[4]
         || joined != dependencies[5]
@@ -1103,6 +1115,7 @@ fn expected_meaning_identity(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_
 pub(super) fn storage_digest(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_BYTES] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(STORAGE_DOMAIN);
+
     for bytes in [
         row.facts_identity.as_slice(),
         row.meaning_identity.as_slice(),
@@ -1119,6 +1132,7 @@ pub(super) fn storage_digest(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_
     ] {
         hasher.update(bytes);
     }
+
     match row.composition_binding_identity {
         Some(binding) => {
             hasher.update(&[1]);
@@ -1128,6 +1142,7 @@ pub(super) fn storage_digest(row: &StoredReplayMarketFactsRowV2) -> [u8; DIGEST_
             hasher.update(&[0]);
         }
     }
+
     for bytes in [&row.facts_bytes, &row.frontier_bytes, &row.receipt_bytes] {
         hasher.update(&(bytes.len() as u64).to_be_bytes());
         hasher.update(bytes);

@@ -90,6 +90,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
     let stored_manifest: Vec<Vec<u8>> = sqlx::query_scalar(
         "SELECT member_key FROM market_data_private.historical_membership_manifest_v1 WHERE eligible_frontier=$1 ORDER BY ordinal FOR SHARE",
     ).bind(eligible_frontier.as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+
     if !created
         && member_keys
             .iter()
@@ -97,6 +98,7 @@ pub(super) async fn persist_historical_membership_frontier_v1(
     {
         return Err(UniverseSelectionErrorV1::RequestConflict);
     }
+
     if created {
         for (index, member_key) in member_keys.iter().enumerate() {
             sqlx::query("INSERT INTO market_data_private.historical_membership_manifest_v1(eligible_frontier,ordinal,member_key) VALUES($1,$2,$3)")
@@ -104,9 +106,11 @@ pub(super) async fn persist_historical_membership_frontier_v1(
                 .bind(member_key).execute(&mut **transaction).await.map_err(store_error)?;
         }
     }
+
     for fact in &facts {
         advisory_lock(transaction, fact.identity()).await?;
     }
+
     for fact in facts {
         if let Some(predecessor) = fact.predecessor_identity() {
             let prior: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT eligible_frontier,member_key,instrument FROM market_data_private.historical_membership_facts_v1 WHERE fact_identity=$1 FOR SHARE")
@@ -179,6 +183,7 @@ pub(super) async fn resolve_universe_selection_in_transaction_v1(
     ).bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
     let frontier_exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.historical_membership_frontiers_v1 WHERE eligible_frontier=$1)")
         .bind(request.eligible_instrument_frontier().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+
     if !frontier_exists {
         return Err(UniverseSelectionErrorV1::UnknownIdentity);
     }

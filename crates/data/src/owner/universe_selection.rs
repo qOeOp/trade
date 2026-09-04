@@ -15,7 +15,7 @@
 //! let _: UniverseSelectionReadbackV1 = serde_json::from_str("{}").unwrap();
 //! ```
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::source_binding::BindingDigest;
 
@@ -394,7 +394,7 @@ pub enum UniverseSelectionErrorV1 {
 }
 
 impl Display for UniverseSelectionErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

@@ -121,6 +121,7 @@ impl<'a> Decoder<'a> {
                 .try_into()
                 .map_err(|_| TimeZoneErrorV1::StoreUntrusted)?,
         );
+
         if !nonzero(value) {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }

@@ -110,6 +110,7 @@ async fn resolve_inner(
         time_zone_locator.request_identity,
         time_zone_locator.request_meaning_digest,
     );
+
     if request.calendar_cut_locator_bytes.as_ref() != calendar_locator_bytes
         || request.time_zone_cut_locator_bytes.as_ref() != time_zone_locator_bytes
     {
@@ -243,6 +244,7 @@ async fn load(
     let append: i64 = row.try_get("append_sequence").map_err(store_error)?;
     let outbox = digest_row(row.try_get("outbox_identity").map_err(store_error)?)?;
     let payload: Vec<u8> = row.try_get("payload").map_err(store_error)?;
+
     if cut_identity
         != codec::digest(codec::CUT_DOMAIN, &cut_bytes)
             .as_bytes()
@@ -260,6 +262,7 @@ async fn load(
     let Some((generation, state_sequence)) = state else {
         return Err(SessionErrorV1::StoreUntrusted);
     };
+
     if cut_meaning != readback.cut.request_meaning_digest.as_bytes().as_slice()
         || receipt_meaning
             != readback
@@ -280,6 +283,7 @@ async fn load(
     {
         return Err(SessionErrorV1::StoreUntrusted);
     }
+
     for fact in readback.facts() {
         let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3)").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_one(&mut **tx).await.map_err(store_error)?;
         if !exists {
@@ -348,6 +352,7 @@ mod tests {
     fn schema_private_and_unregistered() {
         let s = SESSION_SCHEMA_V1.join("\n");
         assert_eq!(s.matches("REVOKE ALL ON TABLE").count(), 7);
+
         for r in [
             "session_state_v1",
             "session_facts_v1",

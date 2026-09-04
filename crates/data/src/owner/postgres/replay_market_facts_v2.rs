@@ -194,6 +194,7 @@ async fn validate_native_join_v4(
         .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
     let decoded = crate::owner::sample_projection_v4::decode_v4(&bytes, expected)
         .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
     if decoded.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
         || decoded.component_count() != 6
         || decoded.subject_identity() != *attestation.joined_cut_digest().as_bytes()
@@ -228,12 +229,14 @@ async fn validate_native_join_v4(
         })
     })
     .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
+
     if dependencies.len() != 6
         || crate::owner::sample_projection_v4::schedule_set_digest(&dependencies)
             != decoded.schedule_dependency_set_digest()
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+
     for (exact, dependency) in decoded.canonical_bytes()
         [crate::owner::sample_projection_v4::HEADER_LEN_V4..]
         .chunks_exact(crate::owner::sample_projection_v4::COMPONENT_LEN_V4)
@@ -266,6 +269,7 @@ async fn validate_native_join_v4(
         }) else {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         };
+
         if stored_dependency.schedule_readback_identity.as_bytes()
             != &dependency.schedule_readback_identity
             || stored_dependency.schedule_fact_digest.as_bytes() != &dependency.schedule_fact_digest
@@ -290,6 +294,7 @@ async fn validate_native_join_v4(
             .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
         let start = crate::owner::sample_projection_v4::V3_HEADER_LEN
             + index * crate::owner::sample_projection_v4::COMPONENT_LEN_V4;
+
         if stored
             .decoded
             .canonical_bytes()
@@ -307,6 +312,7 @@ async fn validate_native_join_v4(
         hasher.update(&bytes);
         BindingDigest::from_untrusted_bytes(hasher.finalize().into())
     };
+
     if digest_column(&row, "receipt_custody_digest")? != custody
         || digest_column(&row, "readback_custody_digest")? != custody
         || digest_column(&row, "outbox_custody_digest")? != custody
@@ -336,6 +342,7 @@ impl ReplayCompositionOwnerV1 {
         let owner = super::MarketDataOwnerPostgres::connect(database_url)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+
         for statement in REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1 {
             sqlx::query(*statement)
                 .execute(&owner.pool)
@@ -502,6 +509,7 @@ impl ReplayCompositionOwnerV1 {
             crate::owner::replay_market_facts_v2::replay_composition_issuance_meaning_digest_v1(
                 request,
             )?;
+
         if actual_meaning != issuance_locator.request_meaning_digest() {
             return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
         }
@@ -586,6 +594,7 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
+
         if let Err(operation_error) = verify_owner_domain_and_reader_challenge_v1(
             &mut reader_transaction,
             &mut transaction,
@@ -656,6 +665,7 @@ impl ReplayCompositionOwnerV1 {
         )
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
         if semantics.cut().r0_cut_identity != r0.cut().identity()
             || semantics.cut().r0_cut_digest != r0.cut().digest()
             || semantics.facts().iter().any(|fact| {
@@ -680,6 +690,7 @@ impl ReplayCompositionOwnerV1 {
 
         let mut roles = Vec::with_capacity(receipt.roles.len());
         let mut first_declaration_request = None;
+
         for role in &receipt.roles {
             let declaration = super::strategy_input_binding_registry::recover_strategy_input_binding_declaration_v1(
                 &mut transaction,
@@ -689,12 +700,14 @@ impl ReplayCompositionOwnerV1 {
             )
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
             if declaration.request().research_request_identity != receipt.research_request_identity
                 || declaration.request().strategy_design_identity != receipt.design_identity
                 || declaration.request().input_role_identity != role.role_identity
             {
                 return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
             }
+
             if first_declaration_request.is_none() {
                 first_declaration_request = Some(declaration.request().clone());
             }
@@ -740,6 +753,7 @@ impl ReplayCompositionOwnerV1 {
             .iter()
             .map(crate::owner::observation_census::ObservationCensusEntryV1::input_role_identity)
             .collect::<Vec<_>>();
+
         if census.record().identity() != census_identity
             || census_roles
                 != receipt
@@ -760,6 +774,7 @@ impl ReplayCompositionOwnerV1 {
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let sample = request.sample_projection_locator();
+
         if authenticated_census.record().identity() != census_identity
             || authenticated_joined
                 .record()
@@ -846,6 +861,7 @@ impl ReplayCompositionOwnerV1 {
             r0_coordinate_digest: r0.record().digest(),
         })
         .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+
         if correction.identity() != request.correction_policy_locator().identity()
             || correction.identity() != request.correction_policy_locator().digest()
         {
@@ -854,6 +870,7 @@ impl ReplayCompositionOwnerV1 {
         let instrument_cut_identity =
             exact_instrument_cut_identity(&mut transaction, request.instrument_master_locator())
                 .await?;
+
         if semantics
             .facts()
             .iter()
@@ -1041,6 +1058,7 @@ impl ReplayCompositionOwnerV1 {
             Ok(ReplayCompositionDurableIssuanceResponseV1::from_exact_storage(response_bytes))
         })
         .await;
+
         match outcome {
             Ok(response) => {
                 let market_terminal = transaction.commit().await;
@@ -1223,10 +1241,7 @@ static OWNER_CHALLENGE_NONCE_V1: AtomicU64 = AtomicU64::new(1);
 
 fn owner_challenge_key_v1(request_identity: BindingDigest, side: &str) -> i64 {
     let nonce = OWNER_CHALLENGE_NONCE_V1.fetch_add(1, Ordering::Relaxed);
-    let observed_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
+    let observed_at = vibe_core::time::duration_since_unix_epoch().as_nanos();
     let mut hasher = Sha256::new();
     hasher.update(b"market-data.owner-challenge.v1\0");
     hasher.update(request_identity.as_bytes());
@@ -1299,6 +1314,7 @@ async fn verify_market_challenge_v1(
         .fetch_one(&mut **market)
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+
     if reader_can_take_market
         || reader_challenge.key == market_challenge.key
         || reader_challenge.backend == market_challenge.backend
@@ -1334,6 +1350,7 @@ async fn prove_market_transaction_terminal_from_pool_v1(
         let Ok(mut observer) = pool.acquire().await else {
             continue;
         };
+
         match try_acquire_market_challenge_v1(&mut observer, market_challenge_key).await {
             Ok(true) => return,
             Ok(false) => {
@@ -1938,6 +1955,7 @@ mod composer_facade_tests {
         assert!(COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1.contains(
             "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
         ));
+
         for query in [
             COMPOSER_ROLE_SET_RESOLVE_QUERY_V1,
             COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1,
@@ -1968,6 +1986,7 @@ mod composer_facade_tests {
         let mut owner = exact();
         owner.cut_lock_execute = true;
         assert!(composer_reader_acl_values_are_exact(&owner, true));
+
         for denied in 0..12 {
             let mut values = [
                 true, false, false, false, true, true, false, false, false, false, false, false,

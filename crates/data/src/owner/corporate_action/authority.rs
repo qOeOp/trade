@@ -72,6 +72,7 @@ pub(crate) fn authenticate_corporate_action_inputs_v1(
                 .any(|fact| fact.canonical_identity().as_bytes() == successor_instrument.as_ref()),
             _ => true,
         };
+
         if ![
             registry.action_identity,
             registry.correction_identity,
@@ -200,6 +201,7 @@ pub(crate) fn issue_facts_and_cut_v1(
             canonical_bytes: Box::default(),
             identity: CorporateActionIdentity::from_untrusted_bytes([0; 32]),
         };
+
         if !valid_fact(&fact) {
             return Err(CorporateActionErrorV1::InvalidFact);
         }
@@ -213,6 +215,7 @@ pub(crate) fn issue_facts_and_cut_v1(
             .then(left.effective_from_ns.cmp(&right.effective_from_ns))
             .then(left.action_identity.cmp(&right.action_identity))
     });
+
     if facts.windows(2).any(|pair| {
         pair[0].instrument == pair[1].instrument
             && pair[0].action_identity == pair[1].action_identity
@@ -313,6 +316,7 @@ pub(crate) fn verify_readback_v1(
         return Err(CorporateActionErrorV1::DigestMismatch);
     }
     let mut seen = 0usize;
+
     for census in &readback.cut.census {
         for entry in &census.actions {
             let fact = readback
@@ -320,6 +324,7 @@ pub(crate) fn verify_readback_v1(
                 .iter()
                 .find(|fact| fact.identity == entry.fact_identity)
                 .ok_or(CorporateActionErrorV1::IncompleteCut)?;
+
             if fact.instrument.as_ref() != census.instrument.as_ref()
                 || fact.action_identity != entry.action_identity
                 || fact.identity != entry.fact_digest
@@ -331,6 +336,7 @@ pub(crate) fn verify_readback_v1(
             seen += 1;
         }
     }
+
     if seen != readback.facts.len()
         || readback
             .cut
@@ -346,6 +352,7 @@ pub(crate) fn verify_readback_v1(
     {
         return Err(CorporateActionErrorV1::NonCanonicalOrder);
     }
+
     for fact in &readback.facts {
         if codec::encode_fact(fact)?.as_ref() != fact.canonical_bytes.as_ref()
             || codec::digest(codec::FACT_DOMAIN, &fact.canonical_bytes) != fact.identity
@@ -353,6 +360,7 @@ pub(crate) fn verify_readback_v1(
             return Err(CorporateActionErrorV1::DigestMismatch);
         }
     }
+
     if codec::encode_cut(&readback.cut)?.as_ref() != readback.cut.canonical_bytes.as_ref()
         || codec::digest(codec::CUT_DOMAIN, &readback.cut.canonical_bytes) != readback.cut.identity
         || codec::encode_receipt(&readback.receipt)?.as_ref()

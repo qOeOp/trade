@@ -15,7 +15,7 @@
 //! let _: ObservationCensusReadbackV1 = serde_json::from_str("{}").unwrap();
 //! ```
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::{
     pit_snapshot::UntrustedPitSnapshotLocator,
@@ -388,7 +388,7 @@ pub enum ObservationCensusErrorV1 {
 }
 
 impl Display for ObservationCensusErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }

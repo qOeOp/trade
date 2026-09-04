@@ -8,7 +8,7 @@
     reason = "C2 is composed by a later native-reference-fact slice"
 )]
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::{
     reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1, source_binding::BindingDigest,
@@ -46,7 +46,7 @@ pub(crate) enum TimeZoneErrorV1 {
 }
 
 impl Display for TimeZoneErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("native Time Zone authority rejected the operation")
     }
 }

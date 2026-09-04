@@ -17,6 +17,7 @@ pub(crate) fn prepare_resolution_v1(
 ) -> Result<PreparedSessionResolutionV1, SessionErrorV1> {
     validate_request(&request)?;
     validate_dependencies(&request, dependencies)?;
+
     if proposals.len() > codec::MAX_FACTS {
         return Err(SessionErrorV1::CapacityExceeded);
     }
@@ -41,6 +42,7 @@ pub(crate) fn prepare_resolution_v1(
     )?;
     bytes.extend_from_slice(&request.first_day.to_be_bytes());
     bytes.extend_from_slice(&request.last_day_exclusive.to_be_bytes());
+
     for value in [
         calendar_cut.identity(),
         calendar_cut.digest(),
@@ -62,6 +64,7 @@ pub(crate) fn prepare_resolution_v1(
             .to_be_bytes(),
     );
     let mut fact_ids = Vec::new();
+
     for day in &days {
         bytes.extend_from_slice(&day.day.to_be_bytes());
         bytes.push(u8::from(day.is_open));
@@ -70,6 +73,7 @@ pub(crate) fn prepare_resolution_v1(
                 .map_err(|_| SessionErrorV1::CapacityExceeded)?
                 .to_be_bytes(),
         );
+
         for (ordinal, id, digest) in day.intervals.iter().copied() {
             bytes.extend_from_slice(&ordinal.to_be_bytes());
             codec::id(&mut bytes, id)?;
@@ -142,6 +146,7 @@ pub(super) fn issue_fact(
     encode_boundary(&mut bytes, proposal.local_close);
     bytes.extend_from_slice(&utc_open.to_be_bytes());
     bytes.extend_from_slice(&utc_close.to_be_bytes());
+
     for value in [
         calendar_fact.identity(),
         calendar_fact.digest(),
@@ -161,6 +166,7 @@ pub(super) fn issue_fact(
     }
     encode_opt_id(&mut bytes, proposal.predecessor_identity)?;
     bytes.extend_from_slice(&proposal.correction_sequence.to_be_bytes());
+
     for value in [
         claim.time.provider_available_ns,
         claim.time.retrieval_ns,
@@ -170,6 +176,7 @@ pub(super) fn issue_fact(
         bytes.extend_from_slice(&value.to_be_bytes());
     }
     bytes.extend_from_slice(&claim.time.decision_cut.to_be_bytes());
+
     for value in [
         proposal.r0_coordinate_identity,
         proposal.r0_coordinate_digest,
@@ -219,6 +226,7 @@ pub(super) fn resolve_boundary(
         .and_then(|v| v.checked_add(i128::from(boundary.nanos_of_day)))
         .ok_or(SessionErrorV1::CapacityExceeded)?;
     let mut candidates = Vec::new();
+
     for fact in time_zone.facts() {
         let offset = i128::from(fact.utc_offset_seconds())
             .checked_mul(1_000_000_000)
@@ -226,6 +234,7 @@ pub(super) fn resolve_boundary(
         let utc = local
             .checked_sub(offset)
             .ok_or(SessionErrorV1::CapacityExceeded)?;
+
         if utc >= fact.effective_from_ns()
             && fact.effective_until_ns().is_none_or(|until| utc < until)
         {
@@ -252,6 +261,7 @@ pub(super) fn validate_census(
     facts: &[SessionFactV1],
 ) -> Result<Vec<SessionDayCensusV1>, SessionErrorV1> {
     let mut by_day: BTreeMap<i32, Vec<&SessionFactV1>> = BTreeMap::new();
+
     if let Some(first) = facts.first()
         && facts.iter().any(|fact| {
             fact.source_binding_identity != first.source_binding_identity
@@ -260,10 +270,12 @@ pub(super) fn validate_census(
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
+
     for fact in facts {
         by_day.entry(fact.trading_day).or_default().push(fact);
     }
     let mut days = Vec::new();
+
     for day in request.first_day..request.last_day_exclusive {
         let calendar_fact = calendar
             .facts()
@@ -282,10 +294,12 @@ pub(super) fn validate_census(
             });
             continue;
         }
+
         if entries.is_empty() {
             return Err(SessionErrorV1::IncompleteCensus);
         }
         let mut intervals = Vec::new();
+
         for (index, fact) in entries.iter().enumerate() {
             if usize::try_from(fact.interval_ordinal)
                 .map_err(|_| SessionErrorV1::CapacityExceeded)?
@@ -293,6 +307,7 @@ pub(super) fn validate_census(
             {
                 return Err(SessionErrorV1::NonCanonicalOrder);
             }
+
             if let Some(previous) = index.checked_sub(1).and_then(|i| entries.get(i))
                 && (previous.utc_close_ns > fact.utc_open_ns
                     || previous.local_close != fact.local_open)
@@ -307,6 +322,7 @@ pub(super) fn validate_census(
             intervals: intervals.into(),
         });
     }
+
     if !by_day.is_empty() {
         return Err(SessionErrorV1::IncompleteCensus);
     }
@@ -324,6 +340,7 @@ fn validate_dependencies(
     if &decoded != deps.time_zone {
         return Err(SessionErrorV1::InvalidDependency);
     }
+
     if deps.calendar.cut().first_day() != request.first_day
         || deps.calendar.cut().last_day_exclusive() != request.last_day_exclusive
         || deps.calendar_cut_locator_bytes != request.calendar_cut_locator_bytes.as_ref()
@@ -444,6 +461,7 @@ fn build_readback(
             .map_err(|_| SessionErrorV1::CapacityExceeded)?
             .to_be_bytes(),
     );
+
     for (fact, id) in facts.iter().zip(cut.fact_identities.iter()) {
         if fact.identity != *id
             || codec::digest(codec::FACT_DOMAIN, fact.canonical_bytes()) != fact.identity
@@ -479,6 +497,7 @@ pub(crate) fn decode_readback_v1(bytes: &[u8]) -> Result<SessionReadbackV1, Sess
         return Err(SessionErrorV1::CapacityExceeded);
     }
     let mut facts = Vec::new();
+
     for _ in 0..n {
         let id = d.id()?;
         let fb = d.bytes(codec::MAX_FACT_BYTES)?;
@@ -543,6 +562,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
     if utc_open_ns >= utc_close_ns {
         return Err(SessionErrorV1::StoreUntrusted);
     }
+
     for _ in 0..13 {
         let _ = d.id()?;
     }
@@ -551,6 +571,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
     if correction_sequence == 0 {
         return Err(SessionErrorV1::StoreUntrusted);
     }
+
     for _ in 0..4 {
         let _ = d.i128()?;
     }
@@ -566,6 +587,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
     if d.u64()? != correction_sequence {
         return Err(SessionErrorV1::StoreUntrusted);
     }
+
     for _ in 0..3 {
         let _ = d.id()?;
     }
@@ -600,6 +622,7 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
     if first >= last {
         return Err(SessionErrorV1::StoreUntrusted);
     }
+
     for _ in 0..7 {
         let _ = d.id()?;
     }
@@ -618,6 +641,7 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
     }
     let mut days = Vec::new();
     let mut ids = Vec::new();
+
     for expected in first..last {
         if d.i32()? != expected {
             return Err(SessionErrorV1::StoreUntrusted);
@@ -632,6 +656,7 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
             return Err(SessionErrorV1::StoreUntrusted);
         }
         let mut intervals = Vec::new();
+
         for ordinal in 0..n {
             if d.u32()? != u32::try_from(ordinal).map_err(|_| SessionErrorV1::CapacityExceeded)? {
                 return Err(SessionErrorV1::StoreUntrusted);
@@ -654,6 +679,7 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
             intervals: intervals.into(),
         });
     }
+
     if d.u32()? != 0 {
         return Err(SessionErrorV1::IncompleteCensus);
     }

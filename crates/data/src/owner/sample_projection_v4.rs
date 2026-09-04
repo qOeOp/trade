@@ -266,6 +266,7 @@ fn prepare_v4(
     }
     let mut component_bytes = Vec::new();
     let mut dependencies = Vec::new();
+
     for source in sources {
         let projection = source.projection;
         if projection.kind_tag() != FRAME_KIND_V4
@@ -281,6 +282,7 @@ fn prepare_v4(
         if entries.len() != COMPONENT_LEN_V4 * source.dependencies.len() {
             return Err(StrategyInputSampleProjectionErrorV4::InvalidLength);
         }
+
         for ((decoded, dependency), exact) in projection
             .components()
             .iter()
@@ -305,6 +307,7 @@ fn prepare_v4(
             dependencies.push(*dependency);
         }
     }
+
     if dependencies.is_empty() || dependencies.len() > u32::MAX as usize {
         return Err(StrategyInputSampleProjectionErrorV4::EmptyProjection);
     }
@@ -325,11 +328,13 @@ fn prepare_v4(
         if joined.components().len() != exact_components.len() {
             return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
         }
+
         for (joined_component, exact) in joined.components().iter().zip(&exact_components) {
             let values = joined_component.frame().values();
             let [value] = values else {
                 return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
             };
+
             if value.input_role_identity().as_bytes() != &exact[..32]
                 || value.binding_receipt_digest().as_bytes() != &exact[32..64]
                 || joined_component.frame().trigger().digest().as_bytes() != &exact[96..128]
@@ -374,9 +379,11 @@ pub(super) fn decode_v4(
     if bytes.len() < HEADER_LEN_V4 {
         return Err(StrategyInputSampleProjectionErrorV4::InvalidLength);
     }
+
     if u16::from_le_bytes([bytes[0], bytes[1]]) != SCHEMA_V4 {
         return Err(StrategyInputSampleProjectionErrorV4::InvalidSchema);
     }
+
     if bytes[2..4] != [0, 0] {
         return Err(StrategyInputSampleProjectionErrorV4::ReservedNonZero);
     }
@@ -395,6 +402,7 @@ pub(super) fn decode_v4(
             .try_into()
             .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
     );
+
     if component_count == 0
         || (kind == StrategyInputSampleProjectionKindV4::JoinedCut && component_count < 2)
         || bytes.len() != HEADER_LEN_V4 + COMPONENT_LEN_V4 * component_count as usize
@@ -402,6 +410,7 @@ pub(super) fn decode_v4(
         return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
     }
     let mut previous = None;
+
     for component in bytes[HEADER_LEN_V4..].chunks_exact(COMPONENT_LEN_V4) {
         let role: [u8; 32] = component[..32]
             .try_into()
@@ -569,6 +578,7 @@ mod tests {
             dependencies: &dependencies,
         })
         .unwrap();
+
         for (offset, value, expected) in [
             (2, 1, StrategyInputSampleProjectionErrorV4::ReservedNonZero),
             (4, 9, StrategyInputSampleProjectionErrorV4::UnsupportedKind),

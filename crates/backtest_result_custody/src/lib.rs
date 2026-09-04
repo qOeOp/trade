@@ -718,6 +718,7 @@ fn validate_envelope(
         && outbox.payload.namespace == ReplayNamespaceV2::Exploratory
         && outbox.committed_at_epoch_ms == receipt.committed_at_epoch_ms
         && outbox.payload.committed_at_epoch_ms == receipt.committed_at_epoch_ms;
+
     if !exact {
         return Err(BacktestResultCustodyErrorV2::Unavailable);
     }

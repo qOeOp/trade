@@ -19,9 +19,11 @@ fn candidate(inputs: Inputs<'_>) -> Result<Projection, Error> {
     {
         return Err(Error::DependencyMismatch);
     }
+
     if !nonzero(inputs.r0_coordinate_identity) || !nonzero(inputs.r0_coordinate_digest) {
         return Err(Error::DependencyMismatch);
     }
+
     if c.fact_clock.head_identity != c.pit.clock.head_identity
         || c.fact_clock.head_digest != c.pit.clock.head_digest
         || c.time.decision_cut != c.pit.decision_cut
@@ -81,12 +83,15 @@ fn join(prior: &Projection, mut next: Projection) -> Result<(Projection, Project
     if next.source_binding_lineage_root != prior.source_binding_lineage_root {
         return Err(Error::CrossSourceSplice);
     }
+
     if next.source_binding_identity != prior.source_binding_identity {
         return Err(Error::CrossSourceSplice);
     }
+
     if next.source_binding_lineage_version < prior.source_binding_lineage_version {
         return Err(Error::LineageRegression);
     }
+
     if next.source_binding_lineage_version == prior.source_binding_lineage_version {
         return Err(if next.stream_identity == prior.stream_identity {
             Error::LineageBranch
@@ -94,6 +99,7 @@ fn join(prior: &Projection, mut next: Projection) -> Result<(Projection, Project
             Error::StreamChanged
         });
     }
+
     if next.source_binding_lineage_version
         != prior
             .source_binding_lineage_version
@@ -102,12 +108,15 @@ fn join(prior: &Projection, mut next: Projection) -> Result<(Projection, Project
     {
         return Err(Error::LineageGap);
     }
+
     if next.stream_identity != prior.stream_identity {
         return Err(Error::StreamChanged);
     }
+
     if next.sequence < prior.sequence {
         return Err(Error::FrontierRegression);
     }
+
     if next.sequence == prior.sequence {
         if next.correction_frontier_digest != prior.correction_frontier_digest {
             return Err(Error::LineageBranch);
@@ -126,9 +135,11 @@ fn join(prior: &Projection, mut next: Projection) -> Result<(Projection, Project
         seal(&mut next)?;
         return Ok((next.clone(), next));
     }
+
     if next.sequence != prior.sequence.checked_add(1).ok_or(Error::FrontierGap)? {
         return Err(Error::FrontierGap);
     }
+
     if next.effective_from_ns <= prior.effective_from_ns || next.effective_until_ns.is_some() {
         return Err(Error::InvalidInterval);
     }

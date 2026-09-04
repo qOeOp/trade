@@ -38,6 +38,7 @@ pub(super) fn encode(value: &CorrectionPolicyProjectionV1) -> Result<Box<[u8]>, 
             b.extend_from_slice(&v.to_be_bytes());
         }
     }
+
     for v in [
         value.provider_available_ns,
         value.retrieval_ns,
@@ -55,6 +56,7 @@ pub(super) fn encode(value: &CorrectionPolicyProjectionV1) -> Result<Box<[u8]>, 
     ] {
         b.extend_from_slice(d.as_bytes());
     }
+
     if b.len() > MAX_BYTES {
         return Err(Error::CapacityExceeded);
     }

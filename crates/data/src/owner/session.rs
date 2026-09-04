@@ -5,7 +5,7 @@
     reason = "Session composition is delivered by a later Owner slice"
 )]
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use super::{
     calendar::CalendarReadbackV1, reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
@@ -197,7 +197,7 @@ pub(crate) enum SessionErrorV1 {
     StoreUnavailable,
 }
 impl Display for SessionErrorV1 {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("native Session authority rejected the operation")
     }
 }

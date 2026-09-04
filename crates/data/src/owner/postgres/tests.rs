@@ -449,6 +449,7 @@ async fn observation_census_schema_oracle(reader_url: &str, admin: &PgPool) {
                 .await
                 .unwrap();
         assert!(exists);
+
         for role in [READER_ROLE, "public"] {
             for privilege in ["SELECT", "INSERT", "UPDATE", "DELETE"] {
                 let admitted: bool = sqlx::query_scalar(
@@ -1883,6 +1884,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
     r0_splice!(effective_until_ns, Some(52));
     r0_splice!(replay_start_event_ns, 49);
     r0_splice!(replay_end_event_ns_exclusive, 52);
+
     for mutate in [0_u8, 1, 2, 3, 4, 5] {
         let mut locator = source.receipt().locator().clone();
         match mutate {
@@ -1900,6 +1902,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
         changed.request_meaning_digest = r0_request_meaning_digest(&changed).unwrap();
         r0_splices.push(changed);
     }
+
     for changed in r0_splices {
         let mut transaction = owner.pool().begin().await.unwrap();
         assert!(
@@ -2087,6 +2090,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
     };
     let mut binding_requests = Vec::with_capacity(6);
     let mut declarations = Vec::with_capacity(6);
+
     for ordinal in 0_u8..6 {
         let mut request = binding_request.clone();
         request.input_role_identity = d(192 + ordinal);

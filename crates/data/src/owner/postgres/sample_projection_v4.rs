@@ -125,6 +125,7 @@ impl MarketDataOwnerPostgres {
             .bind(prepared.canonical_bytes())
             .bind(custody.as_slice())
             .execute(&mut *transaction).await.map_err(|e| map_insert(&e))?;
+
         for (index, dependency) in prepared.dependencies().iter().enumerate() {
             insert_dependency(
                 &mut transaction,
@@ -193,6 +194,7 @@ async fn validate_joined_subject(
         super::observation_census::resolve_and_commit_observation_census_v1(transaction, &request)
             .await
             .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+
     if joined.record().identity() != locator.joined_cut_identity()
         || joined.record().canonical_bytes() != custody.as_ref()
         || joined.record().joined_cut_receipt().digest().as_bytes() != &subject_digest
@@ -202,9 +204,11 @@ async fn validate_joined_subject(
     }
     let components = decoded.canonical_bytes()[crate::owner::sample_projection_v4::HEADER_LEN_V4..]
         .chunks_exact(crate::owner::sample_projection_v4::COMPONENT_LEN_V4);
+
     if joined.record().joined_cut_receipt().components().len() != components.len() {
         return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
     }
+
     for (joined_component, exact) in joined
         .record()
         .joined_cut_receipt()
@@ -215,6 +219,7 @@ async fn validate_joined_subject(
         let [value] = joined_component.frame().values() else {
             return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
         };
+
         if value.input_role_identity().as_bytes() != &exact[..32]
             || value.binding_receipt_digest().as_bytes() != &exact[32..64]
             || joined_component.frame().trigger().digest().as_bytes() != &exact[96..128]
@@ -309,6 +314,7 @@ async fn validate_v3_dependencies(
         let Some((actual, component)) = matched else {
             return Err(StrategyInputSampleProjectionErrorV4::ScheduleDependencyMismatch);
         };
+
         if expected.role_identity != actual.role_identity
             || expected.binding_receipt_digest != actual.binding_receipt_digest
             || expected.timeframe_projection_digest != component.timeframe_projection_digest()
@@ -382,6 +388,7 @@ async fn validate_exact_v3_components(
     let components = decoded.canonical_bytes()[crate::owner::sample_projection_v4::HEADER_LEN_V4..]
         .chunks_exact(crate::owner::sample_projection_v4::COMPONENT_LEN_V4);
     let mut frame_subject = None;
+
     for (exact_v4, dependency) in components.zip(dependencies) {
         let stored = load_strategy_input_sample_projection_v3(
             transaction,
@@ -412,6 +419,7 @@ async fn validate_exact_v3_components(
             return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
         }
     }
+
     if decoded.kind()
         == crate::owner::sample_projection_v4::StrategyInputSampleProjectionKindV4::Frame
         && frame_subject != Some(decoded.subject_identity())

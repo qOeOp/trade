@@ -123,6 +123,7 @@ pub(crate) fn validate_request(
         request.correction_frontier_digest,
         request.stable_correlation,
     ];
+
     if identities.into_iter().any(|value| !codec::nonzero(value))
         || request.requester_role.is_empty()
         || request.requester_role.len() > codec::MAX_ROLE_BYTES
@@ -236,9 +237,11 @@ pub(crate) fn select_complete_membership_v1(
         .iter()
         .map(|fact| (fact.identity(), fact))
         .collect();
+
     if by_identity.len() != source_facts.len() {
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
+
     for fact in source_facts {
         if let Some(predecessor) = fact.predecessor_identity() {
             let prior = by_identity
@@ -281,6 +284,7 @@ pub(crate) fn select_complete_membership_v1(
         let fact = candidates
             .pop()
             .ok_or(UniverseSelectionErrorV1::InvalidMembership)?;
+
         if candidates.last().is_some_and(|other| {
             (
                 other.proposal.decision_cut,
@@ -297,6 +301,7 @@ pub(crate) fn select_complete_membership_v1(
             &request.selection_rule_bytes,
             fact,
         )?;
+
         if disposition.included == disposition.exclusion_reason.is_some()
             || disposition.exclusion_reason.as_ref().is_some_and(|reason| {
                 reason.is_empty() || reason.len() > codec::MAX_EXCLUSION_REASON_BYTES
@@ -309,6 +314,7 @@ pub(crate) fn select_complete_membership_v1(
     selected.sort_by(|left, right| {
         (left.member_key(), left.instrument()).cmp(&(right.member_key(), right.instrument()))
     });
+
     if selected.len() != expected_member_keys.len() {
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }
@@ -370,6 +376,7 @@ pub(crate) fn issue_universe_selection_readback_v1(
     store_append_sequence: u64,
 ) -> Result<UniverseSelectionReadbackV1, UniverseSelectionErrorV1> {
     validate_request(request)?;
+
     if membership.len() > codec::MAX_MEMBERSHIP_RECORDS
         || membership
             .windows(2)
@@ -440,6 +447,7 @@ fn membership_cut_identity(
     encoder.u32(
         u32::try_from(membership.len()).map_err(|_| UniverseSelectionErrorV1::CapacityExceeded)?,
     );
+
     for fact in membership {
         encoder.digest(fact.identity());
     }
@@ -498,6 +506,7 @@ fn encode_record_values(
     encoder.u32(
         u32::try_from(membership.len()).map_err(|_| UniverseSelectionErrorV1::CapacityExceeded)?,
     );
+
     for fact in membership {
         encoder.bytes(fact.canonical_bytes(), codec::MAX_RECORD_BYTES)?;
     }
@@ -646,6 +655,7 @@ fn decode_membership(
     let correction_publication_ns = decoder.i128()?;
     let owner_observation_ns = decoder.i128()?;
     decoder.finish()?;
+
     if included == exclusion_reason.is_some() {
         return Err(UniverseSelectionErrorV1::InvalidMembership);
     }

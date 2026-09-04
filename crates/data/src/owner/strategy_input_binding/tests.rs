@@ -66,6 +66,7 @@ fn declaration_codec_round_trips_and_every_field_changes_meaning() {
         |v| v.market_semantics_identity = d(34),
         |v| v.decision_cut = 35,
     ];
+
     for mutate in mutations {
         let mut changed = original.clone();
         mutate(&mut changed);
