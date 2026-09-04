@@ -56,12 +56,16 @@ impl PostgresQualificationOwnerV1 {
                  ]) table_name
                  CROSS JOIN pg_catalog.unnest(ARRAY['TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
                 AND NOT EXISTS (
-                  SELECT 1 FROM pg_catalog.pg_tables table_entry
-                  WHERE table_entry.schemaname = 'public'
-                    AND table_entry.tablename LIKE 'rd_%'
+                  SELECT 1
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace
+                    ON namespace.oid = relation.relnamespace
+                  WHERE namespace.nspname = 'public'
+                    AND relation.relkind IN ('r', 'p')
+                    AND relation.relname LIKE 'rd_%'
                     AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
                       current_user,
-                      pg_catalog.format('public.%I', table_entry.tablename),
+                      relation.oid,
                       privilege_name
                     )) FROM pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) privilege_name)
                 )
