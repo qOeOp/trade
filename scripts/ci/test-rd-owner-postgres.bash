@@ -821,12 +821,61 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
-REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
-REVOKE CONNECT ON DATABASE :"legacy_replay_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"origin_current_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+
+WITH clones(database_name) AS (
+  VALUES (:'origin_current_database'), (:'legacy_replay_database')
+), roles(role_name) AS (
+  VALUES
+    ('operator_authorization_writer'),
+    ('product_edge_owner'),
+    ('rd_owner'),
+    ('rd_fact_writer'),
+    ('replay_policy_catalog_admin_writer'),
+    ('market_data_owner'),
+    ('market_data_reader'),
+    ('qualification_writer'),
+    ('backtest_owner'),
+    ('vibe_test_owner_topology_admin')
+)
+SELECT (
+  NOT EXISTS (
+    SELECT 1
+      FROM clones
+      LEFT JOIN pg_catalog.pg_database database_entry
+        ON database_entry.datname=clones.database_name
+     WHERE database_entry.oid IS NULL
+        OR pg_catalog.pg_get_userbyid(database_entry.datdba)<>'rd_database_owner'
+        OR EXISTS (
+          SELECT 1
+            FROM pg_catalog.aclexplode(COALESCE(
+              database_entry.datacl,
+              pg_catalog.acldefault('d',database_entry.datdba)
+            )) database_acl
+           WHERE database_acl.grantee=0
+             AND database_acl.privilege_type IN ('CONNECT','CREATE','TEMPORARY')
+        )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+      FROM clones
+      CROSS JOIN roles
+     WHERE NOT pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'CONNECT')
+        OR pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'CREATE')
+        OR pg_catalog.has_database_privilege(roles.role_name,clones.database_name,'TEMPORARY')
+  )
+)::int AS cloned_database_custody_ok
+\gset
+\if :cloned_database_custody_ok
+\else
+  \echo 'ERROR: cloned R&D database custody mismatch.'
+  \quit 1
+\endif
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
