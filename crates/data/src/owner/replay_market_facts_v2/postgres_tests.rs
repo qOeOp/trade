@@ -1052,6 +1052,22 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         vec![join_entry],
     )
     .unwrap();
+    let trigger_component = joined
+        .joined
+        .record()
+        .joined_cut_receipt()
+        .components()
+        .iter()
+        .find(|component| component.role_semantic_id() == joined.join_claim.trigger_input_id)
+        .unwrap();
+    assert_eq!(
+        joined.joined.record().joined_cut_receipt().trigger_digest(),
+        trigger_component.frame().trigger().digest()
+    );
+    assert_ne!(
+        joined.joined.record().joined_cut_receipt().trigger_digest(),
+        trigger_component.frame_digest()
+    );
     let joined_digest = joined.joined.record().digest();
     let joined_receipt_digest = joined.joined.record().joined_cut_receipt().digest();
     assert_ne!(joined_digest, joined_receipt_digest);
