@@ -470,10 +470,17 @@ latest or discovered by a full scan.
 immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
 outbox. It binds the
 exact Research request, Composer aggregate and `StrategyDesignV2`, canonically ordered typed roles, every semantic
-coordinate and complete role coverage. Its content-addressed exact locator is known before send. The sole cross-Owner
-surface is an R&D-owned exact-locator database function whose ACL grants the fixed Market Data reader only `EXECUTE`
-and grants no raw-table `SELECT` or DML; there is no public positive constructor/deserializer, receipt/readback input,
-bearer token, cryptographic-key authority, latest/history/full scan or Market parser for R&D tables.
+coordinate and complete role coverage. Its content-addressed exact locator is known before send. Replay Policy V2
+composition is coordinated by the R&D-owned A1 on one `rd_owner` PostgreSQL transaction. On that same transaction,
+`rd_owner` resolves the exact R&D attestation through the Composer Owner's locator-only `SECURITY DEFINER` facade and
+invokes only the Market Data Owner's bounded locator-only `SECURITY DEFINER` composition facade. Each facade executes
+with its owning non-login role, performs its own ordered locks, canonical rereads, validation, sealing and exact
+recovery, and returns only the evidence required by A1. The ACL grants `rd_owner` only schema `USAGE` and `EXECUTE` on
+those named functions: it grants no raw-table `SELECT` or DML, no role membership, generic query surface, public
+positive constructor/deserializer, receipt/readback input, bearer token, cryptographic-key authority,
+latest/history/full scan or cross-Owner parser. The fixed `market_data_reader` remains an independent read-only
+principal for its separately admitted locator-resolution surfaces; it neither holds the A1 transaction nor receives
+the Market Data composition write facade.
 
 W3 issuance accepts only that untrusted R&D attestation locator plus exact Market dependency locators. Market Data
 validates the recovered attestation internally, then independently re-resolves every durable registry declaration, the
