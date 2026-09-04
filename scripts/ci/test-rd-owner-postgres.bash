@@ -999,6 +999,10 @@ run_authority_migration_for_database() {
 
 run_authority_migration() {
   run_authority_migration_for_database "$test_database"
+  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+    --username postgres --dbname "$test_database" << 'SQL'
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+SQL
 }
 
 wait_for_authority_fixture_recovery() {
@@ -1058,7 +1062,7 @@ SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backte
 DROP FUNCTION IF EXISTS backtest_authority_lock_api.poisoned_sibling_v1();
 COMMIT;
 SQL
-  run_authority_migration_for_database "$test_database"
+  run_authority_migration
 }
 
 verify_authority_lock_schema_sibling_fails_closed
@@ -1092,7 +1096,7 @@ SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backte
 DROP TABLE IF EXISTS backtest_authority_lock_api.poisoned_relation_v1;
 COMMIT;
 SQL
-  run_authority_migration_for_database "$test_database"
+  run_authority_migration
 }
 
 verify_authority_lock_schema_object_fails_closed
@@ -1301,23 +1305,7 @@ DROP FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
 COMMIT;
 SQL
   fi
-  docker exec --interactive \
-    --env POSTGRES_HOST=127.0.0.1 \
-    --env "POSTGRES_DATABASE=${test_database}" \
-    --env "POSTGRES_PASSWORD=${test_password}" \
-    --env "RD_OWNER_DB_PASSWORD=${test_password}" \
-    --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
-    --env "MARKET_DATA_OWNER_DB_PASSWORD=${test_password}" \
-    --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
-    --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
-    --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
-    --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
-    --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
-    "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
-  docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-    --username postgres --dbname "$test_database" << 'SQL'
-GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
-SQL
+  run_authority_migration
 }
 
 # The first two filters make the first application connection to their separate
