@@ -1775,34 +1775,46 @@ async fn strategy_input_binding_registry_postgres_oracle(
         },
     };
     let observation = UntrustedPitObservationBatchProposal {
-        rows: vec![UntrustedPitObservation {
-            symbolic_key: "AAPL.CLOSE".into(),
-            member_key: "AAPL".into(),
-            instrument: "AAPL".into(),
-            channel: "MARKET".into(),
-            data_kind: "BAR".into(),
-            timeframe: "1M".into(),
-            field: "CLOSE".into(),
-            value_mantissa: 12_345,
-            value_scale: 2,
-            event_effective: 50,
-            provider_available: 90,
-            retrieval: 92,
-            correction_publication: 91,
-            source_binding_identity: source.fact().binding_id(),
-            source_frontier_digest: d(85),
-            instrument_master_digest: instrument.digest(),
-            universe_selection_digest: universe.record().identity(),
-            market_semantics_identity: d(84),
-            correction_stream_identity: source
-                .receipt()
-                .locator()
-                .correction_frontier
-                .stream_identity
-                .clone(),
-            correction_sequence: source.receipt().locator().correction_frontier.sequence,
-            correction_frontier_digest: d(86),
-        }],
+        rows: [
+            ("AAPL.CLOSE.1H", "CLOSE", "1H", 12_301),
+            ("AAPL.CLOSE.1M", "CLOSE", "1M", 12_345),
+            ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
+            ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
+            ("AAPL.LOW.1M", "LOW", "1M", 12_211),
+            ("AAPL.OPEN.1M", "OPEN", "1M", 12_250),
+        ]
+        .into_iter()
+        .map(
+            |(symbolic_key, field, timeframe, value_mantissa)| UntrustedPitObservation {
+                symbolic_key: symbolic_key.into(),
+                member_key: "AAPL".into(),
+                instrument: "AAPL".into(),
+                channel: "MARKET".into(),
+                data_kind: "BAR".into(),
+                timeframe: timeframe.into(),
+                field: field.into(),
+                value_mantissa,
+                value_scale: 2,
+                event_effective: 50,
+                provider_available: 90,
+                retrieval: 92,
+                correction_publication: 91,
+                source_binding_identity: source.fact().binding_id(),
+                source_frontier_digest: d(85),
+                instrument_master_digest: instrument.digest(),
+                universe_selection_digest: universe.record().identity(),
+                market_semantics_identity: d(84),
+                correction_stream_identity: source
+                    .receipt()
+                    .locator()
+                    .correction_frontier
+                    .stream_identity
+                    .clone(),
+                correction_sequence: source.receipt().locator().correction_frontier.sequence,
+                correction_frontier_digest: d(86),
+            },
+        )
+        .collect(),
     };
     pit_proposal.evidence.normalized_records_digest =
         derive_observation_batch_digest(&observation).unwrap();
@@ -2091,9 +2103,21 @@ async fn strategy_input_binding_registry_postgres_oracle(
     let mut binding_requests = Vec::with_capacity(6);
     let mut declarations = Vec::with_capacity(6);
 
-    for ordinal in 0_u8..6 {
+    for (ordinal, (field_semantic, timeframe)) in [
+        (MarketDataFieldSemantic::BarOpenPrice, "1M"),
+        (MarketDataFieldSemantic::BarHighPrice, "1M"),
+        (MarketDataFieldSemantic::BarLowPrice, "1M"),
+        (MarketDataFieldSemantic::BarClosePrice, "1M"),
+        (MarketDataFieldSemantic::BarClosePrice, "1H"),
+        (MarketDataFieldSemantic::BarClosePrice, "1D"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
         let mut request = binding_request.clone();
-        request.input_role_identity = d(192 + ordinal);
+        request.input_role_identity = d(192 + ordinal as u8);
+        request.field_semantic = field_semantic;
+        request.timeframe = timeframe.into();
         let mut transaction = owner.pool().begin().await.unwrap();
         let declaration =
             super::strategy_input_binding_registry::register_strategy_input_binding_declaration_v1(
@@ -2107,10 +2131,10 @@ async fn strategy_input_binding_registry_postgres_oracle(
         declarations.push(declaration);
     }
     let registered = &declarations[0];
-    assert_eq!(registered.request(), &binding_request);
+    assert_eq!(registered.request(), &binding_requests[0]);
     assert_eq!(
         registered.binding().locator().input_role_identity(),
-        binding_request.input_role_identity,
+        binding_requests[0].input_role_identity,
     );
     let recovered = {
         let mut transaction = owner.pool().begin().await.unwrap();
@@ -2532,6 +2556,8 @@ pub(crate) struct ReplayJoinedProjectionFixtureV1 {
     pub(crate) joined: crate::owner::observation_census::StrategyInputJoinedCutReadbackV1,
     pub(crate) projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+    pub(crate) wrong_day_projection:
+        crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) join_claim:
         crate::owner::strategy_input_joined_cut::UntrustedStrategyInputJoinClaimV1,
 }
@@ -2558,10 +2584,18 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
             bind_strategy_input_event_frame(std::slice::from_ref(binding), &base.batch).unwrap()
         })
         .collect::<Vec<_>>();
-    let semantic_ids = (0..base.bindings.len())
-        .map(|ordinal| format!("replay-role-{ordinal}"))
-        .collect::<Vec<_>>();
-    let trigger_input_id = semantic_ids.last().unwrap().clone();
+    let semantic_ids = [
+        "minute-open",
+        "minute-high",
+        "minute-low",
+        "minute-close",
+        "hour-close",
+        "exchange-session-day-close",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    assert_eq!(semantic_ids.len(), base.bindings.len());
+    let trigger_input_id = semantic_ids[3].clone();
     let join_identity = derive_strategy_input_join_identity_v2(
         "replay-composition-six-role-v1",
         &semantic_ids,
@@ -2603,20 +2637,40 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         transaction.commit().await.unwrap();
         joined
     };
+    let minute_schedule = UntrustedBarScheduleProposalV1 {
+        canonical_instrument: "AAPL".into(),
+        predecessor_fact_digest: None,
+        effective_from: 1,
+        effective_until: Some(200),
+        kind: BarScheduleKindV1::FixedInterval,
+        step: 1,
+        unit: BarScheduleUnitV1::Minute,
+        anchor_identity: d(206),
+        label: BarScheduleLabelV1::IntervalClose,
+        completion: BarScheduleCompletionV1::CompleteOnly,
+    };
+    let hour_schedule = UntrustedBarScheduleProposalV1 {
+        kind: BarScheduleKindV1::FixedInterval,
+        unit: BarScheduleUnitV1::Hour,
+        anchor_identity: d(207),
+        ..minute_schedule.clone()
+    };
+    let day_schedule = UntrustedBarScheduleProposalV1 {
+        kind: BarScheduleKindV1::ExchangeSession,
+        unit: BarScheduleUnitV1::ExchangeSessionDay,
+        anchor_identity: d(208),
+        ..minute_schedule.clone()
+    };
     let projection = super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
         owner,
-        UntrustedBarScheduleProposalV1 {
-            canonical_instrument: "AAPL".into(),
-            predecessor_fact_digest: None,
-            effective_from: 1,
-            effective_until: Some(200),
-            kind: BarScheduleKindV1::FixedInterval,
-            step: 1,
-            unit: BarScheduleUnitV1::Minute,
-            anchor_identity: d(206),
-            label: BarScheduleLabelV1::IntervalClose,
-            completion: BarScheduleCompletionV1::CompleteOnly,
-        },
+        &[
+            minute_schedule.clone(),
+            minute_schedule.clone(),
+            minute_schedule.clone(),
+            minute_schedule.clone(),
+            hour_schedule.clone(),
+            day_schedule,
+        ],
         &base.bindings,
         &frames,
         &base.batch,
@@ -2625,10 +2679,30 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
     )
     .await
     .joined;
+    let wrong_day_projection =
+        super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
+            owner,
+            &[
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule.clone(),
+                minute_schedule,
+                hour_schedule.clone(),
+                hour_schedule,
+            ],
+            &base.bindings,
+            &frames,
+            &base.batch,
+            &base.instrument,
+            joined.record().joined_cut_receipt(),
+        )
+        .await
+        .joined;
     ReplayJoinedProjectionFixtureV1 {
         census_request,
         joined,
         projection,
+        wrong_day_projection,
         join_claim,
     }
 }

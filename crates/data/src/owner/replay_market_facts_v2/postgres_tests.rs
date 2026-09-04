@@ -62,7 +62,7 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     assert!(source.contains(
         "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
     ));
-    assert!(source.contains("decoded.component_count() != 6"));
+    assert!(source.contains("async fn validate_replay_first_corpus_v1("));
     assert!(source.contains("stored\n            .decoded\n            .canonical_bytes()"));
     assert!(source.contains("authenticate_durable_strategy_design_role_set_v1"));
     assert!(source.contains(
@@ -224,6 +224,127 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")
     );
+    assert!(
+        issue_body
+            .find("validate_replay_first_corpus_v1(")
+            .expect("Replay-specific first-corpus gate")
+            < issue_body
+                .find("persist_replay_composition_binding_in_transaction_v1")
+                .expect("first Market write")
+    );
+}
+
+#[rstest]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarOpenPrice,
+    "1M",
+    Some(0)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarHighPrice,
+    "1M",
+    Some(1)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarLowPrice,
+    "1M",
+    Some(2)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
+    "1M",
+    Some(3)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
+    "1H",
+    Some(4)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
+    "1D",
+    Some(5)
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarVolumeQuantity,
+    "1M",
+    None
+)]
+#[case(
+    crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
+    "5M",
+    None
+)]
+fn replay_first_corpus_role_coordinate_is_closed(
+    #[case] field: crate::owner::strategy_input_binding::MarketDataFieldSemantic,
+    #[case] timeframe: &str,
+    #[case] expected: Option<u8>,
+) {
+    assert_eq!(
+        super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
+            field, timeframe,
+        ),
+        expected
+    );
+}
+
+#[rstest]
+#[case(
+    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
+    true
+)]
+#[case(
+    crate::owner::bar_schedule::BarScheduleKindV1::FixedInterval,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
+    false
+)]
+#[case(
+    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
+    1,
+    crate::owner::bar_schedule::BarScheduleUnitV1::Hour,
+    false
+)]
+#[case(
+    crate::owner::bar_schedule::BarScheduleKindV1::ExchangeSession,
+    24,
+    crate::owner::bar_schedule::BarScheduleUnitV1::ExchangeSessionDay,
+    false
+)]
+fn replay_first_corpus_day_schedule_is_typed_and_closed(
+    #[case] kind: crate::owner::bar_schedule::BarScheduleKindV1,
+    #[case] step: u32,
+    #[case] unit: crate::owner::bar_schedule::BarScheduleUnitV1,
+    #[case] expected: bool,
+) {
+    assert_eq!(
+        super::ReplayCompositionOwnerV1::replay_first_corpus_schedule_for_test_v1(
+            crate::owner::strategy_input_binding::MarketDataFieldSemantic::BarClosePrice,
+            "1D",
+            kind,
+            step,
+            unit,
+        ),
+        expected
+    );
+}
+
+#[rstest]
+fn replay_first_corpus_trigger_is_uniquely_minute_close() {
+    use crate::owner::strategy_input_binding::MarketDataFieldSemantic;
+
+    let minute_close = super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
+        MarketDataFieldSemantic::BarClosePrice,
+        "1M",
+    );
+    let minute_open = super::ReplayCompositionOwnerV1::replay_first_corpus_coordinate_for_test_v1(
+        MarketDataFieldSemantic::BarOpenPrice,
+        "1M",
+    );
+    assert_eq!(minute_close, Some(3));
+    assert_ne!(minute_open, minute_close);
 }
 
 #[rstest]
@@ -716,20 +837,30 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let roles = base
         .binding_requests
         .iter()
-        .enumerate()
-        .map(|(ordinal, request)| StrategyDesignRoleEntryV1 {
-            role_identity: request.input_role_identity,
-            semantic_id: format!("replay-role-{ordinal}"),
-            fact_class: "MARKET_DATA".into(),
-            instrument: "AAPL".into(),
-            scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
-            field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".into(),
-            channel: "MARKET".into(),
-            timeframe: "1M".into(),
-            unit: "PRICE".into(),
-            scale: 2,
-            value_type: "I128".into(),
-        })
+        .zip(&joined.join_claim.roles)
+        .zip([
+            ("MARKET_DATA.BAR.OPEN.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.HIGH.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.LOW.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1M"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1H"),
+            ("MARKET_DATA.BAR.CLOSE.PRICE.V1", "1D"),
+        ])
+        .map(
+            |((request, join_role), (field_semantic_id, timeframe))| StrategyDesignRoleEntryV1 {
+                role_identity: request.input_role_identity,
+                semantic_id: join_role.semantic_id.clone(),
+                fact_class: "MARKET_DATA".into(),
+                instrument: "AAPL".into(),
+                scope: r#"{"kind":"EXACT_INSTRUMENT"}"#.into(),
+                field_semantic_id: field_semantic_id.into(),
+                channel: "MARKET".into(),
+                timeframe: timeframe.into(),
+                unit: "PRICE".into(),
+                scale: 2,
+                value_type: "I128".into(),
+            },
+        )
         .collect::<Vec<_>>();
     let join_entry = StrategyDesignJoinEntryV1 {
         join_identity: joined.join_claim.join_identity,
@@ -769,6 +900,20 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
         composer_locator.clone(),
         &native_capability,
+    )
+    .unwrap();
+    let wrong_day_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+            joined.wrong_day_projection.receipt_digest(),
+        ),
+        joined_digest,
+        BindingDigest::from_untrusted_bytes(
+            joined.wrong_day_projection.schedule_dependency_set_digest(),
+        ),
+    );
+    let wrong_day_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+        composer_locator.clone(),
+        &wrong_day_capability,
     )
     .unwrap();
     let mut composer_tx = admin.begin().await.unwrap();
@@ -939,6 +1084,54 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
 
     let before = replay_positive_state(admin).await;
+    let mut wrong_day_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *wrong_day_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *wrong_day_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+        .bind(wrong_day_native_join.receipt_digest().as_bytes().as_slice())
+        .bind(wrong_day_native_join.projection_receipt_digest().as_bytes().as_slice())
+        .bind(wrong_day_native_join.joined_cut_digest().as_bytes().as_slice())
+        .bind(wrong_day_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+        .bind(wrong_day_native_join.canonical_bytes())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *wrong_day_tx)
+        .await
+        .unwrap();
+    wrong_day_tx.commit().await.unwrap();
+    let wrong_day =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), command.composition().clone())
+            .unwrap();
+    assert!(owner.issue_binding_v1(&wrong_day).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+    let mut correct_day_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *correct_day_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *correct_day_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+        .bind(native_join.receipt_digest().as_bytes().as_slice())
+        .bind(native_join.projection_receipt_digest().as_bytes().as_slice())
+        .bind(native_join.joined_cut_digest().as_bytes().as_slice())
+        .bind(native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+        .bind(native_join.canonical_bytes())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *correct_day_tx)
+        .await
+        .unwrap();
+    correct_day_tx.commit().await.unwrap();
+
     let missing_composition = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
         StrategyDesignRoleSetLocatorV1 {
             request_identity: "missing-w3-composer".into(),

@@ -542,7 +542,7 @@ pub(crate) mod tests {
 
     pub(crate) async fn commit_joined_bar_projection_fixture_v4(
         owner: &MarketDataOwnerPostgres,
-        schedule_proposal: crate::owner::bar_schedule::UntrustedBarScheduleProposalV1,
+        schedule_proposals: &[crate::owner::bar_schedule::UntrustedBarScheduleProposalV1],
         bindings: &[crate::owner::strategy_input_binding::StrategyInputBindingReceipt],
         frames: &[crate::owner::strategy_input_binding::StrategyInputEventFrameReceipt],
         batch: &crate::owner::pit_snapshot::VerifiedPitObservationBatch,
@@ -550,21 +550,55 @@ pub(crate) mod tests {
         joined_cut: &crate::owner::strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
     ) -> JoinedBarProjectionFixtureV4 {
         assert_eq!(bindings.len(), frames.len());
+        assert_eq!(bindings.len(), schedule_proposals.len());
         assert!(bindings.len() >= 2);
-        let prepared_schedule = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
-            schedule_proposal,
-            &bindings[0],
-            batch,
-            instrument,
-        )
-        .unwrap();
-        let schedule = owner
-            .commit_prepared_bar_schedule_v1(&prepared_schedule)
-            .await
-            .unwrap();
+        let mut distinct_proposals = Vec::new();
+        let mut schedules = Vec::new();
+        let mut schedule_indices = Vec::with_capacity(schedule_proposals.len());
+        for (binding, proposal) in bindings.iter().zip(schedule_proposals) {
+            let existing = distinct_proposals.iter().position(
+                |existing: &crate::owner::bar_schedule::UntrustedBarScheduleProposalV1| {
+                    existing.canonical_instrument == proposal.canonical_instrument
+                        && existing.effective_from == proposal.effective_from
+                        && existing.effective_until == proposal.effective_until
+                        && existing.kind == proposal.kind
+                        && existing.step == proposal.step
+                        && existing.unit == proposal.unit
+                        && existing.anchor_identity == proposal.anchor_identity
+                        && existing.label == proposal.label
+                        && existing.completion == proposal.completion
+                },
+            );
+            let index = if let Some(index) = existing {
+                index
+            } else {
+                let mut proposal = proposal.clone();
+                proposal.predecessor_fact_digest = schedules
+                    .last()
+                    .map(crate::owner::bar_schedule::BarScheduleReadbackV1::fact)
+                    .map(crate::owner::bar_schedule::BarScheduleFactV1::digest);
+                let prepared_schedule = crate::owner::bar_schedule::prepare_bar_schedule_commit_v1(
+                    proposal.clone(),
+                    binding,
+                    batch,
+                    instrument,
+                )
+                .unwrap();
+                let schedule = owner
+                    .commit_prepared_bar_schedule_v1(&prepared_schedule)
+                    .await
+                    .unwrap();
+                distinct_proposals.push(proposal);
+                schedules.push(schedule);
+                schedules.len() - 1
+            };
+            schedule_indices.push(index);
+        }
         let mut stored_projections = Vec::with_capacity(bindings.len());
-        for (binding, frame) in bindings.iter().zip(frames) {
-            let timeframe = prepare_bar_timeframe_projection_v1(binding, batch, &schedule).unwrap();
+        for ((binding, frame), schedule_index) in bindings.iter().zip(frames).zip(schedule_indices)
+        {
+            let schedule = &schedules[schedule_index];
+            let timeframe = prepare_bar_timeframe_projection_v1(binding, batch, schedule).unwrap();
             let sample = owner
                 .commit_prepared_sample_v1(
                     &prepare_sample_commit_v1(
@@ -586,7 +620,7 @@ pub(crate) mod tests {
                     binding,
                     timeframe: &timeframe,
                     sample: &sample,
-                    schedule: &schedule,
+                    schedule,
                 }],
             )
             .unwrap();
@@ -801,7 +835,10 @@ pub(crate) mod tests {
         .unwrap();
         let shared_fixture = commit_joined_bar_projection_fixture_v4(
             &owner,
-            fixture.schedule_proposal.clone(),
+            &[
+                fixture.schedule_proposal.clone(),
+                fixture.schedule_proposal.clone(),
+            ],
             &[fixture.binding.clone(), second_binding],
             &[fixture.frame.clone(), second_frame.clone()],
             &fixture.batch,
