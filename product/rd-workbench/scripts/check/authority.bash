@@ -5,7 +5,8 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=product/rd-workbench/scripts/check/common.bash
 . "$check_dir/common.bash"
 
-grep -Fq 'CREATE DATABASE rd_owner OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/00-create-rd-owner.sh"
+grep -Fq 'CREATE DATABASE :"rd_owner_database_name" OWNER rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
 grep -Fq 'GRANT USAGE, CREATE ON SCHEMA public TO rd_owner' "$package_dir/postgres-init/00-create-rd-owner.sh"
 if grep -Fq 'CREATE SCHEMA replay_policy_catalog_private' "$package_dir/postgres-init/00-create-rd-owner.sh" ||
   grep -Fq 'CREATE SCHEMA composer_private' "$package_dir/postgres-init/00-create-rd-owner.sh"; then
