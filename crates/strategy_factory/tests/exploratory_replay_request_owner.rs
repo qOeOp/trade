@@ -64,6 +64,8 @@ struct TestFamilyFrozenOutboxV1 {
     membership_receipt_identity: String,
     census_frontier_identity: String,
     census_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_execution_policy_v2: Option<vibe_strategy_factory::ReplayPolicyCatalogBindingV2>,
 }
 
 #[derive(Deserialize, Serialize)]
