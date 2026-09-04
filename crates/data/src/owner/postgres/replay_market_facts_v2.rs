@@ -68,7 +68,70 @@ const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.replay_composition_issuances_v1 (request_identity BYTEA PRIMARY KEY, request_meaning_digest BYTEA NOT NULL UNIQUE, request_bytes BYTEA NOT NULL, binding_identity BYTEA NOT NULL UNIQUE, binding_digest BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
     "REVOKE ALL ON TABLE market_data_private.replay_composition_issuances_v1 FROM PUBLIC",
 ];
+const COMPOSER_ROLE_SET_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
+const COMPOSER_NATIVE_JOIN_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
+const COMPOSER_READER_ACL_QUERY_V1: &str = "SELECT
+                pg_catalog.has_schema_privilege(current_user,'composer_owner_api','USAGE') AS schema_usage,
+                pg_catalog.has_schema_privilege(current_user,'composer_owner_api','CREATE') AS schema_create,
+                pg_catalog.has_schema_privilege(current_user,'composer_private','USAGE') AS private_schema_usage,
+                pg_catalog.has_schema_privilege(current_user,'composer_private','CREATE') AS private_schema_create,
+                pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS function_execute,
+                pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS native_function_execute,
+                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT') AS raw_select,
+                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_role_set_attestations_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write,
+                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_native_joins_v1','SELECT') AS native_raw_select,
+                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_native_joins_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS native_raw_write,
+                pg_catalog.pg_has_role(current_user,'composer_owner','MEMBER') AS composer_owner_member";
+const COMPOSER_ROLE_SET_RESOLVE_QUERY_V1: &str =
+    "SELECT attestation_identity, attestation_digest, canonical_bytes
+       FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)";
+const COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1: &str = "SELECT native_join_digest,canonical_bytes
+       FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)";
 const V4_CUSTODY_DOMAIN: &[u8] = b"market-data.sample-projection-postgres-custody.v4\0";
+
+struct ComposerReaderAclV1 {
+    schema_usage: bool,
+    schema_create: bool,
+    private_schema_usage: bool,
+    private_schema_create: bool,
+    function_execute: bool,
+    native_function_execute: bool,
+    raw_select: bool,
+    raw_write: bool,
+    native_raw_select: bool,
+    native_raw_write: bool,
+    composer_owner_member: bool,
+}
+
+fn composer_reader_acl_values_are_exact(acl: &ComposerReaderAclV1) -> bool {
+    acl.schema_usage
+        && !acl.schema_create
+        && !acl.private_schema_usage
+        && !acl.private_schema_create
+        && acl.function_execute
+        && acl.native_function_execute
+        && !acl.raw_select
+        && !acl.raw_write
+        && !acl.native_raw_select
+        && !acl.native_raw_write
+        && !acl.composer_owner_member
+}
+
+fn composer_reader_acl_is_exact(row: &sqlx::postgres::PgRow) -> Result<bool, sqlx::Error> {
+    Ok(composer_reader_acl_values_are_exact(&ComposerReaderAclV1 {
+        schema_usage: row.try_get("schema_usage")?,
+        schema_create: row.try_get("schema_create")?,
+        private_schema_usage: row.try_get("private_schema_usage")?,
+        private_schema_create: row.try_get("private_schema_create")?,
+        function_execute: row.try_get("function_execute")?,
+        native_function_execute: row.try_get("native_function_execute")?,
+        raw_select: row.try_get("raw_select")?,
+        raw_write: row.try_get("raw_write")?,
+        native_raw_select: row.try_get("native_raw_select")?,
+        native_raw_write: row.try_get("native_raw_write")?,
+        composer_owner_member: row.try_get("composer_owner_member")?,
+    }))
+}
 
 async fn validate_native_join_v4(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -255,57 +318,11 @@ impl ReplayCompositionOwnerV1 {
         if rd_reader_role != "market_data_reader" {
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         }
-        let rd_reader_acl = sqlx::query(
-            "SELECT
-                pg_catalog.has_schema_privilege(current_user,'rd_owner_api','USAGE') AS schema_usage,
-                pg_catalog.has_function_privilege(current_user,'rd_owner_api.resolve_strategy_design_role_set_attestation_v1(TEXT,INTEGER,BYTEA,TEXT,BYTEA,BYTEA,BYTEA)','EXECUTE') AS function_execute,
-                pg_catalog.has_function_privilege(current_user,'rd_owner_api.resolve_strategy_design_native_join_v1(TEXT,INTEGER,BYTEA,TEXT,BYTEA,BYTEA,BYTEA)','EXECUTE') AS native_function_execute,
-                pg_catalog.has_table_privilege(current_user,'public.rd_develop_strategy_design_role_set_attestations_v1','SELECT') AS raw_select,
-                pg_catalog.has_table_privilege(current_user,'public.rd_develop_strategy_design_role_set_attestations_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write,
-                pg_catalog.has_table_privilege(current_user,'public.rd_develop_strategy_design_native_joins_v1','SELECT') AS native_raw_select,
-                pg_catalog.has_table_privilege(current_user,'public.rd_develop_strategy_design_native_joins_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS native_raw_write,
-                pg_catalog.pg_has_role(current_user,'rd_owner','MEMBER') AS rd_owner_member",
-        )
-        .fetch_one(&rd_role_set_pool)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-        let admitted_acl = rd_reader_acl
-            .try_get::<bool, _>("schema_usage")
-            .and_then(|schema_usage| {
-                rd_reader_acl
-                    .try_get::<bool, _>("function_execute")
-                    .map(|function_execute| schema_usage && function_execute)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("native_function_execute")
-                    .map(|native_execute| execute_only && native_execute)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("raw_select")
-                    .map(|raw_select| execute_only && !raw_select)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("raw_write")
-                    .map(|raw_write| execute_only && !raw_write)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("native_raw_select")
-                    .map(|raw_select| execute_only && !raw_select)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("native_raw_write")
-                    .map(|raw_write| execute_only && !raw_write)
-            })
-            .and_then(|execute_only| {
-                rd_reader_acl
-                    .try_get::<bool, _>("rd_owner_member")
-                    .map(|member| execute_only && !member)
-            })
+        let rd_reader_acl = sqlx::query(COMPOSER_READER_ACL_QUERY_V1)
+            .fetch_one(&rd_role_set_pool)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let admitted_acl = composer_reader_acl_is_exact(&rd_reader_acl)
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
         if !admitted_acl {
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
@@ -976,21 +993,18 @@ impl ReplayCompositionOwnerV1 {
         &self,
         locator: &StrategyDesignRoleSetLocatorV1,
     ) -> Result<AuthenticatedStrategyDesignRoleSetV1, ReplayCompositionBindingErrorV1> {
-        let row = sqlx::query(
-            "SELECT attestation_identity, attestation_digest, canonical_bytes
-               FROM rd_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(&locator.request_identity)
-        .bind(i32::from(locator.schema_version))
-        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
-        .bind(&locator.artifact_locator)
-        .bind(locator.artifact_identity.as_bytes().as_slice())
-        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
-        .bind(locator.design_digest.as_bytes().as_slice())
-        .fetch_optional(&self.rd_role_set_pool)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let row = sqlx::query(COMPOSER_ROLE_SET_RESOLVE_QUERY_V1)
+            .bind(&locator.request_identity)
+            .bind(i32::from(locator.schema_version))
+            .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+            .bind(&locator.artifact_locator)
+            .bind(locator.artifact_identity.as_bytes().as_slice())
+            .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+            .bind(locator.design_digest.as_bytes().as_slice())
+            .fetch_optional(&self.rd_role_set_pool)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let bytes: Vec<u8> = row
             .try_get("canonical_bytes")
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
@@ -1007,21 +1021,18 @@ impl ReplayCompositionOwnerV1 {
         &self,
         locator: &StrategyDesignRoleSetLocatorV1,
     ) -> Result<StrategyDesignNativeJoinReceiptV1, ReplayCompositionBindingErrorV1> {
-        let row = sqlx::query(
-            "SELECT native_join_digest,canonical_bytes
-               FROM rd_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)",
-        )
-        .bind(&locator.request_identity)
-        .bind(i32::from(locator.schema_version))
-        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
-        .bind(&locator.artifact_locator)
-        .bind(locator.artifact_identity.as_bytes().as_slice())
-        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
-        .bind(locator.design_digest.as_bytes().as_slice())
-        .fetch_optional(&self.rd_role_set_pool)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+        let row = sqlx::query(COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1)
+            .bind(&locator.request_identity)
+            .bind(i32::from(locator.schema_version))
+            .bind(locator.operation_receipt_identity.as_bytes().as_slice())
+            .bind(&locator.artifact_locator)
+            .bind(locator.artifact_identity.as_bytes().as_slice())
+            .bind(locator.canonical_plan_digest.as_bytes().as_slice())
+            .bind(locator.design_digest.as_bytes().as_slice())
+            .fetch_optional(&self.rd_role_set_pool)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
         let digest = digest_column(&row, "native_join_digest")?;
         let bytes: Vec<u8> = row
             .try_get("canonical_bytes")
@@ -1582,5 +1593,80 @@ impl<'a> ReplayMarketFactsDependencyPortsV2<'a> {
             joined_cut,
             sample_projection,
         }
+    }
+}
+
+#[cfg(test)]
+mod composer_facade_tests {
+    use super::*;
+
+    #[test]
+    fn composer_reads_use_only_the_exact_owner_facade() {
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_ROLE_SET_RESOLVER_V1));
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains(COMPOSER_NATIVE_JOIN_RESOLVER_V1));
+        assert!(COMPOSER_ROLE_SET_RESOLVE_QUERY_V1.contains(
+            "FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)"
+        ));
+        assert!(COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1.contains(
+            "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
+        ));
+        for query in [
+            COMPOSER_ROLE_SET_RESOLVE_QUERY_V1,
+            COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1,
+        ] {
+            assert!(!query.contains("composer_private"));
+            assert!(!query.contains("public."));
+            assert!(!query.contains("rd_owner_api"));
+        }
+    }
+
+    #[test]
+    fn composer_reader_requires_execute_only_without_owner_membership() {
+        let exact = || ComposerReaderAclV1 {
+            schema_usage: true,
+            schema_create: false,
+            private_schema_usage: false,
+            private_schema_create: false,
+            function_execute: true,
+            native_function_execute: true,
+            raw_select: false,
+            raw_write: false,
+            native_raw_select: false,
+            native_raw_write: false,
+            composer_owner_member: false,
+        };
+        assert!(composer_reader_acl_values_are_exact(&exact()));
+        for denied in 0..11 {
+            let mut values = [
+                true, false, false, false, true, true, false, false, false, false, false,
+            ];
+            values[denied] = !values[denied];
+            assert!(!composer_reader_acl_values_are_exact(
+                &ComposerReaderAclV1 {
+                    schema_usage: values[0],
+                    schema_create: values[1],
+                    private_schema_usage: values[2],
+                    private_schema_create: values[3],
+                    function_execute: values[4],
+                    native_function_execute: values[5],
+                    raw_select: values[6],
+                    raw_write: values[7],
+                    native_raw_select: values[8],
+                    native_raw_write: values[9],
+                    composer_owner_member: values[10],
+                }
+            ));
+        }
+        assert!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .contains("composer_private.rd_develop_strategy_design_role_set_attestations_v1")
+        );
+        assert!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .contains("composer_private.rd_develop_strategy_design_native_joins_v1")
+        );
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains("'composer_owner','MEMBER'"));
+        assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("public."));
+        assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("rd_owner_api"));
     }
 }
