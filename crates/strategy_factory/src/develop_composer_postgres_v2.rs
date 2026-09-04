@@ -1735,12 +1735,12 @@ impl PostgresDevelopComposerStoreV2 {
             return Ok(response);
         }
         let role_set = project_role_set_from_record(&record, &response)
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
             role_set.composer_locator.clone(),
             native_join,
         )
-        .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected).await?
         {
             return Ok(unavailable_response(
@@ -1851,12 +1851,12 @@ impl PostgresDevelopComposerStoreV2 {
                 && let Some(native_join) = native_join
             {
                 let role_set = project_role_set_from_record(&existing, &response)
-                    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
                 let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
                     role_set.composer_locator.clone(),
                     native_join,
                 )
-                .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
                 if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected)
                     .await?
                 {
@@ -1908,7 +1908,7 @@ impl PostgresDevelopComposerStoreV2 {
             }
         };
         let role_set = project_role_set_from_record(&record, &response)
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
         let native_join = native_join
             .map(|native_join| {
                 StrategyDesignNativeJoinReceiptV1::from_market_owner(
@@ -1917,7 +1917,7 @@ impl PostgresDevelopComposerStoreV2 {
                 )
             })
             .transpose()
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
 
         if let Err(e) = persist_record(
             &mut transaction,

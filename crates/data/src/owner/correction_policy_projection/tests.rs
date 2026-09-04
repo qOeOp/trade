@@ -113,8 +113,8 @@ fn lineage_and_frontier_splices_fail_closed() {
         ),
         (p(1, 2, 6, 3, b"other", 8, 7, 200), Error::StreamChanged),
     ];
-    for (next, error) in cases {
-        assert_eq!(authority::join_for_test(&prior, next), Err(error));
+    for (next, e) in cases {
+        assert_eq!(authority::join_for_test(&prior, next), Err(e));
     }
 }
 

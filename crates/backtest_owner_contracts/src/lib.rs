@@ -544,7 +544,7 @@ impl ReplayResultDtoV2 {
     /// Rejects malformed, unknown, duplicate, noncanonical, or internally inconsistent data.
     pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ReplayContractErrorV2> {
         let value: Self = serde_json::from_slice(bytes)
-            .map_err(|error| ReplayContractErrorV2::InvalidResultEncoding(error.to_string()))?;
+            .map_err(|e| ReplayContractErrorV2::InvalidResultEncoding(e.to_string()))?;
         value.validate()?;
         if value.encode_unchecked()? != bytes {
             return Err(ReplayContractErrorV2::NonCanonicalResultEncoding);
@@ -791,7 +791,7 @@ impl ReplayResultDtoV2 {
             semantic_trace: self.semantic_trace.as_ref(),
             diagnostic_census: &self.diagnostic_census,
         };
-        let bytes = serde_json::to_vec(&preimage).map_err(|error| encoding_error(&error))?;
+        let bytes = serde_json::to_vec(&preimage).map_err(|e| encoding_error(&e))?;
         let mut hasher = blake3::Hasher::new();
         hasher.update(b"vibe.backtest.replay-result.v2\0");
         hasher.update(&bytes);
@@ -799,7 +799,7 @@ impl ReplayResultDtoV2 {
     }
 
     fn encode_unchecked(&self) -> Result<Vec<u8>, ReplayContractErrorV2> {
-        serde_json::to_vec(self).map_err(|error| encoding_error(&error))
+        serde_json::to_vec(self).map_err(|e| encoding_error(&e))
     }
 }
 
@@ -990,7 +990,7 @@ fn digest_contract_value<T: Serialize>(
     domain: &str,
     value: &T,
 ) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
-    let bytes = serde_json::to_vec(value).map_err(|error| encoding_error(&error))?;
+    let bytes = serde_json::to_vec(value).map_err(|e| encoding_error(&e))?;
     let mut hasher = blake3::Hasher::new();
     hasher.update(domain.as_bytes());
     hasher.update(b"\0");
