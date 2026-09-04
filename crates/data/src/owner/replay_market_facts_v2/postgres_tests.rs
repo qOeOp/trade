@@ -288,6 +288,20 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_replay_composition_binding_in_transaction_v1")
                 .expect("first Market write")
     );
+    for coordinate in [
+        "native_join.strategy_design_identity()",
+        "native_join.join_identity()",
+        "native_join.join_claim_digest()",
+    ] {
+        assert!(
+            issue_body
+                .find(coordinate)
+                .expect("native Design/join binding")
+                < issue_body
+                    .find("persist_replay_composition_binding_in_transaction_v1")
+                    .expect("first Market write")
+        );
+    }
 }
 
 #[rstest]
@@ -1101,6 +1115,36 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let cross_splice_native_join =
         StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &cross_splice_capability)
             .unwrap();
+    let mut cross_design_claim = joined.join_claim.clone();
+    cross_design_claim.strategy_design_identity = d(240);
+    cross_design_claim.join_identity = d(241);
+    let mut cross_design_joins = role_set.joins.clone();
+    cross_design_joins[0].join_identity = cross_design_claim.join_identity;
+    let cross_design_role_set = StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        composer_locator.clone(),
+        role_set.research_request_identity,
+        role_set.intent_identity,
+        cross_design_claim.strategy_design_identity,
+        role_set.design_digest,
+        role_set.canonical_design_digest,
+        role_set.roles.clone(),
+        cross_design_joins,
+    )
+    .unwrap();
+    let cross_design_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
+        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
+            joined.projection.receipt_digest(),
+        ),
+        joined_digest,
+        joined_receipt_digest,
+        BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
+        &cross_design_claim,
+    );
+    let cross_design_native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
+        &cross_design_role_set,
+        &cross_design_capability,
+    )
+    .unwrap();
     let mut composer_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *composer_tx)
@@ -1285,6 +1329,33 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             )
         };
     let before = replay_positive_state(admin).await;
+    let mut cross_design_tx = admin.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE composer_owner")
+        .execute(&mut *cross_design_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *cross_design_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
+        .bind(cross_design_native_join.receipt_digest().as_bytes().as_slice())
+        .bind(cross_design_native_join.projection_receipt_digest().as_bytes().as_slice())
+        .bind(cross_design_native_join.joined_cut_digest().as_bytes().as_slice())
+        .bind(cross_design_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
+        .bind(cross_design_native_join.canonical_bytes())
+        .bind(&composer_locator.request_identity)
+        .execute(&mut *cross_design_tx)
+        .await
+        .unwrap();
+    cross_design_tx.commit().await.unwrap();
+    let cross_design =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(242), command.composition().clone())
+            .unwrap();
+    assert!(owner.issue_binding_v1(&cross_design).await.is_err());
+    assert_eq!(replay_positive_state(admin).await, before);
+
     let mut cross_splice_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *cross_splice_tx)

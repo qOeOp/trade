@@ -1306,6 +1306,12 @@ impl ReplayCompositionOwnerV1 {
             || native_join.joined_cut_digest() != joined.digest()
             || native_join.joined_cut_receipt_digest()
                 != authenticated_joined.record().joined_cut_receipt().digest()
+            || native_join.strategy_design_identity() != receipt.design_identity
+            || native_join.join_identity() != census_request.join_claim().join_identity
+            || native_join.join_claim_digest()
+                != crate::owner::replay_market_facts_v2::composer_join_claim_digest_v1(
+                    census_request.join_claim(),
+                )
             || sample.identity() != native_join.projection_receipt_digest()
             || sample.digest() != native_join.projection_receipt_digest()
             || validated_native_join.roles
