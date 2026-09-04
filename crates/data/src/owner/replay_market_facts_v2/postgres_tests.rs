@@ -515,6 +515,7 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted([5; 32]),
         BindingDigest::from_untrusted_bytes([6; 32]),
         BindingDigest::from_untrusted_bytes([7; 32]),
+        BindingDigest::from_untrusted_bytes([8; 32]),
     );
     let receipt =
         StrategyDesignNativeJoinReceiptV1::from_market_owner(locator.clone(), &capability)
@@ -526,6 +527,18 @@ fn composer_native_join_attestation_is_exact_and_tamper_evident() {
     )
     .expect("exact durable attestation");
     assert_eq!(decoded, receipt);
+    assert_eq!(
+        decoded.joined_cut_digest(),
+        BindingDigest::from_untrusted_bytes([6; 32])
+    );
+    assert_eq!(
+        decoded.joined_cut_receipt_digest(),
+        BindingDigest::from_untrusted_bytes([7; 32])
+    );
+    assert_ne!(
+        decoded.joined_cut_digest(),
+        decoded.joined_cut_receipt_digest()
+    );
     let mut corrupt = receipt.canonical_bytes().to_vec();
     corrupt[0] ^= 1;
     assert!(
@@ -890,11 +903,18 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     )
     .unwrap();
     let joined_digest = joined.joined.record().digest();
+    let joined_receipt_digest = joined.joined.record().joined_cut_receipt().digest();
+    assert_ne!(joined_digest, joined_receipt_digest);
+    assert_eq!(
+        joined.projection.subject_identity(),
+        *joined_receipt_digest.as_bytes()
+    );
     let native_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
             joined.projection.receipt_digest(),
         ),
         joined_digest,
+        joined_receipt_digest,
         BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
     );
     let native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
@@ -907,6 +927,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             joined.wrong_day_projection.receipt_digest(),
         ),
         joined_digest,
+        joined_receipt_digest,
         BindingDigest::from_untrusted_bytes(
             joined.wrong_day_projection.schedule_dependency_set_digest(),
         ),

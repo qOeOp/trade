@@ -212,7 +212,7 @@ async fn validate_native_join_v4(
 
     if decoded.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
         || decoded.component_count() != 6
-        || decoded.subject_identity() != *attestation.joined_cut_digest().as_bytes()
+        || decoded.subject_identity() != *attestation.joined_cut_receipt_digest().as_bytes()
         || decoded.schedule_dependency_set_digest()
             != *attestation.schedule_dependency_set_digest().as_bytes()
         || readback != bytes
