@@ -2434,13 +2434,17 @@
       },
       {
         "inventoryId": "backtest-owner",
-        "memberPaths": ["crates/backtest_owner", "crates/backtest_owner_contracts"],
+        "memberPaths": [
+          "crates/backtest_owner",
+          "crates/backtest_owner_contracts",
+          "crates/backtest_result_custody"
+        ],
         "disposition": "OWNER_NATIVE_IMPLEMENTATION",
         "destinationIds": ["backtest"],
         "capabilityPortIds": [],
         "providerMemberPortEvidence": [],
         "adoptionRule": "Adopt the Backtest-owned Replay V2 observation reconciliation diagnostic and sealed-result boundary as the native Backtest Owner implementation while keeping the engine behind that Owner",
-        "noAuthorityBasis": "The contracts member carries dependency-neutral request and result representations only and cannot construct positive results own facts or acquire Backtest write authority"
+        "noAuthorityBasis": "The supporting members carry only dependency-neutral request and result representations or caller-transaction locked-read custody and cannot construct positive results own facts or acquire Backtest write authority"
       },
       {
         "inventoryId": "backtest-engine",
