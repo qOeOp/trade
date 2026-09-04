@@ -92,6 +92,28 @@ struct ReplayFixture {
     valid_through_epoch_ms: u64,
 }
 
+async fn rename_sealed_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    target_relation_name: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(target_relation_name)
+        .execute(topology_admin_pool)
+        .await
+        .expect("sealed exploratory Replay fixture renamed");
+}
+
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
 async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
@@ -300,13 +322,11 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .await
         .expect("current Replay V2 request committed");
 
-    sqlx::query(
-        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
-         RENAME TO rd_exploratory_replay_request_custody_v1",
+    rename_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_request_custody_v1",
     )
-    .execute(rd_pool)
-    .await
-    .expect("restore pre-migration internal Replay custody name");
+    .await;
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
         &fixture.rd_url,
         &fixture.qualification_url,
@@ -447,13 +467,11 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
         .await
         .expect("Origin-current Replay V2 request committed");
 
-    sqlx::query(
-        "ALTER TABLE public.rd_sealed_exploratory_replay_requests_v1
-         RENAME TO rd_exploratory_replay_requests_v1",
+    rename_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_requests_v1",
     )
-    .execute(rd_pool)
-    .await
-    .expect("restore Origin current Replay table name");
+    .await;
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
         &fixture.rd_url,
         &fixture.qualification_url,
