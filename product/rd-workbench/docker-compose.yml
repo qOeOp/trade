@@ -112,8 +112,10 @@ services:
       REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
         /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
     volumes:
+      # yamllint disable rule:line-length
       - ${REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST:?set REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST}:/run/secrets/replay-policy-catalog-bootstrap-request.json:ro
       - ${REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY:?set REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY}:/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex:ro
+      # yamllint enable rule:line-length
     depends_on:
       authority-custody-migrate:
         condition: service_completed_successfully

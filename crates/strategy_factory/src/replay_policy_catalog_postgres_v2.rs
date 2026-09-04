@@ -266,6 +266,7 @@ pub async fn ensure_authenticated_replay_policy_catalog_genesis_v1(
                 request.now_epoch_ms,
             )
             .await?;
+
             if created != desired {
                 return rollback_unavailable(transaction, "Catalog bootstrap create mismatch")
                     .await;
@@ -282,6 +283,7 @@ pub async fn ensure_authenticated_replay_policy_catalog_genesis_v1(
         }
         Some((head_id, head_version)) => {
             let latest = load_optional_record_by_id(&mut transaction, "").await?;
+
             if head_id != request.catalog_record_id
                 || head_version != 1
                 || latest.as_ref() != Some(&desired)
@@ -323,16 +325,18 @@ fn verify_bootstrap_request(
     trusted_verifier_public_key_hex: &str,
 ) -> Result<VerifiedReplayPolicyCatalogBootstrapRequestV1, ReplayPolicyCatalogErrorV2> {
     let request: SealedReplayPolicyCatalogBootstrapRequestV1 =
-        serde_json::from_slice(sealed_request_json).map_err(|error| {
+        serde_json::from_slice(sealed_request_json).map_err(|e| {
             ReplayPolicyCatalogErrorV2::InvalidPolicy(format!(
-                "sealed bootstrap request is invalid: {error}"
+                "sealed bootstrap request is invalid: {e}"
             ))
         })?;
+
     if request.schema_version != 1 {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "bootstrap schema version must be 1",
         ));
     }
+
     for (value, label) in [
         (&request.bootstrap_identity, "bootstrap identity"),
         (&request.administrator_identity, "administrator identity"),
@@ -347,11 +351,13 @@ fn verify_bootstrap_request(
         require_identity(value, label)?;
     }
     require_identity(trusted_verifier_identity, "trusted verifier identity")?;
+
     if request.verifier_identity != trusted_verifier_identity {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "bootstrap verifier identity mismatch",
         ));
     }
+
     if request.create_command_identity == request.advance_command_identity {
         return Err(ReplayPolicyCatalogErrorV2::InvalidRecord(
             "bootstrap command identities must be distinct",
@@ -365,7 +371,7 @@ fn verify_bootstrap_request(
         "policy canonical bytes",
     )?;
     let policy = ReplayExecutionPolicyV2::parse_canonical(&policy_bytes)
-        .map_err(|error| ReplayPolicyCatalogErrorV2::InvalidPolicy(error.to_string()))?;
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
     let signature_bytes =
         decode_canonical_base64(&request.signature_base64, "bootstrap signature")?;
     let signature = Signature::try_from(signature_bytes.as_slice()).map_err(|_| {
@@ -399,6 +405,7 @@ fn bootstrap_request_canonical_bytes(
     policy_bytes: &[u8],
 ) -> Result<Vec<u8>, ReplayPolicyCatalogErrorV2> {
     let mut bytes = BOOTSTRAP_SIGNATURE_DOMAIN_V1.to_vec();
+
     for field in [
         request.schema_version.to_le_bytes().as_slice(),
         request.bootstrap_identity.as_bytes(),
@@ -707,6 +714,7 @@ async fn load_optional_record_by_id(
     .fetch_all(&mut **transaction)
     .await
     .map_err(unavailable)?;
+
     match rows.as_slice() {
         [] => Ok(None),
         [row] => decode_record(row).map(Some),
@@ -892,6 +900,7 @@ async fn require_fact_writer_session(
         .fetch_one(&mut **transaction)
         .await
         .map_err(unavailable)?;
+
     if exact {
         Ok(())
     } else {
@@ -908,6 +917,7 @@ async fn verify_bootstrap_audits(
     record: &ReplayPolicyCatalogBindingV2,
 ) -> Result<(), ReplayPolicyCatalogErrorV2> {
     let content_identity = content_identity(record);
+
     for (command_identity, command_kind) in [
         (request.create_command_identity.as_str(), "create"),
         (request.advance_command_identity.as_str(), "advance"),
@@ -937,6 +947,7 @@ async fn verify_bootstrap_audits(
         let audit_json: serde_json::Value = row.try_get("audit_json").map_err(unavailable)?;
         let audit: CatalogAdminAuditV2 =
             serde_json::from_value(audit_json.clone()).map_err(unavailable)?;
+
         if audit != expected
             || row
                 .try_get::<String, _>("administrator_identity")
@@ -1277,7 +1288,7 @@ mod postgres_tests {
     };
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
-    #[test]
+    #[rstest]
     fn bootstrap_signature_is_canonical_and_rejects_tamper_or_unknown_fields() {
         let signing_key = SigningKey::from_bytes(&[7_u8; 32]);
         let policy_bytes = replay_policy(71).canonical_bytes().unwrap();

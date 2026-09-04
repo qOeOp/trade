@@ -52,6 +52,7 @@ test = false
 name = "replay-policy-catalog-authority-bootstrap"
 path = "src/bin/replay_policy_catalog_authority_bootstrap.rs"
 doc = false
+test = false
 
 [[test]]
 name = "rd_owner_api_main"

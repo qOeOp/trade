@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
         MAX_SEALED_REQUEST_BYTES,
         "sealed Catalog bootstrap request",
     )?;
+
     if sealed_request_json.is_empty() {
         anyhow::bail!("sealed Catalog bootstrap request must not be empty");
     }
@@ -55,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
     .map_err(|_| anyhow::anyhow!("Replay Policy Catalog bootstrap was not accepted"))?;
     let canonical_receipt = serde_json::to_vec(&receipt)
         .context("Replay Policy Catalog bootstrap receipt serialization failed")?;
+
     if canonical_receipt.len() > MAX_RECEIPT_BYTES {
         anyhow::bail!("Replay Policy Catalog bootstrap receipt exceeds the output bound");
     }
@@ -77,13 +79,16 @@ fn require_environment(name: &'static str) -> anyhow::Result<String> {
 
 fn read_bounded_file(path: &Path, limit: usize, label: &'static str) -> anyhow::Result<Vec<u8>> {
     let metadata = fs::metadata(path).with_context(|| format!("{label} file is unavailable"))?;
+
     if !metadata.is_file() {
         anyhow::bail!("{label} path must identify a regular file");
     }
+
     if metadata.len() > limit as u64 {
         anyhow::bail!("{label} file exceeds its byte bound");
     }
     let bytes = fs::read(path).with_context(|| format!("{label} file is unreadable"))?;
+
     if bytes.len() > limit {
         anyhow::bail!("{label} file exceeds its byte bound");
     }
@@ -108,6 +113,7 @@ fn canonical_public_key_hex(bytes: &[u8]) -> anyhow::Result<&str> {
         .strip_suffix("\r\n")
         .or_else(|| text.strip_suffix('\n'))
         .unwrap_or(text);
+
     if value.len() != 64
         || !value
             .bytes()
@@ -120,9 +126,11 @@ fn canonical_public_key_hex(bytes: &[u8]) -> anyhow::Result<&str> {
 
 #[cfg(test)]
 mod tests {
+    use rstest::rstest;
+
     use super::*;
 
-    #[test]
+    #[rstest]
     fn public_key_requires_exact_lowercase_hex_without_ambient_whitespace() {
         let key = "01abcdef".repeat(8);
         assert_eq!(canonical_public_key_hex(key.as_bytes()).unwrap(), key);
@@ -135,7 +143,7 @@ mod tests {
         assert!(canonical_public_key_hex(format!("{key}\n\n").as_bytes()).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn verifier_identity_and_arguments_are_bounded() {
         assert_eq!(
             require_trusted_verifier_identity("verifier-v1").unwrap(),
@@ -149,10 +157,10 @@ mod tests {
         assert!(require_no_arguments(["unexpected".to_owned()].into_iter()).is_err());
     }
 
-    #[test]
+    #[rstest]
     fn database_pool_is_lazy_until_core_verifies_the_request() {
         let source = include_str!("replay_policy_catalog_authority_bootstrap.rs");
-        let eager_connect = [".con", "nect("].concat();
+        let eager_connect = [".", "connect("].concat();
         assert!(source.contains(".connect_lazy(&database_url)"));
         assert!(!source.contains(&eager_connect));
     }

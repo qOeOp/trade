@@ -7,6 +7,7 @@ COPY crates ./crates
 COPY patches ./patches
 COPY examples/tutorials ./examples/tutorials
 COPY product/rd-workbench/Dockerfile.sandbox ./product/rd-workbench/Dockerfile.sandbox
+COPY product/rd-workbench/postgres-init/10-migrate-authority-custody.sh ./product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
 RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
