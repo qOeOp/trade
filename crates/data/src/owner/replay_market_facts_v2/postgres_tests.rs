@@ -38,6 +38,7 @@ fn schema_is_private_opaque_and_has_no_native_authority_foreign_keys() {
 #[rstest]
 fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
+    let v4_source = include_str!("../postgres/sample_projection_v4.rs");
     let role_set = include_str!("../strategy_design_role_set.rs");
     let migration = include_str!(
         "../../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
@@ -247,6 +248,22 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .expect("Market transaction commit")
     );
     assert!(!native_issue_body.contains("commit_strategy_input_sample_projection_v4"));
+    let v4_persist = v4_source
+        .split("pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4")
+        .nth(1)
+        .expect("caller-transaction V4 persistence")
+        .split("async fn validate_joined_subject")
+        .next()
+        .expect("bounded V4 persistence body");
+    assert!(
+        v4_persist
+            .find("strategy_input_sample_projection_outbox_v4")
+            .expect("final V4 insert")
+            < v4_persist
+                .rfind("let stored = load(transaction, prepared.receipt_digest())")
+                .expect("same-transaction exact custody reload")
+    );
+    assert!(v4_persist.contains("Ok(stored)"));
     assert!(
         issue_body
             .find("lock_composer_cut_v1(")

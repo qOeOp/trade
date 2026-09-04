@@ -14,7 +14,8 @@ use crate::owner::sample_projection_v4::{
     PreparedStrategyInputSampleProjectionV4, ScheduleDependencyV4,
     StrategyInputSampleProjectionErrorV4, StrategyInputSampleProjectionReadbackV4,
     StrategyInputSampleProjectionResolveErrorV4, StrategyInputSampleProjectionResolverV4,
-    UntrustedStrategyInputSampleProjectionLocatorV4, V3_HEADER_LEN, decode_v4, schedule_set_digest,
+    UntrustedStrategyInputSampleProjectionLocatorV4, V3_HEADER_LEN, decode_v4,
+    joined_component_matches_exact_v4, schedule_set_digest,
 };
 
 pub(super) const SCHEMA_V4: &[&str] = &[
@@ -156,9 +157,18 @@ pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4(
     sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) VALUES($1,$2,$3)")
         .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
         .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
-    Ok(StrategyInputSampleProjectionReadbackV4::from_verified(
-        decoded,
-    ))
+    let stored = load(transaction, prepared.receipt_digest())
+        .await?
+        .ok_or(StrategyInputSampleProjectionErrorV4::CommitInterrupted)?;
+    if stored.canonical_bytes() != prepared.canonical_bytes()
+        || stored.kind() != prepared.kind()
+        || stored.subject_identity() != prepared.subject_identity()
+        || stored.schedule_dependency_set_digest() != prepared.schedule_dependency_set_digest()
+        || stored.component_count() != prepared.component_count()
+    {
+        return Err(StrategyInputSampleProjectionErrorV4::StoreUntrusted);
+    }
+    Ok(stored)
 }
 
 async fn validate_joined_subject(
@@ -200,27 +210,21 @@ async fn validate_joined_subject(
     }
     let components = decoded.canonical_bytes()[crate::owner::sample_projection_v4::HEADER_LEN_V4..]
         .chunks_exact(crate::owner::sample_projection_v4::COMPONENT_LEN_V4);
+    let exact_components = components.collect::<Vec<_>>();
 
-    if joined.record().joined_cut_receipt().components().len() != components.len() {
+    if joined.record().joined_cut_receipt().components().len() != exact_components.len() {
         return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
     }
 
-    for (joined_component, exact) in joined
-        .record()
-        .joined_cut_receipt()
-        .components()
-        .iter()
-        .zip(components)
-    {
+    for joined_component in joined.record().joined_cut_receipt().components() {
         let [value] = joined_component.frame().values() else {
             return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
         };
-
-        if value.input_role_identity().as_bytes() != &exact[..32]
-            || value.binding_receipt_digest().as_bytes() != &exact[32..64]
-            || joined_component.frame().trigger().digest().as_bytes() != &exact[96..128]
-            || value.digest().as_bytes() != &exact[144..176]
-        {
+        let exact = exact_components
+            .iter()
+            .find(|exact| value.input_role_identity().as_bytes() == &exact[..32])
+            .ok_or(StrategyInputSampleProjectionErrorV4::ComponentMismatch)?;
+        if !joined_component_matches_exact_v4(joined_component, exact) {
             return Err(StrategyInputSampleProjectionErrorV4::ComponentMismatch);
         }
     }
@@ -744,7 +748,7 @@ pub(crate) mod tests {
         let second_request = UntrustedStrategyInputBindingRequest {
             research_request_identity: d(20),
             strategy_design_identity: d(21),
-            input_role_identity: d(23),
+            input_role_identity: d(18),
             scope: UntrustedStrategyInputScope::ExactInstrument {
                 instrument: "AAPL.XNAS".into(),
             },
@@ -767,6 +771,11 @@ pub(crate) mod tests {
             decision_cut: fixture.batch.time_evidence().decision_cut.value,
         };
         let second_binding = bind_strategy_input_role(&second_request, &fixture.batch).unwrap();
+        assert!(
+            second_binding.locator().input_role_identity()
+                < fixture.binding.locator().input_role_identity(),
+            "joined semantic order must differ from canonical role-digest order"
+        );
         let second_frame =
             bind_strategy_input_event_frame(std::slice::from_ref(&second_binding), &fixture.batch)
                 .unwrap();
