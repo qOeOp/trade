@@ -50,6 +50,9 @@ use vibe_strategy_factory::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TestFamilyFrozenOutboxV1 {
@@ -1863,6 +1866,17 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
+            .expect("explicit Catalog admin test database URL");
+        let catalog_admin_pool = PgPool::connect(&catalog_admin_url)
+            .await
+            .expect("Catalog admin test connection");
+        ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+            .await
+            .expect("signed sealed-acceptance Replay Policy Catalog genesis");
+    }
     let rd_url = database
         .database_url(CanonicalOwnerTestRoleV1::RdOwner)
         .to_string();

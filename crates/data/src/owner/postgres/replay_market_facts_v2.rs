@@ -817,6 +817,7 @@ impl ReplayCompositionOwnerV1 {
         )
         .await
         .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
         if joined.record().identity() != request.joined_cut_identity
             || joined.record().digest() != request.joined_cut_digest
             || joined.record().canonical_bytes() != joined_custody.as_ref()
@@ -913,6 +914,7 @@ impl ReplayCompositionOwnerV1 {
         .await?;
         let prepared = prepare_joined_cut_v4(joined.record().joined_cut_receipt(), &sources)
             .map_err(map_sample_projection_v4_error)?;
+
         if prepared.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
             || prepared.component_count() != 6
             || prepared.subject_identity() != *joined_cut_receipt_digest.as_bytes()
@@ -926,6 +928,7 @@ impl ReplayCompositionOwnerV1 {
             )
             .await
             .map_err(map_sample_projection_v4_error)?;
+
         if readback.receipt_digest() != prepared.receipt_digest()
             || readback.kind() != prepared.kind()
             || readback.subject_identity() != prepared.subject_identity()

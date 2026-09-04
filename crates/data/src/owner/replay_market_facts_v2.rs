@@ -202,6 +202,7 @@ pub(in crate::owner) fn composer_join_claim_digest_v1(
             .unwrap_or(u64::MAX)
             .to_be_bytes(),
     );
+
     for role in &claim.roles {
         hasher.update(
             u64::try_from(role.semantic_id.len())

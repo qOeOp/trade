@@ -4,6 +4,8 @@ use std::fmt::Display;
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use ed25519_dalek::{Signature, VerifyingKey};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use ed25519_dalek::{Signer, SigningKey};
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -223,6 +225,98 @@ struct VerifiedReplayPolicyCatalogBootstrapRequestV1 {
     request: SealedReplayPolicyCatalogBootstrapRequestV1,
     policy: ReplayExecutionPolicyV2,
     authentication_fact_digest: String,
+}
+
+/// Creates or verifies the fixed, signed Catalog genesis used only by the sealed acceptance graph.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v1(
+    pool: &PgPool,
+) -> Result<ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2> {
+    const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v1";
+
+    let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+    let policy = sealed_acceptance_policy()?;
+    let policy_bytes = policy
+        .canonical_bytes()
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
+    let mut request = SealedReplayPolicyCatalogBootstrapRequestV1 {
+        schema_version: 1,
+        bootstrap_identity: "rd-catalog-sealed-acceptance-bootstrap-v1".to_owned(),
+        administrator_identity: "rd-catalog-sealed-acceptance-administrator-v1".to_owned(),
+        verifier_identity: VERIFIER_IDENTITY.to_owned(),
+        catalog_record_id: "sealed-acceptance-replay-policy-v2".to_owned(),
+        policy_canonical_bytes_base64: BASE64_STANDARD.encode(&policy_bytes),
+        create_command_identity: "rd-catalog-sealed-acceptance-create-v1".to_owned(),
+        advance_command_identity: "rd-catalog-sealed-acceptance-advance-v1".to_owned(),
+        now_epoch_ms: 1,
+        signature_base64: String::new(),
+    };
+    let canonical = bootstrap_request_canonical_bytes(&request, &policy_bytes)?;
+    request.signature_base64 = BASE64_STANDARD.encode(signing_key.sign(&canonical).to_bytes());
+    let sealed_request = serde_json::to_vec(&request).map_err(|e| {
+        ReplayPolicyCatalogErrorV2::InvalidPolicy(format!(
+            "sealed acceptance bootstrap serialization failed: {e}"
+        ))
+    })?;
+    let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
+
+    ensure_authenticated_replay_policy_catalog_genesis_v1(
+        pool,
+        &sealed_request,
+        VERIFIER_IDENTITY,
+        &verifier_key,
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCatalogErrorV2> {
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
+    };
+
+    fn opaque(value: &str) -> Result<OpaqueIdentityV2, ReplayPolicyCatalogErrorV2> {
+        OpaqueIdentityV2::try_from(value.to_owned())
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))
+    }
+
+    fn versioned(value: &str) -> Result<VersionedIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(VersionedIdentityV2 {
+            identity: opaque(value)?,
+            version: opaque("v1")?,
+        })
+    }
+
+    fn content(value: &str) -> Result<ContentIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(ContentIdentityV2 {
+            identity: opaque(value)?,
+            digest: CanonicalDigestV2::try_from(format!("sha256:{}", "b".repeat(64)))
+                .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?,
+        })
+    }
+
+    Ok(ReplayExecutionPolicyV2 {
+        runtime_kernel: versioned("runtime-kernel-v2")?,
+        simulator: versioned("simulator-v2")?,
+        cost: versioned("cost-model-v1")?,
+        slippage: versioned("slippage-model-v1")?,
+        capacity: versioned("capacity-model-v1")?,
+        runner_operational_profile: versioned("runner-profile-v2")?,
+        diagnostic_policy: versioned("diagnostic-policy-v2")?,
+        deterministic_seed: 1,
+        window: ReplayWindowV2 {
+            start_event_ns: 1,
+            end_event_ns_exclusive: 2,
+        },
+        calendar: versioned("calendar-v2")?,
+        session: versioned("session-v2")?,
+        time_zone: versioned("time-zone-v2")?,
+        correction_rule: versioned("correction-rule-v2")?,
+        market_semantics: versioned("market-semantics-v2")?,
+        replay_configuration: content("replay-configuration-v2")?,
+        corporate_action_cut: content("corporate-action-cut-v2")?,
+        historical_membership_cut: content("historical-membership-cut-v2")?,
+    })
 }
 
 pub async fn ensure_authenticated_replay_policy_catalog_genesis_v1(
