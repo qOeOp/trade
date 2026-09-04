@@ -124,6 +124,32 @@ const COMPOSER_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTab
         "p:request_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:intent_identity:::false:false:true:", "u:research_request_identity:::false:false:true:"
     ], [primary "request_identity", unique "artifact_identity", unique "intent_identity", unique "research_request_identity"]),
+    composer_table!("rd_develop_strategy_design_role_set_attestations_v1", [
+        ("request_identity", "text"), ("composer_schema_version", "integer"),
+        ("operation_receipt_identity", "bytea"), ("artifact_locator", "text"),
+        ("artifact_identity", "bytea"), ("canonical_plan_digest", "bytea"),
+        ("design_digest", "bytea"), ("attestation_identity", "bytea"),
+        ("attestation_digest", "bytea"), ("canonical_bytes", "bytea")
+    ], [
+        "f:request_identity:public.rd_develop_operations_v2(request_identity):a:a:s:false:false:true:",
+        "p:request_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
+        "u:attestation_digest:::false:false:true:", "u:attestation_identity:::false:false:true:",
+        "u:canonical_plan_digest:::false:false:true:", "u:operation_receipt_identity:::false:false:true:",
+        "u:request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest:::false:false:true:"
+    ], [
+        primary "request_identity", unique "artifact_identity", unique "attestation_digest",
+        unique "attestation_identity", unique "canonical_plan_digest", unique "operation_receipt_identity",
+        unique "request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest"
+    ]),
+    composer_table!("rd_develop_strategy_design_native_joins_v1", [
+        ("request_identity", "text"), ("native_join_digest", "bytea"),
+        ("projection_receipt_digest", "bytea"), ("joined_cut_digest", "bytea"),
+        ("schedule_dependency_set_digest", "bytea"), ("canonical_bytes", "bytea")
+    ], [
+        "f:request_identity:public.rd_develop_operations_v2(request_identity):a:a:s:false:false:true:",
+        "p:request_identity:::false:false:true:", "u:native_join_digest:::false:false:true:",
+        "u:projection_receipt_digest:::false:false:true:"
+    ], [primary "request_identity", unique "native_join_digest", unique "projection_receipt_digest"]),
     composer_table!("rd_develop_outbox_v2", [("request_identity", "text"), ("canonical_bytes", "bytea")], [
         "f:request_identity:public.rd_develop_operations_v2(request_identity):a:a:s:false:false:true:",
         "p:request_identity:::false:false:true:"
@@ -456,8 +482,7 @@ where
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .pool
-            .begin()
+            .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let record = load_record_via_sealed_routine_in_transaction(
@@ -600,9 +625,26 @@ pub struct SealedDevelopComposerAcceptanceReadPortV2 {
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 impl SealedDevelopComposerAcceptanceReadPortV2 {
+    #[doc(hidden)]
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect(database_url).await?;
-        let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
+        let rd_owner_database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")?;
+        Self::connect_with_writer(&rd_owner_database_url, database_url).await
+    }
+
+    pub async fn connect_with_writer(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> anyhow::Result<Self> {
+        let owner = crate::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2::connect_with_writer(
+            rd_owner_database_url,
+            rd_fact_writer_database_url,
+        )
+        .await?;
+        let store = PostgresDevelopComposerStoreV2::connect(
+            rd_owner_database_url,
+            rd_fact_writer_database_url,
+        )
+        .await?;
         Ok(Self { owner, store })
     }
 }
@@ -619,8 +661,7 @@ impl DevelopComposerSealedReadPortV2 for SealedDevelopComposerAcceptanceReadPort
     ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
         let mut transaction = self
             .store
-            .pool
-            .begin()
+            .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let readback = self
@@ -650,8 +691,7 @@ impl StrategyDesignRoleSetResolverV1 for SealedDevelopComposerAcceptanceReadPort
         }
         let mut transaction = self
             .store
-            .read_pool
-            .begin()
+            .begin_read_transaction()
             .await
             .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
         let row = sqlx::query(
@@ -1128,6 +1168,133 @@ async fn verify_composer_commit_authority_in_transaction(
     }
 }
 
+async fn verify_composer_writer_authority_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "WITH writer AS (
+           SELECT role.oid,
+                  role.rolcanlogin,
+                  role.rolinherit,
+                  role.rolsuper,
+                  role.rolcreatedb,
+                  role.rolcreaterole,
+                  role.rolreplication,
+                  role.rolbypassrls
+             FROM pg_catalog.pg_roles role
+            WHERE role.rolname='rd_fact_writer'
+         ), private_relations AS (
+           SELECT relation.oid
+             FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace namespace
+               ON namespace.oid=relation.relnamespace
+              AND namespace.nspname='composer_private'
+            WHERE relation.relname=ANY($1)
+              AND relation.relkind IN ('r','p')
+         ), private_columns AS (
+           SELECT relation.oid AS relation_oid, attribute.attnum
+             FROM private_relations relation
+             JOIN pg_catalog.pg_attribute attribute
+               ON attribute.attrelid=relation.oid
+              AND attribute.attnum>0
+              AND NOT attribute.attisdropped
+         )
+         SELECT SESSION_USER='rd_fact_writer'
+            AND CURRENT_USER='rd_fact_writer'
+            AND (SELECT rolcanlogin AND rolinherit
+                        AND NOT rolsuper
+                        AND NOT rolcreatedb
+                        AND NOT rolcreaterole
+                        AND NOT rolreplication
+                        AND NOT rolbypassrls
+                   FROM writer)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                JOIN pg_catalog.pg_auth_members membership
+                  ON membership.member=writer.oid
+                  OR membership.roleid=writer.oid
+            )
+            AND (SELECT count(*)=11 FROM private_relations)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                CROSS JOIN private_relations relation
+               WHERE pg_catalog.has_table_privilege(
+                 writer.oid,
+                 relation.oid,
+                 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+               )
+            )
+            AND NOT EXISTS (
+              SELECT 1
+                FROM writer
+                CROSS JOIN private_columns column_fact
+               WHERE pg_catalog.has_column_privilege(
+                 writer.oid,
+                 column_fact.relation_oid,
+                 column_fact.attnum,
+                 'SELECT,INSERT,UPDATE,REFERENCES'
+               )
+            )
+            AND (SELECT pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          private_namespace.oid,
+                          'USAGE'
+                        ) IS FALSE
+                        AND pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          private_namespace.oid,
+                          'CREATE'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_namespace private_namespace
+                     ON private_namespace.nspname='composer_private')
+            AND (SELECT pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          api_namespace.oid,
+                          'USAGE'
+                        )
+                        AND pg_catalog.has_schema_privilege(
+                          writer.oid,
+                          api_namespace.oid,
+                          'CREATE'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_namespace api_namespace
+                     ON api_namespace.nspname='composer_owner_api')
+            AND (SELECT pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'CONNECT'
+                        )
+                        AND pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'CREATE'
+                        ) IS FALSE
+                        AND pg_catalog.has_database_privilege(
+                          writer.oid,
+                          database.oid,
+                          'TEMPORARY'
+                        ) IS FALSE
+                   FROM writer
+                   JOIN pg_catalog.pg_database database
+                     ON database.datname=pg_catalog.current_database())",
+    )
+    .bind(COMPOSER_TABLES_V2.as_slice())
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer writer authority is unavailable".to_owned(),
+        ))
+    }
+}
+
 fn exact_ordinal_array(
     ordinals: &[i32],
     values_len: usize,
@@ -1178,9 +1345,86 @@ fn sealed_bytes_column(
         .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)
 }
 
+async fn verify_pool_role(pool: &PgPool, expected_role: &str) -> Result<(), sqlx::Error> {
+    let role_is_exact: bool = sqlx::query_scalar("SELECT SESSION_USER=$1 AND CURRENT_USER=$1")
+        .bind(expected_role)
+        .fetch_one(pool)
+        .await?;
+
+    if role_is_exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(format!(
+            "Composer {expected_role} connection role is unavailable"
+        )))
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct ComposerDatabaseFingerprintV2 {
+    system_identifier: String,
+    database_name: String,
+    database_oid: i64,
+}
+
+async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
+    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(pool)
+    .await?;
+    Ok(ComposerDatabaseFingerprintV2 {
+        system_identifier,
+        database_name,
+        database_oid,
+    })
+}
+
+async fn verify_transaction_database(
+    transaction: &mut Transaction<'_, Postgres>,
+    expected: &ComposerDatabaseFingerprintV2,
+) -> Result<(), sqlx::Error> {
+    let (system_identifier, database_name, database_oid): (String, String, i64) = sqlx::query_as(
+        "SELECT (pg_catalog.pg_control_system()).system_identifier::text, pg_catalog.current_database()::text, database.oid::bigint FROM pg_catalog.pg_database AS database WHERE database.datname=pg_catalog.current_database()",
+    )
+    .fetch_one(&mut **transaction)
+    .await?;
+    let actual = ComposerDatabaseFingerprintV2 {
+        system_identifier,
+        database_name,
+        database_oid,
+    };
+
+    if actual == *expected {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer connection physical database changed after startup".to_owned(),
+        ))
+    }
+}
+
+async fn verify_same_database(
+    read_pool: &PgPool,
+    mutation_pool: &PgPool,
+) -> Result<ComposerDatabaseFingerprintV2, sqlx::Error> {
+    let read_identity = database_fingerprint(read_pool).await?;
+    let mutation_identity = database_fingerprint(mutation_pool).await?;
+
+    if read_identity == mutation_identity {
+        Ok(read_identity)
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer read and mutation connections target different databases".to_owned(),
+        ))
+    }
+}
+
 #[derive(Clone)]
 pub struct PostgresDevelopComposerStoreV2 {
-    pool: PgPool,
+    read_pool: PgPool,
+    mutation_pool: PgPool,
+    database_fingerprint: ComposerDatabaseFingerprintV2,
 }
 
 impl PostgresDevelopComposerStoreV2 {
@@ -1229,6 +1473,14 @@ impl PostgresDevelopComposerStoreV2 {
                 "CREATE TABLE IF NOT EXISTS public.rd_develop_operations_v2 (request_identity TEXT PRIMARY KEY, request_digest BYTEA NOT NULL, research_request_identity BYTEA NOT NULL UNIQUE, intent_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL UNIQUE REFERENCES public.rd_develop_artifacts_v2(artifact_identity), canonical_receipt_bytes BYTEA NOT NULL, response_bytes BYTEA NOT NULL)",
             ),
             (
+                "rd_develop_strategy_design_role_set_attestations_v1",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_strategy_design_role_set_attestations_v1 (request_identity TEXT PRIMARY KEY REFERENCES public.rd_develop_operations_v2(request_identity), composer_schema_version INTEGER NOT NULL, operation_receipt_identity BYTEA NOT NULL UNIQUE, artifact_locator TEXT NOT NULL, artifact_identity BYTEA NOT NULL UNIQUE, canonical_plan_digest BYTEA NOT NULL UNIQUE, design_digest BYTEA NOT NULL, attestation_identity BYTEA NOT NULL UNIQUE, attestation_digest BYTEA NOT NULL UNIQUE, canonical_bytes BYTEA NOT NULL, UNIQUE (request_identity, composer_schema_version, operation_receipt_identity, artifact_locator, artifact_identity, canonical_plan_digest, design_digest))",
+            ),
+            (
+                "rd_develop_strategy_design_native_joins_v1",
+                "CREATE TABLE IF NOT EXISTS public.rd_develop_strategy_design_native_joins_v1 (request_identity TEXT PRIMARY KEY REFERENCES public.rd_develop_operations_v2(request_identity), native_join_digest BYTEA NOT NULL UNIQUE, projection_receipt_digest BYTEA NOT NULL UNIQUE, joined_cut_digest BYTEA NOT NULL, schedule_dependency_set_digest BYTEA NOT NULL, canonical_bytes BYTEA NOT NULL)",
+            ),
+            (
                 "rd_develop_outbox_v2",
                 "CREATE TABLE IF NOT EXISTS public.rd_develop_outbox_v2 (request_identity TEXT PRIMARY KEY REFERENCES public.rd_develop_operations_v2(request_identity), canonical_bytes BYTEA NOT NULL)",
             ),
@@ -1247,17 +1499,67 @@ impl PostgresDevelopComposerStoreV2 {
         .await
     }
 
-    pub async fn connect(database_url: &str) -> Result<Self, sqlx::Error> {
-        let pool = sqlx::postgres::PgPoolOptions::new()
+    pub async fn connect(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> Result<Self, sqlx::Error> {
+        let read_pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(8)
+            .connect(rd_owner_database_url)
+            .await?;
+        verify_pool_role(&read_pool, "rd_owner").await?;
+
+        let mutation_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(8)
+            .connect(rd_fact_writer_database_url)
+            .await?;
+        verify_pool_role(&mutation_pool, "rd_fact_writer").await?;
+        let database_fingerprint = verify_same_database(&read_pool, &mutation_pool).await?;
+
+        Self::migrate(&read_pool).await?;
+        let mut transaction = mutation_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
+        verify_composer_writer_authority_in_transaction(&mut transaction).await?;
+        verify_composer_commit_authority_in_transaction(&mut transaction).await?;
+        transaction.rollback().await?;
+
+        Ok(Self {
+            read_pool,
+            mutation_pool,
+            database_fingerprint,
+        })
+    }
+
+    async fn begin_read_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+        let mut transaction = self.read_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
+        Ok(transaction)
+    }
+
+    async fn begin_mutation_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+        let mut transaction = self.mutation_pool.begin().await?;
+        verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
+        Ok(transaction)
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[doc(hidden)]
+    pub async fn reconnect_mutation_pool_for_acceptance(
+        &mut self,
+        database_url: &str,
+    ) -> Result<(), sqlx::Error> {
+        self.mutation_pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
             .connect(database_url)
             .await?;
-        Self::migrate(&pool).await?;
-        Ok(Self { pool })
+        let transaction = self.begin_mutation_transaction().await?;
+        transaction.rollback().await
     }
 
     pub async fn migrate(pool: &PgPool) -> Result<(), sqlx::Error> {
+        let database_fingerprint = database_fingerprint(pool).await?;
         let mut transaction = pool.begin().await?;
+        verify_transaction_database(&mut transaction, &database_fingerprint).await?;
         verify_composer_read_authority_in_transaction(&mut transaction)
             .await
             .map_err(|_| {
@@ -1282,7 +1584,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(&self.pool, request_identity).await {
+        let record = match load_record(self, request_identity).await {
             Ok(Some(record)) => record,
             Ok(None) => {
                 return Ok(unavailable_response(
@@ -1407,7 +1709,7 @@ impl PostgresDevelopComposerStoreV2 {
         fail_after_boundary: Option<usize>,
         native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let mut transaction = self.pool.begin().await?;
+        let mut transaction = self.begin_mutation_transaction().await?;
         acquire_advisory_locks(
             &mut transaction,
             &[request_lock_key(&request.request_identity)],
@@ -1528,6 +1830,7 @@ impl PostgresDevelopComposerStoreV2 {
 
         if let Err(e) = persist_record(
             &mut transaction,
+            &self.database_fingerprint,
             &record,
             &role_set,
             native_join.as_ref(),
@@ -1769,12 +2072,15 @@ async fn native_join_matches_transaction(
 
 async fn persist_record(
     transaction: &mut Transaction<'_, Postgres>,
+    database_fingerprint: &ComposerDatabaseFingerprintV2,
     record: &StoredDevelopComposerPositiveV2,
     role_set: &StrategyDesignRoleSetReceiptV1,
     native_join: Option<&StrategyDesignNativeJoinReceiptV1>,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
     fail_after_boundary: Option<usize>,
 ) -> Result<(), sqlx::Error> {
+    verify_transaction_database(transaction, database_fingerprint).await?;
+    verify_composer_writer_authority_in_transaction(transaction).await?;
     verify_composer_commit_authority_in_transaction(transaction).await?;
     let plan = crate::strategy_plan_v2::StrategyPlanV2::parse_and_revalidate_durable(
         &record.plan_bytes,
@@ -1878,10 +2184,10 @@ async fn persist_record(
 }
 
 async fn load_record(
-    pool: &PgPool,
+    store: &PostgresDevelopComposerStoreV2,
     request_identity: &str,
 ) -> Result<Option<StoredDevelopComposerPositiveV2>, sqlx::Error> {
-    let mut transaction = pool.begin().await?;
+    let mut transaction = store.begin_read_transaction().await?;
     let record = load_record_in_transaction(&mut transaction, request_identity).await?;
     transaction.commit().await?;
     Ok(record)
