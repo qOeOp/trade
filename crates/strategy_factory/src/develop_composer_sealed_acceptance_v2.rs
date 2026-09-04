@@ -104,8 +104,6 @@ mod sealed {
         store: PostgresDevelopComposerStoreV2,
         request: &'static DevelopComposerRunRequestV2,
         evidence: SealedDevelopComposerAcceptanceEvidenceV2,
-        native_join:
-            Option<vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1>,
     }
 
     struct SealedDevelopComposerA0BuildV2;
@@ -151,54 +149,23 @@ mod sealed {
                 store,
                 request,
                 evidence,
-                native_join: None,
             })
-        }
-
-        pub async fn connect_with_writer_and_native_join(
-            rd_owner_database_url: &str,
-            rd_fact_writer_database_url: &str,
-            native_join: vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1,
-        ) -> anyhow::Result<Self> {
-            let mut acceptance =
-                Self::connect_with_writer(rd_owner_database_url, rd_fact_writer_database_url)
-                    .await?;
-            acceptance.native_join = Some(native_join);
-            Ok(acceptance)
         }
 
         pub async fn run(&self) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
             let mut builder = SealedDevelopComposerA0BuildV2;
-            if let Some(native_join) = &self.native_join {
-                self.store
-                    .run_with_native_join(
-                        &mut builder,
-                        &self.evidence,
-                        self.request,
-                        1,
-                        native_join,
-                    )
-                    .await
-            } else {
-                self.store
-                    .run(&mut builder, &self.evidence, self.request, 1)
-                    .await
-            }
+            self.store
+                .run(&mut builder, &self.evidence, self.request, 1)
+                .await
         }
 
         pub async fn resolve(
             &self,
             request_identity: &str,
         ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-            if let Some(native_join) = &self.native_join {
-                self.store
-                    .resolve_with_native_join(request_identity, &self.evidence, 1, native_join)
-                    .await
-            } else {
-                self.store
-                    .resolve_with_evidence(request_identity, &self.evidence, 1)
-                    .await
-            }
+            self.store
+                .resolve_with_evidence(request_identity, &self.evidence, 1)
+                .await
         }
 
         pub async fn read_accepted_in_transaction(

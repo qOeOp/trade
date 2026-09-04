@@ -13,7 +13,8 @@ use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::replay_market_facts_v2::{
-    ReplayCompositionOwnerV1, UntrustedComposerNativeJoinRequestV1,
+    ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+    ReplayCompositionOwnerV1,
 };
 #[cfg(test)]
 use vibe_data::owner::{
@@ -77,6 +78,8 @@ struct ApiState {
     _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -156,6 +159,8 @@ async fn main() -> anyhow::Result<()> {
         PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
         PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
         vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        ReplayCompositionOwnerV1::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         source_intake::materialize_schema(&database_url).await?;
         return Ok(());
@@ -195,25 +200,18 @@ async fn main() -> anyhow::Result<()> {
         .await?,
     );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let replay_composition = ReplayCompositionOwnerV1::connect(
-        &required_env("MARKET_DATA_OWNER_DATABASE_URL")?,
-        &required_env("MARKET_DATA_RD_ROLE_SET_DATABASE_URL")?,
-    )
-    .await?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let native_join_request: UntrustedComposerNativeJoinRequestV1 = serde_json::from_str(
-        &required_env("MARKET_DATA_COMPOSER_NATIVE_JOIN_LOCATORS_V1")?,
-    )?;
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let native_join = replay_composition
-        .issue_composer_native_join_v1(&native_join_request)
-        .await?;
+    let replay_composition = Arc::new(
+        ReplayCompositionOwnerV1::connect(
+            &required_env("MARKET_DATA_OWNER_DATABASE_URL")?,
+            &required_env("MARKET_DATA_RD_ROLE_SET_DATABASE_URL")?,
+        )
+        .await?,
+    );
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let develop_composer = Arc::new(
-        SealedDevelopComposerAcceptanceV2::connect_with_writer_and_native_join(
+        SealedDevelopComposerAcceptanceV2::connect_with_writer(
             &database_url,
             &composer_writer_database_url,
-            native_join,
         )
         .await?,
     );
@@ -229,6 +227,8 @@ async fn main() -> anyhow::Result<()> {
         _market_data_research_pit: market_data_research_pit,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        replay_composition: Some(replay_composition),
     };
     #[cfg(not(feature = "sealed-source-intake-acceptance"))]
     let source_intake = source_intake::production_router(
@@ -297,6 +297,14 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/v2/develop-composer/runs", post(run_develop_composer))
         .route(
+            "/v1/replay-compositions/issuances",
+            post(issue_replay_composition),
+        )
+        .route(
+            "/v1/replay-compositions/issuances/resolve",
+            post(resolve_replay_composition),
+        )
+        .route(
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
         )
@@ -338,6 +346,75 @@ async fn bootstrap_deployment_store_admission_from_lookup(
 
 async fn health() -> &'static str {
     "ok"
+}
+
+async fn issue_replay_composition(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = body;
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let command: ReplayCompositionLocatorOnlyIssuanceRequestV1 =
+            match serde_json::from_slice(&body) {
+                Ok(command) => command,
+                Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+            };
+        let Some(replay_composition) = &state.replay_composition else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        match replay_composition.issue_binding_v1(&command).await {
+            Ok(response) => (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                response.canonical_bytes().to_vec(),
+            )
+                .into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
+}
+
+async fn resolve_replay_composition(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = body;
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let locator: ReplayCompositionIssuanceLocatorV1 = match serde_json::from_slice(&body) {
+            Ok(locator) => locator,
+            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+        };
+        let Some(replay_composition) = &state.replay_composition else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+        match replay_composition.recover_issuance_v1(locator).await {
+            Ok(response) => (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                response.canonical_bytes().to_vec(),
+            )
+                .into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
 }
 
 async fn run_develop_composer(
@@ -1600,18 +1677,16 @@ mod tests {
     use super::*;
 
     #[rstest]
-    fn composer_startup_issues_market_data_native_join_before_consuming_it() {
+    fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
         let source = include_str!("main.rs");
-        let issuance = source
-            .find("issue_composer_native_join_v1(&native_join_request)")
-            .expect("Market Data native-join issuance");
-        let composer = source
-            .find("connect_with_writer_and_native_join(")
-            .expect("move-only Composer construction");
-        assert!(issuance < composer);
         assert!(source.contains("MARKET_DATA_OWNER_DATABASE_URL"));
         assert!(source.contains("MARKET_DATA_RD_ROLE_SET_DATABASE_URL"));
-        assert!(source.contains("MARKET_DATA_COMPOSER_NATIVE_JOIN_LOCATORS_V1"));
+        let removed_native_env = ["MARKET_DATA_COMPOSER", "_NATIVE_JOIN_LOCATORS_V1"].concat();
+        let removed_native_issue = ["issue_composer", "_native_join_v1"].concat();
+        let removed_native_connect = ["connect_with_writer", "_and_native_join"].concat();
+        assert!(!source.contains(&removed_native_env));
+        assert!(!source.contains(&removed_native_issue));
+        assert!(!source.contains(&removed_native_connect));
         let forbidden_route = ["/v1/strategy-design-role-sets", "/resolve"].concat();
         assert!(!source.contains(&forbidden_route));
     }
@@ -1920,6 +1995,8 @@ mod tests {
                 .await
                 .unwrap(),
             ),
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            replay_composition: None,
         };
         let headers = bearer_headers(token);
         let research_request_identity = format!("rd-api-retry-research-{suffix}");

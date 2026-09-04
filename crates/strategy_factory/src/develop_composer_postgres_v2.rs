@@ -12,7 +12,6 @@ use std::{
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
-use vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1;
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_data::owner::strategy_design_role_set::{
     StrategyDesignNativeJoinReceiptV1, StrategyDesignRoleSetErrorV1,
@@ -1123,13 +1122,13 @@ async fn verify_composer_read_authority_in_transaction(
            FROM required
            JOIN pg_catalog.pg_proc procedure ON procedure.oid=pg_catalog.to_regprocedure(required.signature)
          )
-         SELECT (SELECT count(*)=4 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+         SELECT (SELECT count(*)=5 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
             AND count(*)=2
             AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
-            AND bool_and(pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
+            AND bool_and(NOT pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
             AND bool_and(pg_catalog.has_function_privilege('market_data_reader',oid,'EXECUTE'))
             AND bool_and(NOT pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
-            AND bool_and((SELECT count(*)=3 AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1 AND count(*) FILTER (WHERE role.rolname IN ('rd_owner','market_data_reader') AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=2 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>routines.proowner AND (role.rolname NOT IN ('rd_owner','market_data_reader') OR acl.is_grantable)))=0 FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
+            AND bool_and((SELECT count(*)=2 AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1 AND count(*) FILTER (WHERE role.rolname='market_data_reader' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>routines.proowner AND (role.rolname<>'market_data_reader' OR acl.is_grantable)))=0 FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
          FROM routines",
@@ -1707,50 +1706,6 @@ impl PostgresDevelopComposerStoreV2 {
         ))
     }
 
-    pub(crate) async fn resolve_with_native_join(
-        &self,
-        request_identity: &str,
-        evidence: &impl DevelopComposerFinalEvidencePortV2,
-        read_cut_epoch_ms: u64,
-        native_join: &AuthenticatedComposerNativeJoinV1,
-    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let record = match load_record(self, request_identity).await {
-            Ok(Some(record)) => record,
-            Ok(None) => {
-                return Ok(unavailable_response(
-                    request_identity,
-                    "terminal is unavailable",
-                ));
-            }
-            Err(e) if is_record_integrity_error(&e) => {
-                return Ok(unavailable_response(
-                    request_identity,
-                    "stored terminal custody is incomplete or malformed",
-                ));
-            }
-            Err(e) => return Err(e),
-        };
-        let response = resolve_loaded_record_with_evidence(&record, evidence, read_cut_epoch_ms);
-        if response.disposition != DevelopComposerOperationDispositionV2::Success {
-            return Ok(response);
-        }
-        let role_set = project_role_set_from_record(&record, &response)
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-            role_set.composer_locator.clone(),
-            native_join,
-        )
-        .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected).await?
-        {
-            return Ok(unavailable_response(
-                request_identity,
-                "stored native join custody is absent, mismatched, or malformed",
-            ));
-        }
-        Ok(response)
-    }
-
     pub(crate) async fn run(
         &self,
         builder: &mut impl DevelopComposerA0BuildPortV2,
@@ -1760,25 +1715,6 @@ impl PostgresDevelopComposerStoreV2 {
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         self.run_with_fault(builder, evidence, request, read_cut_epoch_ms, None)
             .await
-    }
-
-    pub(crate) async fn run_with_native_join(
-        &self,
-        builder: &mut impl DevelopComposerA0BuildPortV2,
-        evidence: &impl DevelopComposerFinalEvidencePortV2,
-        request: &DevelopComposerRunRequestV2,
-        read_cut_epoch_ms: u64,
-        native_join: &AuthenticatedComposerNativeJoinV1,
-    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.run_inner(
-            builder,
-            evidence,
-            request,
-            read_cut_epoch_ms,
-            None,
-            Some(native_join),
-        )
-        .await
     }
 
     async fn run_with_fault(
@@ -1795,7 +1731,6 @@ impl PostgresDevelopComposerStoreV2 {
             request,
             read_cut_epoch_ms,
             fail_after_boundary,
-            None,
         )
         .await
     }
@@ -1807,7 +1742,6 @@ impl PostgresDevelopComposerStoreV2 {
         request: &DevelopComposerRunRequestV2,
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
-        native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let existing = match load_record(self, &request.request_identity).await {
             Ok(existing) => existing,
@@ -1829,7 +1763,7 @@ impl PostgresDevelopComposerStoreV2 {
         };
 
         if let Some(existing) = existing {
-            let mut response = if existing.request_digest == request_digest(request) {
+            let response = if existing.request_digest == request_digest(request) {
                 evidence
                     .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
                     .and_then(|current| resolve_positive_record_v2(&existing, current))
@@ -1847,25 +1781,6 @@ impl PostgresDevelopComposerStoreV2 {
                     ),
                 }
             };
-            if response.disposition == DevelopComposerOperationDispositionV2::Success
-                && let Some(native_join) = native_join
-            {
-                let role_set = project_role_set_from_record(&existing, &response)
-                    .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-                let expected = StrategyDesignNativeJoinReceiptV1::from_market_owner(
-                    role_set.composer_locator.clone(),
-                    native_join,
-                )
-                .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-                if !native_join_matches_pool(&self.read_pool, &role_set.composer_locator, &expected)
-                    .await?
-                {
-                    response = unavailable_response(
-                        &request.request_identity,
-                        "stored native join custody is absent, mismatched, or malformed",
-                    );
-                }
-            }
             return Ok(response);
         }
         let mut transaction = self.begin_mutation_transaction().await?;
@@ -1909,22 +1824,12 @@ impl PostgresDevelopComposerStoreV2 {
         };
         let role_set = project_role_set_from_record(&record, &response)
             .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-        let native_join = native_join
-            .map(|native_join| {
-                StrategyDesignNativeJoinReceiptV1::from_market_owner(
-                    role_set.composer_locator.clone(),
-                    native_join,
-                )
-            })
-            .transpose()
-            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
-
         if let Err(e) = persist_record(
             &mut transaction,
             &self.database_fingerprint,
             &record,
             &role_set,
-            native_join.as_ref(),
+            None,
             current.bindings.clone(),
             fail_after_boundary,
         )
@@ -2092,27 +1997,6 @@ fn terminal_response(
         coordinate: Some(terminal.coordinate),
         reason: Some(terminal.reason),
     }
-}
-
-async fn native_join_matches_pool(
-    pool: &PgPool,
-    locator: &StrategyDesignRoleSetLocatorV1,
-    expected: &StrategyDesignNativeJoinReceiptV1,
-) -> Result<bool, sqlx::Error> {
-    let row = sqlx::query("SELECT native_join_digest,canonical_bytes FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)")
-        .bind(&locator.request_identity)
-        .bind(i32::from(locator.schema_version))
-        .bind(locator.operation_receipt_identity.as_bytes().as_slice())
-        .bind(&locator.artifact_locator)
-        .bind(locator.artifact_identity.as_bytes().as_slice())
-        .bind(locator.canonical_plan_digest.as_bytes().as_slice())
-        .bind(locator.design_digest.as_bytes().as_slice())
-        .fetch_optional(pool)
-        .await?;
-    Ok(row.is_some_and(|row| {
-        row.get::<Vec<u8>, _>("native_join_digest") == expected.receipt_digest().as_bytes()
-            && row.get::<Vec<u8>, _>("canonical_bytes") == expected.canonical_bytes()
-    }))
 }
 
 async fn persist_record(

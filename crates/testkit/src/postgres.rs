@@ -10,12 +10,13 @@ use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
-const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
+const PRODUCTION_DATABASE_URL_ENVS: [&str; 6] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
     "PRODUCT_EDGE_DATABASE_URL",
     "OPERATOR_AUTHORIZATION_DATABASE_URL",
     "BACKTEST_DATABASE_URL",
+    "MARKET_DATA_OWNER_DATABASE_URL",
 ];
 const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "postgres",
@@ -26,7 +27,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 7] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 8] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -34,6 +35,7 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 7] = [
     ("PRODUCT_EDGE_TEST_DATABASE_URL", "product_edge_owner"),
     ("RD_OWNER_TEST_DATABASE_URL", "rd_owner"),
     ("RD_FACT_WRITER_TEST_DATABASE_URL", "rd_fact_writer"),
+    ("MARKET_DATA_OWNER_TEST_DATABASE_URL", "market_data_owner"),
     (
         "MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL",
         "market_data_reader",
@@ -151,6 +153,7 @@ pub enum CanonicalOwnerTestRoleV1 {
     ProductEdgeOwner,
     RdOwner,
     RdFactWriter,
+    MarketDataOwner,
     MarketDataReader,
     QualificationWriter,
     BacktestOwner,
@@ -163,17 +166,18 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ProductEdgeOwner => 1,
             Self::RdOwner => 2,
             Self::RdFactWriter => 3,
-            Self::MarketDataReader => 4,
-            Self::QualificationWriter => 5,
-            Self::BacktestOwner => 6,
+            Self::MarketDataOwner => 4,
+            Self::MarketDataReader => 5,
+            Self::QualificationWriter => 6,
+            Self::BacktestOwner => 7,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 7],
-    pools: [PgPool; 7],
+    database_urls: [String; 8],
+    pools: [PgPool; 8],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
