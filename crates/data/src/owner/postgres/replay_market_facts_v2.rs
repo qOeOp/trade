@@ -598,16 +598,16 @@ impl ReplayCompositionOwnerV1 {
             return Err(operation_error);
         }
         let outcome = Box::pin(async {
+        lock_composer_cut_v1(
+            &mut transaction,
+            &request.composer_locator().request_identity,
+        )
+        .await?;
         verify_market_challenge_v1(
             &mut reader_transaction,
             &mut transaction,
             &reader_challenge,
             &market_challenge,
-        )
-        .await?;
-        lock_composer_cut_v1(
-            &mut transaction,
-            &request.composer_locator().request_identity,
         )
         .await?;
         lock_issuance_identity(&mut transaction, issuance_locator.request_identity()).await?;
