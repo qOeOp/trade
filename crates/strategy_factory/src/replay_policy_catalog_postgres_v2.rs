@@ -1500,6 +1500,19 @@ mod postgres_tests {
     fn catalog_rule_manifest_is_closed_across_migration_connect_and_runtime() {
         let source = include_str!("replay_policy_catalog_postgres_v2.rs");
         assert!(AUTHORITY_MIGRATION_SQL.contains(
+            "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner"
+        ));
+        assert!(
+            AUTHORITY_MIGRATION_SQL.contains("REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC")
+        );
+        let post_function_acl_cutover = AUTHORITY_MIGRATION_SQL
+            .split("$catalog_composer_function_acl_cutover$;")
+            .nth(1)
+            .expect("post-Catalog/Composer function ACL cutover");
+        assert!(post_function_acl_cutover.contains(
+            "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner"
+        ));
+        assert!(AUTHORITY_MIGRATION_SQL.contains(
             "ALTER FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text) OWNER TO replay_policy_catalog_owner"
         ));
         assert!(AUTHORITY_MIGRATION_SQL.contains(
@@ -1518,7 +1531,7 @@ mod postgres_tests {
         );
         assert!(
             AUTHORITY_MIGRATION_SQL
-                .contains("count(*)=13 AND bool_and(relation.relpersistence='p')")
+                .contains("count(*)=15 AND bool_and(relation.relpersistence='p')")
         );
         assert!(AUTHORITY_MIGRATION_SQL.contains("index_relation.relpersistence='p'"));
         assert!(AUTHORITY_MIGRATION_SQL.contains(
