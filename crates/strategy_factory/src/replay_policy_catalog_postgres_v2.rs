@@ -364,11 +364,23 @@ async fn exact_bootstrap_receipt(
     }
     let request = &verified.request;
     verify_bootstrap_audits(transaction, administrator, request, desired).await?;
-    let final_record = load_record_by_id(transaction, &request.catalog_record_id).await?;
-    let final_head = current_head(transaction).await?;
-    if &final_record != desired
-        || final_head.as_ref()
-            != Some(&(request.catalog_record_id.clone(), desired.catalog_version()))
+    let final_record =
+        load_record_with_provenance_by_id(transaction, &request.catalog_record_id).await?;
+    let final_head = current_head_with_provenance(transaction).await?;
+    let expected_epoch_ms = epoch_i64(request.now_epoch_ms)?;
+
+    if &final_record.binding != desired
+        || final_record.predecessor_record_id.is_some()
+        || final_record.created_by != request.administrator_identity
+        || final_record.created_at_epoch_ms != expected_epoch_ms
+        || final_head
+            .as_ref()
+            .map(|head| (&head.catalog_record_id, head.catalog_version))
+            != Some((&request.catalog_record_id, desired.catalog_version()))
+        || final_head.as_ref().is_none_or(|head| {
+            head.advanced_by != request.administrator_identity
+                || head.advanced_at_epoch_ms != expected_epoch_ms
+        })
         || is_revoked(transaction, &request.catalog_record_id).await?
     {
         return Err(ReplayPolicyCatalogErrorV2::Conflict);
@@ -379,7 +391,7 @@ async fn exact_bootstrap_receipt(
         administrator_identity: request.administrator_identity.clone(),
         verifier_identity: request.verifier_identity.clone(),
         authentication_fact_digest: verified.authentication_fact_digest.clone(),
-        catalog_binding: final_record,
+        catalog_binding: final_record.binding,
         create_command_identity: request.create_command_identity.clone(),
         advance_command_identity: request.advance_command_identity.clone(),
     })
@@ -767,6 +779,68 @@ async fn load_record_by_id(
         ));
     }
     decode_record(&rows[0])
+}
+
+struct CatalogRecordWithProvenanceV1 {
+    binding: ReplayPolicyCatalogBindingV2,
+    predecessor_record_id: Option<String>,
+    created_by: String,
+    created_at_epoch_ms: i64,
+}
+
+struct CatalogHeadProvenanceV1 {
+    catalog_record_id: String,
+    catalog_version: u64,
+    advanced_by: String,
+    advanced_at_epoch_ms: i64,
+}
+
+async fn load_record_with_provenance_by_id(
+    transaction: &mut Transaction<'_, Postgres>,
+    catalog_record_id: &str,
+) -> Result<CatalogRecordWithProvenanceV1, ReplayPolicyCatalogErrorV2> {
+    let rows = sqlx::query(
+        "SELECT * FROM replay_policy_catalog_api.lock_replay_policy_catalog_record_v2($1)",
+    )
+    .bind(catalog_record_id)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+    let [row] = rows.as_slice() else {
+        return Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog record is missing".to_owned(),
+        ));
+    };
+    Ok(CatalogRecordWithProvenanceV1 {
+        binding: decode_record(row)?,
+        predecessor_record_id: row.try_get("predecessor_record_id").map_err(unavailable)?,
+        created_by: row.try_get("created_by").map_err(unavailable)?,
+        created_at_epoch_ms: row.try_get("created_at_epoch_ms").map_err(unavailable)?,
+    })
+}
+
+async fn current_head_with_provenance(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<Option<CatalogHeadProvenanceV1>, ReplayPolicyCatalogErrorV2> {
+    let rows = sqlx::query(
+        "SELECT * FROM replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(unavailable)?;
+
+    match rows.as_slice() {
+        [] => Ok(None),
+        [row] => Ok(Some(CatalogHeadProvenanceV1 {
+            catalog_record_id: row.try_get("head_record_id").map_err(unavailable)?,
+            catalog_version: decimal_version(row.try_get("head_version").map_err(unavailable)?)?,
+            advanced_by: row.try_get("advanced_by").map_err(unavailable)?,
+            advanced_at_epoch_ms: row.try_get("advanced_at_epoch_ms").map_err(unavailable)?,
+        })),
+        _ => Err(ReplayPolicyCatalogErrorV2::Unavailable(
+            "Catalog has multiple current heads".to_owned(),
+        )),
+    }
 }
 
 fn decode_record(
@@ -1732,6 +1806,14 @@ mod postgres_tests {
             catalog_counts(topology_admin_pool).await,
             counts_after_create
         );
+        assert_bootstrap_provenance_tamper_is_rejected(
+            topology_admin_pool,
+            &catalog_admin_pool,
+            rd_owner_pool,
+            &bootstrap,
+            &verifier_key,
+        )
+        .await;
         let admin = AuthenticatedCatalogAdministratorV2::admit(
             "rd-catalog-test-administrator-v2",
             &format!("sha256:{}", "a".repeat(64)),
@@ -1967,6 +2049,77 @@ mod postgres_tests {
             error.as_database_error().and_then(|e| e.code()),
             Some(std::borrow::Cow::Borrowed("42501"))
         );
+    }
+
+    async fn assert_bootstrap_provenance_tamper_is_rejected(
+        topology_admin_pool: &PgPool,
+        catalog_admin_pool: &PgPool,
+        rd_owner_pool: &PgPool,
+        bootstrap: &[u8],
+        verifier_key: &str,
+    ) {
+        for (tamper, restore) in [
+            (
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET predecessor_record_id=catalog_record_id WHERE catalog_version=1",
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET predecessor_record_id=NULL WHERE catalog_version=1",
+            ),
+            (
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET created_by='wrong-bootstrap-actor' WHERE catalog_version=1",
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET created_by='rd-catalog-test-administrator-v2' WHERE catalog_version=1",
+            ),
+            (
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET created_at_epoch_ms=1001 WHERE catalog_version=1",
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 SET created_at_epoch_ms=1000 WHERE catalog_version=1",
+            ),
+            (
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET advanced_by='wrong-bootstrap-actor' WHERE singleton",
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET advanced_by='rd-catalog-test-administrator-v2' WHERE singleton",
+            ),
+            (
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET advanced_at_epoch_ms=1001 WHERE singleton",
+                "UPDATE replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 SET advanced_at_epoch_ms=1000 WHERE singleton",
+            ),
+        ] {
+            sqlx::query(tamper)
+                .execute(topology_admin_pool)
+                .await
+                .unwrap();
+            let counts = catalog_counts(topology_admin_pool).await;
+            assert_eq!(counts, (1, 1, 0, 2));
+            assert!(matches!(
+                ensure_authenticated_replay_policy_catalog_genesis_v1(
+                    catalog_admin_pool,
+                    bootstrap,
+                    "rd-catalog-test-verifier-v1",
+                    verifier_key,
+                )
+                .await,
+                Err(ReplayPolicyCatalogErrorV2::Conflict)
+            ));
+            assert!(matches!(
+                read_authenticated_replay_policy_catalog_genesis_v1(
+                    rd_owner_pool,
+                    bootstrap,
+                    "rd-catalog-test-verifier-v1",
+                    verifier_key,
+                )
+                .await,
+                Err(ReplayPolicyCatalogErrorV2::Conflict)
+            ));
+            assert_eq!(catalog_counts(topology_admin_pool).await, counts);
+            sqlx::query(restore)
+                .execute(topology_admin_pool)
+                .await
+                .unwrap();
+        }
+        read_authenticated_replay_policy_catalog_genesis_v1(
+            rd_owner_pool,
+            bootstrap,
+            "rd-catalog-test-verifier-v1",
+            verifier_key,
+        )
+        .await
+        .unwrap();
     }
 
     async fn admitted_catalog_admin_test_pool() -> PgPool {

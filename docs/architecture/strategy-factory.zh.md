@@ -743,9 +743,11 @@ grammar/parser ID 的 `u32 length || bytes`、32-byte grammar/parser digest、po
 
 Catalog bootstrap 是独立、显式启用、单次运行的 `authority-admin` composition，绝不是 R&D API
 route、Product Edge/Windmill operation、default service、migration 或 runtime selector。它只使用
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 调用固定私有 write port。该 broker-only 基础设施 capability
-对 operator 与 ordinary service 不可用，也不提供 administrator identity 或 policy meaning；两者都由拒绝未知字段的
-密封 V1 request 提供。该 request 由
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 调用固定私有 write port。Rust one-shot composition 必须在
+database access 前验证拒绝未知字段的密封 V1 request。PostgreSQL 不独立验证 Ed25519；它信任独占的
+`replay_policy_catalog_admin_writer` principal 作为已认证 broker 的 mutation boundary。该 credential 绝不能
+分发给 operator、ordinary service、Windmill 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary
+breach。该 request 由
 Ed25519 签名，并绑定 schema version、bootstrap identity、administrator identity、单独信任的
 verifier identity、Catalog record identity、完整 canonical policy bytes、确定性 create 与 head-advance
 command identity、event time 与 signature。composition 必须在任何 database access 之前验证准确
@@ -754,7 +756,9 @@ evidence 派生 `authentication_fact_digest`，不得接受 caller 或 credentia
 
 transaction 必须先锁定并分类 records/head/revocations/audits 四表 census：只有准确 `0/0/0/0` 可以在同一
 transaction 中创建 version 1 并推进其 head；resolution 只接受准确 `1/1/0/2` 以及准确 record、head 与 audit
-bytes。任何其他 partial 或 extra shape 都保持不变并 conflict。准确 identity 与
+bytes。genesis record 的 predecessor 必须为 NULL，其 `created_by`/`created_at_epoch_ms` 与 head 的
+`advanced_by`/`advanced_at_epoch_ms` 必须分别等于签名 administrator 与 event time。任何其他 partial、extra
+或 provenance-mismatched shape 都保持不变并 conflict。准确 identity 与
 逐字节相同 meaning 必须从准确 sealed request 与 immutable audited record/head state 重建一份确定性
 typed Owner readback。首次 success 与准确 response-loss 或 restart replay 都以零写入返回该逐字节相同
 readback；任何 attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。

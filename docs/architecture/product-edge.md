@@ -152,10 +152,12 @@ audited R&D Catalog Administration Port owns those writes.
 
 The separately authorized Catalog bootstrap composition remains outside Product Edge. It is a dedicated, opt-in,
 one-shot `authority-admin` unit with no HTTP or Windmill route and uses the broker-only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after its
-sealed, deny-unknown-fields V1 request has been authenticated by Ed25519 against a separately trusted verifier
-identity and key. Neither that database credential nor any request field may self-assert authentication;
-`authentication_fact_digest` derives from the verified evidence before database access. Product Edge cannot
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` only after the Rust composition has authenticated its sealed,
+deny-unknown-fields V1 request by Ed25519 against a separately trusted verifier identity and key. PostgreSQL does
+not repeat that cryptographic verification; it trusts only the exclusive `replay_policy_catalog_admin_writer`
+broker principal. Distributing or using that credential in Product Edge, Windmill, an ordinary service, an
+operator workflow, or a generic SQL client is a trust-boundary breach. The `authentication_fact_digest` derives
+from the verified evidence before database access. Product Edge cannot
 provide the request, verifier, key, administrator identity, policy bytes, command identities, event time, signature,
 or canonical Owner readback, and cannot start the R&D API. The product startup boundary admits the API only after
 schema materialization, custody cutover, explicit Catalog bootstrap or exact resolution, and verification of the

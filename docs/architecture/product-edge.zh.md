@@ -132,10 +132,11 @@ Edge、Windmill、caller、provider、environment value、default、migration �
 Catalog Administration Port 拥有这些写入。
 
 另行授权的 Catalog bootstrap composition 始终位于 Product Edge 之外。它是独立、显式启用、
-单次运行的 `authority-admin` unit，不提供 HTTP 或 Windmill route；只有当其拒绝未知字段的
-密封 V1 request 已使用 Ed25519 和另行信任的 verifier identity/key 完成认证后，才使用 broker-only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`；该 infrastructure capability 本身不提供 administrator identity
-或 policy meaning，也不向 operator 或 ordinary service 开放。database credential 与 request field 都不能自行声明 authentication；
+单次运行的 `authority-admin` unit，不提供 HTTP 或 Windmill route。Rust composition 使用 Ed25519 和另行
+信任的 verifier identity/key 认证拒绝未知字段的密封 V1 request 后，才使用 broker-only
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL`。PostgreSQL 不重复该 cryptographic verification，而是只信任
+独占的 `replay_policy_catalog_admin_writer` broker principal。把该 credential 分发或用于 Product Edge、
+Windmill、ordinary service、operator workflow 或 generic SQL client 都是 trust-boundary breach。
 `authentication_fact_digest` 在 database access 之前从已验证 evidence 派生。Product Edge 不得提供
 request、verifier、key、administrator identity、policy bytes、command identity、event time、signature 或
 canonical Owner readback，也不得启动 R&D API。product startup boundary 只有在 schema materialization、

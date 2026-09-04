@@ -281,10 +281,12 @@ deployment configuration, and runtime selectors cannot seed or synthesize a poli
 The only product composition allowed to bootstrap an empty Catalog is a dedicated, opt-in, one-shot
 `authority-admin` composition. It has no API route and is not callable by Product Edge, Windmill, the R&D API, a
 default service, a migration, or a runtime selector. It alone uses the separately supplied broker-only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to reach the fixed Catalog Administration Port. The underlying
-`replay_policy_catalog_admin_writer` infrastructure capability is unavailable to operators and ordinary services;
-possession of it neither authenticates an administrator nor supplies policy meaning. `rd_fact_writer` retains
-Composer-only writes and cannot invoke Catalog mutation.
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to reach the fixed Catalog Administration Port. The Rust composition
+verifies the sealed Ed25519 request before database access; PostgreSQL does not independently verify Ed25519 and
+trusts the exclusive `replay_policy_catalog_admin_writer` principal as that broker's mutation boundary. This
+credential must never be distributed to operators, ordinary services, Windmill, or generic SQL clients;
+possession or use outside the broker is a trust-boundary breach. `rd_fact_writer` retains Composer-only writes and
+cannot invoke Catalog mutation.
 
 Its private V1 request is a sealed, deny-unknown-fields document signed with Ed25519 and binds the request schema
 version, bootstrap identity, administrator identity, separately trusted verifier identity, Catalog record
@@ -298,8 +300,9 @@ The transaction first locks and classifies the complete records/head/revocations
 `0/0/0/0` storage may create version 1 and advance the explicit current head to that
 record, and atomically commits both deterministic commands as immutable authenticated audit facts. The sole public
 projection is one deterministic typed Owner readback reconstructed from the exact sealed request and audited
-record/head state. Resolution requires exact `1/1/0/2` plus exact record, head, and audit bytes; every other partial
-or extra shape conflicts unchanged. First success and exact response-loss or restart replay return that same readback byte-for-byte
+record/head state. Resolution requires exact `1/1/0/2` plus exact record, head, and audit bytes; the record's null
+genesis predecessor and signed actor/time provenance and the head's signed actor/time provenance must also match.
+Every other partial, extra, or provenance-mismatched shape conflicts unchanged. First success and exact response-loss or restart replay return that same readback byte-for-byte
 without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its bytes. Changing
 any bootstrap, create-command, or head-advance identity or meaning, or encountering an orphaned, divergent,
 revoked, tampered, partially initialized, unauthenticated, or otherwise non-canonical state, is a conflict with

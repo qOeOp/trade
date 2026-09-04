@@ -52,9 +52,11 @@ The database/public schema custodian and both object owners are NOLOGIN roles.
 `rd_owner` uses only fixed lock/read APIs. Composer mutation retains the dedicated
 `rd_fact_writer` credential. Catalog mutation instead requires the broker-only
 `replay_policy_catalog_admin_writer` credential provisioned from the explicitly supplied
-`REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD`. This infrastructure capability is unavailable
-to operators and ordinary services and supplies no administrator identity or policy meaning;
-the sealed Ed25519 request supplies both before database access. No default or fallback credential exists.
+`REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD`. The Rust one-shot composition verifies the sealed Ed25519 request
+before database access. PostgreSQL does not independently verify Ed25519; it trusts the exclusive
+`replay_policy_catalog_admin_writer` principal as the broker mutation boundary. Never distribute this credential
+to operators, ordinary services, Windmill, or generic SQL clients; possession or use outside the broker is a
+trust-boundary breach. No default or fallback credential exists.
 Existing relations are moved with `SET SCHEMA` without row rewrites. The
 migration does not insert, update, delete, backfill, or reinterpret an Owner fact:
 
@@ -139,7 +141,8 @@ After those explicit administrative steps, start the default services; the
 `authority-admin` profile remains disabled. Compose reruns schema materialization and
 custody migration, then performs only the signed, exact `rd_owner` Catalog readback.
 The readback locks and classifies the four-table census, accepts only exact `1/1/0/2`
-state and exact records/head/audits, writes nothing, and must finish before the API listens:
+state and exact records/head/audits, including the null genesis predecessor and signed actor/time provenance,
+writes nothing, and must finish before the API listens:
 
 ```bash
 docker compose \

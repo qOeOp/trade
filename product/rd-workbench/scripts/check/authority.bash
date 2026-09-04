@@ -111,6 +111,9 @@ grep -Fq 'ALTER TABLE public.%I SET SCHEMA replay_policy_catalog_private' "$pack
 grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
 grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 test "$(grep -Fc "IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1

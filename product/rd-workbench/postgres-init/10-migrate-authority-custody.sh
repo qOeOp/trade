@@ -952,11 +952,12 @@ REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_cens
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2() TO rd_owner, replay_policy_catalog_admin_writer;
 
 CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(p_record_id text)
-RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, head_record_id text, head_version numeric, revoked boolean)
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean)
 LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_read$
-  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity,
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
     record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
-    record.policy_digest, record.catalog_record_digest, head.catalog_record_id, head.catalog_version,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
     revocation.catalog_record_id IS NOT NULL
   FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
   LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head ON head.singleton
@@ -971,11 +972,12 @@ REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_reco
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text) TO rd_owner, replay_policy_catalog_admin_writer;
 
 CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()
-RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, head_record_id text, head_version numeric, revoked boolean)
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean)
 LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_current$
-  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity,
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
     record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
-    record.policy_digest, record.catalog_record_digest, head.catalog_record_id, head.catalog_version,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
     revocation.catalog_record_id IS NOT NULL
   FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head
   JOIN replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record ON record.catalog_record_id=head.catalog_record_id AND record.catalog_version=head.catalog_version

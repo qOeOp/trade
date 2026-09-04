@@ -784,9 +784,11 @@ ASCII grammar/parser ID as `u32 length || bytes`, the 32 grammar/parser-digest b
 
 The Catalog bootstrap is a dedicated opt-in, one-shot `authority-admin` composition, never an R&D API route,
 Product Edge/Windmill operation, default service, migration, or runtime selector. It uses only
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to invoke the fixed private write port. That broker-only infrastructure
-capability is unavailable to operators and ordinary services and supplies neither administrator identity nor policy
-meaning; the deny-unknown-fields sealed V1 request supplies both. The request is
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` to invoke the fixed private write port. The Rust one-shot composition
+verifies the deny-unknown-fields sealed V1 request before database access. PostgreSQL does not independently verify
+Ed25519; it trusts the exclusive `replay_policy_catalog_admin_writer` principal as the authenticated broker mutation
+boundary. That credential must never be distributed to operators, ordinary services, Windmill, or generic SQL
+clients; possession or use outside the broker is a trust-boundary breach. The request is
 Ed25519-signed and binds the schema version, bootstrap identity, administrator identity, separately trusted
 verifier identity, Catalog record identity, complete canonical policy bytes, deterministic create and head-advance
 command identities, event time, and signature. The composition verifies the exact schema, signature, trusted
@@ -796,7 +798,9 @@ value.
 
 The transaction locks and classifies the census of records/head/revocations/audits before acting: only exact
 `0/0/0/0` may create version 1 and advance its head, and resolution requires exact `1/1/0/2` plus exact record,
-head, and audit bytes. Every other partial or extra shape conflicts unchanged. Exact identity
+head, and audit bytes. The genesis record must have no predecessor and its `created_by`/`created_at_epoch_ms` and
+the head's `advanced_by`/`advanced_at_epoch_ms` must equal the signed administrator and event time. Every other
+partial, extra, or provenance-mismatched shape conflicts unchanged. Exact identity
 and byte-identical meaning reconstruct one deterministic typed Owner readback from the exact sealed request and
 immutable audited record/head state. First success and exact response-loss or restart replay return that readback
 byte-for-byte without a write; no attempt-local `CREATED`/`RESOLVED` field or execution-path marker may change its

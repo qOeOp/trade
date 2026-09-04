@@ -263,9 +263,11 @@ policy 或 current head。
 唯一可以 bootstrap 空 Catalog 的产品 composition 是一个独立、显式启用、单次运行的
 `authority-admin` composition。它不提供 API route，Product Edge、Windmill、R&D API、default service、
 migration 与 runtime selector 均不能调用它。只有该 composition 使用另行提供且 broker-only 的
-`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 访问固定 Catalog Administration Port。底层
-`replay_policy_catalog_admin_writer` infrastructure capability 不向 operator 或 ordinary service 开放；仅持有它既不能
-认证 administrator，也不能提供 policy 含义。`rd_fact_writer` 只保留 Composer 写入，不能调用 Catalog mutation。
+`REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL` 访问固定 Catalog Administration Port。Rust composition 在 database
+access 前验证 sealed Ed25519 request；PostgreSQL 不独立验证 Ed25519，而是信任独占的
+`replay_policy_catalog_admin_writer` principal 作为该 broker 的 mutation boundary。该 credential 绝不能分发给
+operator、ordinary service、Windmill 或 generic SQL client；在 broker 外持有或使用即为 trust-boundary breach。
+`rd_fact_writer` 只保留 Composer 写入，不能调用 Catalog mutation。
 
 其私有 V1 request 是由 Ed25519 签名、拒绝未知字段的密封文档，它绑定 request schema
 version、bootstrap identity、administrator identity、单独信任的 verifier identity、Catalog record
@@ -279,8 +281,9 @@ transaction 必须先锁定并分类完整 records/head/revocations/audits censu
 可以创建 version 1，把显式 current head 推进到该
 record，并把两个确定性 command 作为 immutable authenticated audit fact 原子提交。唯一公开
 projection 是从准确 sealed request 与 audited record/head state 重建的一份确定性 typed Owner readback。
-resolution 要求准确 `1/1/0/2` 以及准确 record、head 与 audit bytes；任何其他 partial 或 extra shape
-都保持不变并 conflict。
+resolution 要求准确 `1/1/0/2` 以及准确 record、head 与 audit bytes；record 的 genesis predecessor 必须为
+NULL，其签名 actor/time provenance 及 head 的签名 actor/time provenance 也必须匹配。任何其他 partial、extra
+或 provenance-mismatched shape 都保持不变并 conflict。
 首次 success 与准确 response-loss 或 restart replay 都必须以零写入返回该逐字节相同 readback；任何
 attempt-local `CREATED`/`RESOLVED` field 或 execution-path marker 都不得改变其 bytes。任何 bootstrap、
 create-command 或 head-advance identity 或 meaning 改变，或遇到 orphaned、divergent、revoked、tampered、
