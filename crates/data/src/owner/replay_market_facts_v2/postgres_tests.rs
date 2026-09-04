@@ -207,7 +207,46 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
     );
     assert!(migration.contains("ALTER ROLE composer_owner NOLOGIN"));
     assert!(migration.contains("NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))"));
-    assert!(!source.contains("issue_composer_native_join_v1"));
+    let native_issue_body = source
+        .split("pub async fn issue_composer_native_join_v1")
+        .nth(1)
+        .expect("production native join issuance entry")
+        .split("pub async fn recover_binding_v1")
+        .next()
+        .expect("bounded production native join issuance");
+    assert!(
+        native_issue_body
+            .find("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .expect("serializable Market transaction")
+            < native_issue_body
+                .find("load_strategy_input_joined_cut_custody_v1")
+                .expect("joined-cut custody read")
+    );
+    assert!(
+        native_issue_body
+            .find("load_strategy_input_joined_cut_custody_v1")
+            .expect("joined-cut custody read")
+            < native_issue_body
+                .find("validate_replay_first_corpus_claim_v1")
+                .expect("exact six-role corpus validation")
+    );
+    assert!(
+        native_issue_body
+            .find("validate_replay_first_corpus_claim_v1")
+            .expect("exact six-role corpus validation")
+            < native_issue_body
+                .find("persist_strategy_input_sample_projection_in_transaction_v4")
+                .expect("same-transaction V4 write")
+    );
+    assert!(
+        native_issue_body
+            .find("persist_strategy_input_sample_projection_in_transaction_v4")
+            .expect("same-transaction V4 write")
+            < native_issue_body
+                .find("transaction\n            .commit()")
+                .expect("Market transaction commit")
+    );
+    assert!(!native_issue_body.contains("commit_strategy_input_sample_projection_v4"));
     assert!(
         issue_body
             .find("lock_composer_cut_v1(")
@@ -778,7 +817,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         replay_market_facts_v2::{
             AuthenticatedComposerNativeJoinV1, ReplayCompositionContentLocatorV1,
             ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
-            ReplayCompositionRequestLocatorV1,
+            ReplayCompositionRequestLocatorV1, UntrustedComposerNativeJoinRequestV1,
             composition::ReplayCompositionBindingIssuanceRequestV1,
         },
         sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4,
@@ -808,6 +847,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .await;
     let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
     let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
+    let owner = Arc::new(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .unwrap(),
+    );
     let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
     let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
         source_binding: &base.source_readback,
@@ -888,13 +932,28 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         joined.projection.subject_identity(),
         *joined_receipt_digest.as_bytes()
     );
-    let native_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
-        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
-            joined.projection.receipt_digest(),
-        ),
-        joined_digest,
-        joined_receipt_digest,
-        BindingDigest::from_untrusted_bytes(joined.projection.schedule_dependency_set_digest()),
+    let native_capability = owner
+        .issue_composer_native_join_v1(&UntrustedComposerNativeJoinRequestV1 {
+            joined_cut_identity: joined.joined.record().identity(),
+            joined_cut_digest: joined_digest,
+            frame_projection_digests: joined.frame_projection_digests,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        native_capability.locator().receipt_digest(),
+        joined.projection.receipt_digest()
+    );
+    assert_eq!(native_capability.joined_cut_digest(), joined_digest);
+    assert_eq!(
+        native_capability.joined_cut_receipt_digest(),
+        joined_receipt_digest
+    );
+    assert_eq!(
+        native_capability
+            .schedule_dependency_set_digest()
+            .as_bytes(),
+        &joined.projection.schedule_dependency_set_digest()
     );
     let native_join = StrategyDesignNativeJoinReceiptV1::from_market_owner(
         composer_locator.clone(),
@@ -1116,12 +1175,6 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
                 command.composition().corporate_action_locator(),
             )
         };
-    let owner = Arc::new(
-        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
-            .await
-            .unwrap(),
-    );
-
     let before = replay_positive_state(admin).await;
     let mut cross_splice_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
@@ -1144,9 +1197,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .await
         .unwrap();
     cross_splice_tx.commit().await.unwrap();
-    let cross_splice_projection_digest = BindingDigest::from_untrusted_bytes(
-        joined.cross_splice_projection.receipt_digest(),
-    );
+    let cross_splice_projection_digest =
+        BindingDigest::from_untrusted_bytes(joined.cross_splice_projection.receipt_digest());
     let cross_splice = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
         d(254),
         composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(

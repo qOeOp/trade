@@ -99,7 +99,6 @@ impl AuthenticatedComposerNativeJoinV1 {
         self.schedule_dependency_set_digest
     }
 
-    #[cfg(test)]
     pub(in crate::owner) const fn from_owner_readback(
         locator: UntrustedStrategyInputSampleProjectionLocatorV4,
         joined_cut_digest: BindingDigest,

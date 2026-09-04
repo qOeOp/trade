@@ -59,6 +59,15 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(!source.contains("JSONB"));
     assert!(!source.contains("serde_json"));
     assert!(source.contains("current Owner evidence is unavailable for public durable RESOLVE"));
+    assert!(source.contains("pub(crate) async fn run_with_native_join"));
+    assert!(source.contains("pub(crate) async fn resolve_with_native_join"));
+    assert!(source.contains("StrategyDesignNativeJoinReceiptV1::from_market_owner"));
+    assert!(source.contains(
+        "FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)"
+    ));
+    assert!(
+        !source.contains("FROM composer_private.rd_develop_strategy_design_native_joins_v1 WHERE")
+    );
     assert!(source.contains("pub trait DevelopComposerSealedReadPortV2"));
     let transactional_read = source
         .split("pub(crate) async fn read_accepted_in_transaction")
@@ -172,6 +181,14 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
             < source
                 .find("build_positive_record_from_preflight_v2(")
                 .expect("A0 call after preflight")
+    );
+    assert!(
+        runtime_write
+            .find("StrategyDesignNativeJoinReceiptV1::from_market_owner")
+            .expect("Market capability sealed into Composer identity")
+            < runtime_write
+                .find("native_join_receipt.as_ref()")
+                .expect("native join persisted with the positive operation")
     );
 
     for table in [
