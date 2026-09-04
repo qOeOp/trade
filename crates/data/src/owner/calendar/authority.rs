@@ -79,6 +79,7 @@ pub(crate) fn prepare_calendar_cut_v1(
     }
 
     let mut by_day = BTreeMap::new();
+
     for proposal in proposals {
         if proposal.day < request.first_day() || proposal.day >= request.last_day_exclusive() {
             return Err(CalendarErrorV1::CoverageGap);
@@ -88,6 +89,7 @@ pub(crate) fn prepare_calendar_cut_v1(
             return Err(CalendarErrorV1::CoverageGap);
         }
     }
+
     for (offset, day) in (request.first_day()..request.last_day_exclusive()).enumerate() {
         if !by_day.contains_key(&day) || offset >= codec::MAX_DAYS {
             return Err(CalendarErrorV1::CoverageGap);
@@ -132,6 +134,7 @@ fn build_fact(
 ) -> Result<CalendarFactV1, CalendarErrorV1> {
     let claim = proposal.coordinates.claim();
     let predecessor = claim.predecessor_identity;
+
     if !codec::nonzero(proposal.lineage_root)
         || proposal.correction_sequence == 0
         || (!codec::nonzero(proposal.r0_coordinate_identity))
@@ -156,6 +159,7 @@ fn build_fact(
     let day_end = day_start
         .checked_add(DAY_NS)
         .ok_or(CalendarErrorV1::InvalidFact)?;
+
     if claim.time.effective_from_ns >= day_end
         || claim
             .time
@@ -277,6 +281,7 @@ pub fn verify_calendar_readback_v1(readback: &CalendarReadbackV1) -> Result<(), 
         .and_then(|value| usize::try_from(value).ok())
         .filter(|value| *value > 0 && *value <= codec::MAX_DAYS)
         .ok_or(CalendarErrorV1::CoverageGap)?;
+
     if readback.facts.is_empty()
         || readback.facts.len() != expected_count
         || !readback.cut.gaps.is_empty()
@@ -297,6 +302,7 @@ pub fn verify_calendar_readback_v1(readback: &CalendarReadbackV1) -> Result<(), 
         return Err(CalendarErrorV1::DigestMismatch);
     }
     let mut days = BTreeSet::new();
+
     for (offset, (fact, (day, identity, digest))) in readback
         .facts
         .iter()
@@ -308,6 +314,7 @@ pub fn verify_calendar_readback_v1(readback: &CalendarReadbackV1) -> Result<(), 
             .first_day
             .checked_add(i32::try_from(offset).map_err(|_| CalendarErrorV1::CapacityExceeded)?)
             .ok_or(CalendarErrorV1::CapacityExceeded)?;
+
         if fact.day != *day
             || *day != expected_day
             || fact.identity != *identity
@@ -320,6 +327,7 @@ pub fn verify_calendar_readback_v1(readback: &CalendarReadbackV1) -> Result<(), 
             return Err(CalendarErrorV1::DigestMismatch);
         }
     }
+
     if days.len() != readback.facts.len() || readback.facts.len() != readback.cut.days.len() {
         return Err(CalendarErrorV1::CoverageGap);
     }
@@ -501,6 +509,7 @@ pub(crate) fn decode_fact(
         identity,
     };
     d.finish()?;
+
     if codec::digest(codec::FACT_DOMAIN, bytes) != identity || encode_fact(&fact)?.as_ref() != bytes
     {
         return Err(CalendarErrorV1::DigestMismatch);
@@ -557,6 +566,7 @@ pub(crate) fn decode_cut(
         canonical_bytes: bytes.into(),
         identity,
     };
+
     if codec::digest(codec::CUT_DOMAIN, bytes) != identity || encode_cut(&cut)?.as_ref() != bytes {
         return Err(CalendarErrorV1::DigestMismatch);
     }
@@ -620,11 +630,13 @@ fn verify_cut(
     {
         return Err(CalendarErrorV1::CoverageGap);
     }
+
     for (offset, ((day, identity, digest), fact)) in cut.days.iter().zip(facts).enumerate() {
         let expected_day = request
             .first_day()
             .checked_add(i32::try_from(offset).map_err(|_| CalendarErrorV1::CapacityExceeded)?)
             .ok_or(CalendarErrorV1::CapacityExceeded)?;
+
         if *day != expected_day
             || fact.day != expected_day
             || *identity != fact.identity

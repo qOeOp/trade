@@ -1417,6 +1417,7 @@ async fn database_fingerprint(pool: &PgPool) -> Result<ComposerDatabaseFingerpri
     let mut transaction = pool.begin().await?;
     let (fingerprint, is_primary) = transaction_database_fingerprint(&mut transaction).await?;
     transaction.rollback().await?;
+
     if is_primary {
         Ok(fingerprint)
     } else {
@@ -1510,6 +1511,7 @@ async fn verify_same_live_primary(
             .await?;
     mutation_transaction.rollback().await?;
     read_transaction.rollback().await?;
+
     if mutation_acquired {
         Err(sqlx::Error::Protocol(
             "Composer read and mutation connections do not share one lock manager".to_owned(),
@@ -1848,6 +1850,7 @@ impl PostgresDevelopComposerStoreV2 {
             }
             return Err(e);
         }
+
         match transaction.commit().await {
             Ok(()) => Ok(response),
             Err(_) => Ok(DevelopComposerOperationResponseV2::submitted_or_unknown(

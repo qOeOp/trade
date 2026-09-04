@@ -145,6 +145,7 @@ impl ObservationCensusWriteEnvelopeV1 {
         {
             return Err(ObservationCensusErrorV1::DigestMismatch);
         }
+
         for (stored, decoded) in self.dependencies.iter().zip(decoded.record().entries()) {
             if stored.entry_identity != decoded.identity()
                 || stored.input_role_identity != decoded.input_role_identity()
@@ -187,6 +188,7 @@ pub(super) async fn commit_observation_census_and_joined_cut_v1(
         .execute(&mut **transaction)
         .await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+
     if let Some(row) = sqlx::query("SELECT request_meaning_digest,request_bytes,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest,outbox_identity FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1 FOR UPDATE")
         .bind(envelope.request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
@@ -203,6 +205,7 @@ pub(super) async fn commit_observation_census_and_joined_cut_v1(
             && row_bytes(&row, "joined_cut_custody_bytes")? == envelope.joined_cut_custody_bytes.as_ref()
             && row_bytes(&row, "v1_joined_cut_receipt_digest")? == envelope.v1_joined_cut_receipt_digest.as_bytes()
             && row_bytes(&row, "outbox_identity")? == envelope.outbox_identity.as_bytes();
+
         if !exact {
             return Err(ObservationCensusErrorV1::RequestConflict);
         }
@@ -376,11 +379,13 @@ pub(super) async fn load_observation_census_v1(
     }
     let request =
         authority::decode_observation_census_request_v1(row_bytes(&row, "request_bytes")?)?;
+
     if request.locator() != *locator {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
     let readback =
         authority::decode_observation_census_storage_v1(row_bytes(&row, "census_bytes")?)?;
+
     if readback.record().request_identity() != locator.request_identity()
         || readback.record().request_meaning_digest() != locator.request_meaning_digest()
     {
@@ -407,6 +412,7 @@ pub(super) async fn load_observation_census_v1(
         .bind(locator.request_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
         .ok_or(ObservationCensusErrorV1::CommitInterrupted)?;
+
     if row_bytes(&outbox, "payload_digest")? != readback.record().identity().as_bytes()
         || row_bytes(&outbox, "payload")? != row_bytes(&row, "census_bytes")?
     {
@@ -430,6 +436,7 @@ pub(super) async fn load_observation_census_request_v1(
     }
     let request =
         authority::decode_observation_census_request_v1(row_bytes(&row, "request_bytes")?)?;
+
     if request.locator() != *locator {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
@@ -487,6 +494,7 @@ async fn verify_dependencies(
     if rows.len() != expected.len() {
         return Err(ObservationCensusErrorV1::CommitInterrupted);
     }
+
     for (ordinal, (row, entry)) in rows.iter().zip(expected).enumerate() {
         let ordinal =
             i64::try_from(ordinal).map_err(|_| ObservationCensusErrorV1::CapacityExceeded)?;
@@ -533,6 +541,7 @@ async fn verify_outbox(
         .bind(envelope.request_identity.as_bytes().as_slice()).fetch_optional(&mut **transaction).await
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
         .ok_or(ObservationCensusErrorV1::CommitInterrupted)?;
+
     if row_bytes(&row, "outbox_identity")? != envelope.outbox_identity.as_bytes()
         || row_bytes(&row, "payload_digest")? != envelope.census_identity.as_bytes()
         || row_bytes(&row, "payload")? != envelope.census_bytes.as_ref()
@@ -598,6 +607,7 @@ mod tests {
     fn schema_keeps_records_dependencies_outbox_and_state_write_once() {
         assert_eq!(OBSERVATION_CENSUS_SCHEMA_V1.len(), 8);
         let schema = OBSERVATION_CENSUS_SCHEMA_V1.join("\n");
+
         for table in [
             "observation_census_records_v1",
             "observation_census_dependencies_v1",

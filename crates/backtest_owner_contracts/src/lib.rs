@@ -566,6 +566,7 @@ impl ReplayResultDtoV2 {
                 actual: self.schema_version,
             });
         }
+
         if self.namespace != self.replay_authority.namespace() {
             return Err(ReplayContractErrorV2::ResultNamespaceMismatch);
         }
@@ -585,6 +586,7 @@ impl ReplayResultDtoV2 {
                 .strip_prefix("blake3:")
                 .ok_or(ReplayContractErrorV2::ResultDigestMismatch)?
         );
+
         if self.result_identity.as_str() != expected_identity {
             return Err(ReplayContractErrorV2::ResultIdentityMismatch);
         }
@@ -619,11 +621,13 @@ impl ReplayResultDtoV2 {
         {
             return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
         }
+
         if self.namespace != request.namespace()
             || self.replay_authority != request.as_dto().replay_authority
         {
             return Err(ReplayContractErrorV2::ResultNamespaceMismatch);
         }
+
         for (atom, (component, identity, digest)) in self
             .reconciliation
             .iter()
@@ -643,6 +647,7 @@ impl ReplayResultDtoV2 {
         if self.reconciliation.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
             return Err(ReplayContractErrorV2::IncompleteResultReconciliation);
         }
+
         for (atom, expected_component) in self
             .reconciliation
             .iter()
@@ -656,6 +661,7 @@ impl ReplayResultDtoV2 {
                 atom.observed_meaning_digest.as_ref(),
                 atom.observation_locator.as_ref(),
             );
+
             match (atom.status, observed) {
                 (ReconciliationStatusV2::Missing, (None, None, None)) => {}
                 (ReconciliationStatusV2::Exact, (Some(identity), Some(digest), Some(locator)))
@@ -710,14 +716,17 @@ impl ReplayResultDtoV2 {
         let Some(trace) = &self.semantic_trace else {
             return Ok(());
         };
+
         if trace.request_identity != self.request_identity
             || trace.request_meaning_digest != self.request_meaning_digest
         {
             return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
         }
+
         if trace.attempt_identity != self.attempt_identity {
             return Err(ReplayContractErrorV2::ResultAttemptBindingMismatch);
         }
+
         if trace.component != ObservationComponentV2::SemanticTrace
             || trace.locator.component != ObservationComponentV2::SemanticTrace
         {
@@ -734,19 +743,23 @@ impl ReplayResultDtoV2 {
                 Err(ReplayContractErrorV2::NonTerminalDiagnosticCensus)
             };
         }
+
         if self.diagnostic_census.is_empty() {
             return Err(ReplayContractErrorV2::EmptyDiagnosticCensus);
         }
         let mut previous = None;
+
         for diagnostic in &self.diagnostic_census {
             if diagnostic.request_identity != self.request_identity
                 || diagnostic.request_meaning_digest != self.request_meaning_digest
             {
                 return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
             }
+
             if diagnostic.attempt_identity != self.attempt_identity {
                 return Err(ReplayContractErrorV2::ResultAttemptBindingMismatch);
             }
+
             if previous.is_some_and(|category| category >= diagnostic.category) {
                 return Err(ReplayContractErrorV2::NonCanonicalDiagnosticCensus);
             }
@@ -758,6 +771,7 @@ impl ReplayResultDtoV2 {
                 DiagnosticCategoryV2::NoExecutionDefect | DiagnosticCategoryV2::UnresolvedFailure
             )
         });
+
         if singleton_only && self.diagnostic_census.len() != 1 {
             return Err(ReplayContractErrorV2::IncompatibleDiagnosticCensus);
         }

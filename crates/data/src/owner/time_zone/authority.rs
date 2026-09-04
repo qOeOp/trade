@@ -11,9 +11,11 @@ pub(crate) fn prepare_resolution_v1(
     r0_cut_digest: TimeZoneIdentity,
 ) -> Result<PreparedTimeZoneResolutionV1, TimeZoneErrorV1> {
     validate_request(&request)?;
+
     if proposals.is_empty() || proposals.len() > codec::MAX_FACTS {
         return Err(TimeZoneErrorV1::IncompleteCoverage);
     }
+
     for proposal in &proposals {
         let claim = proposal.dependencies.coordinates().claim();
         if claim.stable_correlation != request.stable_correlation
@@ -52,6 +54,7 @@ pub(crate) fn prepare_resolution_v1(
             .map_err(|_| TimeZoneErrorV1::CapacityExceeded)?
             .to_be_bytes(),
     );
+
     for fact in &facts {
         codec::identity(&mut bytes, fact.identity())?;
         codec::identity(
@@ -115,6 +118,7 @@ pub(crate) fn issue_fact_v1(
             bytes.extend_from_slice(&value.to_be_bytes());
         }
     }
+
     for value in [
         claim.time.provider_available_ns,
         claim.time.retrieval_ns,
@@ -236,6 +240,7 @@ fn build_readback(
             .map_err(|_| TimeZoneErrorV1::CapacityExceeded)?
             .to_be_bytes(),
     );
+
     for (fact, expected) in facts.iter().zip(cut.fact_identities()) {
         if fact.identity() != *expected
             || codec::digest(codec::FACT_DOMAIN, fact.canonical_bytes()) != fact.identity()
@@ -351,6 +356,7 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
     let _source_frontier_digest = decoder.identity()?;
     let _correction_frontier_digest = decoder.identity()?;
     decoder.finish()?;
+
     if tail_lineage_root != lineage_root
         || lineage_version != correction_sequence
         || provider_available_ns <= 0
@@ -410,6 +416,7 @@ pub(crate) fn decode_cut_v1(bytes: &[u8]) -> Result<TimeZoneCutV1, TimeZoneError
         identities.push(decoder.identity()?);
         let _ = decoder.identity()?;
     }
+
     if decoder.u32()? != 0 {
         return Err(TimeZoneErrorV1::IncompleteCoverage);
     }
@@ -482,6 +489,7 @@ fn validate_fact_graph(
     {
         return Err(TimeZoneErrorV1::IncompleteCoverage);
     }
+
     for fact in facts {
         if fact.time_zone_identity() != request.time_zone_identity.as_ref()
             || fact.ruleset_identity() != request.ruleset_identity
@@ -491,6 +499,7 @@ fn validate_fact_graph(
             return Err(TimeZoneErrorV1::InvalidDependency);
         }
     }
+
     for pair in facts.windows(2) {
         let left = &pair[0];
         let right = &pair[1];

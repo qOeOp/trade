@@ -5,6 +5,8 @@
     reason = "positive Replay/Backtest composition is intentionally not installed"
 )]
 
+use std::fmt::Debug;
+
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
@@ -63,6 +65,7 @@ pub(super) async fn resolve_corporate_action_in_transaction_v1(
         }
         return Ok(readback);
     }
+
     for fact in &facts {
         advisory_lock(transaction, fact.action_identity()).await?;
         let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT f.fact_bytes FROM market_data_private.corporate_action_heads_v1 h JOIN market_data_private.corporate_action_facts_v1 f ON f.fact_identity=h.fact_identity WHERE h.action_identity=$1 FOR UPDATE OF h,f").bind(fact.action_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
@@ -70,6 +73,7 @@ pub(super) async fn resolve_corporate_action_in_transaction_v1(
             .as_deref()
             .map(crate::owner::corporate_action::codec::decode_fact)
             .transpose()?;
+
         if predecessor
             .as_ref()
             .is_some_and(|prior| prior.identity() == fact.identity())
@@ -188,6 +192,7 @@ async fn load_readback(
                 && u64::try_from(sequence)
                     .is_ok_and(|value| value >= readback.receipt().append_sequence)
         });
+
     if !exact {
         return Err(CorporateActionErrorV1::StoreUntrusted);
     }
@@ -214,7 +219,7 @@ fn store_generation(database: &str) -> CorporateActionIdentity {
     h.update(database.as_bytes());
     CorporateActionIdentity::from_untrusted_bytes(*h.finalize().as_bytes())
 }
-fn store_error(_: impl std::fmt::Debug) -> CorporateActionErrorV1 {
+fn store_error(_: impl Debug) -> CorporateActionErrorV1 {
     CorporateActionErrorV1::StoreUnavailable
 }
 
@@ -225,6 +230,7 @@ mod tests {
     #[rstest]
     fn schema_is_private_write_once_complete_and_outbox_equals_receipt() {
         let schema = CORPORATE_ACTION_SCHEMA_V1.join("\n");
+
         for name in [
             "corporate_action_facts_v1",
             "corporate_action_heads_v1",

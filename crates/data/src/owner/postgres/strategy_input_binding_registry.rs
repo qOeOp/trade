@@ -171,6 +171,7 @@ async fn register_strategy_input_binding_declaration_unchecked_v1(
         request.input_role_identity,
     )
     .await?;
+
     if let Some(stored) = stored {
         let decoded = verify_stored(
             request.pit_request_identity,
@@ -180,11 +181,13 @@ async fn register_strategy_input_binding_declaration_unchecked_v1(
             stored.request_meaning_digest,
             stored.owner_binding_digest,
         )?;
+
         if stored.request_bytes != request_bytes
             || stored.request_meaning_digest != request_meaning_digest
         {
             return Err(StrategyInputBindingRegistryErrorV1::RequestConflict);
         }
+
         if decoded != *request || stored.owner_binding_digest != binding.digest() {
             return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
         }
@@ -380,6 +383,7 @@ async fn validate_native_instrument_master(
     let UntrustedStrategyInputScope::ExactInstrument { instrument } = &request.scope else {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
     };
+
     if request.instrument_master_digest != batch.instrument_master_digest() {
         return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
     }
@@ -402,6 +406,7 @@ async fn validate_native_instrument_master(
     };
     let exact_member = readback.cut().expected_members() == std::slice::from_ref(instrument);
     let effective = i128::from(batch.time_evidence().event_effective.value);
+
     if readback.digest() != request.instrument_master_digest
         || !native_instrument_cut_matches(
             readback.cut().decision_cut,
@@ -562,6 +567,7 @@ async fn resolve_native_universe(
     let outbox_receipt_bytes = row_bytes(&row, "outbox_receipt_bytes")?;
     let readback = decode_readback_v1(record_bytes, receipt_bytes, outbox_identity)
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
+
     if native_selection != selection_identity
         || readback.record().identity() != selection_identity
         || readback.record().request_identity() != request_identity
@@ -585,6 +591,7 @@ fn validate_universe_dependency(
     {
         return Err(StrategyInputBindingRegistryErrorV1::UniverseUnavailable);
     }
+
     if let UntrustedStrategyInputScope::ExactInstrument { instrument } = &request.scope {
         let exact_members = universe
             .record()
@@ -592,6 +599,7 @@ fn validate_universe_dependency(
             .iter()
             .filter(|member| member.included() && member.instrument() == instrument.as_bytes())
             .count();
+
         if exact_members != 1 {
             return Err(StrategyInputBindingRegistryErrorV1::UniverseUnavailable);
         }
@@ -642,6 +650,7 @@ fn verify_stored(
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
     let meaning = codec::meaning_digest_v1(request_bytes)
         .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
+
     if request.pit_request_identity != pit_request_identity
         || request.strategy_design_identity != strategy_design_identity
         || request.input_role_identity != input_role_identity
@@ -866,6 +875,7 @@ mod tests {
             d(16),
             d(17)
         ));
+
         for spliced in [
             (d(18), d(16), d(17)),
             (d(12), d(18), d(17)),

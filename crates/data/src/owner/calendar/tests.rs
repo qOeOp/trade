@@ -416,6 +416,7 @@ fn request_digest_covers_every_meaning_field_and_range_is_bounded() {
             d(21),
         ),
     ];
+
     for mutation in mutations {
         assert_ne!(mutation.request_meaning_digest(), expected);
     }

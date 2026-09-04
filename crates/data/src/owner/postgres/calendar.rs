@@ -91,6 +91,7 @@ pub(super) async fn register_calendar_v1(
     .fetch_optional(&mut **transaction)
     .await
     .map_err(store_error)?;
+
     if updated != Some(to_i64(append_sequence)?) {
         return Err(CalendarErrorV1::StoreUntrusted);
     }
@@ -128,6 +129,7 @@ async fn validate_fact_heads_and_rows(
         }
         let head = sqlx::query("SELECT lineage_root,head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2 FOR UPDATE")
             .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+
         match (
             head,
             fact.predecessor_identity(),
@@ -138,6 +140,7 @@ async fn validate_fact_heads_and_rows(
                 let lineage = row_digest(&row, "lineage_root")?;
                 let head_identity = row_digest(&row, "head_identity")?;
                 let head_sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
+
                 if lineage != fact.lineage_root()
                     || head_identity != predecessor
                     || u64::try_from(head_sequence)
@@ -155,6 +158,7 @@ async fn validate_fact_heads_and_rows(
                     .map_err(store_error)?;
                 let predecessor_day: i32 =
                     predecessor_row.try_get("civil_day").map_err(store_error)?;
+
                 if predecessor_calendar != fact.calendar_identity()
                     || predecessor_day != fact.day()
                     || row_digest(&predecessor_row, "lineage_root")? != fact.lineage_root()
@@ -175,11 +179,13 @@ async fn validate_stored_lineage(
 ) -> Result<(), CalendarErrorV1> {
     let rows = sqlx::query("SELECT fact_identity,calendar_identity,civil_day,correction_sequence,predecessor_identity,fact_bytes FROM market_data_private.calendar_facts_v1 WHERE lineage_root=$1 ORDER BY correction_sequence")
         .bind(selected.lineage_root().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+
     if rows.is_empty() {
         return Err(CalendarErrorV1::StoreUntrusted);
     }
     let mut prior = None;
     let mut selected_is_maximal = false;
+
     for (index, row) in rows.iter().enumerate() {
         let identity = row_digest(row, "fact_identity")?;
         let calendar: Vec<u8> = row.try_get("calendar_identity").map_err(store_error)?;
@@ -195,6 +201,7 @@ async fn validate_stored_lineage(
                     .map_err(|_| CalendarErrorV1::StoreUntrusted)
             })
             .transpose()?;
+
         if calendar != selected.calendar_identity()
             || day != selected.day()
             || u64::try_from(sequence).ok()
@@ -233,6 +240,7 @@ async fn persist_facts_and_heads(
             .bind(fact.lineage_root().as_bytes().as_slice()).bind(to_i64(fact.correction_sequence())?)
             .bind(fact.predecessor_identity().map(|value| value.as_bytes().to_vec())).bind(fact.canonical_bytes())
             .execute(&mut **transaction).await.map_err(store_error)?;
+
         if inserted.rows_affected() == 0 {
             continue;
         }
@@ -253,6 +261,7 @@ async fn persist_aggregate(
         .bind(readback.cut.identity().as_bytes().as_slice()).bind(readback.cut.canonical_bytes())
         .bind(readback.identity().as_bytes().as_slice()).bind(readback.canonical_bytes())
         .execute(&mut **transaction).await.map_err(store_error)?;
+
     for (day, identity, digest) in &readback.cut.days {
         sqlx::query("INSERT INTO market_data_private.calendar_cut_days_v1(request_identity,civil_day,fact_identity,fact_digest) VALUES($1,$2,$3,$4)")
             .bind(readback.cut.request_identity.as_bytes().as_slice()).bind(*day).bind(identity.as_bytes().as_slice()).bind(digest.as_bytes().as_slice())
@@ -324,6 +333,7 @@ async fn verify_day_rows(
     if rows.len() != readback.cut.days.len() {
         return Err(CalendarErrorV1::StoreUntrusted);
     }
+
     for ((row, expected), fact) in rows
         .iter()
         .zip(readback.cut.days.iter())
@@ -356,6 +366,7 @@ async fn state_for_update(
         .fetch_one(&mut **transaction).await.map_err(store_error)?;
     let stored = row_digest(&row, "store_generation_identity")?;
     let sequence: i64 = row.try_get("append_sequence").map_err(store_error)?;
+
     if stored != generation {
         return Err(CalendarErrorV1::StoreUntrusted);
     }

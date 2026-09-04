@@ -371,6 +371,7 @@ async fn issue_replay_composition(
         let Some(replay_composition) = &state.replay_composition else {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         };
+
         match replay_composition.issue_binding_v1(&command).await {
             Ok(response) => (
                 StatusCode::OK,
@@ -405,6 +406,7 @@ async fn resolve_replay_composition(
         let Some(replay_composition) = &state.replay_composition else {
             return StatusCode::SERVICE_UNAVAILABLE.into_response();
         };
+
         match replay_composition.recover_issuance_v1(locator).await {
             Ok(response) => (
                 StatusCode::OK,

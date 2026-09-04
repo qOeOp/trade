@@ -304,6 +304,7 @@ pub(crate) fn decode_and_verify_readback_v1(
     let receipt = decode_receipt(&receipt_bytes)?;
     let outbox_identity = d.identity()?;
     d.done()?;
+
     if record_identity != record.identity
         || cut_identity != cut.identity
         || receipt_identity != receipt.identity
@@ -350,6 +351,7 @@ fn validate(
         evidence.clock_head_digest,
         evidence.restart_continuity_digest,
     ];
+
     if !identities.into_iter().all(nonzero)
         || request.request_meaning_digest != request_meaning_digest_v1(request)?
         || request.pit_locator_bytes.is_empty()
@@ -587,6 +589,7 @@ fn encode_cut(v: &ReferenceFactR0CutV1) -> Result<Box<[u8]>, ReferenceFactR0Erro
 fn encode_receipt(v: &ReferenceFactR0ReceiptV1) -> Result<Box<[u8]>, ReferenceFactR0ErrorV1> {
     let mut e = Encoder::default();
     e.header();
+
     for x in [
         v.request_identity,
         v.request_meaning_digest,
@@ -763,6 +766,7 @@ fn decode_record(bytes: &[u8]) -> Result<ReferenceFactR0RecordV1, ReferenceFactR
         identity: digest(RECORD_DOMAIN, bytes),
     };
     d.done()?;
+
     if !validate_record(&v) {
         return Err(ReferenceFactR0ErrorV1::CodecMismatch);
     }
@@ -839,6 +843,7 @@ fn decode_cut(bytes: &[u8]) -> Result<ReferenceFactR0CutV1, ReferenceFactR0Error
         canonical_bytes: bytes.into(),
         identity: digest(CUT_DOMAIN, bytes),
     };
+
     if d.u32()? != 0 || v.record_identity != v.record_digest {
         return Err(ReferenceFactR0ErrorV1::CodecMismatch);
     }
@@ -860,6 +865,7 @@ fn decode_receipt(bytes: &[u8]) -> Result<ReferenceFactR0ReceiptV1, ReferenceFac
         identity: digest(RECEIPT_DOMAIN, bytes),
     };
     d.done()?;
+
     if v.cut_identity != v.cut_digest || v.append_sequence == 0 {
         return Err(ReferenceFactR0ErrorV1::CodecMismatch);
     }
@@ -957,6 +963,7 @@ mod tests {
     #[rstest]
     fn request_meaning_binds_every_repeated_scalar() {
         let request = request();
+
         for changed in [
             {
                 let mut value = request.clone();

@@ -1195,6 +1195,7 @@ mod tests {
         let marker = mutation.marker_identity().to_string();
         let fault_application_name = "vibe-backtest-result-fence-v1";
         let observer_pool = admin_pool.clone();
+
         let fault = tokio::spawn(async move {
             sqlx::query("SELECT vibe_test_admin.inject_backtest_result_acl_with_fence_v1($1)")
                 .bind(marker)

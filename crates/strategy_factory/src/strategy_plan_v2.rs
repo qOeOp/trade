@@ -725,6 +725,7 @@ pub(crate) fn project_strategy_design_role_set_v1(
 ) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
     let plan = durable_decode_plan(plan_bytes)
         .map_err(|_| StrategyDesignRoleSetErrorV1::InvalidProjection)?;
+
     if plan.durable_bytes() != plan_bytes
         || plan.canonical_design_durable_bytes() != canonical_design_bytes
         || plan.canonical_plan_digest() != locator.canonical_plan_digest

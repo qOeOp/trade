@@ -5,6 +5,8 @@
     reason = "positive Registry composition is intentionally not installed"
 )]
 
+use std::fmt::Debug;
+
 use sqlx::{Postgres, Row, Transaction};
 
 use crate::owner::{
@@ -146,6 +148,7 @@ async fn append_market_semantics_in_transaction_v1(
         .as_deref()
         .map(crate::owner::market_semantics::codec::decode_fact)
         .transpose()?;
+
     if predecessor
         .as_ref()
         .is_some_and(|prior| prior.identity() == fact.identity())
@@ -207,6 +210,7 @@ pub(super) async fn resolve_market_semantics_scope_in_transaction_v1(
         crate::owner::market_semantics::MarketSemanticsFactV1,
         BindingDigest,
     )> = None;
+
     for row in rows {
         let fact_bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
         let fact = crate::owner::market_semantics::codec::decode_fact(&fact_bytes)?;
@@ -221,12 +225,14 @@ pub(super) async fn resolve_market_semantics_scope_in_transaction_v1(
             continue;
         }
         let request_identity = row_digest(&row, "request_identity")?;
+
         if let Some((prior, _)) = &selected {
             let prior_key = (prior.owner_observation_ns, prior.correction_publication_ns);
             let next_key = (fact.owner_observation_ns, fact.correction_publication_ns);
             if next_key == prior_key && fact.identity() != prior.identity() {
                 return Err(MarketSemanticsErrorV1::InvalidOverlap);
             }
+
             if next_key <= prior_key {
                 continue;
             }
@@ -240,6 +246,7 @@ pub(super) async fn resolve_market_semantics_scope_in_transaction_v1(
     let [resolved] = readback.facts() else {
         return Err(MarketSemanticsErrorV1::StoreUntrusted);
     };
+
     if resolved.identity() != fact.identity()
         || resolved.canonical_bytes() != fact.canonical_bytes()
     {
@@ -333,6 +340,7 @@ async fn load_readback(
                 && u64::try_from(sequence)
                     .is_ok_and(|current| current >= readback.receipt().append_sequence)
         });
+
     if !exact {
         return Err(MarketSemanticsErrorV1::StoreUntrusted);
     }
@@ -345,6 +353,7 @@ async fn reject_ambiguous_overlap(
 ) -> Result<(), MarketSemanticsErrorV1> {
     let rows: Vec<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.market_semantics_facts_v1 WHERE compatibility_scope_identity=$1 FOR SHARE")
         .bind(fact.compatibility_scope_identity().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
+
     for bytes in rows {
         let prior = crate::owner::market_semantics::codec::decode_fact(&bytes)?;
         if prior.identity() == fact.identity()
@@ -356,6 +365,7 @@ async fn reject_ambiguous_overlap(
         }
         let overlaps = fact.effective_from_ns < prior.effective_until_ns.unwrap_or(i128::MAX)
             && prior.effective_from_ns < fact.effective_until_ns.unwrap_or(i128::MAX);
+
         if overlaps {
             return Err(MarketSemanticsErrorV1::InvalidOverlap);
         }
@@ -409,6 +419,7 @@ async fn load_registry_entry(
         entry.value(),
         entry.correction_identity(),
     )?;
+
     if row_bytes(row, "registry_key_identity")? != key.identity().as_bytes()
         || row_bytes(row, "registry_key_bytes")? != key.canonical_bytes()
         || row_bytes(row, "record_identity")? != entry.identity().as_bytes()
@@ -489,7 +500,7 @@ fn store_generation(database: &str) -> MarketSemanticsIdentity {
     MarketSemanticsIdentity::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
 
-fn store_error(_: impl std::fmt::Debug) -> MarketSemanticsErrorV1 {
+fn store_error(_: impl Debug) -> MarketSemanticsErrorV1 {
     MarketSemanticsErrorV1::StoreUnavailable
 }
 

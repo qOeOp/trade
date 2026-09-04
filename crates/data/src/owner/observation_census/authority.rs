@@ -87,6 +87,7 @@ fn encode_request_meaning_v1(
     encoder.u32(
         u32::try_from(claim.roles.len()).map_err(|_| ObservationCensusErrorV1::CapacityExceeded)?,
     );
+
     for role in &claim.roles {
         encoder.bytes(role.semantic_id.as_bytes(), codec::MAX_JOIN_TEXT_BYTES)?;
         encoder.digest(role.input_role_identity);
@@ -131,6 +132,7 @@ pub(crate) fn decode_observation_census_request_v1(
     let claimed_meaning = envelope.digest()?;
     let meaning_bytes = envelope.bytes(codec::MAX_REQUEST_BYTES)?;
     envelope.finish()?;
+
     if codec::digest(codec::REQUEST_DOMAIN, meaning_bytes) != claimed_meaning {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }
@@ -313,6 +315,7 @@ fn encode_time_evidence(
         &evidence.retrieval.clock_identity,
         &evidence.retrieval.clock_epoch,
     )?;
+
     match &evidence.correction_publication {
         Some(value) => {
             encoder.u8(1);
@@ -403,9 +406,11 @@ pub(crate) fn issue_observation_census_and_joined_cut_v1(
     ObservationCensusErrorV1,
 > {
     validate_request(request)?;
+
     if frames.is_empty() {
         return Err(ObservationCensusErrorV1::IncompleteCensus);
     }
+
     if frames.len() > codec::MAX_CENSUS_ENTRIES {
         return Err(ObservationCensusErrorV1::CapacityExceeded);
     }
@@ -430,6 +435,7 @@ pub(crate) fn issue_observation_census_and_joined_cut_v1(
             entry.event_identity,
         )
     });
+
     if entries.windows(2).any(|pair| {
         (
             pair[0].input_role_identity,
@@ -518,6 +524,7 @@ pub(crate) fn issue_observation_census_and_joined_cut_v1(
             identity: custody_identity,
         },
     };
+
     if verify_observation_census_readback_v1(&census_readback)
         && verify_strategy_input_joined_cut_readback_v1(&joined_readback)
     {
@@ -584,6 +591,7 @@ fn encode_record(record: &ObservationCensusRecordV1) -> Result<Vec<u8>, Observat
         u32::try_from(record.entries.len())
             .map_err(|_| ObservationCensusErrorV1::CapacityExceeded)?,
     );
+
     for entry in &record.entries {
         encoder.digest(entry.identity);
     }
@@ -627,6 +635,7 @@ pub(crate) fn encode_observation_census_storage_v1(
         u32::try_from(readback.record.entries.len())
             .map_err(|_| ObservationCensusErrorV1::CapacityExceeded)?,
     );
+
     for entry in &readback.record.entries {
         encoder.bytes(&entry.canonical_bytes, codec::MAX_RECORD_BYTES)?;
     }
@@ -697,6 +706,7 @@ fn decode_entry(bytes: &[u8]) -> Result<ObservationCensusEntryV1, ObservationCen
     let trigger_digest = decoder.digest()?;
     let value_digest = decoder.digest()?;
     decoder.finish()?;
+
     if !codec::nonzero(input_role_identity)
         || !codec::nonzero(trigger_digest)
         || !codec::nonzero(value_digest)
@@ -739,6 +749,7 @@ fn decode_record(
     if count != entries.len() {
         return Err(ObservationCensusErrorV1::IncompleteCensus);
     }
+
     for entry in &entries {
         if decoder.digest()? != entry.identity {
             return Err(ObservationCensusErrorV1::DigestMismatch);

@@ -126,6 +126,7 @@ pub(super) fn encode_registry_key(
 ) -> Result<Box<[u8]>, MarketSemanticsErrorV1> {
     let mut e = Encoder::default();
     e.header();
+
     for value in [
         key.compatibility_scope_identity,
         key.r0_record_identity,
@@ -313,6 +314,7 @@ pub(super) fn encode_readback(
         u32::try_from(readback.facts.len())
             .map_err(|_| MarketSemanticsErrorV1::CapacityExceeded)?,
     );
+
     for fact in &readback.facts {
         e.identity(fact.identity);
         e.bytes(&fact.canonical_bytes, MAX_FACT_BYTES)?;

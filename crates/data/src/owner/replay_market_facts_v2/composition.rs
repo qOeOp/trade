@@ -9,7 +9,7 @@
     reason = "the sealed positive composition is candidate-private until store admission wires its resolver"
 )]
 
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 
 use serde::{Deserialize, Serialize};
 
@@ -617,7 +617,7 @@ pub enum ReplayCompositionBindingErrorV1 {
 }
 
 impl Display for ReplayCompositionBindingErrorV1 {
-    fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }
@@ -757,6 +757,7 @@ pub(crate) fn decode_replay_composition_binding_v1(
         return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
     }
     let mut native_locators = Vec::with_capacity(native_count);
+
     for ordinal in 1_u16
         ..=u16::try_from(NATIVE_LOCATOR_COUNT)
             .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?
@@ -937,6 +938,7 @@ fn validate_evidence(
         ReplayCompositionNativeLocatorKindV1::InstrumentMaster,
         ReplayCompositionNativeLocatorKindV1::MarketSemantics,
     ];
+
     if evidence.native_locators.len() != NATIVE_LOCATOR_COUNT
         || evidence
             .native_locators
@@ -965,12 +967,14 @@ fn validate_evidence(
     }
     let pit = evidence.native_locators[0];
     let source = evidence.native_locators[1];
+
     if pit.identity != request.pit_locator().snapshot_identity
         || pit.digest != request.pit_locator().fact_digest
         || source.identity != request.pit_locator().source_binding_identity
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+
     if evidence
         .roles
         .windows(2)
@@ -999,6 +1003,7 @@ fn validate_evidence(
         .iter()
         .map(|role| (role.role_identity, role.binding_digest))
         .collect::<Vec<_>>();
+
     if evidence.census_roles != roles
         || evidence.joined_cut_roles != bindings
         || evidence.sample_projection_roles != bindings
@@ -1059,6 +1064,7 @@ fn validate_v2_evidence(
             ReplayCompositionNativeLocatorKindV1::UniverseSelection,
         ),
     ];
+
     for (dependency_kind, native_kind) in pairs {
         let dependency =
             find(dependency_kind).ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
@@ -1084,6 +1090,7 @@ fn validate_v2_evidence(
 fn encode_record(record: &ReplayCompositionBindingV1) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&SCHEMA_VERSION.to_be_bytes());
+
     for value in [
         record.replay_request_identity,
         record.replay_request_digest,
@@ -1119,6 +1126,7 @@ fn encode_record(record: &ReplayCompositionBindingV1) -> Vec<u8> {
             push_digest(&mut bytes, value);
         }
     }
+
     for value in [
         record.census_identity,
         record.census_digest,
