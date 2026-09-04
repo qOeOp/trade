@@ -476,7 +476,9 @@ composition is coordinated by the R&D-owned A1 across two Owner-isolated transac
 only the Composer Owner's locator-only `SECURITY DEFINER` lock/read functions, validates the complete canonical
 evidence, and holds the transaction through the Market terminal decision. The Market Data Owner then opens one
 SERIALIZABLE transaction, proves both connections share the same live primary, database, postmaster incarnation and
-advisory lock manager, and acquires the same shared Composer cut lock before any Market lock or write. The Composer
+advisory lock manager, and the fixed `market_data_owner` login principal acquires the same shared Composer cut lock
+before any Market lock or write. That principal retains raw authority only over its own `market_data_private`
+relations and receives no raw Composer or R&D access. The Composer
 writer must hold the matching exclusive lock before every mutation; therefore reader loss cannot reopen a mutation
 window while the Market transaction retains the handoff lock. Neither principal receives the other Owner's raw-table
 `SELECT` or DML, role membership, generic query surface, public positive constructor/deserializer, receipt/readback

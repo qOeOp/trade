@@ -360,13 +360,15 @@ tamper cannot replace the policy or invalidate a formed family.
 Later Replay Policy V2 composition uses one R&D-owned A1 orchestration across two explicitly bounded Owner
 transactions. A read-only `market_data_reader` transaction first acquires the exact Composer request's shared cut
 lock, locks and canonically rereads the complete Composer aggregate through Owner-owned sealed functions, validates
-it, and remains open through the Market terminal decision. Only then may one `market_data_owner` SERIALIZABLE
-transaction prove that both connections reach the same live primary, database, postmaster incarnation and advisory
+it, and remains open through the Market terminal decision. Only then may the fixed `market_data_owner` login
+principal open one SERIALIZABLE transaction, prove that both connections reach the same live primary, database,
+postmaster incarnation and advisory
 lock manager, acquire the same shared Composer cut lock as a database-level handoff, and perform every Market Data
 lock, canonical reread, validation, seal and positive write. The Composer writer uses the matching exclusive cut
 lock before every mutation, so either surviving shared lock prevents Composer drift until the Market transaction
 commits or rolls back. No Owner or A1 may read another Owner's raw tables, reconstruct sealed evidence, transfer fact
-authority, claim a shared XID or MVCC snapshot, or claim cross-Owner atomic commit. Any unavailable, stale,
+authority, receive raw access to another Owner, claim a shared XID or MVCC snapshot, or claim cross-Owner atomic
+commit. `market_data_owner` retains raw authority only over its own private Market Data relations. Any unavailable, stale,
 mismatched, cross-cut, wrong-owner or wrong-database evidence, any failed lock-manager proof, or any invalid
 family-sealed policy cross-binding fails before the first positive Market write. Binding, Replay facts, receipts,
 outbox and issuance response bytes commit atomically only inside the Market Data Owner transaction; Composer
