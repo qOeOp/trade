@@ -9691,6 +9691,7 @@ version = "0.62.0"
 dependencies = [
  "base64 0.23.1",
  "blake3",
+ "rstest",
  "serde",
  "serde_json",
  "sqlx",
