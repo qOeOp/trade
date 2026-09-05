@@ -892,6 +892,143 @@ REVOKE ALL ON FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_
   FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(text,text)
   TO vibe_test_owner_topology_admin;
+
+CREATE FUNCTION vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1(
+  expected_marker_identity text,
+  source_relation_name text
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE source_oid oid;
+DECLARE source_is_current boolean;
+DECLARE candidate_oid oid;
+DECLARE candidate_is_current boolean;
+DECLARE current_candidate_count integer := 0;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Replay fixture restore caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture restore marker mismatch' USING ERRCODE='55000';
+  END IF;
+  IF source_relation_name NOT IN (
+    'rd_exploratory_replay_request_custody_v1',
+    'rd_exploratory_replay_requests_v1'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture restore source mismatch' USING ERRCODE='22023';
+  END IF;
+
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_request_custody_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_sealed_exploratory_replay_requests_v1')
+  );
+  PERFORM pg_catalog.pg_advisory_xact_lock(
+    pg_catalog.hashtext('public.rd_exploratory_replay_requests_v1')
+  );
+
+  IF pg_catalog.to_regclass('public.rd_sealed_exploratory_replay_requests_v1') IS NOT NULL THEN
+    RAISE EXCEPTION 'Replay fixture restore canonical target exists' USING ERRCODE='42P07';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_catalog.pg_namespace namespace
+      JOIN pg_catalog.pg_roles owner ON owner.oid=namespace.nspowner
+     WHERE namespace.nspname='public'
+       AND owner.rolname='rd_database_owner'
+  ) THEN
+    RAISE EXCEPTION 'Replay fixture restore schema owner mismatch' USING ERRCODE='55000';
+  END IF;
+
+  IF source_relation_name='rd_exploratory_replay_request_custody_v1' THEN
+    source_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1');
+  ELSE
+    source_oid := pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1');
+  END IF;
+
+  FOREACH candidate_oid IN ARRAY ARRAY[
+    pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1'),
+    pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1')
+  ] LOOP
+    CONTINUE WHEN candidate_oid IS NULL;
+    SELECT relation.relkind='r'
+     AND relation.relpersistence='p'
+     AND owner.rolname='rd_owner'
+     AND (
+       SELECT pg_catalog.count(*)=19
+          AND pg_catalog.bool_and(CASE attribute.attname
+            WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'request_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'intent_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'trial_family_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'artifact_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'build_receipt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'artifact_family_binding_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'census_frontier_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'frozen_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'lifecycle_state' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+            WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+            WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+            ELSE false
+          END)
+         FROM pg_catalog.pg_attribute attribute
+        WHERE attribute.attrelid=candidate_oid
+          AND attribute.attnum>0
+          AND NOT attribute.attisdropped
+     )
+     AND EXISTS (
+       SELECT 1 FROM pg_catalog.pg_constraint constraint_entry
+        WHERE constraint_entry.conrelid=candidate_oid
+          AND constraint_entry.contype='p'
+          AND constraint_entry.conkey=ARRAY[(
+            SELECT attribute.attnum FROM pg_catalog.pg_attribute attribute
+             WHERE attribute.attrelid=candidate_oid
+               AND attribute.attname='request_identity'
+          )]::smallint[]
+     )
+    INTO candidate_is_current
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+   WHERE relation.oid=candidate_oid;
+    IF candidate_oid=source_oid THEN
+      source_is_current := candidate_is_current;
+    END IF;
+    IF candidate_is_current THEN
+      current_candidate_count := current_candidate_count + 1;
+    END IF;
+  END LOOP;
+  IF NOT COALESCE(source_is_current,false) OR current_candidate_count<>1 THEN
+    RAISE EXCEPTION 'Replay fixture restore source topology mismatch' USING ERRCODE='55000';
+  END IF;
+
+  IF source_relation_name='rd_exploratory_replay_request_custody_v1' THEN
+    ALTER TABLE public.rd_exploratory_replay_request_custody_v1
+      RENAME TO rd_sealed_exploratory_replay_requests_v1;
+  ELSE
+    ALTER TABLE public.rd_exploratory_replay_requests_v1
+      RENAME TO rd_sealed_exploratory_replay_requests_v1;
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1(text,text)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1(text,text)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1(text,text)
+  TO vibe_test_owner_topology_admin;
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \

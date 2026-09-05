@@ -114,6 +114,28 @@ async fn rename_sealed_exploratory_replay_fixture(
         .expect("sealed exploratory Replay fixture renamed");
 }
 
+async fn restore_sealed_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    source_relation_name: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(source_relation_name)
+        .execute(topology_admin_pool)
+        .await
+        .expect("sealed exploratory Replay fixture restored");
+}
+
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
 async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
@@ -327,6 +349,38 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         "rd_exploratory_replay_request_custody_v1",
     )
     .await;
+    let renamed_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed internal Replay custody oid");
+    PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
+    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed internal Replay custody oid after runtime rejection");
+    assert_eq!(source_oid_after_failed_connect, renamed_oid);
+    restore_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_request_custody_v1",
+    )
+    .await;
+    let restored_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("restored sealed Replay custody oid");
+    assert_eq!(restored_oid, renamed_oid);
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
         &fixture.rd_url,
         &fixture.qualification_url,
@@ -472,6 +526,38 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
         "rd_exploratory_replay_requests_v1",
     )
     .await;
+    let renamed_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed Origin-current Replay custody oid");
+    PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
+    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed Origin-current Replay custody oid after runtime rejection");
+    assert_eq!(source_oid_after_failed_connect, renamed_oid);
+    restore_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_requests_v1",
+    )
+    .await;
+    let restored_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("restored Origin-current Replay custody oid");
+    assert_eq!(restored_oid, renamed_oid);
     let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
         &fixture.rd_url,
         &fixture.qualification_url,
