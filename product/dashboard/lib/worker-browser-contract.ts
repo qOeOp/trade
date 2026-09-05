@@ -132,10 +132,13 @@ export function parseWorkerDetailBrowserEnvelopeV1(
 
 // Each endpoint owns its own availability, including transport and JSON failures.
 export async function readWorkerBrowserResponsesV1(
-  fetcher: (url: string, init: RequestInit) => Promise<Pick<Response, "json">>,
+  fetcher: (url: string, init: RequestInit) => Promise<Response>,
   workerIdentity: string | null,
 ) {
-  const read = async (url: string) => (await fetcher(url, { method: "GET", cache: "no-store" })).json();
+  const read = async (url: string) => {
+    const response = await fetcher(url, { method: "GET", cache: "no-store" });
+    return response.ok === true ? response.json() : null;
+  };
   const [listResponse, detailResponse] = await Promise.allSettled([
     read("/api/operations/workers/"),
     workerIdentity ? read(`/api/operations/workers/${encodeURIComponent(workerIdentity)}/`) : Promise.resolve(null),

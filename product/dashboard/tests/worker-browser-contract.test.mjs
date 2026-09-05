@@ -125,14 +125,14 @@ test("worker reads isolate unavailable, invalid, transport and JSON failures in 
         assert.deepEqual(init, { method: "GET", cache: "no-store" });
         const endpoint = url === "/api/operations/workers/" ? "list" : "detail";
         if (endpoint === failedEndpoint && failure === "reject") throw new Error("offline");
-        return { json: async () => {
-          if (endpoint !== failedEndpoint) return endpoint === "list" ? envelope() : detailEnvelope();
-          if (failure === "json-reject") throw new Error("invalid json");
-          if (failure === "invalid") return { extra: true };
-          return endpoint === "list"
+        if (endpoint === failedEndpoint && failure === "json-reject") return new Response("invalid json", { status: 200 });
+        const body = endpoint !== failedEndpoint
+          ? endpoint === "list" ? envelope() : detailEnvelope()
+          : failure === "invalid" ? { extra: true }
+          : endpoint === "list"
             ? envelope({ availability: "unavailable", unavailable_reason: "WORKER_STORE_UNAVAILABLE", workers: [] })
             : detailEnvelope({ availability: "unavailable", unavailable_reason: "WORKER_NOT_FOUND", worker: null });
-        } };
+        return new Response(JSON.stringify(body), { status: 200 });
       }, worker.worker_identity);
       assert.equal(calls.length, 2);
       assert.equal(result[failedEndpoint].availability, "unavailable");
@@ -145,6 +145,28 @@ test("worker reads isolate unavailable, invalid, transport and JSON failures in 
         assert.deepEqual(result.list.workers, [worker]);
         assert.equal(result.list.availability, "available");
       }
+    }
+  }
+});
+
+test("worker reader requires independent successful HTTP responses before admitting positive envelopes", async () => {
+  for (const listStatus of [200, 403, 503]) {
+    for (const detailStatus of [200, 403, 503]) {
+      const calls = [];
+      const result = await readWorkerBrowserResponsesV1(async (url, init) => {
+        calls.push(url);
+        assert.deepEqual(init, { method: "GET", cache: "no-store" });
+        const list = url === "/api/operations/workers/";
+        return new Response(JSON.stringify(list ? envelope() : detailEnvelope()), {
+          status: list ? listStatus : detailStatus,
+        });
+      }, worker.worker_identity);
+      assert.deepEqual(calls, ["/api/operations/workers/", `/api/operations/workers/${worker.worker_identity}/`]);
+      assert.equal(result.list.availability, listStatus === 200 ? "available" : "unavailable");
+      assert.deepEqual(result.list.workers, listStatus === 200 ? [worker] : []);
+      assert.equal(result.detail.availability, detailStatus === 200 ? "available" : "unavailable");
+      assert.deepEqual(result.detail.worker, detailStatus === 200 ? worker : null);
+      assert.equal(result.detail.requested_worker_identity, worker.worker_identity);
     }
   }
 });
