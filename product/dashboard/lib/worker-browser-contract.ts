@@ -75,6 +75,11 @@ function timestamp(value: unknown): value is string {
     && new Date(value).toISOString() === value;
 }
 
+// RunStore projects both counts through PostgreSQL COUNT(...)::int.
+function workerCount(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647;
+}
+
 function parseWorker(value: unknown, observedAt: string): WorkerBrowserProjectionV1 | null {
   if (!object(value) || !exactKeys(value, [
     "schema_version", "worker_identity", "operation_ids", "worker_artifact_digest", "lease_state",
@@ -96,8 +101,7 @@ function parseWorker(value: unknown, observedAt: string): WorkerBrowserProjectio
     || Date.parse(value.last_heartbeat_at) >= Date.parse(value.lease_expires_at)
     || Date.parse(value.last_heartbeat_at) > Date.parse(observedAt)
     || (value.lease_state === "available") !== (Date.parse(value.lease_expires_at) > Date.parse(observedAt))
-    || !Number.isInteger(value.job_count) || Number(value.job_count) < 0
-    || !Number.isInteger(value.active_job_count) || Number(value.active_job_count) < 0
+    || !workerCount(value.job_count) || !workerCount(value.active_job_count)
     || Number(value.active_job_count) > Number(value.job_count)) return null;
   const noLastRun = value.last_run_identity === null && value.last_run_state === null && value.last_run_at === null;
   const hasLastRun = isRunIdentityV1(value.last_run_identity)

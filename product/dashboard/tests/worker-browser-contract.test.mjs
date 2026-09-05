@@ -147,6 +147,46 @@ test("404 preserves only strict identity-bound missing detail, never positive or
   }
 });
 
+test("worker counts exactly match the nonnegative Owner int domain", async () => {
+  for (const count of [0, 1, 2147483647]) {
+    const valid = { ...worker, job_count: count, active_job_count: count,
+      ...(count === 0 ? { last_run_identity: null, last_run_state: null, last_run_at: null } : {}) };
+    assert.deepEqual(parseWorkerBrowserEnvelopeV1(envelope({ workers: [valid] }))?.workers, [valid]);
+    assert.deepEqual(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: valid }), worker.worker_identity)?.worker, valid);
+    const result = await readWorkerBrowserResponsesV1(async (url) =>
+      Response.json(url === "/api/operations/workers/" ? envelope({ workers: [valid] }) : detailEnvelope({ worker: valid })),
+    worker.worker_identity);
+    assert.deepEqual(result.list.workers, [valid]);
+    assert.deepEqual(result.detail.worker, valid);
+  }
+  for (const field of ["job_count", "active_job_count"]) {
+    for (const count of [2147483648, -1, 0.5, 1e308, null, "1", true, false, [], [1], {}, { toString: null }]) {
+      const invalid = { ...worker, job_count: 2147483647, active_job_count: 0, [field]: count };
+      assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [invalid] })), null);
+      assert.equal(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: invalid }), worker.worker_identity), null);
+      for (const failedEndpoint of ["list", "detail"]) {
+        const result = await readWorkerBrowserResponsesV1(async (url) => {
+          const endpoint = url === "/api/operations/workers/" ? "list" : "detail";
+          const row = endpoint === failedEndpoint ? invalid : worker;
+          return Response.json(endpoint === "list" ? envelope({ workers: [row] }) : detailEnvelope({ worker: row }));
+        }, worker.worker_identity);
+        assert.equal(result[failedEndpoint].availability, "unavailable");
+        const other = failedEndpoint === "list" ? "detail" : "list";
+        assert.equal(result[other].availability, "available");
+        assert.deepEqual(other === "list" ? result.list.workers : [result.detail.worker], [worker]);
+      }
+    }
+  }
+  for (const invalid of [
+    { ...worker, job_count: 1, active_job_count: 2 },
+    { ...worker, job_count: 0, active_job_count: 0 },
+    { ...worker, job_count: 1, active_job_count: 0, last_run_identity: null, last_run_state: null, last_run_at: null },
+  ]) {
+    assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [invalid] })), null);
+    assert.equal(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: invalid }), worker.worker_identity), null);
+  }
+});
+
 test("worker identity uniqueness does not impose JavaScript ordering on database collation", () => {
   const a = { ...worker, worker_identity: "a-worker" };
   const z = { ...worker, worker_identity: "Z-worker" };
