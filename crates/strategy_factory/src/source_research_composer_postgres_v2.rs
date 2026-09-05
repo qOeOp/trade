@@ -28,6 +28,24 @@ use crate::{
     strategy_plan_v2::VerifiedStrategyInputBindingsV2,
 };
 
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use crate::{
+    develop_plugin_build_v2::{
+        DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
+        VerifiedDevelopPluginBuildReadV2, sealed_corpus_verified_build_v2,
+    },
+    strategy_design_v2::PluginManifestV2,
+    strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
+};
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_common::live::clock::LiveClock;
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::pit_snapshot::sealed_acceptance::{
+    SealedAcceptanceStrategyInputUniverseFrame, issue_source_intake_composer_universe_frame,
+};
+
 /// Canonical fact-Owner binding seam selected by the A2 assembly at compile time.
 ///
 /// Both methods receive the already-open R&D Owner transaction. Implementations may call only
@@ -48,6 +66,117 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
         locator: &DevelopComposerDurableEvidenceLocatorV2,
         read_cut_epoch_ms: u64,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2>;
+}
+
+/// Compile-time-selected A2 Market Data binding Owner.
+///
+/// The type has no fields or constructor arguments: every read issues the one sealed A2 universe
+/// directly from the Market Data Owner adapter. The caller can therefore supply neither Market
+/// facts nor a receipt/locator/clock substitute. The enclosing Composer preflight still treats the
+/// public binding requests as untrusted proposals and proves that the fixed Owner frame binds the
+/// canonically reread Research custody and prepared Design.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+struct SealedSourceResearchComposerBindingOwnerV2;
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[async_trait::async_trait]
+impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindingOwnerV2 {
+    async fn lock_for_run(
+        &self,
+        _transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        let design_identity = match prepare_strategy_design_v2(&request.design) {
+            StrategyDesignPreparationV2::Prepared {
+                design_identity, ..
+            } => design_identity,
+            _ => return Err(market_data_unavailable()),
+        };
+        let authority = sealed_a2_market_authority()?;
+        verify_sealed_a2_market_authority(
+            &authority,
+            request.design.research_request_identity,
+            design_identity,
+        )?;
+        Ok(VerifiedStrategyInputBindingsV2::from_sealed_universe(
+            &authority,
+        ))
+    }
+
+    async fn lock_for_resolve(
+        &self,
+        _transaction: &mut Transaction<'_, Postgres>,
+        locator: &DevelopComposerDurableEvidenceLocatorV2,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        let authority = sealed_a2_market_authority()?;
+        verify_sealed_a2_market_authority(
+            &authority,
+            locator.research_request_identity,
+            locator.design_identity,
+        )?;
+        Ok(VerifiedStrategyInputBindingsV2::from_sealed_universe(
+            &authority,
+        ))
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_a2_market_authority()
+-> Result<SealedAcceptanceStrategyInputUniverseFrame, DevelopComposerTerminalV2> {
+    issue_source_intake_composer_universe_frame().map_err(|_| market_data_unavailable())
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn verify_sealed_a2_market_authority(
+    authority: &SealedAcceptanceStrategyInputUniverseFrame,
+    research_request_identity: BindingDigest,
+    design_identity: BindingDigest,
+) -> Result<(), DevelopComposerTerminalV2> {
+    if authority.role_bindings().is_empty()
+        || authority.role_bindings().iter().any(|binding| {
+            binding.research_request_identity() != research_request_identity
+                || binding.strategy_design_identity() != design_identity
+        })
+    {
+        return Err(market_data_unavailable());
+    }
+    Ok(())
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn market_data_unavailable() -> DevelopComposerTerminalV2 {
+    DevelopComposerTerminalV2::unavailable(
+        "market_data_binding",
+        "the compile-time sealed A2 Market Data Owner frame is unavailable or mismatched",
+    )
+}
+
+/// Fixed A0 adapter for the A2 composition. It accepts only the manifest and capsule already
+/// carried by the fixed Composer corpus and delegates to the sole sealed-corpus verifier.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+struct SealedSourceResearchComposerA0BuildV2;
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
+    fn build(
+        &mut self,
+        manifest: &PluginManifestV2,
+        capsule: &UntrustedDevelopPluginCapsuleV2,
+    ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopComposerTerminalV2> {
+        sealed_corpus_verified_build_v2(manifest, capsule).map_err(|terminal| {
+            DevelopComposerTerminalV2 {
+                kind: if terminal.kind == DevelopPluginBuildTerminalKindV2::Conflict {
+                    crate::develop_composer_v2::DevelopComposerTerminalKindV2::Conflict
+                } else {
+                    crate::develop_composer_v2::DevelopComposerTerminalKindV2::Unavailable
+                },
+                coordinate: terminal.coordinate,
+                reason: terminal.reason,
+            }
+        })
+    }
 }
 
 /// One fixed A2 composition root. The binding Owner is injected by trusted assembly code, not by
@@ -189,6 +318,50 @@ where
     }
 }
 
+/// Fixed A2 assembly: sealed Market Data Owner, sealed A0 builder, and an internally selected
+/// monotonic realtime clock.
+///
+/// Database endpoints remain infrastructure inputs. There is deliberately no provider selector,
+/// Market fact/receipt/locator argument, A0 builder argument, or clock argument.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) struct SealedPostgresSourceResearchComposerV2 {
+    inner: PostgresSourceResearchComposerV2<SealedSourceResearchComposerBindingOwnerV2, LiveClock>,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+impl SealedPostgresSourceResearchComposerV2 {
+    pub(crate) async fn connect(
+        rd_owner_database_url: &str,
+        rd_fact_writer_database_url: &str,
+    ) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            inner: PostgresSourceResearchComposerV2::connect(
+                rd_owner_database_url,
+                rd_fact_writer_database_url,
+                SealedSourceResearchComposerBindingOwnerV2,
+                LiveClock::default(),
+            )
+            .await?,
+        })
+    }
+
+    pub(crate) async fn run(
+        &self,
+        request: &DevelopComposerRunRequestV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.inner
+            .run(&mut SealedSourceResearchComposerA0BuildV2, request)
+            .await
+    }
+
+    pub(crate) async fn resolve(
+        &self,
+        request_identity: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.inner.resolve(request_identity).await
+    }
+}
+
 #[derive(Clone)]
 struct LockedOwnerEvidenceV2 {
     locked: Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2>,
@@ -272,4 +445,44 @@ fn research_unavailable() -> DevelopComposerTerminalV2 {
         "research_custody",
         "current canonical Research Owner custody is unavailable",
     )
+}
+
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sealed_a2_market_authority_is_repeatable_and_rejects_identity_substitution() {
+        let first = sealed_a2_market_authority().expect("fixed A2 Market authority");
+        let second = sealed_a2_market_authority().expect("replayed A2 Market authority");
+        assert_eq!(first, second);
+
+        let role = first
+            .role_bindings()
+            .first()
+            .expect("fixed A2 authority has roles");
+        verify_sealed_a2_market_authority(
+            &first,
+            role.research_request_identity(),
+            role.strategy_design_identity(),
+        )
+        .expect("fixed identities bind the sealed frame");
+
+        assert!(
+            verify_sealed_a2_market_authority(
+                &first,
+                BindingDigest::from_untrusted_bytes([0; 32]),
+                role.strategy_design_identity(),
+            )
+            .is_err()
+        );
+        assert!(
+            verify_sealed_a2_market_authority(
+                &first,
+                role.research_request_identity(),
+                BindingDigest::from_untrusted_bytes([0; 32]),
+            )
+            .is_err()
+        );
+    }
 }
