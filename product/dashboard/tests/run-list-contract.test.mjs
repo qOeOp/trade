@@ -103,7 +103,7 @@ test("Run list keeps a cancelled-before-start dependency beside normal rows", ()
     ...structuredClone(mixed.runs[0]),
     run_identity: "dashboard-run-v1-00000000-0000-4000-8000-000000000029",
     state: "cancelled",
-    owner_outcome_state: "not_applicable",
+    owner_outcome_state: "unknown",
     transition_version: 2,
     created_at: "2026-08-29T23:59:59.000Z",
     updated_at: "2026-08-29T23:59:59.500Z",

@@ -117,7 +117,7 @@ export function parseRunListBrowserEnvelopeV1(value: unknown): RunListBrowserEnv
       || (run.state === "queued" && started !== null)
       || terminal !== (finished !== null)
       || (cancelledBeforeStart && (run.channel !== "DASHBOARD_SHADOW_READ"
-        || run.run_kind !== "owner_read" || run.owner_outcome_state !== "not_applicable"
+        || run.run_kind !== "owner_read" || run.owner_outcome_state !== "unknown"
         || run.duration_ms !== null || run.terminal_code !== null))
       || (!cancelledBeforeStart && (started === null) !== (run.duration_ms === null))
       || (finished !== null && started !== null && run.duration_ms !== finished - started)
