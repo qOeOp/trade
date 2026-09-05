@@ -25,7 +25,8 @@ use crate::{
     },
     legacy_prepared_attempt_drain::{
         LegacyPreparedAttemptBindingV1, append_receipt_and_outbox_in_transaction,
-        attempt_json_digest, form_receipt, migrate as migrate_legacy_drain,
+        attempt_json_digest, form_receipt, materialize_family as materialize_legacy_drain_family,
+        validate_family_in_transaction as validate_legacy_drain_family_in_transaction,
         verify_drain_in_transaction, verify_live_predicates_in_transaction,
     },
     product_edge::{
@@ -390,6 +391,7 @@ impl PostgresArtifactBuildOwnerV1 {
         migrate_trial_family(&self.pool)
             .await
             .map_err(|e| trial_family_storage(&e))?;
+        materialize_legacy_drain_family(&self.pool).await?;
         Ok(())
     }
 
@@ -2152,7 +2154,7 @@ pub async fn drain_legacy_prepared_attempts_v1(
             "legacy PREPARED drain target database mismatch".into(),
         ));
     }
-    migrate_legacy_drain(&mut transaction).await?;
+    validate_legacy_drain_family_in_transaction(&mut transaction).await?;
 
     for statement in [
         "LOCK TABLE rd_artifact_build_attempts_v1 IN SHARE ROW EXCLUSIVE MODE",
@@ -2419,6 +2421,33 @@ mod postgres_freshness_tests {
         DedicatedPostgresTestDatabase, DedicatedPostgresTestMutation,
     };
 
+    async fn legacy_drain_family_snapshot(pool: &PgPool) -> serde_json::Value {
+        sqlx::query_scalar(
+            "SELECT pg_catalog.jsonb_build_object(
+               'table_oid',relation.oid,
+               'table_acl',relation.relacl::text,
+               'function_oid',function.oid,
+               'function_acl',function.proacl::text,
+               'function_definition',pg_catalog.pg_get_functiondef(function.oid),
+               'trigger_oid',trigger_fact.oid,
+               'trigger_definition',pg_catalog.pg_get_triggerdef(trigger_fact.oid,false)
+             )
+             FROM pg_catalog.pg_class relation
+             JOIN pg_catalog.pg_namespace relation_namespace ON relation_namespace.oid=relation.relnamespace
+             JOIN pg_catalog.pg_proc function ON function.proname='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'
+             JOIN pg_catalog.pg_namespace function_namespace ON function_namespace.oid=function.pronamespace
+             JOIN pg_catalog.pg_trigger trigger_fact ON trigger_fact.tgrelid=relation.oid AND trigger_fact.tgfoid=function.oid
+            WHERE relation_namespace.nspname='public'
+              AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'
+              AND function_namespace.nspname='public'
+              AND trigger_fact.tgname='rd_legacy_prepared_attempt_drain_immutable_v1'
+              AND NOT trigger_fact.tgisinternal",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap()
+    }
+
     #[tokio::test]
     #[ignore = "requires an explicitly supplied read-only attempt-custody database URL"]
     async fn stored_attempt_catalog_is_exactly_classifiable_without_writes() {
@@ -2617,6 +2646,7 @@ mod postgres_freshness_tests {
         )
         .await
         .unwrap();
+        let materialized_drain_family = legacy_drain_family_snapshot(&owner.pool).await;
         let suffix = unique_suffix();
         let research_identity = format!("legacy-drain-research-{suffix}");
         let (edge, research_admission) = bootstrap_authority(
@@ -2773,19 +2803,19 @@ mod postgres_freshness_tests {
         Err(ArtifactBuildError::Storage(message))
             if message == "legacy PREPARED drain target database resource mismatch"
         ));
-        let rejected_database_catalog: (bool, bool, i64, i64, i64) = sqlx::query_as(
-            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
-                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
-                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
-                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
-                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'),
+        let rejected_database_catalog: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
                     (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
         )
         .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
         .fetch_one(&owner.pool)
         .await
         .unwrap();
-        assert_eq!(rejected_database_catalog, (true, true, 0, 0, 0));
+        assert_eq!(rejected_database_catalog, (0, 0));
+        assert_eq!(
+            legacy_drain_family_snapshot(&owner.pool).await,
+            materialized_drain_family
+        );
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -2810,17 +2840,19 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        let rolled_back_catalog: (bool, bool, i64, i64) = sqlx::query_as(
-            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
-                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
-                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1'),
-                    (SELECT COUNT(*) FROM information_schema.table_privileges WHERE table_schema='public' AND table_name='rd_legacy_prepared_attempt_drain_receipts_v1')
-                      + (SELECT COUNT(*) FROM information_schema.routine_privileges WHERE routine_schema='public' AND routine_name='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1')",
+        let rolled_back_catalog: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
         )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
         .fetch_one(&owner.pool)
         .await
         .unwrap();
-        assert_eq!(rolled_back_catalog, (true, true, 0, 0));
+        assert_eq!(rolled_back_catalog, (0, 0));
+        assert_eq!(
+            legacy_drain_family_snapshot(&owner.pool).await,
+            materialized_drain_family
+        );
         assert!(
             drain_legacy_prepared_attempts_v1(
                 &database_url,
@@ -2833,9 +2865,13 @@ mod postgres_freshness_tests {
             .await
             .is_err()
         );
-        let counts: (bool, i64) = sqlx::query_as("SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
+        let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),(SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)")
             .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND).fetch_one(&owner.pool).await.unwrap();
-        assert_eq!(counts, (true, 0));
+        assert_eq!(counts, (0, 0));
+        assert_eq!(
+            legacy_drain_family_snapshot(&owner.pool).await,
+            materialized_drain_family
+        );
         let first = drain_legacy_prepared_attempts_v1(
             &database_url,
             &target_database_resource_fingerprint,
@@ -2857,6 +2893,10 @@ mod postgres_freshness_tests {
         .await
         .unwrap();
         assert_eq!(first, replay);
+        assert_eq!(
+            legacy_drain_family_snapshot(&owner.pool).await,
+            materialized_drain_family
+        );
         let restarted = PostgresArtifactBuildOwnerV1::connect(
             &database_url,
             "/tmp/unused-rd-sandbox.sock",
@@ -2948,6 +2988,92 @@ mod postgres_freshness_tests {
             .unwrap();
         assert!(sqlx::query("UPDATE rd_legacy_prepared_attempt_drain_receipts_v1 SET receipt_digest='sha256:forbidden'")
             .execute(&owner.pool).await.is_err());
+
+        sqlx::query("DROP TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 ON public.rd_legacy_prepared_attempt_drain_receipts_v1")
+            .execute(&owner.pool).await.unwrap();
+        let partial_before: (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT 'public.rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass::oid::bigint,
+                    'public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'::pg_catalog.regprocedure::oid::bigint,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgrelid='public.rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass AND tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT tgisinternal),
+                    (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert!(
+            drain_legacy_prepared_attempts_v1(
+                &database_url,
+                &target_database_resource_fingerprint,
+                &target_database_fingerprint,
+                2,
+                &target_digest,
+                None,
+            )
+            .await
+            .is_err()
+        );
+        let partial_after: (i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT 'public.rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass::oid::bigint,
+                    'public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()'::pg_catalog.regprocedure::oid::bigint,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgrelid='public.rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass AND tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT tgisinternal),
+                    (SELECT COUNT(*) FROM rd_legacy_prepared_attempt_drain_receipts_v1),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(partial_before, partial_after);
+        assert_eq!(partial_after.2, 0);
+
+        sqlx::query("DROP TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1")
+            .execute(&owner.pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "DROP FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
+        )
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+        let missing_before: (bool, bool, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT tgisinternal),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert!(
+            drain_legacy_prepared_attempts_v1(
+                &database_url,
+                &target_database_resource_fingerprint,
+                &target_database_fingerprint,
+                2,
+                &target_digest,
+                None,
+            )
+            .await
+            .is_err()
+        );
+        let missing_after: (bool, bool, i64, i64) = sqlx::query_as(
+            "SELECT pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1') IS NULL,
+                    pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()') IS NULL,
+                    (SELECT COUNT(*) FROM pg_catalog.pg_trigger WHERE tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT tgisinternal),
+                    (SELECT COUNT(*) FROM rd_owner_outbox_v1 WHERE event_kind=$1)",
+        )
+        .bind(crate::legacy_prepared_attempt_drain::DRAIN_EVENT_KIND)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(missing_before, missing_after);
+        assert!(missing_after.0);
+        assert!(missing_after.1);
+        assert_eq!(missing_after.2, 0);
     }
 
     #[tokio::test]
