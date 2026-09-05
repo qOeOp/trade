@@ -50,6 +50,7 @@ export const modules = [
 export const nestedRoutes = [
   { label: "Protected feedback", href: "/qualification/protected-feedback", moduleId: "qualification", parentHref: "/qualification/outcomes" },
   { label: "Run detail", href: "/operations/runs/example", moduleId: "operations", parentHref: "/operations" },
+  { label: "Worker detail", href: "/operations/workers/example", moduleId: "operations", parentHref: "/operations/workers" },
 ];
 export const foundationRoutes = ["/market"];
 export const allRoutes = [
@@ -59,6 +60,7 @@ export const allRoutes = [
 
 const exactRoutes = new Set([
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
+  "/operations/workers", "/operations/workers/example",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
 ]);
 const detailOnlyRoutes = new Set(["/rd", "/rd/research", "/rd/artifacts"]);
@@ -88,6 +90,8 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/operations/workers": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "Independent identity-bound WorkerDetail", terminal: "WorkerStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
+  "/operations/workers/example": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "ExactWorkerDetail", terminal: "ExactWorkerUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations": { summaries: ["Loaded", "Active loaded", "Unknown loaded", "Terminal loaded"], primary: "CursorBoundRunTable", context: "Exact state segments + source-cut pagination", terminal: "ExactRunDetailLink or RunStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT" },
   "/operations/runs/example": { summaries: ["Semantic", "Operational", "Timing"], primary: "RunMetadataAndInputs + RunWorkerCompatibilityMatrix", context: "OwnerViewCard", terminal: "RunResultView: Logs, Metrics, Traces, Assets", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD" },
   "/data": { summaries: [], primary: "EmptyState", context: "MarketDataOwnerFoundationCard", terminal: "EmptyState", state: "CURRENT/PARTIAL - NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER" },

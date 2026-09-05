@@ -11,6 +11,7 @@ import { DesktopModuleNavigation, MobileModuleDrawer } from "./module-navigation
 import { ModuleTabLinks } from "./module-tab-links";
 import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
+import { OperationsWorkersPreview } from "./operations-workers-preview";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
 
@@ -88,6 +89,7 @@ function UnavailableBlueprint({ maturity }: { maturity: "DETAIL_DRAWABLE_LIST_BL
 export function DashboardShell({
   current,
   runIdentity,
+  workerIdentity,
 }: {
   current: string;
   runIdentity?: string;
@@ -99,6 +101,8 @@ export function DashboardShell({
   const exactBlueprint = exactBlueprints[current as keyof typeof exactBlueprints] as ExactBlueprint | undefined;
   const operationsRuns = current === "/operations";
   const operationsRunDetail = current === "/operations/runs/example";
+  const operationsWorkers = current === "/operations/workers";
+  const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -115,9 +119,11 @@ export function DashboardShell({
             </div>
             <div className="authority-block">
               <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{operationsRuns || operationsRunDetail ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+              <b>{operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
               <small>{operationsRunDetail
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD"
+                : operationsWorkers
+                ? "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN"
                 : operationsRuns
                 ? "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT"
                 : drawableExact
@@ -127,10 +133,11 @@ export function DashboardShell({
           </header>
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
+              : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
           <footer className="prototype-notice">
-            {operationsRuns || operationsRunDetail
+            {operationsConnected
                 ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
           </footer>
