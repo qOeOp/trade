@@ -63,6 +63,14 @@ const STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
     202, 109, 110, 206, 104, 192, 162, 0, 156, 57, 11, 175, 182, 163, 124, 136, 229, 156, 137, 195,
     38, 194, 2, 172, 51, 3, 187, 106, 84, 93, 174, 230,
 ];
+const SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY: [u8; 32] = [
+    223, 5, 233, 127, 131, 44, 31, 89, 145, 164, 47, 53, 99, 79, 189, 249, 39, 161, 65, 101,
+    108, 144, 51, 47, 139, 187, 12, 62, 199, 108, 216, 30,
+];
+const SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
+    23, 101, 12, 129, 34, 127, 211, 104, 159, 109, 51, 8, 231, 70, 29, 88, 127, 26, 216, 112,
+    106, 97, 74, 87, 171, 153, 193, 204, 95, 254, 83, 87,
+];
 const OPEN_ROLE_IDENTITY: [u8; 32] = [
     188, 119, 32, 67, 197, 45, 36, 25, 82, 171, 129, 189, 167, 136, 146, 135, 178, 160, 162, 108,
     2, 83, 105, 97, 42, 22, 217, 120, 49, 133, 15, 115,
@@ -225,6 +233,33 @@ impl From<StrategyInputBindingUnavailable> for SealedAcceptanceError {
 /// aggregate issuance, complete-batch verification, or universe-frame binding.
 pub fn issue_strategy_input_universe_frame()
 -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
+    issue_universe_frame_for_compile_time_corpus(
+        RESEARCH_REQUEST_IDENTITY,
+        STRATEGY_DESIGN_IDENTITY,
+    )
+}
+
+/// Issues the immutable A2 Source Intake-to-Research-to-Composer Market Data frame.
+///
+/// This no-argument adapter reuses the fixed Owner-sealed AAPL/MSFT corpus, but binds it to private
+/// A2 Research and Design identities that are disjoint from the A1 and exact-instrument W3
+/// acceptance paths. Callers can neither select those identities nor substitute Market facts.
+///
+/// # Errors
+///
+/// Fails closed if any fixed Source Binding, PIT, or universe-frame invariant is unavailable.
+pub fn issue_source_intake_composer_universe_frame()
+-> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
+    issue_universe_frame_for_compile_time_corpus(
+        SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
+        SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+    )
+}
+
+fn issue_universe_frame_for_compile_time_corpus(
+    research_request_identity: [u8; 32],
+    strategy_design_identity: [u8; 32],
+) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
     let source_clock = clock();
     let source_owner = TestOnlyInMemorySourceBindingOwner::default();
     let source = source_owner.commit_initial(
@@ -266,12 +301,16 @@ pub fn issue_strategy_input_universe_frame()
         binding_request(
             &verified,
             selection_identity,
+            research_request_identity,
+            strategy_design_identity,
             BindingDigest::from_untrusted_bytes(OPEN_ROLE_IDENTITY),
             MarketDataFieldSemantic::BarOpenPrice,
         ),
         binding_request(
             &verified,
             selection_identity,
+            research_request_identity,
+            strategy_design_identity,
             BindingDigest::from_untrusted_bytes(CLOSE_ROLE_IDENTITY),
             MarketDataFieldSemantic::BarClosePrice,
         ),
@@ -616,12 +655,14 @@ fn exact_instrument_observation_proposal(
 fn binding_request(
     batch: &super::VerifiedPitObservationBatch,
     selection_identity: BindingDigest,
+    research_request_identity: [u8; 32],
+    strategy_design_identity: [u8; 32],
     input_role_identity: BindingDigest,
     field_semantic: MarketDataFieldSemantic,
 ) -> UntrustedStrategyInputBindingRequest {
     UntrustedStrategyInputBindingRequest {
-        research_request_identity: BindingDigest::from_untrusted_bytes(RESEARCH_REQUEST_IDENTITY),
-        strategy_design_identity: BindingDigest::from_untrusted_bytes(STRATEGY_DESIGN_IDENTITY),
+        research_request_identity: BindingDigest::from_untrusted_bytes(research_request_identity),
+        strategy_design_identity: BindingDigest::from_untrusted_bytes(strategy_design_identity),
         input_role_identity,
         scope: UntrustedStrategyInputScope::UniverseSelection { selection_identity },
         field_semantic,
@@ -683,6 +724,49 @@ fn exact_binding_request(
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    #[rstest]
+    fn a2_universe_frame_is_stable_and_identity_disjoint() {
+        let a1 = issue_strategy_input_universe_frame().expect("A1 sealed frame");
+        let a2 = issue_source_intake_composer_universe_frame().expect("A2 sealed frame");
+        let replay = issue_source_intake_composer_universe_frame().expect("A2 sealed replay");
+
+        assert_eq!(a2, replay);
+        assert_ne!(a1, a2);
+        assert_eq!(a1.selection(), a2.selection());
+        assert_eq!(
+            a1.values()
+                .iter()
+                .map(|value| (value.member_key(), value.value_bytes()))
+                .collect::<Vec<_>>(),
+            a2.values()
+                .iter()
+                .map(|value| (value.member_key(), value.value_bytes()))
+                .collect::<Vec<_>>()
+        );
+        assert_ne!(
+            SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
+            RESEARCH_REQUEST_IDENTITY
+        );
+        assert_ne!(
+            SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+            STRATEGY_DESIGN_IDENTITY
+        );
+        assert_ne!(
+            SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+            EXACT_STRATEGY_DESIGN_IDENTITY
+        );
+        assert!(a2.role_bindings().iter().all(|binding| {
+            binding.research_request_identity()
+                == BindingDigest::from_untrusted_bytes(
+                    SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
+                )
+                && binding.strategy_design_identity()
+                    == BindingDigest::from_untrusted_bytes(
+                        SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+                    )
+        }));
+    }
 
     #[rstest]
     fn exact_instrument_six_bar_frame_is_stable_and_complete() {
