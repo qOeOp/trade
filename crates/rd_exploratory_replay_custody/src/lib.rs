@@ -285,6 +285,18 @@ struct StoredOutboxV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct ReplayPolicyCatalogBindingV2 {
+    catalog_record_id: String,
+    catalog_version: u64,
+    policy_grammar_parser_id: String,
+    policy_grammar_parser_digest: [u8; 32],
+    policy_canonical_bytes: Vec<u8>,
+    policy_digest: [u8; 32],
+    catalog_record_digest: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct FamilyFrozenOutboxV1 {
     schema_version: u32,
     research_receipt_identity: String,
@@ -294,6 +306,8 @@ struct FamilyFrozenOutboxV1 {
     membership_receipt_identity: String,
     census_frontier_identity: String,
     census_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_execution_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -914,6 +928,18 @@ mod tests {
         }
     }
 
+    fn replay_policy_binding() -> ReplayPolicyCatalogBindingV2 {
+        ReplayPolicyCatalogBindingV2 {
+            catalog_record_id: "replay-policy-v2".into(),
+            catalog_version: 7,
+            policy_grammar_parser_id: "replay-policy-parser-v2".into(),
+            policy_grammar_parser_digest: [1; 32],
+            policy_canonical_bytes: br#"{"schema_version":2}"#.to_vec(),
+            policy_digest: [2; 32],
+            catalog_record_digest: [3; 32],
+        }
+    }
+
     fn valid_base_envelope(availability: ExploratoryReplayAvailabilityV2) -> LockedEnvelopeV2 {
         let proposal = LegacyReplayProposalV1 {
             request_identity: "request-v2".into(),
@@ -981,6 +1007,7 @@ mod tests {
             membership_receipt_identity: "membership-receipt-v2".into(),
             census_frontier_identity: proposal.census_frontier_identity.clone(),
             census_frontier_digest: sha('8'),
+            replay_execution_policy_v2: Some(replay_policy_binding()),
         };
         let family_digest =
             canonical_digest("rd.owner-outbox.payload.v1", &family_payload).unwrap();
@@ -1098,6 +1125,42 @@ mod tests {
             ExploratoryReplayAvailabilityV2::Unavailable
         );
         assert!(result.readback().is_none());
+    }
+
+    #[rstest]
+    fn family_outbox_decodes_exact_replay_policy_binding_and_digest() {
+        let envelope = valid_base_envelope(ExploratoryReplayAvailabilityV2::Available);
+        let outbox = envelope
+            .trial_family_outbox
+            .as_ref()
+            .expect("family outbox");
+        let payload: FamilyFrozenOutboxV1 = exact(&outbox.payload_json).expect("exact payload");
+
+        assert_eq!(
+            payload.replay_execution_policy_v2,
+            Some(replay_policy_binding())
+        );
+        assert_eq!(
+            canonical_digest("rd.owner-outbox.payload.v1", &payload).expect("payload digest"),
+            outbox.payload_digest
+        );
+    }
+
+    #[rstest]
+    fn family_outbox_without_replay_policy_binding_remains_exact() {
+        let value = serde_json::json!({
+            "schema_version": 1,
+            "research_receipt_identity": "research-receipt-v2",
+            "intent_identity": "intent-v2",
+            "trial_family_identity": "trial-v2",
+            "root_receipt_identity": "root-receipt-v2",
+            "membership_receipt_identity": "membership-receipt-v2",
+            "census_frontier_identity": "census-v2",
+            "census_frontier_digest": sha('8')
+        });
+
+        let payload: FamilyFrozenOutboxV1 = exact(&value).expect("legacy exact payload");
+        assert_eq!(payload.replay_execution_policy_v2, None);
     }
 
     #[rstest]
