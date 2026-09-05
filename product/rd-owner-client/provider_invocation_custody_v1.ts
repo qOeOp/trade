@@ -99,7 +99,6 @@ export async function verifyProviderInvocationCustodyV1(value: {
   claim_digest: string
   state_digest: string
   committed_at_epoch_ms: number
-  state_updated_at_epoch_ms: number
   state: "CLAIMED" | "INVOCATION_STARTED"
 }): Promise<boolean> {
   if (!ADMISSION_IDENTITY.test(value.admission_identity)
@@ -123,6 +122,6 @@ export async function verifyProviderInvocationCustodyV1(value: {
     attempt_identity: value.attempt_identity,
     claim_digest: value.claim_digest,
     state: value.state,
-    updated_at_epoch_ms: value.state_updated_at_epoch_ms,
+    updated_at_epoch_ms: value.committed_at_epoch_ms,
   })
 }

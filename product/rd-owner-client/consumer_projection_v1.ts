@@ -499,13 +499,11 @@ async function validInvocation(
   return version(value) && exactKeys(value, [
     "schema_version", "request_identity", "claim_identity", "admission_identity", "attempt_identity",
     "invocation_admission_receipt_identity", "invocation_admission_receipt_digest", "claim_digest",
-    "state_digest", "committed_at_epoch_ms", "state_updated_at_epoch_ms", "disposition", "state",
-    "next_legal_action",
+    "state_digest", "committed_at_epoch_ms", "disposition", "state", "next_legal_action",
   ]) && value.request_identity === build && value.attempt_identity === attempt
     && [value.claim_identity, value.admission_identity, value.invocation_admission_receipt_identity,
       value.invocation_admission_receipt_digest, value.claim_digest, value.state_digest].every(text)
-    && epoch(value.committed_at_epoch_ms) && epoch(value.state_updated_at_epoch_ms)
-    && Number(value.state_updated_at_epoch_ms) >= Number(value.committed_at_epoch_ms)
+    && epoch(value.committed_at_epoch_ms)
     && (state === "CLAIMED"
       ? ["CLAIMED_NEW", "ALREADY_CLAIMED"].includes(value.disposition)
       : value.disposition === "ALREADY_CLAIMED")

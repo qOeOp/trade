@@ -2,6 +2,12 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 const { executeArtifactBuildV1, invocationStateDigestV1 } = await import("./artifact_build_v1.ts")
+const { projectArtifactOwnerResultWithEvidenceV1 } = await import("./consumer_projection_v1.ts")
+const {
+  providerInvocationClaimDigestV1,
+  providerInvocationClaimIdentityV1,
+  providerInvocationStateDigestV1,
+} = await import("./provider_invocation_custody_v1.ts")
 
 async function sha256(value) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
@@ -231,6 +237,54 @@ test("Windmill RUN accepts the canonical Owner claim wire set and reaches invoca
   assert.equal(calls.length, 3)
   assert.equal(Object.hasOwn(claim, "state_updated_at_epoch_ms"), false)
   assert.equal(calls.some((url) => url === "https://provider.example.test"), false)
+})
+
+test("canonical Owner CLAIMED wire projects verified invocation custody", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"a".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"b".repeat(64)}`
+  const claimIdentity = await providerInvocationClaimIdentityV1(
+    admissionIdentity,
+    request.attempt_identity,
+    invocationAdmissionReceiptIdentity,
+  )
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: claimIdentity,
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"c".repeat(64)}`,
+    claim_digest: "",
+    state_digest: "",
+    committed_at_epoch_ms: 10,
+    disposition: "CLAIMED_NEW",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.state_digest = await providerInvocationStateDigestV1({
+    ...claim,
+    updated_at_epoch_ms: claim.committed_at_epoch_ms,
+  })
+
+  const raw = {
+    ...unknown,
+    provider_invocation: claim,
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  }
+  const result = await projectArtifactOwnerResultWithEvidenceV1(
+    raw,
+    request.build_request_identity,
+    request.attempt_identity,
+    null,
+  )
+
+  assert.equal(Object.hasOwn(claim, "state_updated_at_epoch_ms"), false)
+  assert.equal(result.verified, true)
+  assert.deepEqual(result.projection.provider_invocation, claim)
+  assert.equal(result.projection.next_legal_action, "RUN_BOUNDED_EXECUTION_AGENT")
 })
 
 test("Windmill artifact resolution keeps the existing Owner flow", async () => {
