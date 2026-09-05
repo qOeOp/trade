@@ -6,9 +6,9 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 . "$check_dir/common.bash"
 
 sha256_stdin() {
-  if command -v sha256sum >/dev/null 2>&1; then
+  if command -v sha256sum > /dev/null 2>&1; then
     sha256sum | awk '{print $1}'
-  elif command -v shasum >/dev/null 2>&1; then
+  elif command -v shasum > /dev/null 2>&1; then
     shasum -a 256 | awk '{print $1}'
   else
     echo "sha256sum or shasum is required" >&2
@@ -136,15 +136,20 @@ test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id te
 composer_migration="$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-research-composer-sealed-acceptance.yml" |
   grep -Fq 'SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"'
+# These patterns inspect literal shell and PostgreSQL dollar-quote syntax.
+# shellcheck disable=SC2016
 grep -Fq 'case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in' "$composer_migration"
+# shellcheck disable=SC2016
 production_composer_source=$(sed -n '/AS \$composer_commit\$/,/END\$composer_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_commit\$//; $s/\$composer_commit\$;//')
 test "$(printf '%s' "$production_composer_source" | sha256_stdin)" = ed9b2945a114c2ffc846b780022fca57df6e0448076ac3520e00074597de3b38
 if printf '%s' "$production_composer_source" | grep -Eq 'composer_fail_after|acceptance fault'; then
   echo "production Composer commit routine must not contain acceptance fault hooks" >&2
   exit 1
 fi
+# shellcheck disable=SC2016
 acceptance_composer_header=$(sed -n '/^CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(/,/^SET search_path = pg_catalog, pg_temp AS \$composer_acceptance_commit\$/p' "$composer_migration" | sed '$s/AS \$composer_acceptance_commit\$.*$/AS $composer_acceptance_commit$/')
 test "$(printf '%s' "$acceptance_composer_header" | sha256_stdin)" = 77142de253600dfe15f89abac27c24867576a26fc2d4deeee9c630fed05cb9d5
+# shellcheck disable=SC2016
 acceptance_composer_source=$(sed -n '/AS \$composer_acceptance_commit\$/,/END\$composer_acceptance_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_acceptance_commit\$//; $s/\$composer_acceptance_commit\$;//')
 # This exact source identity binds the closed GUC validation and every insert -> matching raise,
 # including module/build-use loops, ROW_COUNT-gated new receipts, and the native-join conditional.

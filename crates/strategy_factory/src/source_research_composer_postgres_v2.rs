@@ -26,6 +26,7 @@ use crate::{
     develop_composer_postgres_v2::PostgresDevelopComposerStoreV2,
     develop_composer_v2::{CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2},
     product_edge::FrozenResearchGoalIntent,
+    product_edge_postgres::lock_current_research_artifact_custody_in_transaction,
     rd_owner_postgres_custody::{
         ResearchCustodyLookupV1, VerifiedResearchCustodyV1,
         admit_all_research_custodies_in_transaction, admit_research_custody_in_transaction,
@@ -51,9 +52,6 @@ use crate::{
         StrategyDesignPreparationV2, prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
 };
-
-#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
-use crate::develop_composer_operation_v2::conflict_response;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::pit_snapshot::sealed_acceptance::{
@@ -397,24 +395,7 @@ pub fn sealed_source_research_composer_request_v2() -> DevelopComposerRunRequest
     else {
         unreachable!("fixed A2 Design must prepare")
     };
-    let selection_identity = BindingDigest::from_untrusted_bytes([
-        38, 69, 161, 29, 208, 191, 187, 10, 106, 223, 55, 76, 175, 82, 195, 14, 54, 4, 74, 9, 51,
-        97, 227, 227, 81, 199, 206, 202, 52, 52, 55, 207,
-    ]);
-    let binding_requests = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(ordinal, input)| {
-            a2_fixed_binding_request(
-                input,
-                design.research_request_identity,
-                design_identity,
-                selection_identity,
-                ordinal as u8,
-            )
-        })
-        .collect();
+    let binding_requests = a2_fixed_binding_requests(&design, design_identity);
     let manifest = design.plugins[0].clone();
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
@@ -461,24 +442,7 @@ fn derive_source_research_composer_request_v2(
             "the canonical Research-derived A2 Design does not prepare",
         ));
     };
-    let selection_identity = BindingDigest::from_untrusted_bytes([
-        38, 69, 161, 29, 208, 191, 187, 10, 106, 223, 55, 76, 175, 82, 195, 14, 54, 4, 74, 9, 51,
-        97, 227, 227, 81, 199, 206, 202, 52, 52, 55, 207,
-    ]);
-    let binding_requests = design
-        .inputs
-        .iter()
-        .enumerate()
-        .map(|(ordinal, input)| {
-            a2_fixed_binding_request(
-                input,
-                design.research_request_identity,
-                design_identity,
-                selection_identity,
-                ordinal as u8,
-            )
-        })
-        .collect();
+    let binding_requests = a2_fixed_binding_requests(&design, design_identity);
     let manifest = design.plugins[0].clone();
     let capsule = UntrustedDevelopPluginCapsuleV2 {
         schema_version: 2,
@@ -525,6 +489,7 @@ fn tamper_source_research_composer_request_v2(
             "the fixed A2 source capsule is unavailable",
         )
     })?;
+
     if capsule.files.is_empty() {
         return Err(DevelopComposerTerminalV2::unavailable(
             "acceptance_tamper",
@@ -532,6 +497,7 @@ fn tamper_source_research_composer_request_v2(
         ));
     }
     let changed_digest = BindingDigest::from_untrusted_bytes([0xff; 32]);
+
     match selector {
         SourceResearchComposerAcceptanceTamperV2::BindingResearchRequestIdentity => {
             binding.research_request_identity = changed_digest;
@@ -672,6 +638,31 @@ fn project_source_research_composer_request_v2(
         design_digest,
         provider_identity: SOURCE_RESEARCH_COMPOSER_PROVIDER_IDENTITY_V2.to_owned(),
     })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn a2_fixed_binding_requests(
+    design: &StrategyDesignV2,
+    design_identity: BindingDigest,
+) -> Vec<UntrustedStrategyInputBindingRequest> {
+    let selection_identity = BindingDigest::from_untrusted_bytes([
+        38, 69, 161, 29, 208, 191, 187, 10, 106, 223, 55, 76, 175, 82, 195, 14, 54, 4, 74, 9, 51,
+        97, 227, 227, 81, 199, 206, 202, 52, 52, 55, 207,
+    ]);
+    design
+        .inputs
+        .iter()
+        .enumerate()
+        .map(|(ordinal, input)| {
+            a2_fixed_binding_request(
+                input,
+                design.research_request_identity,
+                design_identity,
+                selection_identity,
+                ordinal as u8,
+            )
+        })
+        .collect()
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -891,13 +882,9 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
 struct SealedSourceResearchComposerBindingOwnerV2;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-#[async_trait::async_trait]
-impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindingOwnerV2 {
-    async fn lock_for_run(
-        &self,
-        _transaction: &mut Transaction<'_, Postgres>,
+impl SealedSourceResearchComposerBindingOwnerV2 {
+    fn read_for_run(
         request: &DevelopComposerRunRequestV2,
-        _read_cut_epoch_ms: u64,
     ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
         let design_identity = match prepare_strategy_design_v2(&request.design) {
             StrategyDesignPreparationV2::Prepared {
@@ -905,6 +892,10 @@ impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindin
             } => design_identity,
             _ => return Err(market_data_unavailable()),
         };
+
+        if request.binding_requests != a2_fixed_binding_requests(&request.design, design_identity) {
+            return Err(market_data_unavailable());
+        }
         let authority =
             sealed_a2_market_authority(request.design.research_request_identity, design_identity)?;
         verify_sealed_a2_market_authority(
@@ -915,6 +906,19 @@ impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindin
         Ok(VerifiedStrategyInputBindingsV2::from_sealed_universe(
             &authority,
         ))
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[async_trait::async_trait]
+impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindingOwnerV2 {
+    async fn lock_for_run(
+        &self,
+        _transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        _read_cut_epoch_ms: u64,
+    ) -> Result<VerifiedStrategyInputBindingsV2, DevelopComposerTerminalV2> {
+        Self::read_for_run(request)
     }
 
     async fn lock_for_resolve(
@@ -1097,6 +1101,7 @@ where
                 ));
             }
         };
+
         if let Some(SourceResearchComposerAcceptanceControlV2::Tamper(selector)) = control
             && let Err(terminal) =
                 tamper_source_research_composer_request_v2(&mut request, selector)
@@ -1141,6 +1146,7 @@ where
                         return Ok(terminal_response_for_request(&request, terminal));
                     }
                 };
+
                 match control {
                     Some(SourceResearchComposerAcceptanceControlV2::FailAfter(boundary)) => {
                         self.store
@@ -1165,8 +1171,9 @@ where
                     }
                 }
             }
-            Err(error) => Err(error),
+            Err(e) => Err(e),
         };
+
         match response {
             Ok(response) => match owner_transaction.commit().await {
                 Ok(()) => Ok(response),
@@ -1174,9 +1181,9 @@ where
                     &request.request_identity,
                 )),
             },
-            Err(error) => {
+            Err(e) => {
                 owner_transaction.rollback().await?;
-                Err(error)
+                Err(e)
             }
         }
     }
@@ -1215,6 +1222,7 @@ where
                     .map_err(composer_terminal_protocol)?;
                 tamper_source_research_composer_request_v2(&mut expected, selector)
                     .map_err(composer_terminal_protocol)?;
+
                 if request_digest(&expected) != locator.request_digest {
                     Err(DevelopComposerTerminalV2::unavailable(
                         "acceptance_tamper",
@@ -1268,6 +1276,9 @@ where
         .await
         .map_err(|_| research_unavailable())?
         .ok_or_else(research_unavailable)?;
+        lock_current_research_artifact_custody_in_transaction(transaction, &custody)
+            .await
+            .map_err(|_| research_unavailable())?;
         CurrentResearchDevelopCustodyV2::from_verified(
             &custody,
             research_request_locator,
@@ -1285,6 +1296,7 @@ where
             .await
             .map_err(|_| research_unavailable())?;
         let mut matches = Vec::new();
+
         for custody in custodies {
             if durable_research_identities(&custody).is_some_and(|(request, intent)| {
                 request == locator.research_request_identity && intent == locator.intent_identity
@@ -1299,6 +1311,9 @@ where
             )
         })?;
         let request_locator = custody.receipt().request_identity.clone();
+        lock_current_research_artifact_custody_in_transaction(transaction, &custody)
+            .await
+            .map_err(|_| research_unavailable())?;
         let research = CurrentResearchDevelopCustodyV2::from_verified(
             &custody,
             &request_locator,
@@ -1445,18 +1460,6 @@ fn terminal_response_for_identity(
         coordinate: Some(terminal.coordinate),
         reason: Some(terminal.reason),
     }
-}
-
-#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
-fn reject_non_sealed_source_research_composer_request_v2(
-    request: &DevelopComposerRunRequestV2,
-) -> Option<DevelopComposerOperationResponseV2> {
-    (request != &sealed_source_research_composer_request_v2()).then(|| {
-        conflict_response(
-            &request.request_identity,
-            "sealed_acceptance.source_research_composer_request",
-        )
-    })
 }
 
 fn current_read_cut_epoch_ms() -> u64 {
@@ -1622,7 +1625,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn runtime_projection_derives_all_lineage_from_canonical_research() {
         let first = CurrentResearchDevelopCustodyV2::fixture(
             "runtime-research-1",
@@ -1672,7 +1675,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn sealed_a2_request_has_exact_prepared_identity_roles_and_research_locator() {
         let request = sealed_source_research_composer_request_v2();
         let StrategyDesignPreparationV2::Prepared {
@@ -1715,7 +1718,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn sealed_a2_request_identities_match_market_owner_frame_roles() {
         let request = sealed_source_research_composer_request_v2();
         let StrategyDesignPreparationV2::Prepared {
@@ -1754,27 +1757,20 @@ mod tests {
         assert_eq!(request_roles, owner_roles);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn sealed_a2_request_gate_rejects_all_same_identity_binding_mutations() {
         let sealed = sealed_source_research_composer_request_v2();
-        assert!(reject_non_sealed_source_research_composer_request_v2(&sealed).is_none());
+        assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&sealed).is_ok());
 
         fn assert_rejected(
             sealed: &DevelopComposerRunRequestV2,
             mutated: DevelopComposerRunRequestV2,
         ) {
             assert_eq!(mutated.request_identity, sealed.request_identity);
-            let rejection = reject_non_sealed_source_research_composer_request_v2(&mutated)
-                .expect("same-identity mutation must fail before PostgreSQL delegation");
-            assert_eq!(rejection.request_identity, sealed.request_identity);
-            assert_eq!(
-                rejection.disposition,
-                crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Conflict
-            );
-            assert_eq!(
-                rejection.coordinate.as_deref(),
-                Some("sealed_acceptance.source_research_composer_request")
-            );
+            let rejection = SealedSourceResearchComposerBindingOwnerV2::read_for_run(&mutated)
+                .err()
+                .expect("same-identity mutation must fail at the Binding Owner");
+            assert_eq!(rejection.coordinate, "market_data_binding");
         }
 
         macro_rules! assert_binding_mutation_rejected {
@@ -1822,44 +1818,37 @@ mod tests {
         assert_rejected(&sealed, reordered_roles);
     }
 
-    #[test]
-    fn sealed_a2_request_gate_rejects_every_top_level_mutation() {
-        let sealed = sealed_source_research_composer_request_v2();
+    #[rstest::rstest]
+    fn runtime_binding_owner_accepts_each_lineage_and_rejects_the_closed_binding_tampers() {
+        for seed in [31, 32] {
+            let research = CurrentResearchDevelopCustodyV2::fixture(
+                &format!("runtime-research-{seed}"),
+                "runtime falsifier",
+                seed,
+            );
+            let canonical = derive_source_research_composer_request_v2(&research)
+                .expect("Research-derived request");
+            assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&canonical).is_ok());
+            for selector in SourceResearchComposerAcceptanceTamperV2::ALL {
+                let mut tampered = canonical.clone();
+                tamper_source_research_composer_request_v2(&mut tampered, selector)
+                    .expect("fixed input exists");
 
-        let mut changed_identity = sealed.clone();
-        changed_identity.request_identity.push_str("-changed");
-        assert!(reject_non_sealed_source_research_composer_request_v2(&changed_identity).is_some());
-
-        for mutated in [
-            {
-                let mut request = sealed.clone();
-                request.research_custody_reference.push_str("-changed");
-                request
-            },
-            {
-                let mut request = sealed.clone();
-                request.design.falsifier.push_str(" changed");
-                request
-            },
-            {
-                let mut request = sealed.clone();
-                request.binding_requests.pop();
-                request
-            },
-            {
-                let mut request = sealed.clone();
-                request.plugin_source_capsules[0]
-                    .language
-                    .push_str("-changed");
-                request
-            },
-        ] {
-            assert_eq!(mutated.request_identity, sealed.request_identity);
-            assert!(reject_non_sealed_source_research_composer_request_v2(&mutated).is_some());
+                if tampered.binding_requests != canonical.binding_requests {
+                    assert!(
+                        SealedSourceResearchComposerBindingOwnerV2::read_for_run(&tampered)
+                            .is_err(),
+                        "{selector:?}"
+                    );
+                }
+            }
+            let mut missing = canonical.clone();
+            missing.binding_requests.pop();
+            assert!(SealedSourceResearchComposerBindingOwnerV2::read_for_run(&missing).is_err());
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn dedicated_a2_a0_verifier_accepts_exact_corpus_and_rejects_single_mutations() {
         let request = sealed_source_research_composer_request_v2();
         let manifest = &request.design.plugins[0];
@@ -1934,7 +1923,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn fixed_a2_a0_builder_counts_each_successful_execution_once() {
         let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
         let request = sealed_source_research_composer_request_v2();
@@ -1964,7 +1953,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn prepared_a0_is_built_between_initial_and_final_evidence_reads() {
         let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
         let research = CurrentResearchDevelopCustodyV2::fixture(
@@ -2007,7 +1996,7 @@ mod tests {
         assert_eq!(reads.load(AtomicOrdering::SeqCst), 2);
     }
 
-    #[test]
+    #[rstest::rstest]
     fn prepared_a0_rejects_postbuild_owner_drift_before_positive_construction() {
         let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
         let research = CurrentResearchDevelopCustodyV2::fixture(
@@ -2047,7 +2036,7 @@ mod tests {
         assert_eq!(terminal.coordinate, "final_evidence");
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "regenerates the dedicated A2 sealed A0 corpus from the admitted Darwin producer"]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn regenerate_source_research_composer_sealed_a0_corpus_from_real_producer() {
@@ -2066,7 +2055,7 @@ mod tests {
             .expect("dedicated A2 receipt fixture");
     }
 
-    #[test]
+    #[rstest::rstest]
     fn sealed_a2_market_authority_is_repeatable_and_rejects_identity_substitution() {
         let request = sealed_source_research_composer_request_v2();
         let StrategyDesignPreparationV2::Prepared {
@@ -2112,7 +2101,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn every_closed_acceptance_tamper_changes_the_derived_request_digest() {
         let canonical = sealed_source_research_composer_request_v2();
         let canonical_digest = request_digest(&canonical);

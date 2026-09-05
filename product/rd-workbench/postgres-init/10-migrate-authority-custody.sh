@@ -7,7 +7,10 @@ set -eu
 case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in
   0) composer_acceptance=false ;;
   1) composer_acceptance=true ;;
-  *) echo "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE must be 0, 1, or unset" >&2; exit 1 ;;
+  *)
+    echo "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE must be 0, 1, or unset" >&2
+    exit 1
+    ;;
 esac
 export PGPASSWORD="$POSTGRES_PASSWORD"
 psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgres --dbname "${POSTGRES_DATABASE:-rd_owner}" \
@@ -1651,7 +1654,7 @@ LANGUAGE sql STRICT STABLE PARALLEL SAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $composer_role_set_read$SELECT attestation.attestation_identity,attestation.attestation_digest,attestation.canonical_bytes FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 attestation WHERE attestation.request_identity=p_request_identity AND attestation.composer_schema_version=p_composer_schema_version AND attestation.operation_receipt_identity=p_operation_receipt_identity AND attestation.artifact_locator=p_artifact_locator AND attestation.artifact_identity=p_artifact_identity AND attestation.canonical_plan_digest=p_canonical_plan_digest AND attestation.design_digest=p_design_digest$composer_role_set_read$;
 ALTER FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) FROM PUBLIC, rd_owner, rd_fact_writer;
-GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader, rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.resolve_strategy_design_native_join_v1(
   p_request_identity text, p_composer_schema_version integer, p_operation_receipt_identity bytea,
   p_artifact_locator text, p_artifact_identity bytea, p_canonical_plan_digest bytea, p_design_digest bytea
@@ -1681,6 +1684,7 @@ GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,byt
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_owner;
 \endif
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
+GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea) TO rd_owner;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
 \if :composer_acceptance
 SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','true',true);
@@ -1780,7 +1784,7 @@ $catalog_audit_read$
     AND (NOT composer_acceptance OR (pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')))
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
-    AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')

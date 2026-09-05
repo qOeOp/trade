@@ -1,15 +1,16 @@
 //! Disposable A2 stored-custody tamper probe.
 //!
 //! This binary is deliberately feature-gated and has no runtime-selected database surface.  Every
-//! intervention is a compile-time statement selected from [`StoredCase::ALL`].  The administrative
-//! connection and bearer credential belong only to the short-lived acceptance service.
+//! intervention is a compile-time statement selected from [`StoredCase::ALL`]. Database access
+//! requires dedicated test admission; only the disposable harness installs the fixed fault ports.
 
-use anyhow::{Context, Result, anyhow, bail, ensure};
+use anyhow::Context;
 use reqwest::{Client, StatusCode};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
-use sqlx::{Connection, PgConnection, Row};
+use sqlx::PgConnection;
 use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
+use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
 
 const INPUT_PATH: &str = "/run/source-research-composer-stored-tamper/input.json";
 const OWNER_BASE_URL: &str = "http://rd-owner-api:8080";
@@ -29,30 +30,12 @@ struct Baseline {
 
 struct RestoreLease {
     case: StoredCase,
+    marker: String,
 }
 
 impl RestoreLease {
-    async fn restore(self, connection: &mut PgConnection) -> Result<()> {
-        let mut transaction = connection.begin().await.context("restore transaction")?;
-        sqlx::query("SET LOCAL session_replication_role=replica")
-            .execute(&mut *transaction)
-            .await
-            .context("arm bounded restore")?;
-        let restored = sqlx::query(self.case.restore_sql())
-            .bind(self.case.label())
-            .execute(&mut *transaction)
-            .await
-            .context("restore stored value")?
-            .rows_affected();
-        ensure!(restored == 1, "restore did not affect exactly one row");
-        transaction.commit().await.context("commit restore")?;
-        let deleted = sqlx::query("DELETE FROM pg_temp.a2_stored_preimages WHERE selector=$1")
-            .bind(self.case.label())
-            .execute(&mut *connection)
-            .await
-            .context("delete consumed preimage")?
-            .rows_affected();
-        ensure!(deleted == 1, "consumed preimage was not deleted");
+    async fn restore(self, connection: &mut PgConnection) -> anyhow::Result<()> {
+        port(connection, &self.marker, "restore", self.case.label(), "").await?;
         Ok(())
     }
 }
@@ -385,31 +368,277 @@ SELECT row_value FROM (
 ) facts ORDER BY row_value
 "#;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let input = read_input(Path::new(INPUT_PATH))?;
-    let database_url = secret("SEALED_POSTGRES_ADMIN_DATABASE_URL")?;
-    let bearer = secret("SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN")?;
-    let mut connection = PgConnection::connect(&database_url)
+const CENSUS_SQL: &str = "SELECT ARRAY[(SELECT count(*) FROM public.rd_research_request_receipts_v1),(SELECT count(*) FROM composer_private.rd_develop_designs_v2),(SELECT count(*) FROM composer_private.rd_develop_plans_v2),(SELECT count(*) FROM composer_private.rd_develop_artifacts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2),(SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2),(SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_operations_v2),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1),(SELECT count(*) FROM composer_private.rd_develop_outbox_v2)]::text[]";
+
+async fn port(
+    connection: &mut PgConnection,
+    marker: &str,
+    operation: &str,
+    selector: &str,
+    key: &str,
+) -> anyhow::Result<Vec<Vec<String>>> {
+    sqlx::query_scalar("SELECT * FROM vibe_test_admin.a2_stored_port_v1($1,$2,$3,$4)")
+        .bind(marker)
+        .bind(operation)
+        .bind(selector)
+        .bind(key)
+        .fetch_all(connection)
         .await
-        .context("connect disposable PostgreSQL")?;
+        .context("closed stored-tamper port rejected")
+}
+
+// This generator has no input, connection, or environment access. psql binds the independently
+// generated identity only in setup DDL; executable fault statements come solely from StoredCase.
+fn install_sql() -> anyhow::Result<String> {
+    anyhow::ensure!(
+        StoredCase::ALL.len() == 34,
+        "stored selector domain changed"
+    );
+    let mut sql = String::from(
+        r#"
+\set ON_ERROR_STOP on
+SELECT 1 / ((session_user='postgres' AND current_user='postgres'
+  AND pg_catalog.current_database()=:'test_database' AND :'test_database' ~ '^vibe_test_[0-9a-f]+$'
+  AND :'test_role' ~ '^vibe_test_role_[0-9a-f]+$' AND :'test_marker' ~ '^[0-9a-f]{48}$')::integer);
+BEGIN;
+CREATE ROLE :"test_role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+CREATE SCHEMA vibe_test_admin AUTHORIZATION postgres;
+REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
+CREATE TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 (
+  marker_identity text NOT NULL, database_name text NOT NULL, test_role text PRIMARY KEY
+);
+ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
+INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1 VALUES (:'test_marker', :'test_database', :'test_role');
+GRANT USAGE ON SCHEMA vibe_test_admin TO :"test_role";
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO :"test_role";
+CREATE TABLE vibe_test_admin.a2_stored_preimages (
+  selector text NOT NULL, target_key jsonb NOT NULL, original_value jsonb NOT NULL,
+  backend_pid integer NOT NULL,
+  backend_start timestamptz NOT NULL,
+  PRIMARY KEY (backend_pid,backend_start,selector)
+);
+ALTER TABLE vibe_test_admin.a2_stored_preimages OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_admin.a2_stored_preimages FROM PUBLIC;
+CREATE FUNCTION vibe_test_admin.a2_stored_port_v1(expected_marker text, operation text, selector text, row_key text)
+RETURNS SETOF text[] LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+SET session_replication_role = origin
+AS $port$
+DECLARE capture_sql text; mutate_sql text; restore_sql text; selected_sql text; affected bigint;
+BEGIN
+  IF current_user <> 'postgres' OR NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 m
+    JOIN pg_catalog.pg_roles r ON r.rolname=m.test_role
+    WHERE m.test_role=session_user AND m.database_name=pg_catalog.current_database()
+      AND m.marker_identity=expected_marker
+      AND m.database_name ~ '^vibe_test_[0-9a-f]+$' AND m.test_role ~ '^vibe_test_role_[0-9a-f]+$'
+      AND NOT (r.rolsuper OR r.rolcreatedb OR r.rolcreaterole OR r.rolinherit OR r.rolreplication OR r.rolbypassrls)
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members a WHERE a.member=r.oid)
+  ) OR (SELECT count(*) FROM vibe_test_admin.dedicated_postgres_test_instance_v1) <> 1
+  OR NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_namespace n
+    WHERE n.nspname='vibe_test_admin' AND pg_catalog.pg_get_userbyid(n.nspowner)='postgres'
+  ) OR (SELECT count(*) FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='vibe_test_admin' AND c.relname IN ('dedicated_postgres_test_instance_v1','a2_stored_preimages')
+          AND c.relkind='r' AND c.relpersistence='p' AND pg_catalog.pg_get_userbyid(c.relowner)='postgres') <> 2
+  OR pg_catalog.has_schema_privilege(session_user,'vibe_test_admin','CREATE')
+  OR pg_catalog.has_database_privilege(session_user,pg_catalog.current_database(),'CREATE,TEMPORARY')
+  OR pg_catalog.has_table_privilege(session_user,'vibe_test_admin.dedicated_postgres_test_instance_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  OR pg_catalog.has_table_privilege(session_user,'vibe_test_admin.a2_stored_preimages','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+  THEN RAISE EXCEPTION 'stored-tamper admission guard rejected' USING ERRCODE='42501'; END IF;
+  IF operation IS NULL OR selector IS NULL OR row_key IS NULL THEN
+    RAISE EXCEPTION 'null stored-tamper operation input' USING ERRCODE='22023';
+  END IF;
+  IF operation='guard' AND selector='' AND row_key='' THEN RETURN; END IF;
+  IF operation NOT IN ('mutate','restore','selected','family','catalog','census') THEN
+    RAISE EXCEPTION 'invalid stored-tamper operation' USING ERRCODE='22023';
+  END IF;
+  IF operation IN ('mutate','restore','selected') THEN
+    CASE selector
+"#,
+    );
+
+    for case in StoredCase::ALL.iter().copied() {
+        anyhow::ensure!(
+            case.capture_sql()
+                .starts_with("INSERT INTO pg_temp.a2_stored_preimages SELECT $2,")
+                && case
+                    .capture_sql()
+                    .matches("pg_temp.a2_stored_preimages")
+                    .count()
+                    == 1
+                && case
+                    .restore_sql()
+                    .matches("pg_temp.a2_stored_preimages")
+                    .count()
+                    == 1
+                && case.restore_sql().matches(".selector=$1").count() == 1,
+            "stored specification cannot receive exact private preimage scope"
+        );
+        let capture = case.capture_sql().replace("pg_temp.a2_stored_preimages", "vibe_test_admin.a2_stored_preimages(backend_pid,backend_start,selector,target_key,original_value)")
+            .replacen("SELECT $2,", "SELECT pg_catalog.pg_backend_pid(),(SELECT backend_start FROM pg_catalog.pg_stat_activity WHERE pid=pg_catalog.pg_backend_pid()),$2,", 1);
+        let restore = case.restore_sql().replace("pg_temp.a2_stored_preimages",
+            "(SELECT selector,target_key,original_value FROM vibe_test_admin.a2_stored_preimages WHERE backend_pid=pg_catalog.pg_backend_pid() AND backend_start=(SELECT backend_start FROM pg_catalog.pg_stat_activity WHERE pid=pg_catalog.pg_backend_pid()))");
+        sql.push_str(&format!("WHEN '{}' THEN capture_sql := {}; mutate_sql := {}; restore_sql := {}; selected_sql := {};\n",
+            case.label(), sql_literal(&capture), sql_literal(case.mutate_sql()), sql_literal(&restore),
+            sql_literal(&format!("SELECT ARRAY[value] FROM ({}) selected(value)", case.selected_sql()))));
+    }
+    sql.push_str(r#"
+    ELSE RAISE EXCEPTION 'invalid stored-tamper selector' USING ERRCODE='22023';
+    END CASE;
+  ELSIF selector<>'' OR row_key<>'' THEN
+    RAISE EXCEPTION 'unexpected stored-tamper row key' USING ERRCODE='22023';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_locks l WHERE l.locktype='advisory' AND l.pid=pg_catalog.pg_backend_pid()
+      AND l.database=(SELECT d.oid FROM pg_catalog.pg_database d WHERE d.datname=pg_catalog.current_database())
+      AND l.classid=1093817172::oid AND l.objid=1330791748::oid AND l.objsubid=1
+      AND l.mode='ExclusiveLock' AND l.granted
+  ) THEN RAISE EXCEPTION 'stored-tamper session lock absent' USING ERRCODE='42501'; END IF;
+  CASE operation
+  WHEN 'mutate' THEN
+    EXECUTE capture_sql USING row_key,selector;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN RAISE EXCEPTION 'capture must affect exactly one row'; END IF;
+    PERFORM pg_catalog.set_config('session_replication_role','replica',true);
+    EXECUTE mutate_sql USING row_key;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN RAISE EXCEPTION 'mutation must affect exactly one row'; END IF;
+  WHEN 'restore' THEN
+    PERFORM pg_catalog.set_config('session_replication_role','replica',true);
+    EXECUTE restore_sql USING selector;
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN RAISE EXCEPTION 'restore must affect exactly one row'; END IF;
+    DELETE FROM vibe_test_admin.a2_stored_preimages p WHERE p.selector=a2_stored_port_v1.selector
+      AND p.backend_pid=pg_catalog.pg_backend_pid()
+      AND p.backend_start=(SELECT backend_start FROM pg_catalog.pg_stat_activity WHERE pid=pg_catalog.pg_backend_pid());
+    GET DIAGNOSTICS affected=ROW_COUNT;
+    IF affected<>1 THEN RAISE EXCEPTION 'restore must delete exactly one preimage'; END IF;
+  WHEN 'selected' THEN RETURN QUERY EXECUTE selected_sql USING row_key;
+"#);
+
+    for (operation, statement) in [
+        (
+            "family",
+            format!("SELECT ARRAY[family,row_value] FROM ({FAMILY_SQL}) digest"),
+        ),
+        (
+            "catalog",
+            format!("SELECT ARRAY[row_value] FROM ({CATALOG_SQL}) digest"),
+        ),
+        ("census", CENSUS_SQL.to_owned()),
+    ] {
+        sql.push_str(&format!(
+            "WHEN '{operation}' THEN RETURN QUERY EXECUTE {};\n",
+            sql_literal(&statement)
+        ));
+    }
+    sql.push_str(
+        r#"
+  ELSE RAISE EXCEPTION 'invalid stored-tamper operation' USING ERRCODE='22023';
+  END CASE;
+END
+$port$;
+ALTER FUNCTION vibe_test_admin.a2_stored_port_v1(text,text,text,text) OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.a2_stored_port_v1(text,text,text,text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.a2_stored_port_v1(text,text,text,text) TO :"test_role";
+COMMIT;
+"#,
+    );
+    anyhow::ensure!(
+        !sql.contains("pg_temp"),
+        "generated port trusts temporary objects"
+    );
+    Ok(sql)
+}
+
+fn sql_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let args: Vec<String> = env::args().skip(1).collect();
+    if args == ["--emit-install-sql"] {
+        print!("{}", install_sql()?);
+        return Ok(());
+    }
+    anyhow::ensure!(
+        args.is_empty() || args == ["--admission-only"] || args == ["--check-invalid-ports"],
+        "unsupported probe mode"
+    );
+    let database = DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")
+        .await
+        .context("dedicated test admission rejected")?;
+    let mutation = database.mutation();
+    let marker = mutation.marker_identity();
+    let mut connection = mutation
+        .pool()
+        .acquire()
+        .await
+        .context("acquire admitted connection")?;
+    port(&mut connection, marker, "guard", "", "").await?;
+
+    if args == ["--admission-only"] {
+        println!("stored_tamper_admission=accepted");
+        return Ok(());
+    }
     sqlx::query("SET lock_timeout='5s'")
-        .execute(&mut connection)
+        .execute(&mut *connection)
         .await
         .context("bound database lock wait")?;
     sqlx::query("SET statement_timeout='15s'")
-        .execute(&mut connection)
+        .execute(&mut *connection)
         .await
         .context("bound database statement time")?;
     sqlx::query("SELECT pg_advisory_lock($1)")
         .bind(ADVISORY_LOCK_KEY)
-        .execute(&mut connection)
+        .execute(&mut *connection)
         .await
         .context("acquire stored-tamper lock")?;
-    sqlx::query("CREATE TEMP TABLE a2_stored_preimages(selector text PRIMARY KEY,target_key jsonb NOT NULL,original_value jsonb NOT NULL) ON COMMIT PRESERVE ROWS")
-        .execute(&mut connection)
-        .await
-        .context("create private preimage table")?;
+
+    if args == ["--check-invalid-ports"] {
+        let family_before = digest_rows(&mut connection, marker, "family").await?;
+        let catalog_before = digest_rows(&mut connection, marker, "catalog").await?;
+        let census_before = census(&mut connection, marker).await?;
+
+        for (operation, selector) in [
+            ("invalid", ""),
+            ("mutate", "invalid"),
+            ("restore", "invalid"),
+            ("selected", "invalid"),
+        ] {
+            let error = port(&mut connection, marker, operation, selector, "")
+                .await
+                .err()
+                .ok_or_else(|| anyhow::anyhow!("invalid fault port was admitted"))?;
+            anyhow::ensure!(
+                error.chain().any(
+                    |cause| cause.downcast_ref::<sqlx::Error>().is_some_and(|e| e
+                        .as_database_error()
+                        .is_some_and(|e| e.code().as_deref() == Some("22023")))
+                ),
+                "invalid fault port failed for an unrelated reason"
+            );
+        }
+        anyhow::ensure!(
+            digest_rows(&mut connection, marker, "family").await? == family_before,
+            "invalid ports changed stored bytes"
+        );
+        anyhow::ensure!(
+            digest_rows(&mut connection, marker, "catalog").await? == catalog_before,
+            "invalid ports changed Owner rights"
+        );
+        anyhow::ensure!(
+            census(&mut connection, marker).await? == census_before,
+            "invalid ports changed positive census"
+        );
+        println!("stored_tamper_invalid_ports=rejected");
+        return Ok(());
+    }
+    let input = read_input(Path::new(INPUT_PATH))?;
+    let bearer = secret("SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN")?;
 
     let client = Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -418,20 +647,22 @@ async fn main() -> Result<()> {
         .context("build Owner client")?;
     let mut baselines = Vec::with_capacity(2);
     let mut request_identities = Vec::with_capacity(2);
+
     for locator in &input.research_request_locators {
         let request_identity = projected_request_identity(&client, &bearer, locator).await?;
         baselines.push(ordinary_baseline(&client, &bearer, locator, &request_identity).await?);
         request_identities.push(request_identity);
     }
-    let family_baseline = digest_rows(&mut connection, FAMILY_SQL).await?;
-    let catalog_baseline = digest_rows(&mut connection, CATALOG_SQL).await?;
-    let census_baseline = census(&mut connection).await?;
+    let family_baseline = digest_rows(&mut connection, marker, "family").await?;
+    let catalog_baseline = digest_rows(&mut connection, marker, "catalog").await?;
+    let census_baseline = census(&mut connection, marker).await?;
     let a0_baseline = a0_count(&client, &bearer).await?;
 
     let locator = &input.research_request_locators[0];
     let request_identity = &request_identities[0];
     let mut unavailable = 0usize;
     let mut submitted_unknown = 0usize;
+
     for case in StoredCase::ALL.iter().copied() {
         let key = if matches!(
             case,
@@ -456,55 +687,40 @@ async fn main() -> Result<()> {
         } else {
             request_identity
         };
-        let selected_before = selected_row_digest(&mut connection, case, key).await?;
-        let mut transaction = connection.begin().await.context("tamper transaction")?;
-        let captured = sqlx::query(case.capture_sql())
-            .bind(key)
-            .bind(case.label())
-            .execute(&mut *transaction)
-            .await
-            .context("capture exact preimage")?
-            .rows_affected();
-        ensure!(captured == 1, "selector did not capture exactly one row");
-        sqlx::query("SET LOCAL session_replication_role=replica")
-            .execute(&mut *transaction)
-            .await
-            .context("arm bounded mutation")?;
-        let changed = sqlx::query(case.mutate_sql())
-            .bind(key)
-            .execute(&mut *transaction)
-            .await
-            .context("apply one-column mutation")?
-            .rows_affected();
-        ensure!(changed == 1, "selector did not mutate exactly one row");
-        transaction
-            .commit()
-            .await
-            .context("commit one-column mutation")?;
-        let lease = RestoreLease { case };
+        let selected_before = selected_row_digest(&mut connection, marker, case, key).await?;
+        port(&mut connection, marker, "mutate", case.label(), key).await?;
+        let lease = RestoreLease {
+            case,
+            marker: marker.to_owned(),
+        };
 
         let probe_result = async {
-            ensure!(
-                census(&mut connection).await? == census_baseline,
+            anyhow::ensure!(
+                census(&mut connection, marker).await? == census_baseline,
                 "tamper changed positive census"
             );
-            ensure!(
+            anyhow::ensure!(
                 a0_count(&client, &bearer).await? == a0_baseline,
                 "tamper changed A0 census before Owner calls"
             );
-            let run = owner_run(&client, &bearer, locator).await?;
-            let resolve = owner_resolve(&client, &bearer, request_identity).await?;
+            let run = owner_run(&client, &bearer, locator)
+                .await
+                .context("stored-custody RUN")?;
+            let resolve = owner_resolve(&client, &bearer, request_identity)
+                .await
+                .context("stored-custody RESOLVE")?;
+
             for disposition in [run, resolve] {
                 match disposition {
                     FailureDisposition::Unavailable => unavailable += 1,
                     FailureDisposition::SubmittedOrUnknown => submitted_unknown += 1,
                 }
             }
-            ensure!(
-                census(&mut connection).await? == census_baseline,
+            anyhow::ensure!(
+                census(&mut connection, marker).await? == census_baseline,
                 "Owner calls changed positive census"
             );
-            ensure!(
+            anyhow::ensure!(
                 a0_count(&client, &bearer).await? == a0_baseline,
                 "Owner calls changed A0 census"
             );
@@ -512,26 +728,27 @@ async fn main() -> Result<()> {
         }
         .await;
 
-        if let Err(error) = lease.restore(&mut connection).await {
-            return Err(error.context("mandatory restore failed; stopping whole probe"));
+        if let Err(e) = lease.restore(&mut connection).await {
+            return Err(e.context("mandatory restore failed; stopping whole probe"));
         }
-        probe_result?;
-        ensure!(
-            selected_row_digest(&mut connection, case, key).await? == selected_before,
+        probe_result.with_context(|| format!("stored-custody selector {}", case.label()))?;
+        anyhow::ensure!(
+            selected_row_digest(&mut connection, marker, case, key).await? == selected_before,
             "selected row did not restore byte-exactly"
         );
-        ensure!(
-            digest_rows(&mut connection, FAMILY_SQL).await? == family_baseline,
+        anyhow::ensure!(
+            digest_rows(&mut connection, marker, "family").await? == family_baseline,
             "family digest did not restore"
         );
-        ensure!(
-            digest_rows(&mut connection, CATALOG_SQL).await? == catalog_baseline,
+        anyhow::ensure!(
+            digest_rows(&mut connection, marker, "catalog").await? == catalog_baseline,
             "trigger or ACL catalog changed"
         );
-        ensure!(
-            census(&mut connection).await? == census_baseline,
+        anyhow::ensure!(
+            census(&mut connection, marker).await? == census_baseline,
             "restored positive census differs"
         );
+
         for index in 0..2 {
             assert_ordinary_baseline(
                 &client,
@@ -546,7 +763,7 @@ async fn main() -> Result<()> {
 
     sqlx::query("SELECT pg_advisory_unlock($1)")
         .bind(ADVISORY_LOCK_KEY)
-        .execute(&mut connection)
+        .execute(&mut *connection)
         .await
         .context("release stored-tamper lock")?;
     println!(
@@ -560,22 +777,23 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-fn read_input(path: &Path) -> Result<ProbeInput> {
+fn read_input(path: &Path) -> anyhow::Result<ProbeInput> {
     let metadata = fs::metadata(path).context("inspect bounded input")?;
-    ensure!(
+    anyhow::ensure!(
         metadata.permissions().mode() & 0o777 == 0o600,
         "input must have mode 0600"
     );
-    ensure!(metadata.len() <= 2048, "input exceeds bounded size");
+    anyhow::ensure!(metadata.len() <= 2048, "input exceeds bounded size");
     let input: ProbeInput = serde_json::from_slice(&fs::read(path).context("read bounded input")?)
         .context("parse bounded input")?;
-    ensure!(input.schema_version == 1, "unsupported input schema");
-    ensure!(
+    anyhow::ensure!(input.schema_version == 1, "unsupported input schema");
+    anyhow::ensure!(
         input.research_request_locators[0] != input.research_request_locators[1],
         "locators must be distinct"
     );
+
     for locator in &input.research_request_locators {
-        ensure!(
+        anyhow::ensure!(
             !locator.is_empty() && locator.len() <= 256 && !locator.chars().any(char::is_control),
             "invalid locator"
         );
@@ -583,9 +801,9 @@ fn read_input(path: &Path) -> Result<ProbeInput> {
     Ok(input)
 }
 
-fn secret(name: &str) -> Result<String> {
-    let value = env::var(name).map_err(|_| anyhow!("required secret is unavailable"))?;
-    ensure!(!value.is_empty(), "required secret is empty");
+fn secret(name: &str) -> anyhow::Result<String> {
+    let value = env::var(name).map_err(|_| anyhow::anyhow!("required secret is unavailable"))?;
+    anyhow::ensure!(!value.is_empty(), "required secret is empty");
     Ok(value)
 }
 
@@ -593,7 +811,7 @@ async fn projected_request_identity(
     client: &Client,
     bearer: &str,
     locator: &str,
-) -> Result<String> {
+) -> anyhow::Result<String> {
     let response = client
         .get(format!(
             "{OWNER_BASE_URL}/v2/develop-composer/request-projections"
@@ -603,7 +821,7 @@ async fn projected_request_identity(
         .send()
         .await
         .context("request Owner projection")?;
-    ensure!(
+    anyhow::ensure!(
         response.status() == StatusCode::OK,
         "Owner projection unavailable"
     );
@@ -613,7 +831,7 @@ async fn projected_request_identity(
         .and_then(serde_json::Value::as_str)
         .filter(|v| !v.is_empty())
         .map(str::to_owned)
-        .ok_or_else(|| anyhow!("Owner projection omitted request identity"))
+        .ok_or_else(|| anyhow::anyhow!("Owner projection omitted request identity"))
 }
 
 async fn ordinary_baseline(
@@ -621,7 +839,7 @@ async fn ordinary_baseline(
     bearer: &str,
     locator: &str,
     request: &str,
-) -> Result<Baseline> {
+) -> anyhow::Result<Baseline> {
     let run = owner_success_bytes(
         client
             .post(format!("{OWNER_BASE_URL}/v2/develop-composer/runs"))
@@ -646,21 +864,21 @@ async fn assert_ordinary_baseline(
     locator: &str,
     request: &str,
     baseline: &Baseline,
-) -> Result<()> {
+) -> anyhow::Result<()> {
     let observed = ordinary_baseline(client, bearer, locator, request).await?;
-    ensure!(
+    anyhow::ensure!(
         observed.run == baseline.run && observed.resolve == baseline.resolve,
         "ordinary Owner response changed after restore"
     );
     Ok(())
 }
 
-async fn owner_success_bytes(builder: reqwest::RequestBuilder) -> Result<Vec<u8>> {
+async fn owner_success_bytes(builder: reqwest::RequestBuilder) -> anyhow::Result<Vec<u8>> {
     let response = builder
         .send()
         .await
         .context("call ordinary Owner endpoint")?;
-    ensure!(
+    anyhow::ensure!(
         response.status() == StatusCode::OK,
         "ordinary Owner endpoint was not successful"
     );
@@ -671,7 +889,7 @@ async fn owner_success_bytes(builder: reqwest::RequestBuilder) -> Result<Vec<u8>
         .to_vec();
     let value: serde_json::Value =
         serde_json::from_slice(&bytes).context("parse ordinary Owner response")?;
-    ensure!(
+    anyhow::ensure!(
         value.get("disposition").and_then(serde_json::Value::as_str) == Some("SUCCESS"),
         "ordinary Owner response was not SUCCESS"
     );
@@ -683,7 +901,11 @@ enum FailureDisposition {
     SubmittedOrUnknown,
 }
 
-async fn owner_run(client: &Client, bearer: &str, locator: &str) -> Result<FailureDisposition> {
+async fn owner_run(
+    client: &Client,
+    bearer: &str,
+    locator: &str,
+) -> anyhow::Result<FailureDisposition> {
     failure_disposition(
         client
             .post(format!("{OWNER_BASE_URL}/v2/develop-composer/runs"))
@@ -693,7 +915,11 @@ async fn owner_run(client: &Client, bearer: &str, locator: &str) -> Result<Failu
     .await
 }
 
-async fn owner_resolve(client: &Client, bearer: &str, request: &str) -> Result<FailureDisposition> {
+async fn owner_resolve(
+    client: &Client,
+    bearer: &str,
+    request: &str,
+) -> anyhow::Result<FailureDisposition> {
     failure_disposition(
         client
             .post(format!(
@@ -704,7 +930,9 @@ async fn owner_resolve(client: &Client, bearer: &str, request: &str) -> Result<F
     .await
 }
 
-async fn failure_disposition(builder: reqwest::RequestBuilder) -> Result<FailureDisposition> {
+async fn failure_disposition(
+    builder: reqwest::RequestBuilder,
+) -> anyhow::Result<FailureDisposition> {
     let response = builder
         .send()
         .await
@@ -714,13 +942,14 @@ async fn failure_disposition(builder: reqwest::RequestBuilder) -> Result<Failure
         .json()
         .await
         .context("parse tampered Owner response")?;
-    ensure!(
+    anyhow::ensure!(
         value
             .get("receipt_identity")
             .is_none_or(serde_json::Value::is_null)
             && value.get("artifact").is_none_or(serde_json::Value::is_null),
         "tampered Owner returned positive custody"
     );
+
     match (
         status,
         value.get("disposition").and_then(serde_json::Value::as_str),
@@ -731,37 +960,35 @@ async fn failure_disposition(builder: reqwest::RequestBuilder) -> Result<Failure
         (StatusCode::ACCEPTED, Some("SUBMITTED_OR_UNKNOWN")) => {
             Ok(FailureDisposition::SubmittedOrUnknown)
         }
-        _ => bail!("tampered Owner returned forbidden disposition"),
+        _ => anyhow::bail!("tampered Owner returned forbidden disposition"),
     }
 }
 
 async fn selected_row_digest(
     connection: &mut PgConnection,
+    marker: &str,
     case: StoredCase,
     key: &str,
-) -> Result<[u8; 32]> {
-    let rows = sqlx::query(case.selected_sql())
-        .bind(key)
-        .fetch_all(connection)
-        .await
-        .context("read selected row")?;
-    ensure!(
+) -> anyhow::Result<[u8; 32]> {
+    let rows = port(connection, marker, "selected", case.label(), key).await?;
+    anyhow::ensure!(
         rows.len() == 1,
         "selector did not resolve exactly one stored row"
     );
-    let value: String = rows[0].try_get(0).context("decode selected row")?;
+    let value = &rows[0][0];
     Ok(Sha256::digest(value.as_bytes()).into())
 }
 
-async fn digest_rows(connection: &mut PgConnection, sql: &'static str) -> Result<[u8; 32]> {
-    let rows = sqlx::query(sql)
-        .fetch_all(connection)
-        .await
-        .context("read fixed digest surface")?;
+async fn digest_rows(
+    connection: &mut PgConnection,
+    marker: &str,
+    operation: &str,
+) -> anyhow::Result<[u8; 32]> {
+    let rows = port(connection, marker, operation, "", "").await?;
     let mut digest = Sha256::new();
+
     for row in rows {
-        for index in 0..row.len() {
-            let value: String = row.try_get(index).context("decode digest surface")?;
+        for value in row {
             digest.update((value.len() as u64).to_be_bytes());
             digest.update(value.as_bytes());
         }
@@ -769,15 +996,16 @@ async fn digest_rows(connection: &mut PgConnection, sql: &'static str) -> Result
     Ok(digest.finalize().into())
 }
 
-async fn census(connection: &mut PgConnection) -> Result<Vec<i64>> {
-    let row = sqlx::query("SELECT (SELECT count(*) FROM public.rd_research_request_receipts_v1),(SELECT count(*) FROM composer_private.rd_develop_designs_v2),(SELECT count(*) FROM composer_private.rd_develop_plans_v2),(SELECT count(*) FROM composer_private.rd_develop_artifacts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2),(SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2),(SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2),(SELECT count(*) FROM composer_private.rd_develop_operations_v2),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1),(SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1),(SELECT count(*) FROM composer_private.rd_develop_outbox_v2)")
-        .fetch_one(connection).await.context("read positive census")?;
-    (0..row.len())
-        .map(|index| row.try_get(index).context("decode positive census"))
+async fn census(connection: &mut PgConnection, marker: &str) -> anyhow::Result<Vec<i64>> {
+    let rows = port(connection, marker, "census", "", "").await?;
+    anyhow::ensure!(rows.len() == 1, "census omitted its exact row");
+    rows[0]
+        .iter()
+        .map(|value| value.parse().context("decode positive census"))
         .collect()
 }
 
-async fn a0_count(client: &Client, bearer: &str) -> Result<u64> {
+async fn a0_count(client: &Client, bearer: &str) -> anyhow::Result<u64> {
     let response = client
         .get(format!(
             "{OWNER_BASE_URL}/_sealed-acceptance/v1/develop-composer/a0-executions"
@@ -786,10 +1014,10 @@ async fn a0_count(client: &Client, bearer: &str) -> Result<u64> {
         .send()
         .await
         .context("read A0 census")?;
-    ensure!(response.status() == StatusCode::OK, "A0 census unavailable");
+    anyhow::ensure!(response.status() == StatusCode::OK, "A0 census unavailable");
     let value: serde_json::Value = response.json().await.context("parse A0 census")?;
     value
         .get("a0_executions")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| anyhow!("invalid A0 census"))
+        .ok_or_else(|| anyhow::anyhow!("invalid A0 census"))
 }

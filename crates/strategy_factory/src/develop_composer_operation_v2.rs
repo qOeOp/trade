@@ -688,6 +688,7 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
         build_reads,
         build_receipt_bytes,
     } = prepared;
+
     if final_locked != preflight.locked {
         return Err(unavailable(
             "final_evidence",

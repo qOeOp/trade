@@ -82,7 +82,22 @@ use vibe_strategy_factory::source_research_composer_postgres_v2::{
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceResearchComposerLocatorV2 {
+    #[serde(deserialize_with = "deserialize_research_locator_v2")]
     research_request_locator: String,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn deserialize_research_locator_v2<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let locator = String::deserialize(deserializer)?;
+    if locator.trim().is_empty() || locator.len() > 256 {
+        return Err(serde::de::Error::custom(
+            "a bounded Research request locator is required",
+        ));
+    }
+    Ok(locator)
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -455,6 +470,7 @@ async fn run_develop_composer_with_acceptance_control(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
         return status.into_response();
     }
@@ -462,6 +478,7 @@ async fn run_develop_composer_with_acceptance_control(
         Ok(request) => request,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
+
     match state
         .develop_composer
         .run_with_acceptance_control(&request.research_request_locator, request.control)
@@ -482,6 +499,7 @@ async fn resolve_develop_composer_with_acceptance_tamper(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
         return status.into_response();
     }
@@ -489,6 +507,7 @@ async fn resolve_develop_composer_with_acceptance_tamper(
         Ok(request) => request,
         Err(_) => return StatusCode::BAD_REQUEST.into_response(),
     };
+
     match state
         .develop_composer
         .resolve_with_acceptance_tamper(&request_identity, request.tamper)
@@ -636,6 +655,7 @@ async fn run_develop_composer(
                 );
             }
         };
+
         match state
             .develop_composer
             .run(&request.research_request_locator)
@@ -645,6 +665,7 @@ async fn run_develop_composer(
                 let delay_after_commit =
                     response.disposition == DevelopComposerOperationDispositionV2::Success;
                 let response = composer_operation_response(response);
+
                 if delay_after_commit {
                     maybe_delay(&state, &headers).await;
                 }
@@ -667,6 +688,7 @@ async fn project_develop_composer_request(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     match state
         .develop_composer
         .request_projection(&request.research_request_locator)
@@ -816,6 +838,35 @@ mod develop_composer_api_contract_tests {
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[rstest]
+    fn a2_locator_decode_enforces_the_transport_byte_bound_without_rewriting_identity() {
+        for locator in [
+            "research/request v2".to_owned(),
+            "x".repeat(256),
+            "\u{754c}".repeat(85),
+        ] {
+            let request = serde_json::json!({"research_request_locator": locator});
+            let parsed: SourceResearchComposerLocatorV2 =
+                serde_json::from_value(request).expect("bounded locator");
+            assert_eq!(parsed.research_request_locator, locator);
+        }
+
+        for locator in [
+            String::new(),
+            " \t\n".to_owned(),
+            "x".repeat(257),
+            "\u{754c}".repeat(86),
+        ] {
+            assert!(
+                serde_json::from_value::<SourceResearchComposerLocatorV2>(
+                    serde_json::json!({"research_request_locator": locator})
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
     fn a2_execution_count_json_has_only_the_exact_contract_keys() {
         let value = serde_json::to_value(DevelopComposerA0ExecutionsV1 {
             schema_version: 1,
@@ -829,7 +880,7 @@ mod develop_composer_api_contract_tests {
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn acceptance_routes_accept_only_closed_control_selectors() {
         let request: SourceResearchComposerAcceptanceRunV2 = serde_json::from_slice(
             br#"{"research_request_locator":"research-1","control":{"kind":"FailAfter","selector":"AfterDesign"}}"#,
@@ -856,7 +907,7 @@ mod develop_composer_api_contract_tests {
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn acceptance_fault_controls_require_the_explicit_runtime_gate() {
         assert_eq!(
             admit_sealed_acceptance_fault_control(false),
@@ -865,6 +916,7 @@ mod develop_composer_api_contract_tests {
         assert_eq!(admit_sealed_acceptance_fault_control(true), Ok(()));
 
         let source = include_str!("main.rs");
+
         for (handler, next_item) in [
             (
                 "async fn run_develop_composer_with_acceptance_control",

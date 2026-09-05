@@ -18,6 +18,7 @@ sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
 sealed-source-intake-composer-acceptance = [
   "sealed-source-intake-research-acceptance",
   "sealed-develop-composer-acceptance",
+  "dep:vibe-testkit",
 ]
 sealed-strategy-input-acceptance = [
   "vibe-data/sealed-strategy-input-acceptance",
@@ -60,6 +61,7 @@ vibe-rd-artifact-invocation-custody = { workspace = true }
 vibe-rd-exploratory-replay-custody = { workspace = true }
 vibe-rd-source-intake-invocation-custody = { workspace = true }
 vibe-scheduled-events = { workspace = true }
+vibe-testkit = { workspace = true, features = ["postgres"], optional = true }
 vibe-trading = { workspace = true }
 wasmi = { workspace = true }
 wasmparser = { workspace = true }
@@ -79,6 +81,13 @@ test = false
 [[bin]]
 name = "strategy-factory-rd-build-sandbox"
 path = "src/bin/strategy_factory_rd_build_sandbox.rs"
+doc = false
+test = false
+
+[[bin]]
+name = "replay-policy-catalog-sealed-fixture"
+path = "src/bin/replay_policy_catalog_sealed_fixture.rs"
+required-features = ["sealed-source-intake-composer-acceptance"]
 doc = false
 test = false
 

@@ -165,7 +165,7 @@ async function validFeedback(value: unknown, basis: Json): Promise<boolean> {
   const validFrontier = value.resolution === "GENESIS_EMPTY"
     ? value.source_frontier_identity === null && value.source_frontier_digest === null && value.source_sequence === 0
       && value.source_cut === "qualification-protected-feedback-cut-v1-0"
-    : value.resolution === "FRONTIER" && value.source_sequence > 0 && text(value.source_frontier_identity)
+    : value.resolution === "FRONTIER" && text(value.source_frontier_identity)
       && sha256Digest(value.source_frontier_digest)
   if (value.basis_identity !== basis.basis_identity || value.basis_digest !== basis.basis_digest
     || value.principal !== basis.principal
@@ -335,55 +335,74 @@ function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<t
   return raw
 }
 
+type ResearchFailedPredicate =
+  | "ENVELOPE_SCHEMA_REQUEST" | "RESOLUTION" | "RECEIPT" | "REJECTED_NO_WRITE_CONSISTENCY"
+  | "VIEW_SHAPE_PHASE" | "VIEW_IDENTITY" | "VIEW_SOURCE_CUT" | "VIEW_PROJECTION_TIME"
+  | "VIEW_VALIDITY_WINDOW" | "VIEW_NEXT_ACTION" | "VIEW_OBSERVED_TIME" | "VIEW_PRINCIPAL" | "VIEW_SCOPE"
+  | "BASIS" | "FEEDBACK" | "FAMILY_RESOLUTION" | "FAMILY_STRUCTURE_BINDING"
+  | "BASIS_COMMIT_TIME" | "FEEDBACK_COMMIT_TIME" | "FEEDBACK_PROJECTION_TIME"
+  | "RECEIPT_FEEDBACK_VALIDITY" | "VIEW_FEEDBACK_VALIDITY" | "FAMILY_CREATION_TIME"
+  | "REPLAY_SHAPE" | "PARSER_MODELS" | "POLICY_DIGEST" | "CATALOG_DIGEST"
+  | "FAMILY_MEMBER_BINDING" | "FAMILY_POLICY_DIGEST" | "FAMILY_IDENTITY" | "FAMILY_ROOT_DIGEST"
+  | "FAMILY_ROOT_RECEIPT" | "FAMILY_ROOT_REPLAY_COPY" | "FAMILY_MEMBER_IDENTITY" | "FAMILY_MEMBER_DIGEST"
+  | "FAMILY_MEMBERSHIP_RECEIPT" | "FAMILY_FRONTIER_REPLAY_COPY" | "FAMILY_FRONTIER_IDENTITY" | "FAMILY_FRONTIER_DIGEST"
+
 export async function deriveResearchConsumerProjectionV1(value: unknown, requestIdentity: string) {
   const unknown = unknownResearchProjectionV1(requestIdentity)
+  const fail = (first_failed_predicate: ResearchFailedPredicate) => {
+    try {
+      console.log(JSON.stringify({ event: "source_intake_research_projection_diagnostic_v1", first_failed_predicate }))
+    } catch { /* Diagnostics must not change projection semantics. */ }
+    return unknown
+  }
   const raw = rawEnvelope(value, researchOwnerKeys, researchStamp)
-  if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return unknown
+  if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return fail("ENVELOPE_SCHEMA_REQUEST")
   if (raw.resolution === "REJECTED_NO_WRITE") {
-    if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)
-      || raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
+    if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return fail("RECEIPT")
+    if (raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
       || raw.trial_family_resolution !== "UNAVAILABLE" || raw.trial_family !== null
-      || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return unknown
+      || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return fail("REJECTED_NO_WRITE_CONSISTENCY")
     return { ...unknown, resolution: raw.resolution, owner_receipt: raw.owner_receipt,
       next_legal_action: raw.next_legal_action }
   }
-  if (raw.resolution !== "ACCEPTED"
-    || !await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return unknown
+  if (raw.resolution !== "ACCEPTED") return fail("RESOLUTION")
+  if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return fail("RECEIPT")
   const intent = raw.owner_receipt.resulting_research_intent_identity
   const basisValid = await validBasis(raw.independence_basis, requestIdentity)
   const feedbackValid = basisValid && await validFeedback(raw.protected_feedback, raw.independence_basis)
   const researchSuffix = await sha256Text(`v2:${requestIdentity}:${raw.owner_receipt.semantic_digest}`)
   const stale = raw.research_view?.availability === "STALE"
-  if (!validResearchView(raw.research_view, requestIdentity, intent, "INTENT_FROZEN", true)
-    || raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)
-    || raw.research_view.source_cut !== `rd-source-cut-v2-${researchSuffix}`
-    || (stale
+  if (!validResearchView(raw.research_view, requestIdentity, intent, "INTENT_FROZEN", true)) return fail("VIEW_SHAPE_PHASE")
+  if (raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)) return fail("VIEW_IDENTITY")
+  if (raw.research_view.source_cut !== `rd-source-cut-v2-${researchSuffix}`) return fail("VIEW_SOURCE_CUT")
+  if (stale
       ? raw.research_view.projection_at_epoch_ms < raw.owner_receipt.committed_at_epoch_ms
-      : raw.research_view.projection_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms)
-    || raw.research_view.valid_through_epoch_ms !== Math.min(
+      : raw.research_view.projection_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_PROJECTION_TIME")
+  if (raw.research_view.valid_through_epoch_ms !== Math.min(
       raw.owner_receipt.committed_at_epoch_ms + 600_000,
       raw.protected_feedback?.valid_through_epoch_ms,
-    )
-    || (stale
+    )) return fail("VIEW_VALIDITY_WINDOW")
+  if (stale
       ? raw.research_view.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
         || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
       : raw.research_view.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION"
-        || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION")
-    || raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
-    || raw.research_view.trusted_principal !== raw.independence_basis?.principal
-    || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
-    || !basisValid || !feedbackValid
-    || raw.trial_family_resolution !== "AVAILABLE"
-    || !validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
-      raw.independence_basis, raw.protected_feedback)) return unknown
-  if (raw.independence_basis.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms
-    || raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms
-    || raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
-    || !await canonicalTrialFamilyV1(
-      raw.trial_family, intent, raw.owner_receipt.semantic_digest,
+        || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION") return fail("VIEW_NEXT_ACTION")
+  if (raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_OBSERVED_TIME")
+  if (raw.research_view.trusted_principal !== raw.independence_basis?.principal) return fail("VIEW_PRINCIPAL")
+  if (JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)) return fail("VIEW_SCOPE")
+  if (!basisValid) return fail("BASIS")
+  if (!feedbackValid) return fail("FEEDBACK")
+  if (raw.trial_family_resolution !== "AVAILABLE") return fail("FAMILY_RESOLUTION")
+  if (!validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
+      raw.independence_basis, raw.protected_feedback)) return fail("FAMILY_STRUCTURE_BINDING")
+  if (raw.independence_basis.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("BASIS_COMMIT_TIME")
+  if (raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_COMMIT_TIME")
+  if (raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_PROJECTION_TIME")
+  if (raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms) return fail("RECEIPT_FEEDBACK_VALIDITY")
+  if (raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms) return fail("VIEW_FEEDBACK_VALIDITY")
+  if (raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("FAMILY_CREATION_TIME")
+  if (!await canonicalTrialFamilyV1(
+      raw.trial_family, intent, raw.owner_receipt.semantic_digest, fail,
     )) return unknown
   return {
     schema_version: 2, consumer_projection: researchStamp, resolution: "ACCEPTED",
@@ -934,17 +953,20 @@ function replayPolicyModelIdentitiesV2(input: number[]): string[] | null {
   } catch { return null }
 }
 
-async function canonicalReplayPolicyBindingV2(value: Json, policy: Json): Promise<boolean> {
-  if (!validReplayPolicyBindingV2(value)) return false
+async function canonicalReplayPolicyBindingV2(
+  value: Json, policy: Json, onFailure?: (predicate: ResearchFailedPredicate) => void,
+): Promise<boolean> {
+  const fail = (predicate: ResearchFailedPredicate) => { onFailure?.(predicate); return false }
+  if (!validReplayPolicyBindingV2(value)) return fail("REPLAY_SHAPE")
   const models = replayPolicyModelIdentitiesV2(value.policy_canonical_bytes)
   if (!models || models[0] !== policy.cost_model_identity
-    || models[1] !== policy.slippage_model_identity || models[2] !== policy.capacity_model_identity) return false
+    || models[1] !== policy.slippage_model_identity || models[2] !== policy.capacity_model_identity) return fail("PARSER_MODELS")
   const encoder = new TextEncoder()
   const canonicalPolicy = Uint8Array.from(value.policy_canonical_bytes)
   const policyDigest = await sha256Array(concatenateBytes([
     encoder.encode("rd.replay-execution-policy.v2\0"), canonicalPolicy,
   ]))
-  if (JSON.stringify(policyDigest) !== JSON.stringify(value.policy_digest)) return false
+  if (JSON.stringify(policyDigest) !== JSON.stringify(value.policy_digest)) return fail("POLICY_DIGEST")
   const record = concatenateBytes([
     lengthPrefixed(encoder.encode(value.catalog_record_id)),
     littleEndianU64(value.catalog_version),
@@ -956,7 +978,8 @@ async function canonicalReplayPolicyBindingV2(value: Json, policy: Json): Promis
   const recordDigest = await sha256Array(concatenateBytes([
     encoder.encode("rd.replay-policy-catalog-record.v2\0"), record,
   ]))
-  return JSON.stringify(recordDigest) === JSON.stringify(value.catalog_record_digest)
+  if (JSON.stringify(recordDigest) !== JSON.stringify(value.catalog_record_digest)) return fail("CATALOG_DIGEST")
+  return true
 }
 
 function frameBytes(value: Uint8Array): Uint8Array {
@@ -1015,7 +1038,9 @@ async function canonicalTrialFamilyV1(
   family: Json,
   intentIdentity: string,
   intentDigest: string,
+  onFailure?: (predicate: ResearchFailedPredicate) => void,
 ): Promise<{ familyIdentity: string; frontierIdentity: string; frontierDigest: string } | null> {
+  const fail = (predicate: ResearchFailedPredicate) => { onFailure?.(predicate); return null }
   const root = family.root
   const rootReceipt = family.root_receipt
   const member = family.initial_intent_member
@@ -1024,10 +1049,10 @@ async function canonicalTrialFamilyV1(
   if (!ownerIdentity(intentIdentity) || member.fact_identity !== intentIdentity
     || member.fact_digest !== intentDigest || ![member.fact_digest, intentDigest].every(
     (digest) => typeof digest === "string" && /^sha256:[0-9a-f]{64}$/.test(digest),
-  )) return null
+  )) return fail("FAMILY_MEMBER_BINDING")
   const policy = canonicalTrialFamilyPolicyV1(root.policy)
   const replayPolicy = policy.replay_execution_policy_v2
-  if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy)) return null
+  if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy, onFailure)) return null
   const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,
@@ -1059,16 +1084,18 @@ async function canonicalTrialFamilyV1(
     ...(replayPolicy === undefined ? {} : { replay_execution_policy_v2: replayPolicy }),
   })
   const frontierIdentity = canonicalIdentity("rd-trial-family-frontier-v1", frontierDigest)
-  const valid = root.policy_digest === policyDigest
-    && root.trial_family_identity === familyIdentity && root.root_digest === rootDigest
-    && rootReceipt.receipt_identity === canonicalIdentity("rd-trial-family-root-receipt-v1", rootDigest)
-    && sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)
-    && member.member_identity === canonicalIdentity("rd-trial-family-member-v1", memberDigest)
-    && member.member_digest === memberDigest
-    && membership.receipt_identity === canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)
-    && sameReplayPolicyBindingV2(frontier.replay_execution_policy_v2, replayPolicy)
-    && frontier.frontier_identity === frontierIdentity && frontier.frontier_digest === frontierDigest
-  return valid ? { familyIdentity, frontierIdentity, frontierDigest } : null
+  if (root.policy_digest !== policyDigest) return fail("FAMILY_POLICY_DIGEST")
+  if (root.trial_family_identity !== familyIdentity) return fail("FAMILY_IDENTITY")
+  if (root.root_digest !== rootDigest) return fail("FAMILY_ROOT_DIGEST")
+  if (rootReceipt.receipt_identity !== canonicalIdentity("rd-trial-family-root-receipt-v1", rootDigest)) return fail("FAMILY_ROOT_RECEIPT")
+  if (!sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)) return fail("FAMILY_ROOT_REPLAY_COPY")
+  if (member.member_identity !== canonicalIdentity("rd-trial-family-member-v1", memberDigest)) return fail("FAMILY_MEMBER_IDENTITY")
+  if (member.member_digest !== memberDigest) return fail("FAMILY_MEMBER_DIGEST")
+  if (membership.receipt_identity !== canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)) return fail("FAMILY_MEMBERSHIP_RECEIPT")
+  if (!sameReplayPolicyBindingV2(frontier.replay_execution_policy_v2, replayPolicy)) return fail("FAMILY_FRONTIER_REPLAY_COPY")
+  if (frontier.frontier_identity !== frontierIdentity) return fail("FAMILY_FRONTIER_IDENTITY")
+  if (frontier.frontier_digest !== frontierDigest) return fail("FAMILY_FRONTIER_DIGEST")
+  return { familyIdentity, frontierIdentity, frontierDigest }
 }
 
 async function canonicalArtifactFamilyV1(value: Json, receipt: Json): Promise<boolean> {

@@ -10,6 +10,24 @@ const workbenchDir = fileURLToPath(new URL("../../..", import.meta.url))
 const operationPath = "f/trade/product_edge/develop_composer_v2"
 const read = (relativePath) => readFile(new URL(relativePath, `file://${workbenchDir}/`), "utf8")
 
+test("Owner response extraction removes only curl status framing and preserves exact body bytes", async () => {
+  const runner = await readFile(new URL("../../../../../scripts/ci/test-source-research-composer-sealed-acceptance.bash", import.meta.url), "utf8")
+  const program = runner.match(/import sys\nraw_response = sys.stdin.buffer.read\(\)[\s\S]*?(?=\n' "\$observed")/)?.[0]
+  assert.ok(program, "execute the real Owner response extraction")
+  for (const body of [Buffer.alloc(0), Buffer.from("\n"), Buffer.from("{\"error\":\"unavailable\"}\n\n"), Buffer.from([0, 10, 255])]) {
+    const result = spawnSync("python3", ["-c", program, "503"], {
+      input: Buffer.concat([body, Buffer.from("\n503\n")]),
+    })
+    assert.equal(result.status, 0, result.stderr.toString())
+    assert.deepEqual(result.stdout, body)
+  }
+  for (const input of ["503\n", "\n502\n", "\n503"]) {
+    const result = spawnSync("python3", ["-c", program, "503"], { input })
+    assert.notEqual(result.status, 0)
+    assert.equal(result.stdout.length, 0)
+  }
+})
+
 test("sealed deployment payload accepts actual helper metadata without a worker tag", async () => {
   const runner = await readFile(new URL("../../../../../scripts/ci/test-source-research-composer-sealed-acceptance.bash", import.meta.url), "utf8")
   const program = runner.match(/import json\nimport os\nimport sys\nsource, lock, metadata, output, path = sys.argv\[1:\][\s\S]*?(?=\nPY\n)/)?.[0]

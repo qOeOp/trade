@@ -192,6 +192,84 @@ fn current_research_artifact_evidence_digest(
     Ok(format!("sha256:{:x}", Sha256::digest(bytes)))
 }
 
+#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct CurrentResearchArtifactReadbackV1 {
+    evidence_digest: String,
+    evidence: CurrentResearchArtifactEvidenceV1,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    owner_cut_epoch_ms: Option<u64>,
+}
+
+#[cfg(any(test, feature = "sealed-source-intake-composer-acceptance"))]
+fn decode_current_research_artifact_readback(
+    value: &serde_json::Value,
+    locked: bool,
+) -> Result<CurrentResearchArtifactReadbackV1, ResearchGoalOwnerError> {
+    let readback: CurrentResearchArtifactReadbackV1 =
+        serde_json::from_value(value.clone()).map_err(json_storage)?;
+    if &serde_json::to_value(&readback).map_err(json_storage)? != value
+        || readback.owner_cut_epoch_ms.is_some() != locked
+        || readback.evidence.schema_version != 1
+        || current_research_artifact_evidence_digest(&readback.evidence)?
+            != readback.evidence_digest
+    {
+        return Err(ResearchGoalOwnerError::Storage(
+            "current Research artifact readback mismatch".into(),
+        ));
+    }
+    Ok(readback)
+}
+
+/// Keep Source and Artifact evidence locked in the consumer's existing Research transaction.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) async fn lock_current_research_artifact_custody_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    custody: &crate::rd_owner_postgres_custody::VerifiedResearchCustodyV1,
+) -> Result<(), ResearchGoalOwnerError> {
+    let unavailable =
+        || ResearchGoalOwnerError::Storage("current Research artifact custody unavailable".into());
+    let Some(FrozenResearchGoalIntent::V2(intent)) = custody.intent() else {
+        return Err(unavailable());
+    };
+    let view = custody.view().ok_or_else(unavailable)?;
+    let admission = custody.product_edge_admission().ok_or_else(unavailable)?;
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.peek_current_research_for_artifact_v1($1)")
+            .bind(&intent.intent_identity)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+    let peeked = decode_current_research_artifact_readback(&value.ok_or_else(unavailable)?, false)?;
+    let evidence = &peeked.evidence;
+    if evidence.request_identity != custody.receipt().request_identity
+        || evidence.semantic_digest != custody.receipt().semantic_digest
+        || evidence.receipt_identity != custody.receipt().receipt_identity
+        || evidence.intent_identity != intent.intent_identity
+        || evidence.view_identity != view.projection_identity
+        || evidence.projection_at_epoch_ms != view.projection_at_epoch_ms
+        || evidence.valid_through_epoch_ms != view.valid_through_epoch_ms
+        || &evidence.source_admission != admission.locator()
+        || evidence.effective_principal != custody.effective_principal()
+        || evidence.authorized_scope != custody.authorized_scope()
+    {
+        return Err(unavailable());
+    }
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.lock_current_research_for_artifact_v1($1,$2,$3)")
+            .bind(&intent.intent_identity)
+            .bind(&evidence.evidence_identity)
+            .bind(&peeked.evidence_digest)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(|e| storage(&e))?;
+    let locked = decode_current_research_artifact_readback(&value.ok_or_else(unavailable)?, true)?;
+    if locked.evidence != peeked.evidence || locked.evidence_digest != peeked.evidence_digest {
+        return Err(unavailable());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 pub(crate) fn reseal_current_research_artifact_evidence_for_test(
     view_json: serde_json::Value,
@@ -2889,6 +2967,59 @@ mod tests {
             source_ancestry_evidence_digest: Some(source_digest),
         };
         assert!(current_research_artifact_evidence_digest(&evidence).is_ok());
+        for source_bound in [true, false] {
+            let mut admitted = evidence.clone();
+            if !source_bound {
+                admitted.source_ancestry_locator = None;
+                admitted.source_ancestry_evidence_digest = None;
+                admitted.evidence_identity = current_research_artifact_evidence_identity(
+                    &admitted.receipt_identity,
+                    &admitted.intent_identity,
+                    &admitted.view_identity,
+                    None,
+                    None,
+                )
+                .unwrap();
+            }
+
+            for locked in [false, true] {
+                let readback = CurrentResearchArtifactReadbackV1 {
+                    evidence_digest: current_research_artifact_evidence_digest(&admitted).unwrap(),
+                    evidence: admitted.clone(),
+                    owner_cut_epoch_ms: locked.then_some(15),
+                };
+                let value = serde_json::to_value(&readback).unwrap();
+                assert_eq!(
+                    decode_current_research_artifact_readback(&value, locked).unwrap(),
+                    readback
+                );
+                assert!(decode_current_research_artifact_readback(&value, !locked).is_err());
+                let mut unknown_envelope = value.clone();
+                unknown_envelope["stored_tamper"] = serde_json::json!(true);
+                let mut unknown_evidence = value.clone();
+                unknown_evidence["evidence"]["stored_tamper"] = serde_json::json!(true);
+                let mut changed_digest = value.clone();
+                changed_digest["evidence_digest"] = serde_json::json!("sha256:changed");
+                let mut changed_meaning = value.clone();
+                changed_meaning["evidence"]["effective_principal"] = serde_json::json!("other");
+                let mut partial_ancestry = value.clone();
+                partial_ancestry["evidence"]["source_ancestry_evidence_digest"] = if source_bound {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::json!(format!("sha256:{}", "5".repeat(64)))
+                };
+
+                for rejected in [
+                    unknown_envelope,
+                    unknown_evidence,
+                    changed_digest,
+                    changed_meaning,
+                    partial_ancestry,
+                ] {
+                    assert!(decode_current_research_artifact_readback(&rejected, locked).is_err());
+                }
+            }
+        }
         evidence
             .source_ancestry_locator
             .as_mut()

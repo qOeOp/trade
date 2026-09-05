@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import { createHash } from "node:crypto"
+import { readFileSync } from "node:fs"
+import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
 import { actionControls, artifactActionControls } from "../rd_workbench.raw_app/control-policy.mjs"
@@ -776,6 +778,84 @@ test("complete native research rejection and acceptance project; single-field mu
   }
 })
 
+test("Research first rejection diagnostics preserve results and emit only a fixed predicate", async () => {
+  const logs = []
+  const originalLog = console.log
+  console.log = (...args) => logs.push(args)
+  try {
+    for (const accepted of [acceptedResearch(), await researchWithReplay()]) {
+      assert.deepEqual(await deriveResearchConsumerProjectionV1(accepted, "request-1"),
+        { ...accepted, consumer_projection: researchStamp })
+    }
+    assert.deepEqual(logs, [])
+    const cases = [
+      [acceptedResearch(), (v) => { v.extra = "private-body" }, "ENVELOPE_SCHEMA_REQUEST"],
+      [acceptedResearch(), (v) => { v.resolution = "private-resolution" }, "RESOLUTION"],
+      [acceptedResearch(), (v) => { v.owner_receipt.receipt_identity = "private-receipt" }, "RECEIPT"],
+      [rejectedResearch(), (v) => { v.research_view = view() }, "REJECTED_NO_WRITE_CONSISTENCY"],
+      [acceptedResearch(), (v) => { v.research_view.phase = "private-phase" }, "VIEW_SHAPE_PHASE"],
+      [acceptedResearch(), (v) => { v.research_view.projection_identity = "private-view" }, "VIEW_IDENTITY"],
+      [acceptedResearch(), (v) => { v.independence_basis.receipt.receipt_identity = "private-basis" }, "BASIS"],
+      [acceptedResearch(), (v) => { v.protected_feedback.receipt.receipt_identity = "private-feedback" }, "FEEDBACK"],
+      [acceptedResearch(), (v) => { v.trial_family_resolution = "UNAVAILABLE" }, "FAMILY_RESOLUTION"],
+      [acceptedResearch(), (v) => { v.trial_family.root.policy.independence_basis_identity = "private-basis" }, "FAMILY_STRUCTURE_BINDING"],
+      [acceptedResearch(), (v) => { v.trial_family.root_receipt.receipt_identity = "private-root-receipt" }, "FAMILY_ROOT_RECEIPT"],
+      [await researchWithReplay(replayBinding(replayPolicyFixtureBytes("runtime", "cost-other"))),
+        () => {}, "PARSER_MODELS"],
+      [await researchWithReplay(), (v) => {
+        for (const c of [v.trial_family.root.policy, v.trial_family.root_receipt, v.trial_family.census_frontier]) {
+          c.replay_execution_policy_v2.policy_digest[0] ^= 1
+        }
+      }, "POLICY_DIGEST"],
+      [await researchWithReplay(), (v) => {
+        for (const c of [v.trial_family.root.policy, v.trial_family.root_receipt, v.trial_family.census_frontier]) {
+          c.replay_execution_policy_v2.catalog_record_digest[0] ^= 1
+        }
+      }, "CATALOG_DIGEST"],
+      // Basis is computed first, but the earlier view rejection still owns the diagnostic.
+      [acceptedResearch(), (v) => {
+        v.independence_basis.receipt.receipt_identity = "private-basis"
+        v.research_view.phase = "private-phase"
+      }, "VIEW_SHAPE_PHASE"],
+    ]
+    for (const [value, mutate, predicate] of cases) {
+      mutate(value)
+      logs.length = 0
+      assert.deepEqual(await deriveResearchConsumerProjectionV1(value, "request-1"),
+        projectionModule.unknownResearchProjectionV1("request-1"))
+      assert.deepEqual(logs, [[JSON.stringify({
+        event: "source_intake_research_projection_diagnostic_v1", first_failed_predicate: predicate,
+      })]])
+    }
+    console.log = () => { throw new Error("private-logger-error") }
+    assert.deepEqual(await deriveResearchConsumerProjectionV1(null, "request-1"),
+      projectionModule.unknownResearchProjectionV1("request-1"))
+  } finally {
+    console.log = originalLog
+  }
+})
+
+test("original-job diagnostic filter admits only closed transport and predicate events", () => {
+  const runner = readFileSync(new URL("../../../../../scripts/ci/test-source-research-composer-sealed-acceptance.bash", import.meta.url), "utf8")
+  const filter = runner.match(/jq -Rc '(fromjson\?[^]*?)' "\$output\.logs"/)
+  assert.ok(filter)
+  const predicate = { event: "source_intake_research_projection_diagnostic_v1", first_failed_predicate: "BASIS" }
+  const transport = { event: "source_intake_research_diagnostic_v1", stage: "OWNER_JSON", http_status: 200, elapsed_ms: 180 }
+  const invalid = [
+    { ...predicate, body: "private-body" }, { ...predicate, first_failed_predicate: "BASIS\nprivate-body" },
+    { ...predicate, first_failed_predicate: "UNKNOWN_PREDICATE" }, { ...predicate, first_failed_predicate: null },
+    { ...predicate, first_failed_predicate: ["BASIS"] }, { ...predicate, first_failed_predicate: 1 },
+    { ...predicate, event: "unknown-event" }, { ...transport, raw_body: "private-body" },
+    { ...transport, stage: "OWNER_JSON\nprivate-body" }, { ...transport, elapsed_ms: "180" },
+  ]
+  const result = spawnSync("jq", ["-Rc", filter[1]], {
+    input: [predicate, transport, ...invalid].map(JSON.stringify).join("\n") + "\nraw-private-body\n",
+    encoding: "utf8",
+  })
+  assert.equal(result.status, 0, result.stderr)
+  assert.deepEqual(result.stdout.trim().split("\n").map(JSON.parse), [predicate, transport])
+})
+
 test("transport key order preserves the exact canonical accepted projection", async () => {
   const nativeProjection = await deriveResearchConsumerProjectionV1(acceptedResearch(), "request-1")
   const reordered = transportRoundTrippedAcceptedResearch()
@@ -797,6 +877,54 @@ test("a re-sealed TrialFamily cannot launder a forged upstream Owner receipt", a
   value.independence_basis.receipt.receipt_identity = "caller-chosen-basis-receipt"
   await resealTrialFamily(value)
   await assertResearchUnknown(value)
+})
+
+test("a fully re-sealed Owner chain preserves RELATED with a complete nonempty predecessor frontier", async () => {
+  const value = acceptedResearch()
+  // The Owner orders accepted custody rows and emits their intent identities as strings.
+  const predecessorSuffix = createHash("sha256").update(`v2:request-0:${intentDigest}`).digest("hex")
+  const predecessorFrontier = [`rd-research-intent-v2-${predecessorSuffix}`]
+  const currentBasis = value.independence_basis
+  currentBasis.independence_disposition = "RELATED"
+  currentBasis.lineage_resolution = "COMPLETE_FRONTIER"
+  currentBasis.semantic_predecessor_frontier = predecessorFrontier
+  currentBasis.lineage_digest = await canonicalTestDigest("rd.semantic-predecessor-frontier.v1", [
+    currentBasis.principal, currentBasis.request_scope, currentBasis.lineage_resolution, predecessorFrontier,
+  ])
+  value.trial_family.root.policy.semantic_predecessor_frontier = clone(predecessorFrontier)
+  await resealAcceptedOwnerChain(value)
+
+  const projected = await deriveResearchConsumerProjectionV1(value, "request-1")
+  assert.equal(projected.resolution, "ACCEPTED")
+  assert.deepEqual(projected, { ...value, consumer_projection: researchStamp })
+  const verified = await verifyResearchConsumerProjectionV1(projected, "request-1")
+  assert.equal(verified.resolution, "ACCEPTED")
+  assert.deepEqual(verified, projected)
+})
+
+test("Owner feedback FRONTIER preserves a zero source sequence with a sealed predecessor", async () => {
+  const value = acceptedResearch()
+  const predecessor = clone(value.protected_feedback)
+  Object.assign(value.protected_feedback, {
+    resolution: "FRONTIER",
+    source_frontier_identity: predecessor.projection_identity,
+    source_frontier_digest: predecessor.projection_digest,
+  })
+  await resealAcceptedOwnerChain(value)
+  const projected = await deriveResearchConsumerProjectionV1(value, "request-1")
+  assert.deepEqual(projected, { ...value, consumer_projection: researchStamp })
+  assert.deepEqual(await verifyResearchConsumerProjectionV1(projected, "request-1"), projected)
+  for (const mutate of [
+    (v) => { v.source_sequence = -1 },
+    (v) => { v.source_frontier_identity = null },
+    (v) => { v.source_frontier_digest = null },
+    (v) => { v.resolution = "GENESIS_EMPTY" },
+  ]) {
+    const invalid = clone(value)
+    mutate(invalid.protected_feedback)
+    await resealAcceptedOwnerChain(invalid)
+    await assertResearchUnknown(invalid)
+  }
 })
 
 test("a fully re-sealed Owner chain rejects RELATED with an empty predecessor frontier", async () => {

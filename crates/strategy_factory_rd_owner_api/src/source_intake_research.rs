@@ -99,6 +99,7 @@ async fn resolve(
                 &request_identity,
             );
         }
+
         if !body.is_empty() {
             return super::rejection_v2(
                 StatusCode::BAD_REQUEST,

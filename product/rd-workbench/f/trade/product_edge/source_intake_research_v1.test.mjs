@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import test from "node:test"
 
 import { main } from "./source_intake_research_v1.ts"
+import { unknownResearchProjectionV1 } from "./consumer_projection_v1.ts"
 
 const fixture = JSON.parse(readFileSync(new URL(
   "../../../tests/fixtures/source_intake_research_terminal_v1.json",
@@ -112,4 +113,55 @@ test("cross-bound identities and RESOLVE body injection fail before transport", 
     assert.equal(resolveWithBody.resolution, "SUBMITTED_OR_UNKNOWN")
   })
   assert.equal(invoked, false)
+})
+
+test("original RUN failures retain their projection and emit only bounded diagnostics", async () => {
+  const cases = [
+    ["OWNER_HTTP_ERROR", 500, async () => new Response("private-response-body", { status: 500 })],
+    ["OWNER_TIMEOUT", null, async () => { throw new DOMException("private-timeout", "TimeoutError") }],
+    ["OWNER_TRANSPORT_OR_JSON_ERROR", null, async () => { throw new Error("private-transport") }],
+    ["OWNER_TRANSPORT_OR_JSON_ERROR", 200, async () => new Response("private-invalid-json", { status: 200 })],
+    ["OWNER_JSON", 200, async () => new Response(JSON.stringify({ private: "private-json-body" }), { status: 200 })],
+  ]
+  const originalLog = console.log
+  try {
+    for (const [stage, status, handler] of cases) {
+      const lines = []
+      let calls = 0
+      console.log = (line) => lines.push(line)
+      await withTransport(async () => { calls += 1; return await handler() }, async () => {
+        assert.deepEqual(await main("RUN", operation.proposal.request_identity, operation),
+          unknownResearchProjectionV1(operation.proposal.request_identity))
+      })
+      assert.equal(calls, 1)
+      const records = lines.map((line) => JSON.parse(line))
+      assert.equal(records.length, 5)
+      const transport = records.filter((record) => record.event === "source_intake_research_diagnostic_v1")
+      const projection = records.filter((record) => record.event === "source_intake_research_projection_diagnostic_v1")
+      assert.deepEqual(transport.map((record) => record.stage), [stage, "DERIVE_UNAVAILABLE", "VERIFY_UNAVAILABLE"])
+      assert.deepEqual(projection.map((record) => record.first_failed_predicate), [
+        stage === "OWNER_JSON" ? "ENVELOPE_SCHEMA_REQUEST" : "RESOLUTION", "RESOLUTION",
+      ])
+      assert.equal(records[0].http_status, status)
+      for (const record of transport) {
+        assert.deepEqual(Object.keys(record).sort(), ["elapsed_ms", "event", "http_status", "stage"])
+        assert.equal(record.event, "source_intake_research_diagnostic_v1")
+        assert.ok(record.http_status === null || Number.isInteger(record.http_status))
+        assert.ok(Number.isSafeInteger(record.elapsed_ms) && record.elapsed_ms >= 0)
+      }
+      for (const record of projection) {
+        assert.deepEqual(Object.keys(record).sort(), ["event", "first_failed_predicate"])
+      }
+      for (const secret of ["test-token", operation.proposal.request_identity, "private-", "bounded", "authorization"]) {
+        assert.ok(!lines.join("\n").includes(secret))
+      }
+    }
+    console.log = () => { throw new Error("private-logger-failure") }
+    await withTransport(async () => new Response("private-invalid-json", { status: 200 }), async () => {
+      assert.deepEqual(await main("RUN", operation.proposal.request_identity, operation),
+        unknownResearchProjectionV1(operation.proposal.request_identity))
+    })
+  } finally {
+    console.log = originalLog
+  }
 })

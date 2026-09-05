@@ -104,9 +104,37 @@ static_check() {
   grep -Fq 'two distinct Artifacts did not execute A0 exactly twice' "$runner_file"
   grep -Fq 'stored-row tamper probe executed A0' "$runner_file"
   grep -Fq 'profiles: ["stored-tamper-probe"]' "$overlay_compose"
-  grep -Fq 'SEALED_POSTGRES_ADMIN_DATABASE_URL:' "$overlay_compose"
+  grep -Fq 'RD_OWNER_TEST_DATABASE_URL:' "$overlay_compose"
   grep -Fq 'SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN:' "$overlay_compose"
   grep -Fq 'stored_tamper_cases=' "$runner_file"
+  python3 - "$repo_root/crates/strategy_factory/Cargo.toml" \
+    "$repo_root/crates/strategy_factory/src/bin/source_research_composer_stored_tamper_probe.rs" << 'PY'
+import json
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+manifest = tomllib.loads(Path(sys.argv[1]).read_text())
+dependency = manifest['dependencies']['vibe-testkit']
+assert dependency['optional'] and dependency['features'] == ['postgres']
+assert [name for name, edges in manifest['features'].items() if 'dep:vibe-testkit' in edges] == ['sealed-source-intake-composer-acceptance']
+source = Path(sys.argv[2]).read_text()
+specification = re.search(r'stored_cases!\((.*?)\n\);', source, re.S).group(1)
+values = [json.loads('"' + value + '"') for value in re.findall(r'^\s*"((?:[^"\\]|\\.)*)",?$', specification, re.M)]
+assert len(values) == 34 * 5
+assert len(set(values[0::5])) == 34
+for label, capture, mutate, restore, selected in zip(*(values[index::5] for index in range(5))):
+    assert re.fullmatch('[a-z][a-z_0-9]*', label)
+    assert capture.startswith('INSERT INTO pg_temp.a2_stored_preimages SELECT $2,')
+    assert restore.count('.selector=$1') == 1
+    assert mutate.startswith('UPDATE ') and selected.startswith('SELECT ')
+assert 'PgConnection::connect' not in source
+assert 'SEALED_POSTGRES_ADMIN_DATABASE_URL' not in source
+assert 'CREATE TEMP' not in source
+assert 'DedicatedPostgresTestDatabase::admit("RD_OWNER_TEST_DATABASE_URL")' in source
+assert '.mutation()' in source
+PY
   grep -Fq 'run_deployed source RUN' "$runner_file"
   grep -Fq '.resolution=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$runner_file"
   grep -Fq 'run_deployed research RUN' "$runner_file"
@@ -133,8 +161,30 @@ static_check() {
   yq -e '.services.postgres.environment.POSTGRES_HOST_AUTH_METHOD == "trust"' "$overlay_compose" > /dev/null
   yq -e '.services."rd-owner-api".environment.RD_OWNER_ENABLE_ACCEPTANCE_FAULTS == "1"' "$overlay_compose" > /dev/null
   yq -e '.services."stored-tamper-probe".profiles | (length == 1 and .[0] == "stored-tamper-probe")' "$overlay_compose" > /dev/null
-  yq -e '.services."stored-tamper-probe".environment.SEALED_POSTGRES_ADMIN_DATABASE_URL != null' "$overlay_compose" > /dev/null
+  yq -e '.services."stored-tamper-probe".environment.RD_OWNER_TEST_DATABASE_URL != null' "$overlay_compose" > /dev/null
+  yq -e '.services."stored-tamper-probe".environment | has("SEALED_POSTGRES_ADMIN_DATABASE_URL") | not' "$overlay_compose" > /dev/null
+  yq -e '.services."stored-tamper-install-sql".network_mode == "none" and .services."stored-tamper-install-sql".environment == null' "$overlay_compose" > /dev/null
   yq -e '.services."rd-owner-api".environment | has("SEALED_POSTGRES_ADMIN_DATABASE_URL") | not' "$overlay_compose" > /dev/null
+  for catalog_binary in replay-policy-catalog-sealed-fixture replay-policy-catalog-authority-bootstrap replay-policy-catalog-owner-readback; do
+    grep -Fq -- "--bin $catalog_binary" "$dockerfile"
+    grep -Fq "COPY --from=builder /out/$catalog_binary /usr/local/bin/$catalog_binary" "$dockerfile"
+  done
+  yq -e '.services."replay-policy-catalog-fixture".network_mode == "none"' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-fixture".read_only == true' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-fixture".environment == null' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-fixture".depends_on == null' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-fixture".volumes | length == 1' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-fixture".entrypoint[0] == "/usr/local/bin/replay-policy-catalog-sealed-fixture"' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-bootstrap".entrypoint[0] == "/usr/local/bin/replay-policy-catalog-authority-bootstrap"' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-owner-readback".entrypoint[0] == "/usr/local/bin/replay-policy-catalog-owner-readback"' "$overlay_compose" > /dev/null
+  yq -e '.services."authority-custody-migrate".depends_on."schema-materialize".condition == "service_completed_successfully"' "$base_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-bootstrap".depends_on."authority-custody-migrate".condition == "service_completed_successfully"' "$overlay_compose" > /dev/null
+  yq -e '.services."replay-policy-catalog-owner-readback".depends_on."replay-policy-catalog-bootstrap".condition == "service_completed_successfully"' "$base_compose" > /dev/null
+  yq -e '.services."rd-owner-api".depends_on."replay-policy-catalog-owner-readback".condition == "service_completed_successfully"' "$overlay_compose" > /dev/null
+  for catalog_service in replay-policy-catalog-bootstrap replay-policy-catalog-owner-readback; do
+    yq -e ".services.\"$catalog_service\".environment.REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH == \"/run/secrets/replay-policy-catalog-bootstrap-request.json\"" "$overlay_compose" > /dev/null
+    yq -e ".services.\"$catalog_service\".environment.REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH == \"/run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex\"" "$overlay_compose" > /dev/null
+  done
 }
 
 if [[ ${1:-} == --static-only ]]; then
@@ -341,6 +391,10 @@ cleanup() {
 trap cleanup EXIT HUP INT TERM
 
 postgres_password=$(random_hex)
+test_database="vibe_test_$(random_hex)"
+test_role="vibe_test_role_$(random_hex)"
+test_password=$(random_hex)
+test_marker=$(random_hex)
 rd_password=$(random_hex)
 fact_writer_password=$(random_hex)
 market_owner_password=$(random_hex)
@@ -354,6 +408,9 @@ windmill_database="wm_$(random_hex | cut -c1-20)"
 issuer_identity="sealed-issuer-$(random_hex | cut -c1-20)"
 issuer_key_version="sealed-key-$(random_hex | cut -c1-20)"
 deployment_identity="sealed-deployment-$(random_hex | cut -c1-20)"
+catalog_fixture_dir="$run_dir/catalog-fixture"
+mkdir -m 700 "$catalog_fixture_dir"
+[[ $(id -u) -ne 0 ]] || die 'fixture materialization requires a nonroot disposable output owner'
 
 jq -n --arg authorization "sealed-authorization-$(random_hex | cut -c1-20)" \
   --arg issuer "$issuer_identity" --arg key "$issuer_key_version" \
@@ -368,6 +425,7 @@ cat > "$env_file" << EOF
 SEALED_ACCEPTANCE_PROJECT=$project
 SEALED_ACCEPTANCE_OWNER_IMAGE=$owner_image
 SEALED_POSTGRES_PASSWORD=$postgres_password
+SEALED_TEST_DATABASE_NAME=$test_database
 SEALED_WINDMILL_DATABASE=$windmill_database
 SEALED_RD_OWNER_DB_PASSWORD=$rd_password
 SEALED_RD_FACT_WRITER_DB_PASSWORD=$fact_writer_password
@@ -377,15 +435,17 @@ SEALED_OPERATOR_AUTHORIZATION_DB_PASSWORD=$operator_password
 SEALED_QUALIFICATION_OWNER_DB_PASSWORD=$qualification_password
 SEALED_PRODUCT_EDGE_DB_PASSWORD=$edge_password
 SEALED_BACKTEST_OWNER_DB_PASSWORD=$backtest_password
-SEALED_RD_OWNER_DATABASE_URL=postgresql://rd_owner:$rd_password@postgres:5432/rd_owner
-SEALED_RD_FACT_WRITER_DATABASE_URL=postgresql://rd_fact_writer:$fact_writer_password@postgres:5432/rd_owner
-SEALED_MARKET_DATA_OWNER_DATABASE_URL=postgresql://market_data_owner:$market_owner_password@postgres:5432/rd_owner
-SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL=postgresql://market_data_reader@postgres:5432/rd_owner
-SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL=postgresql://operator_authorization_writer:$operator_password@postgres:5432/rd_owner
-SEALED_QUALIFICATION_OWNER_DATABASE_URL=postgresql://qualification_writer:$qualification_password@postgres:5432/rd_owner
-SEALED_PRODUCT_EDGE_DATABASE_URL=postgresql://product_edge_owner:$edge_password@postgres:5432/rd_owner
+SEALED_RD_OWNER_DATABASE_URL=postgresql://rd_owner:$rd_password@postgres:5432/$test_database
+SEALED_RD_FACT_WRITER_DATABASE_URL=postgresql://rd_fact_writer:$fact_writer_password@postgres:5432/$test_database
+SEALED_MARKET_DATA_OWNER_DATABASE_URL=postgresql://market_data_owner:$market_owner_password@postgres:5432/$test_database
+SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL=postgresql://market_data_reader@postgres:5432/$test_database
+SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL=postgresql://operator_authorization_writer:$operator_password@postgres:5432/$test_database
+SEALED_QUALIFICATION_OWNER_DATABASE_URL=postgresql://qualification_writer:$qualification_password@postgres:5432/$test_database
+SEALED_PRODUCT_EDGE_DATABASE_URL=postgresql://product_edge_owner:$edge_password@postgres:5432/$test_database
 SEALED_WINDMILL_DATABASE_URL=postgresql://postgres:$postgres_password@postgres:5432/$windmill_database
-SEALED_POSTGRES_ADMIN_DATABASE_URL=postgresql://postgres:$postgres_password@postgres:5432/rd_owner
+SEALED_STORED_TAMPER_TEST_DATABASE_URL=postgresql://$test_role:$test_password@postgres:5432/$test_database
+SEALED_STORED_TAMPER_TEST_DATABASE_ROLE=$test_role
+SEALED_STORED_TAMPER_INSTANCE_MARKER=$test_marker
 SEALED_RD_OWNER_API_TOKEN=$owner_token
 SEALED_STORED_TAMPER_INPUT=$stored_tamper_input
 SEALED_STORED_TAMPER_UID=$(id -u)
@@ -394,10 +454,11 @@ SEALED_BOOTSTRAP_CONFIG=$bootstrap_config
 SEALED_ISSUER_IDENTITY=$issuer_identity
 SEALED_ISSUER_KEY_VERSION=$issuer_key_version
 SEALED_DEPLOYMENT_IDENTITY=$deployment_identity
-SEALED_REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL=postgresql://replay_policy_catalog_admin_writer:$catalog_password@postgres:5432/rd_owner
-SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=unused-by-a2
-SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST=$bootstrap_config
-SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY=$bootstrap_config
+SEALED_REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL=postgresql://replay_policy_catalog_admin_writer:$catalog_password@postgres:5432/$test_database
+SEALED_CATALOG_FIXTURE_OUTPUT=$catalog_fixture_dir
+SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=rd-catalog-sealed-acceptance-verifier-v1
+SEALED_REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST=$catalog_fixture_dir/request.json
+SEALED_REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY=$catalog_fixture_dir/verifier-public-key.hex
 EOF
 compose=("${docker_local[@]}" compose --project-directory "$package_dir"
   --file "$base_compose" --file "$overlay_compose" --env-file "$env_file" --project-name "$project")
@@ -494,15 +555,78 @@ with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --nod
   --driver docker-container --driver-opt "image=$buildkit_image" > /dev/null
 with_deadline 1800 "${docker_local[@]}" buildx build --builder "$builder_name" --load --pull=false \
   --no-cache --tag "$owner_image" --file "$dockerfile" "$repo_root"
-if ! with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait \
-  postgres schema-materialize authority-custody-migrate authority-bootstrap rd-owner-api \
-  windmill-server windmill-worker; then
+# Fixed signed setup has no database or network and is not a Source/Research RUN.
+with_deadline 30 "${compose[@]}" run --rm --no-deps -T replay-policy-catalog-fixture
+for fixture_name in request.json verifier-public-key.hex verifier-identity.txt; do
+  [[ -f $catalog_fixture_dir/$fixture_name && ! -L $catalog_fixture_dir/$fixture_name && -s $catalog_fixture_dir/$fixture_name ]] ||
+    die 'Catalog fixture output is unavailable'
+done
+[[ $(< "$catalog_fixture_dir/verifier-identity.txt") == rd-catalog-sealed-acceptance-verifier-v1 ]] || die 'Catalog verifier identity mismatch'
+[[ $(< "$catalog_fixture_dir/verifier-public-key.hex") =~ ^[0-9a-f]{64}$ ]] || die 'Catalog verifier key is malformed'
+jq -e '.schema_version == 1 and .verifier_identity == "rd-catalog-sealed-acceptance-verifier-v1" and .catalog_record_id == "sealed-acceptance-replay-policy-v2"' \
+  "$catalog_fixture_dir/request.json" > /dev/null || die 'Catalog fixture request is malformed'
+# Public signed inputs must be readable by the fixed nonroot bootstrap/readback image user.
+chmod 644 "$catalog_fixture_dir/request.json" "$catalog_fixture_dir/verifier-public-key.hex"
+with_deadline 300 "${compose[@]}" up --detach --no-build --pull never \
+  postgres schema-materialize authority-custody-migrate
+# These services terminate successfully; compose up --wait requires a running/healthy
+# service and rejects an already-completed one-shot even when its exit status is zero.
+for setup_service in schema-materialize authority-custody-migrate; do
+  setup_container=$(with_deadline 30 "${compose[@]}" ps --all --quiet "$setup_service")
+  [[ $setup_container =~ ^[0-9a-f]{12,64}$ ]] || die 'setup service container identity is unavailable'
+  setup_exit=$(with_deadline 300 "${docker_local[@]}" wait "$setup_container")
+  if [[ $setup_exit != 0 ]]; then
+    "${compose[@]}" logs --no-color "$setup_service" >&2 || true
+    die "setup service failed: $setup_service"
+  fi
+done
+catalog_census() {
+  with_deadline 30 "${compose[@]}" exec -T postgres psql -X -U postgres -d "$test_database" -At -v ON_ERROR_STOP=1 -c \
+    "SELECT jsonb_build_array(
+      (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb) FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 r),
+      (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb) FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 r),
+      (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb) FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 r),
+      (SELECT coalesce(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 r));"
+}
+catalog_census > "$run_dir/catalog-empty.json"
+jq -e 'map(length) == [0,0,0,0]' "$run_dir/catalog-empty.json" > /dev/null || die 'Catalog setup did not start empty'
+if with_deadline 60 "${compose[@]}" run --rm --no-deps -T \
+  -e REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=wrong-verifier replay-policy-catalog-bootstrap > "$run_dir/catalog-rejected.json" 2> "$run_dir/catalog-rejected.stderr"; then
+  die 'Catalog bootstrap accepted a mismatched verifier'
+fi
+[[ ! -s $run_dir/catalog-rejected.json ]] || die 'Rejected Catalog bootstrap emitted a receipt'
+grep -Fq 'Replay Policy Catalog bootstrap was not accepted' "$run_dir/catalog-rejected.stderr" || die 'Catalog rejection probe failed before authentication'
+catalog_census > "$run_dir/catalog-rejected-census.json"
+cmp "$run_dir/catalog-empty.json" "$run_dir/catalog-rejected-census.json" || die 'Rejected bootstrap changed Catalog storage'
+with_deadline 60 "${compose[@]}" run --rm --no-deps -T replay-policy-catalog-bootstrap > "$run_dir/catalog-bootstrap.json"
+catalog_census > "$run_dir/catalog-created.json"
+jq -e 'map(length) == [1,1,0,2]' "$run_dir/catalog-created.json" > /dev/null || die 'Catalog bootstrap census is not exact genesis'
+with_deadline 60 "${compose[@]}" run --rm --no-deps -T replay-policy-catalog-bootstrap > "$run_dir/catalog-bootstrap-replay.json"
+with_deadline 60 "${compose[@]}" run --rm --no-deps -T replay-policy-catalog-owner-readback > "$run_dir/catalog-readback.json"
+if with_deadline 60 "${compose[@]}" run --rm --no-deps -T \
+  -e REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_IDENTITY=wrong-verifier replay-policy-catalog-owner-readback > "$run_dir/catalog-readback-rejected.json" 2> "$run_dir/catalog-readback-rejected.stderr"; then
+  die 'Catalog Owner readback accepted a mismatched verifier'
+fi
+[[ ! -s $run_dir/catalog-readback-rejected.json ]] || die 'Rejected Catalog readback emitted a receipt'
+grep -Fq 'Replay Policy Catalog Owner readback was not accepted' "$run_dir/catalog-readback-rejected.stderr" || die 'Catalog readback rejection probe failed before authentication'
+catalog_census > "$run_dir/catalog-replayed.json"
+cmp "$run_dir/catalog-created.json" "$run_dir/catalog-replayed.json" || die 'Catalog replay/readback changed storage'
+jq -e '.schema_version == 1 and .bootstrap_identity == "rd-catalog-sealed-acceptance-bootstrap-v1" and .verifier_identity == "rd-catalog-sealed-acceptance-verifier-v1"' \
+  "$run_dir/catalog-bootstrap.json" > /dev/null || die 'Catalog bootstrap receipt is malformed'
+cmp "$run_dir/catalog-bootstrap.json" "$run_dir/catalog-bootstrap-replay.json" || die 'Catalog bootstrap replay changed its receipt'
+cmp "$run_dir/catalog-bootstrap.json" "$run_dir/catalog-readback.json" || die 'Catalog signed Owner readback differs from bootstrap'
+# Setup has completed under its original privileges. Starting its dependency graph
+# again would rerun schema materialization after custody has revoked those privileges.
+with_deadline 60 "${compose[@]}" run --rm --no-deps -T authority-bootstrap \
+  > "$run_dir/authority-bootstrap.json"
+if ! with_deadline 300 "${compose[@]}" up --detach --no-deps --no-build --pull never --wait \
+  rd-owner-api windmill-worker; then
   "${compose[@]}" logs --no-color rd-owner-api >&2 || true
   die 'isolated acceptance topology did not become healthy'
 fi
 
 run_deployed() {
-  local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path payload
+  local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path payload query='' job_id
   if [[ $output == /dev/null ]]; then
     payload="$run_dir/${stage}-${action}-$(random_hex | cut -c1-16).payload.json"
   else
@@ -536,18 +660,59 @@ run_deployed() {
       ;;
     *) return 2 ;;
   esac
-  api_json POST "$token_header" "$base_url/api/w/$workspace/jobs/run_wait_result/p/$path" "$output" "$payload"
+  if [[ $stage == research ]]; then
+    [[ $output == "$run_dir/"* ]] || return 2
+    job_id=$(python3 -c 'import uuid; print(uuid.uuid4())') || return 1
+    printf '%s\n' "$job_id" > "$output.job-id"
+    query="?job_id=$job_id"
+  fi
+  api_json POST "$token_header" "$base_url/api/w/$workspace/jobs/run_wait_result/p/$path$query" "$output" "$payload"
+}
+
+research_run_diagnostics() {
+  local output=$1 job_id
+  [[ $output == "$run_dir/"* ]] || return 1
+  job_id=$(< "$output.job-id")
+  [[ $job_id =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] || return 1
+  # Capture even retrieval errors privately; api_json may print its raw response.
+  if (api_json GET "$token_header" "$base_url/api/w/$workspace/jobs_u/get_logs/$job_id" \
+    "$output.logs") 2> "$output.logs-error"; then
+    jq -Rc 'fromjson? | select(type=="object")
+      | if .event=="source_intake_research_projection_diagnostic_v1" then
+        select((keys|sort)==["event","first_failed_predicate"])
+        | select(.first_failed_predicate|type=="string")
+        | select(.first_failed_predicate as $p | [
+            "ENVELOPE_SCHEMA_REQUEST","RESOLUTION","RECEIPT","REJECTED_NO_WRITE_CONSISTENCY",
+            "VIEW_SHAPE_PHASE","VIEW_IDENTITY","VIEW_SOURCE_CUT","VIEW_PROJECTION_TIME",
+            "VIEW_VALIDITY_WINDOW","VIEW_NEXT_ACTION","VIEW_OBSERVED_TIME","VIEW_PRINCIPAL","VIEW_SCOPE",
+            "BASIS","FEEDBACK","FAMILY_RESOLUTION","FAMILY_STRUCTURE_BINDING",
+            "BASIS_COMMIT_TIME","FEEDBACK_COMMIT_TIME","FEEDBACK_PROJECTION_TIME",
+            "RECEIPT_FEEDBACK_VALIDITY","VIEW_FEEDBACK_VALIDITY","FAMILY_CREATION_TIME",
+            "REPLAY_SHAPE","PARSER_MODELS","POLICY_DIGEST","CATALOG_DIGEST",
+            "FAMILY_MEMBER_BINDING","FAMILY_POLICY_DIGEST","FAMILY_IDENTITY","FAMILY_ROOT_DIGEST",
+            "FAMILY_ROOT_RECEIPT","FAMILY_ROOT_REPLAY_COPY","FAMILY_MEMBER_IDENTITY","FAMILY_MEMBER_DIGEST",
+            "FAMILY_MEMBERSHIP_RECEIPT","FAMILY_FRONTIER_REPLAY_COPY","FAMILY_FRONTIER_IDENTITY","FAMILY_FRONTIER_DIGEST"
+          ] | index($p))
+        | {event,first_failed_predicate}
+      else select((keys|sort)==(["event","stage","http_status","elapsed_ms"]|sort))
+      | select(.event=="source_intake_research_diagnostic_v1")
+      | select(.stage as $s | ["OWNER_JSON","OWNER_HTTP_ERROR","OWNER_TIMEOUT",
+          "OWNER_TRANSPORT_OR_JSON_ERROR","DERIVE_UNAVAILABLE","VERIFY_UNAVAILABLE"] | index($s))
+      | select(.http_status==null or (.http_status|type=="number" and floor==. and .>=100 and .<=599))
+      | select(.elapsed_ms|type=="number" and floor==. and .>=0 and .<=9007199254740991)
+      | {event,stage,http_status,elapsed_ms} end' "$output.logs" >&2
+  fi
 }
 
 db_scalar() {
   with_deadline 20 "${docker_local[@]}" exec "$postgres_container" env \
     'PGOPTIONS=-c lock_timeout=5s -c statement_timeout=10s' \
-    psql -X --username postgres --dbname rd_owner \
+    psql -X --username postgres --dbname "$test_database" \
     --tuples-only --no-align --set=ON_ERROR_STOP=1 --command "$1" | tr -d '\r'
 }
 dump_db_waits() {
   with_deadline 10 "${docker_local[@]}" exec -i "$postgres_container" psql -X \
-    --username postgres --dbname rd_owner --set=ON_ERROR_STOP=1 << 'SQL'
+    --username postgres --dbname "$test_database" --set=ON_ERROR_STOP=1 << 'SQL'
 SELECT pid,usename,application_name,backend_type,state,xact_start,query_start,
        wait_event_type,wait_event,pg_catalog.pg_blocking_pids(pid) AS blocking_pids
 FROM pg_catalog.pg_stat_activity
@@ -625,8 +790,15 @@ print('write-out = "\\n%{http_code}\\n"')
 PY
     with_deadline 130 "${compose[@]}" exec -T windmill-server curl --config - > "$raw"
   observed=$(tail -n 1 "$raw")
-  [[ $observed == "$expected" ]] || die "Owner $method $path returned HTTP $observed, expected $expected"
-  sed '$d' "$raw" > "$output"
+  [[ $observed == "$expected" ]] || die "Owner $method $path returned HTTP $observed, expected $expected (case ${output##*/})"
+  python3 -c '
+import sys
+raw_response = sys.stdin.buffer.read()
+status_suffix = b"\n" + sys.argv[1].encode("ascii") + b"\n"
+if not raw_response.endswith(status_suffix):
+    raise SystemExit("Owner response status delimiter unavailable")
+sys.stdout.buffer.write(raw_response[:-len(status_suffix)])
+' "$observed" < "$raw" > "$output"
 }
 
 owner_call_empty_unavailable() {
@@ -670,7 +842,7 @@ form_research() {
     --arg attempt "$(jq -er '.binding_identity' "$run_dir/$stem-source.json")" \
     --arg receipt "$(jq -er '.receipt.receipt_identity' "$run_dir/$stem-source.json")" \
     --slurpfile context "$run_dir/$stem-source-context.json" '
-    {proposal:{request_identity:$research,channel:"WINDMILL_PRODUCT_EDGE",goal:{hypothesis:("A2 sealed source " + $research + " supports the fixed complex strategy."),mechanism:"The bounded mechanism survives the fixed control.",falsification_question:"Does the fixed control erase the effect?",expected_observation:"The effect remains stable.",required_data:["sealed-source-v1"],cost_assumption:"Fixed sealed cost model.",capacity_assumption:"Fixed sealed capacity model."},trial_family_proposal:{trial_budget:1,stop_rule:"Stop after the fixed sealed trial.",pit_rule_identity:"sealed-pit-rule-v1",cost_model_identity:"sealed-cost-model-v1",slippage_model_identity:"sealed-slippage-model-v1",capacity_model_identity:"sealed-capacity-model-v1",independence_rationale:"Genesis has no semantic predecessor."}},ancestry:{request_identity:$source,attempt_identity:$attempt,terminal_receipt_identity:$receipt},policy_query:{request_identity:$source,gateway:"WINDMILL_PRODUCT_EDGE",admission:$context[0].admission,operation_manifest_identity:$context[0].operation_manifest_identity,operation_manifest_digest:$context[0].operation_manifest_digest,connector_policy_locator:"sealed-source-intake-connector-policy-v1",network_policy_locator:"sealed-source-intake-network-policy-v1",rights_policy_locator:"sealed-source-intake-rights-policy-v1",retention_policy_locator:"sealed-source-intake-retention-policy-v1",dns_observation_locator:"sealed-source-intake-dns-observation-v1",shared_time_head:{head_identity:([range(32)|1]),head_digest:([range(32)|2])},shared_time_successor:null}}' > "$run_dir/$stem-research-operation.json"
+    {proposal:{request_identity:$research,channel:"WINDMILL_PRODUCT_EDGE",goal:{hypothesis:("A2 sealed source " + $research + " supports the fixed complex strategy."),mechanism:"The bounded mechanism survives the fixed control.",falsification_question:"Does the fixed control erase the effect?",expected_observation:"The effect remains stable.",required_data:["sealed-source-v1"],cost_assumption:"Fixed sealed cost model.",capacity_assumption:"Fixed sealed capacity model."},trial_family_proposal:{trial_budget:1,stop_rule:"Stop after the fixed sealed trial.",pit_rule_identity:"sealed-pit-rule-v1",cost_model_identity:"cost-model-v1",slippage_model_identity:"slippage-model-v1",capacity_model_identity:"capacity-model-v1",independence_rationale:"Genesis has no semantic predecessor."}},ancestry:{request_identity:$source,attempt_identity:$attempt,terminal_receipt_identity:$receipt},policy_query:{request_identity:$source,gateway:"WINDMILL_PRODUCT_EDGE",admission:$context[0].admission,operation_manifest_identity:$context[0].operation_manifest_identity,operation_manifest_digest:$context[0].operation_manifest_digest,connector_policy_locator:"sealed-source-intake-connector-policy-v1",network_policy_locator:"sealed-source-intake-network-policy-v1",rights_policy_locator:"sealed-source-intake-rights-policy-v1",retention_policy_locator:"sealed-source-intake-retention-policy-v1",dns_observation_locator:"sealed-source-intake-dns-observation-v1",shared_time_head:{head_identity:([range(32)|1]),head_digest:([range(32)|2])},shared_time_successor:null}}' > "$run_dir/$stem-research-operation.json"
   run_deployed research RUN "$research_request" "$run_dir/$stem-research-operation.json" "$run_dir/$stem-research.json"
   if ! jq -e '.resolution=="ACCEPTED" and .owner_receipt and .research_view and .trial_family_resolution=="AVAILABLE"' "$run_dir/$stem-research.json" > /dev/null; then
     # Classify the original Windmill RUN before cleanup, without a second Owner
@@ -681,6 +853,11 @@ form_research() {
       "$run_dir/$stem-research.json" >&2 || true
     printf 'Research canonical receipt count: %s\n' \
       "$(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$research_request';")" >&2
+    research_run_diagnostics "$run_dir/$stem-research.json" || true
+    db_scalar "SELECT json_build_object('receipt_accepted',receipt_json->>'disposition'='ACCEPTED') FROM public.rd_research_request_receipts_v1 WHERE request_identity='$research_request';" \
+      > "$run_dir/$stem-research-receipt-diagnostic.json" 2> "$run_dir/$stem-research-receipt-diagnostic.error" &&
+      jq -c 'select((keys==["receipt_accepted"]) and (.receipt_accepted==null or (.receipt_accepted|type=="boolean")))' \
+        "$run_dir/$stem-research-receipt-diagnostic.json" >&2 || true
     die "$stem Research RUN was not canonically accepted"
   fi
   [[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$research_request';") == 1 ]] ||
@@ -702,6 +879,65 @@ else
   die "Composer custody census failed (status=$scalar_status)"
 fi
 assert_zero_composer_census "$composer_census_before"
+# The same already-built image emits only its fixed SQL, with no database or network access.
+# Installation is bound to the fresh container and random database; no Owner ACL is extended.
+with_deadline 30 "${compose[@]}" run --rm --no-deps -T stored-tamper-install-sql > "$run_dir/stored-tamper-install.sql"
+[[ -s $run_dir/stored-tamper-install.sql ]] || die 'stored-tamper install SQL unavailable'
+with_deadline 30 "${docker_local[@]}" exec -i "$postgres_container" psql -X -U postgres \
+  -d "$test_database" -v ON_ERROR_STOP=1 -v test_database="$test_database" \
+  -v test_role="$test_role" -v test_password="$test_password" -v test_marker="$test_marker" \
+  < "$run_dir/stored-tamper-install.sql" > "$run_dir/stored-tamper-install.output"
+# Compose requires a regular bind source even for modes that never read it.
+printf '%s\n' '{}' > "$stored_tamper_input"
+chmod 0600 "$stored_tamper_input"
+reject_stored_admission() {
+  local label=$1 expected=$2
+  shift 2
+  if with_deadline 30 "${compose[@]}" run --rm --no-deps -T "$@" stored-tamper-probe --admission-only \
+    > "$run_dir/admission-$label.stdout" 2> "$run_dir/admission-$label.stderr"; then
+    die "stored-tamper admission accepted $label"
+  fi
+  [[ ! -s $run_dir/admission-$label.stdout ]] || die 'rejected admission emitted success'
+  grep -Fq "$expected" "$run_dir/admission-$label.stderr" || die "admission $label failed for an unrelated reason"
+}
+stored_test_url="postgresql://$test_role:$test_password@postgres:5432/$test_database"
+reject_stored_admission default 'known application/default database is forbidden' \
+  -e "RD_OWNER_TEST_DATABASE_URL=postgresql://$test_role:$test_password@postgres:5432/postgres" \
+  -e VIBE_POSTGRES_TEST_DATABASE_NAME=postgres
+reject_stored_admission wrong-database 'test database or role does not match provisioned identity' \
+  -e "VIBE_POSTGRES_TEST_DATABASE_NAME=vibe_test_$(random_hex)"
+reject_stored_admission production-alias 'test database aliases production target' \
+  -e "RD_OWNER_DATABASE_URL=$stored_test_url"
+reject_stored_admission wrong-role 'test database or role does not match provisioned identity' \
+  -e RD_OWNER_TEST_DATABASE_ROLE=rd_owner
+reject_stored_admission wrong-marker 'dedicated database marker mismatch' \
+  -e "VIBE_POSTGRES_TEST_INSTANCE_MARKER=$(random_hex)"
+db_scalar 'DELETE FROM vibe_test_admin.dedicated_postgres_test_instance_v1;' > /dev/null
+reject_stored_admission absent-marker 'dedicated database marker mismatch'
+with_deadline 20 "${docker_local[@]}" exec -i "$postgres_container" psql -X -U postgres -d "$test_database" \
+  -v ON_ERROR_STOP=1 -v test_role="$test_role" -v test_marker="$test_marker" << 'SQL' > /dev/null
+INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1 VALUES (:'test_marker',current_database(),:'test_role');
+GRANT UPDATE ON vibe_test_admin.dedicated_postgres_test_instance_v1 TO :"test_role";
+SQL
+reject_stored_admission writable-marker 'dedicated database marker is mutable by test role'
+with_deadline 20 "${docker_local[@]}" exec -i "$postgres_container" psql -X -U postgres -d "$test_database" \
+  -v ON_ERROR_STOP=1 -v test_role="$test_role" << 'SQL' > /dev/null
+REVOKE UPDATE ON vibe_test_admin.dedicated_postgres_test_instance_v1 FROM :"test_role";
+ALTER ROLE :"test_role" INHERIT;
+SQL
+reject_stored_admission inheriting-role 'stored-tamper admission guard rejected'
+with_deadline 20 "${docker_local[@]}" exec -i "$postgres_container" psql -X -U postgres -d "$test_database" \
+  -v ON_ERROR_STOP=1 -v test_role="$test_role" << 'SQL' > /dev/null
+ALTER ROLE :"test_role" NOINHERIT;
+SQL
+with_deadline 30 "${compose[@]}" run --rm --no-deps -T stored-tamper-probe --admission-only \
+  > "$run_dir/admission-valid.stdout"
+[[ $(< "$run_dir/admission-valid.stdout") == stored_tamper_admission=accepted ]] || die 'valid dedicated admission unavailable'
+with_deadline 30 "${compose[@]}" run --rm --no-deps -T stored-tamper-probe --check-invalid-ports \
+  > "$run_dir/invalid-ports.stdout"
+[[ $(< "$run_dir/invalid-ports.stdout") == stored_tamper_invalid_ports=rejected ]] || die 'invalid port regression unavailable'
+[[ $(db_scalar 'SELECT count(*) FROM vibe_test_admin.a2_stored_preimages;') -eq 0 ]] || die 'invalid admission left preimages'
+[[ $(composer_census) == "$composer_census_before" ]] || die 'invalid admission changed Composer census'
 source_request_one="sealed-source-a-$(random_hex | cut -c1-12)"
 source_request_two="sealed-source-b-$(random_hex | cut -c1-12)"
 form_research "$source_request_one" "$research_request_one" one

@@ -11,19 +11,27 @@ RUN cargo fetch --locked
 ENV CARGO_NET_OFFLINE=true
 RUN --network=none cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
       --features sealed-source-intake-composer-acceptance --bin strategy-factory-rd-owner-api \
+      --bin replay-policy-catalog-authority-bootstrap --bin replay-policy-catalog-owner-readback \
     && cargo build --locked --release -p vibe-strategy-factory \
       --features sealed-source-intake-composer-acceptance \
       --bin source-research-composer-stored-tamper-probe \
+      --bin replay-policy-catalog-sealed-fixture \
     && cargo build --locked --release -p vibe-product-edge-admin \
       --bin product-edge-authority-bootstrap \
     && mkdir -p /out \
     && cp target/release/strategy-factory-rd-owner-api \
+      target/release/replay-policy-catalog-authority-bootstrap \
+      target/release/replay-policy-catalog-owner-readback \
+      target/release/replay-policy-catalog-sealed-fixture \
       target/release/source-research-composer-stored-tamper-probe \
       target/release/product-edge-authority-bootstrap /out/
 
 FROM public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777
 RUN --network=none useradd --create-home --uid 10001 rd-owner
 COPY --from=builder /out/strategy-factory-rd-owner-api /usr/local/bin/strategy-factory-rd-owner-api
+COPY --from=builder /out/replay-policy-catalog-authority-bootstrap /usr/local/bin/replay-policy-catalog-authority-bootstrap
+COPY --from=builder /out/replay-policy-catalog-owner-readback /usr/local/bin/replay-policy-catalog-owner-readback
+COPY --from=builder /out/replay-policy-catalog-sealed-fixture /usr/local/bin/replay-policy-catalog-sealed-fixture
 COPY --from=builder /out/source-research-composer-stored-tamper-probe /usr/local/bin/source-research-composer-stored-tamper-probe
 COPY --from=builder /out/product-edge-authority-bootstrap /usr/local/bin/product-edge-authority-bootstrap
 USER 10001:10001

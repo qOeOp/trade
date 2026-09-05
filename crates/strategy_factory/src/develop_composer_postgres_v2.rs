@@ -960,7 +960,20 @@ impl StrategyDesignRoleSetResolverV1 for SealedDevelopComposerAcceptanceReadPort
             .begin_read_transaction()
             .await
             .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
-        let row = sqlx::query(
+        let receipt = read_role_set_in_transaction(&mut transaction, locator).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+        StrategyDesignRoleSetReadbackV1::from_fixed_resolver(locator.clone(), receipt)
+    }
+}
+
+async fn read_role_set_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &StrategyDesignRoleSetLocatorV1,
+) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
+    let row = sqlx::query(
             "SELECT attestation_identity,attestation_digest,canonical_bytes
                FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)",
         )
@@ -971,29 +984,48 @@ impl StrategyDesignRoleSetResolverV1 for SealedDevelopComposerAcceptanceReadPort
         .bind(locator.artifact_identity.as_bytes().as_slice())
         .bind(locator.canonical_plan_digest.as_bytes().as_slice())
         .bind(locator.design_digest.as_bytes().as_slice())
-        .fetch_optional(&mut *transaction)
+        .fetch_optional(&mut **transaction)
         .await
         .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?
         .ok_or(StrategyDesignRoleSetErrorV1::Unavailable)?;
-        let attestation_identity = digest_column(&row, "attestation_identity")
-            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
-        let attestation_digest = digest_column(&row, "attestation_digest")
-            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
-        if attestation_identity != attestation_digest {
-            return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
-        }
-        let receipt = StrategyDesignRoleSetReceiptV1::from_durable_attestation(
-            locator,
-            &row.try_get::<Vec<u8>, _>("canonical_bytes")
-                .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?,
-            attestation_digest,
-        )?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
-        StrategyDesignRoleSetReadbackV1::from_fixed_resolver(locator.clone(), receipt)
+    let attestation_identity = digest_column(&row, "attestation_identity")
+        .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+    let attestation_digest = digest_column(&row, "attestation_digest")
+        .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?;
+    if attestation_identity != attestation_digest {
+        return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
     }
+    StrategyDesignRoleSetReceiptV1::from_durable_attestation(
+        locator,
+        &row.try_get::<Vec<u8>, _>("canonical_bytes")
+            .map_err(|_| StrategyDesignRoleSetErrorV1::Unavailable)?,
+        attestation_digest,
+    )
+}
+
+async fn validate_record_role_set(
+    transaction: &mut Transaction<'_, Postgres>,
+    record: &StoredDevelopComposerPositiveV2,
+) -> Result<(), DevelopComposerSealedReadErrorV2> {
+    let response: DevelopComposerOperationResponseV2 =
+        crate::strategy_plan_v2::durable_decode(&record.response_bytes)
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    if response.canonical_bytes() != record.response_bytes {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    let expected = project_role_set_from_record(record, &response)
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+    let stored = read_role_set_in_transaction(transaction, &expected.composer_locator)
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+
+    if stored.canonical_bytes() != expected.canonical_bytes()
+        || stored.receipt_identity() != expected.receipt_identity()
+        || stored.receipt_digest() != expected.receipt_digest()
+    {
+        return Err(DevelopComposerSealedReadErrorV2::Unavailable);
+    }
+    Ok(())
 }
 
 /// Resolves one accepted Composer fact using exactly the caller's transaction and Owner-locked
@@ -1032,7 +1064,11 @@ async fn load_record_via_sealed_routine_in_transaction(
         return Ok(None);
     };
 
-    decode_record_row(&row, request_identity)
+    let record = decode_record_row(&row, request_identity)?;
+    if let Some(record) = &record {
+        validate_record_role_set(transaction, record).await?;
+    }
+    Ok(record)
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1051,8 +1087,18 @@ async fn load_record_via_commit_cut_in_transaction(
     else {
         return Ok(None);
     };
-    decode_record_row(&row, request_identity)
-        .map_err(|_| sqlx::Error::Protocol("Composer commit-cut custody is malformed".to_owned()))
+    let record = decode_record_row(&row, request_identity).map_err(|_| {
+        sqlx::Error::Protocol("Composer commit-cut custody is malformed".to_owned())
+    })?;
+
+    if let Some(record) = &record {
+        validate_record_role_set(transaction, record)
+            .await
+            .map_err(|_| {
+                sqlx::Error::Protocol("Composer commit-cut custody is malformed".to_owned())
+            })?;
+    }
+    Ok(record)
 }
 
 fn decode_record_row(
@@ -1076,28 +1122,28 @@ fn decode_record_row(
 
     Ok(Some(StoredDevelopComposerPositiveV2 {
         request_identity: request_identity.to_owned(),
-        request_digest: sealed_digest_column(&row, "request_digest")?,
-        research_request_identity: sealed_digest_column(&row, "research_request_identity")?,
-        intent_identity: sealed_digest_column(&row, "intent_identity")?,
-        design_identity: sealed_digest_column(&row, "design_identity")?,
-        plan_digest: sealed_digest_column(&row, "plan_digest")?,
-        artifact_identity: sealed_digest_column(&row, "artifact_identity")?,
-        build_attempt_identities: sealed_digest_array(&row, "build_attempt_identities")?,
-        capsule_identities: sealed_digest_array(&row, "capsule_identities")?,
-        build_receipt_identities: sealed_digest_array(&row, "build_receipt_identities")?,
-        design_bytes: sealed_bytes_column(&row, "design_bytes")?,
-        plan_bytes: sealed_bytes_column(&row, "plan_bytes")?,
-        artifact_package_bytes: sealed_bytes_column(&row, "artifact_package_bytes")?,
+        request_digest: sealed_digest_column(row, "request_digest")?,
+        research_request_identity: sealed_digest_column(row, "research_request_identity")?,
+        intent_identity: sealed_digest_column(row, "intent_identity")?,
+        design_identity: sealed_digest_column(row, "design_identity")?,
+        plan_digest: sealed_digest_column(row, "plan_digest")?,
+        artifact_identity: sealed_digest_column(row, "artifact_identity")?,
+        build_attempt_identities: sealed_digest_array(row, "build_attempt_identities")?,
+        capsule_identities: sealed_digest_array(row, "capsule_identities")?,
+        build_receipt_identities: sealed_digest_array(row, "build_receipt_identities")?,
+        design_bytes: sealed_bytes_column(row, "design_bytes")?,
+        plan_bytes: sealed_bytes_column(row, "plan_bytes")?,
+        artifact_package_bytes: sealed_bytes_column(row, "artifact_package_bytes")?,
         module_bytes: module_bytes
             .into_iter()
             .map(Vec::into_boxed_slice)
             .collect(),
         build_receipt_bytes,
-        composer_receipt_bytes: sealed_bytes_column(&row, "composer_receipt_bytes")?,
-        host_receipt_bytes: sealed_bytes_column(&row, "host_receipt_bytes")?,
-        operation_receipt_bytes: sealed_bytes_column(&row, "operation_receipt_bytes")?,
-        outbox_bytes: sealed_bytes_column(&row, "outbox_bytes")?,
-        response_bytes: sealed_bytes_column(&row, "response_bytes")?,
+        composer_receipt_bytes: sealed_bytes_column(row, "composer_receipt_bytes")?,
+        host_receipt_bytes: sealed_bytes_column(row, "host_receipt_bytes")?,
+        operation_receipt_bytes: sealed_bytes_column(row, "operation_receipt_bytes")?,
+        outbox_bytes: sealed_bytes_column(row, "outbox_bytes")?,
+        response_bytes: sealed_bytes_column(row, "response_bytes")?,
     }))
 }
 
@@ -1402,10 +1448,17 @@ async fn verify_composer_read_authority_in_transaction(
             AND (SELECT count(*)=2 FROM protected_relations)
             AND count(*)=2
             AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
-            AND bool_and(NOT pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
+            AND bool_and(pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE')=(oid=pg_catalog.to_regprocedure($1)))
             AND bool_and(pg_catalog.has_function_privilege('market_data_reader',oid,'EXECUTE'))
             AND bool_and(NOT pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
-            AND bool_and((SELECT count(*)=2 AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1 AND count(*) FILTER (WHERE role.rolname='market_data_reader' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>routines.proowner AND (role.rolname<>'market_data_reader' OR acl.is_grantable)))=0 FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
+            AND bool_and((SELECT count(*)=CASE WHEN routines.oid=pg_catalog.to_regprocedure($1) THEN 3 ELSE 2 END
+                AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1
+                AND count(*) FILTER (WHERE role.rolname='market_data_reader' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1
+                AND count(*) FILTER (WHERE role.rolname='rd_owner' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=CASE WHEN routines.oid=pg_catalog.to_regprocedure($1) THEN 1 ELSE 0 END
+                AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE'
+                    OR (acl.grantee<>routines.proowner AND (acl.is_grantable
+                        OR NOT (role.rolname='market_data_reader' OR (role.rolname='rd_owner' AND routines.oid=pg_catalog.to_regprocedure($1))))))=0
+                FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner',(SELECT oid FROM protected_relations WHERE relname='rd_develop_strategy_design_role_set_attestations_v1'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
             AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner',(SELECT oid FROM protected_relations WHERE relname='rd_develop_strategy_design_native_joins_v1'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
          FROM routines",
@@ -1603,6 +1656,7 @@ async fn verify_composer_commit_cut_authority_in_transaction(
     .bind(COMPOSER_TABLES_V2.as_slice())
     .fetch_one(&mut **transaction)
     .await?;
+
     if exact {
         Ok(())
     } else {
@@ -1781,6 +1835,7 @@ async fn verify_rd_owner_composer_writer_authority_in_transaction(
     .bind(COMMIT_FUNCTION_V2)
     .fetch_one(&mut **transaction)
     .await?;
+
     if exact {
         Ok(())
     } else {
@@ -2353,6 +2408,7 @@ impl PostgresDevelopComposerStoreV2 {
                 }
                 Err(e) => return Err(e),
             };
+
         if let Some(existing) = existing {
             return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
                 if existing.request_digest == request_digest(request) {
@@ -2475,8 +2531,8 @@ impl PostgresDevelopComposerStoreV2 {
                 ))
             })?;
         let role_set = project_role_set_from_record(&record, &response)
-            .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
-        if let Err(error) = persist_record(
+            .map_err(|e| sqlx::Error::Protocol(e.to_string()))?;
+        if let Err(e) = persist_record(
             transaction,
             &self.database_fingerprint,
             &record,
@@ -2487,8 +2543,7 @@ impl PostgresDevelopComposerStoreV2 {
         )
         .await
         {
-            if error
-                .as_database_error()
+            if e.as_database_error()
                 .is_some_and(|database| database.is_unique_violation())
             {
                 return Ok(conflict_response(
@@ -2496,7 +2551,7 @@ impl PostgresDevelopComposerStoreV2 {
                     "operation.semantic_identity",
                 ));
             }
-            return Err(error);
+            return Err(e);
         }
         Ok(response)
     }
@@ -2884,6 +2939,7 @@ async fn persist_record(
         let session_user: String = sqlx::query_scalar("SELECT SESSION_USER")
             .fetch_one(&mut **transaction)
             .await?;
+
         if session_user == "rd_owner" {
             verify_rd_owner_composer_writer_authority_in_transaction(transaction).await?;
         } else {
@@ -3190,7 +3246,7 @@ mod tests {
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-    #[test]
+    #[rstest::rstest]
     fn acceptance_write_boundaries_are_closed_and_in_persistence_order() {
         let migration = include_str!(
             "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
@@ -3242,6 +3298,7 @@ mod tests {
             super::composer_commit_query_v2(None),
             super::COMMIT_QUERY_V2
         );
+
         for boundary in super::DevelopComposerAcceptanceWriteBoundaryV2::ALL {
             assert_eq!(
                 super::composer_commit_query_v2(Some(boundary)),

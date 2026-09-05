@@ -232,6 +232,21 @@ struct VerifiedReplayPolicyCatalogBootstrapRequestV1 {
 pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v1(
     pool: &PgPool,
 ) -> Result<ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2> {
+    let fixture = authenticated_sealed_acceptance_fixture_v1()?;
+    ensure_authenticated_replay_policy_catalog_genesis_v1(
+        pool,
+        &fixture.sealed_request,
+        fixture.verifier_identity,
+        &fixture.verifier_public_key_hex,
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) fn authenticated_sealed_acceptance_fixture_v1() -> Result<
+    crate::replay_policy_catalog_sealed_acceptance_v2::SealedCatalogFixtureV1,
+    ReplayPolicyCatalogErrorV2,
+> {
     const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v1";
 
     let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
@@ -260,13 +275,13 @@ pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v1(
     })?;
     let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
 
-    ensure_authenticated_replay_policy_catalog_genesis_v1(
-        pool,
-        &sealed_request,
-        VERIFIER_IDENTITY,
-        &verifier_key,
+    Ok(
+        crate::replay_policy_catalog_sealed_acceptance_v2::SealedCatalogFixtureV1 {
+            sealed_request,
+            verifier_identity: VERIFIER_IDENTITY,
+            verifier_public_key_hex: verifier_key,
+        },
     )
-    .await
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
@@ -1509,6 +1524,81 @@ fn epoch_i64(value: u64) -> Result<i64, ReplayPolicyCatalogErrorV2> {
 
 fn unavailable(error: impl Display) -> ReplayPolicyCatalogErrorV2 {
     ReplayPolicyCatalogErrorV2::Unavailable(error.to_string())
+}
+
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+mod sealed_fixture_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn fixed_fixture_replays_exactly_and_verifies_the_existing_policy() {
+        let fixture = authenticated_sealed_acceptance_fixture_v1().unwrap();
+        let replay = authenticated_sealed_acceptance_fixture_v1().unwrap();
+        assert_eq!(fixture.sealed_request, replay.sealed_request);
+        assert_eq!(
+            fixture.verifier_public_key_hex,
+            replay.verifier_public_key_hex
+        );
+        let verified = verify_bootstrap_request(
+            &fixture.sealed_request,
+            fixture.verifier_identity,
+            &fixture.verifier_public_key_hex,
+        )
+        .unwrap();
+        assert_eq!(verified.request.schema_version, 1);
+        assert_eq!(
+            verified.policy.canonical_bytes().unwrap(),
+            sealed_acceptance_policy()
+                .unwrap()
+                .canonical_bytes()
+                .unwrap()
+        );
+    }
+
+    #[rstest]
+    fn fixed_fixture_rejects_changed_signed_meaning_schema_and_verifier() {
+        let fixture = authenticated_sealed_acceptance_fixture_v1().unwrap();
+
+        for (field, value) in [
+            ("now_epoch_ms", serde_json::json!(2)),
+            ("schema_version", serde_json::json!(2)),
+            ("unknown_field", serde_json::json!(true)),
+            (
+                "signature_base64",
+                serde_json::json!(BASE64_STANDARD.encode([0_u8; 64])),
+            ),
+        ] {
+            let mut request: serde_json::Value =
+                serde_json::from_slice(&fixture.sealed_request).unwrap();
+            request[field] = value;
+            assert!(
+                verify_bootstrap_request(
+                    &serde_json::to_vec(&request).unwrap(),
+                    fixture.verifier_identity,
+                    &fixture.verifier_public_key_hex
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            verify_bootstrap_request(
+                &fixture.sealed_request,
+                "wrong-verifier",
+                &fixture.verifier_public_key_hex
+            )
+            .is_err()
+        );
+        assert!(
+            verify_bootstrap_request(
+                &fixture.sealed_request,
+                fixture.verifier_identity,
+                &"00".repeat(32)
+            )
+            .is_err()
+        );
+    }
 }
 
 #[cfg(test)]
