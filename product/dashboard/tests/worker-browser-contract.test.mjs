@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { operationRegistryV1 } from "../lib/operation-registry.ts";
 
 import {
   parseWorkerBrowserEnvelopeV1,
@@ -184,6 +185,63 @@ test("worker counts exactly match the nonnegative Owner int domain", async () =>
   ]) {
     assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [invalid] })), null);
     assert.equal(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: invalid }), worker.worker_identity), null);
+  }
+});
+
+test("worker list preserves the complete bounded cut and rejects rather than truncates overflow", async () => {
+  for (const count of [0, 1, 100, 101]) {
+    const workers = Array.from({ length: count }, (_, index) => ({ ...worker, worker_identity: `worker-${index}` }));
+    const body = envelope({ workers });
+    const parsed = parseWorkerBrowserEnvelopeV1(body);
+    if (count <= 100) assert.deepEqual(parsed?.workers, workers);
+    else assert.equal(parsed, null);
+    const result = await readWorkerBrowserResponsesV1(async (url) =>
+      Response.json(url === "/api/operations/workers/" ? body : detailEnvelope()), worker.worker_identity);
+    assert.equal(result.list.availability, count <= 100 ? "available" : "unavailable");
+    assert.deepEqual(result.list.workers, count <= 100 ? workers : []);
+    assert.deepEqual(result.detail.worker, worker);
+  }
+});
+
+test("worker projection matches the existing registry, identity, time and last-run domains", () => {
+  const operations = operationRegistryV1.filter(({ effect_set }) => effect_set.length === 0).map(({ operation_id }) => operation_id);
+  assert.equal(operations.length, operationRegistryV1.length);
+  const accepts = (row) => {
+    assert.deepEqual(parseWorkerBrowserEnvelopeV1(envelope({ workers: [row] }))?.workers, [row]);
+    assert.deepEqual(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({
+      requested_worker_identity: row.worker_identity, worker: row,
+    }), row.worker_identity)?.worker, row);
+  };
+  for (const operation of operations) accepts({ ...worker, operation_ids: [operation] });
+  accepts({ ...worker, operation_ids: operations });
+  accepts({ ...worker, worker_identity: "a".repeat(192) });
+  accepts({ ...worker, registered_at: worker.last_heartbeat_at });
+  accepts({ ...worker, lease_state: "expired", lease_expires_at: observedAt });
+  accepts({ ...worker, last_run_at: observedAt });
+  for (const state of ["queued", "running", "succeeded", "failed", "cancelled", "unknown"]) {
+    accepts({ ...worker, last_run_state: state });
+  }
+  const invalidRows = [
+    { ...worker, schema_version: 2 }, { ...worker, worker_identity: "" },
+    { ...worker, worker_identity: "a".repeat(193) }, { ...worker, worker_identity: "~dot" },
+    { ...worker, worker_artifact_digest: "sha256:abc" }, { ...worker, worker_artifact_digest: null },
+    ...[[], [...operations].reverse(), [operations[0], operations[0]], ["unregistered"], [null], operations[0]]
+      .map((operation_ids) => ({ ...worker, operation_ids })),
+    { ...worker, registered_at: observedAt },
+    { ...worker, last_heartbeat_at: "2026-09-01T10:00:01.000Z" },
+    { ...worker, lease_expires_at: worker.last_heartbeat_at },
+    { ...worker, lease_expires_at: observedAt },
+    { ...worker, lease_state: "expired" },
+    { ...worker, registered_at: "not-a-date" }, { ...worker, last_heartbeat_at: null },
+    { ...worker, lease_expires_at: "2026-09-01T10:00:20Z" },
+    { ...worker, last_run_identity: "invalid" }, { ...worker, last_run_identity: null },
+    { ...worker, last_run_state: null }, { ...worker, last_run_state: ["running"] },
+    { ...worker, last_run_state: "not_a_state" }, { ...worker, last_run_at: null },
+    { ...worker, last_run_at: "2026-09-01T10:00:01.000Z" },
+  ];
+  for (const row of invalidRows) {
+    assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [row] })), null);
+    assert.equal(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: row }), worker.worker_identity), null);
   }
 });
 

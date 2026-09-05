@@ -115,7 +115,7 @@ export function parseWorkerBrowserEnvelopeV1(value: unknown): WorkerBrowserEnvel
   if (!object(value) || !exactKeys(value, [
     "schema_version", "operation", "availability", "unavailable_reason", "observed_at", "workers",
   ]) || value.schema_version !== 1 || value.operation !== "dashboard.shadow_workers.list.v1"
-    || !timestamp(value.observed_at) || !Array.isArray(value.workers)) return null;
+    || !timestamp(value.observed_at) || !Array.isArray(value.workers) || value.workers.length > 100) return null;
   if (value.availability === "unavailable") {
     return typeof value.unavailable_reason === "string" && IDENTITY.test(value.unavailable_reason)
       && value.workers.length === 0 ? value as WorkerBrowserEnvelopeV1 : null;
