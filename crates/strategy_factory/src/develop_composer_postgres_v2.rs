@@ -44,6 +44,15 @@ const SEALED_READ_SCHEMA_V2: u16 = 2;
 const SEALED_READ_FUNCTION_V2: &str = "composer_owner_api.lock_accepted_develop_composer_v2(text)";
 const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is unavailable";
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
+const COMMIT_QUERY_V2: &str = "SELECT composer_owner_api.commit_develop_composer_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)";
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const ACCEPTANCE_COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const ACCEPTANCE_COMMIT_QUERY_V2: &str = "SELECT composer_owner_api.commit_develop_composer_acceptance_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)";
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 7;
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+const COMPOSER_OWNER_API_FUNCTION_COUNT_V2: i64 = 6;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -106,6 +115,22 @@ impl DevelopComposerAcceptanceWriteBoundaryV2 {
 type DevelopComposerFaultBoundaryV2 = DevelopComposerAcceptanceWriteBoundaryV2;
 #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
 type DevelopComposerFaultBoundaryV2 = usize;
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const fn composer_commit_query_v2(
+    fail_after_boundary: Option<DevelopComposerAcceptanceWriteBoundaryV2>,
+) -> &'static str {
+    match fail_after_boundary {
+        Some(_) => ACCEPTANCE_COMMIT_QUERY_V2,
+        None => COMMIT_QUERY_V2,
+    }
+}
+
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+fn composer_commit_query_v2(fail_after_boundary: Option<usize>) -> &'static str {
+    debug_assert!(fail_after_boundary.is_none());
+    COMMIT_QUERY_V2
+}
 const ROLE_SET_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const NATIVE_JOIN_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const ROLE_SET_READ_FUNCTION_SOURCE_V1: &str = "SELECT attestation.attestation_identity,attestation.attestation_digest,attestation.canonical_bytes FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 attestation WHERE attestation.request_identity=p_request_identity AND attestation.composer_schema_version=p_composer_schema_version AND attestation.operation_receipt_identity=p_operation_receipt_identity AND attestation.artifact_locator=p_artifact_locator AND attestation.artifact_identity=p_artifact_identity AND attestation.canonical_plan_digest=p_canonical_plan_digest AND attestation.design_digest=p_design_digest";
@@ -164,6 +189,80 @@ BEGIN
   INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
   RETURN true;
 END";
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2: &str = r#"DECLARE ordinal integer; inserted_rows bigint; fail_after text;
+BEGIN
+  IF SESSION_USER<>'rd_owner' THEN RAISE EXCEPTION 'R&D Composer acceptance writer required' USING ERRCODE='42501'; END IF;
+  fail_after := pg_catalog.current_setting('vibe.sealed_acceptance.composer_fail_after',true);
+  IF fail_after IS NOT NULL AND fail_after<>'' AND fail_after NOT IN ('AfterDesign','AfterPlan','AfterArtifact','AfterEachModule','AfterEachNewIntrinsicBuildReceipt','AfterEachBuildUse','AfterComposerReceipt','AfterHostReceipt','AfterOperation','AfterRoleSetAttestation','AfterNativeJoin','AfterOutbox') THEN
+    RAISE EXCEPTION 'Unknown Composer acceptance boundary' USING ERRCODE='22023';
+  END IF;
+  IF cardinality(p_receipt_identities)<>cardinality(p_attempt_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_capsule_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_build_bytes) THEN RETURN false; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
+  PERFORM operation.request_identity FROM composer_private.rd_develop_operations_v2 operation WHERE operation.request_identity=p_request_identity FOR UPDATE;
+  IF FOUND THEN
+    RETURN EXISTS (
+      SELECT 1
+        FROM composer_private.rd_develop_operations_v2 operation
+        JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity
+        JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+        JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+        JOIN composer_private.rd_develop_composer_receipts_v2 composer ON composer.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_host_receipts_v2 host ON host.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set ON role_set.request_identity=operation.request_identity
+        JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
+        LEFT JOIN composer_private.rd_develop_strategy_design_native_joins_v1 native_join ON native_join.request_identity=operation.request_identity
+        LEFT JOIN LATERAL (SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_modules_v2 module WHERE module.artifact_identity=artifact.artifact_identity) modules ON true
+        LEFT JOIN LATERAL (SELECT array_agg(receipt_use.ordinal ORDER BY receipt_use.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt_use.ordinal) AS identities,array_agg(receipt.build_attempt_identity ORDER BY receipt_use.ordinal) AS attempts,array_agg(receipt.capsule_identity ORDER BY receipt_use.ordinal) AS capsules,array_agg(receipt.canonical_bytes ORDER BY receipt_use.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use JOIN composer_private.rd_develop_build_receipts_v2 receipt ON receipt.receipt_identity=receipt_use.receipt_identity WHERE receipt_use.artifact_identity=artifact.artifact_identity) builds ON true
+       WHERE operation.request_identity=p_request_identity
+         AND operation.request_digest=p_request_digest AND operation.research_request_identity=p_research_identity AND operation.intent_identity=p_intent_identity AND operation.artifact_identity=p_artifact_identity AND operation.canonical_receipt_bytes=p_operation_bytes AND operation.response_bytes=p_response_bytes
+         AND artifact.plan_digest=p_plan_digest AND artifact.package_bytes=p_package_bytes
+         AND plan.design_identity=p_design_identity AND plan.canonical_bytes=p_plan_bytes AND design.canonical_bytes=p_design_bytes
+         AND COALESCE(modules.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_module_bytes)-1) value)
+         AND COALESCE(modules.canonical_bytes,ARRAY[]::bytea[])=p_module_bytes
+         AND COALESCE(builds.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_receipt_identities)-1) value)
+         AND COALESCE(builds.identities,ARRAY[]::bytea[])=p_receipt_identities AND COALESCE(builds.attempts,ARRAY[]::bytea[])=p_attempt_identities AND COALESCE(builds.capsules,ARRAY[]::bytea[])=p_capsule_identities AND COALESCE(builds.canonical_bytes,ARRAY[]::bytea[])=p_build_bytes
+         AND composer.canonical_bytes=p_composer_bytes AND host.canonical_bytes=p_host_bytes AND outbox.canonical_bytes=p_outbox_bytes
+         AND role_set.composer_schema_version=p_role_schema_version AND role_set.operation_receipt_identity=p_role_operation_receipt_identity AND role_set.artifact_locator=p_role_artifact_locator AND role_set.artifact_identity=p_artifact_identity AND role_set.canonical_plan_digest=p_plan_digest AND role_set.design_digest=p_role_design_digest AND role_set.attestation_identity=p_role_attestation_identity AND role_set.attestation_digest=p_role_attestation_digest AND role_set.canonical_bytes=p_role_bytes
+         AND ((octet_length(p_native_join_bytes)=0 AND native_join.request_identity IS NULL) OR (octet_length(p_native_join_bytes)>0 AND native_join.native_join_digest=p_native_join_digest AND native_join.projection_receipt_digest=p_projection_receipt_digest AND native_join.joined_cut_digest=p_joined_cut_digest AND native_join.schedule_dependency_set_digest=p_schedule_dependency_set_digest AND native_join.canonical_bytes=p_native_join_bytes))
+    );
+  END IF;
+  INSERT INTO composer_private.rd_develop_designs_v2 VALUES (p_design_identity,p_design_bytes);
+  IF fail_after='AfterDesign' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_plans_v2 VALUES (p_plan_digest,p_design_identity,p_plan_bytes);
+  IF fail_after='AfterPlan' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_artifacts_v2 VALUES (p_artifact_identity,p_plan_digest,p_package_bytes);
+  IF fail_after='AfterArtifact' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  FOR ordinal IN SELECT generate_subscripts(p_module_bytes,1) LOOP
+    INSERT INTO composer_private.rd_develop_artifact_modules_v2 VALUES (p_artifact_identity,ordinal-1,p_module_bytes[ordinal]);
+    IF fail_after='AfterEachModule' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END LOOP;
+  FOR ordinal IN SELECT generate_subscripts(p_receipt_identities,1) LOOP
+    INSERT INTO composer_private.rd_develop_build_receipts_v2 VALUES (p_receipt_identities[ordinal],p_attempt_identities[ordinal],p_capsule_identities[ordinal],p_build_bytes[ordinal]) ON CONFLICT (receipt_identity) DO NOTHING;
+    GET DIAGNOSTICS inserted_rows = ROW_COUNT;
+    IF inserted_rows>0 AND fail_after='AfterEachNewIntrinsicBuildReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+    IF NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_build_receipts_v2 receipt WHERE receipt.receipt_identity=p_receipt_identities[ordinal] AND receipt.build_attempt_identity=p_attempt_identities[ordinal] AND receipt.capsule_identity=p_capsule_identities[ordinal] AND receipt.canonical_bytes=p_build_bytes[ordinal]) THEN RETURN false; END IF;
+    INSERT INTO composer_private.rd_develop_artifact_build_receipt_uses_v2 VALUES (p_artifact_identity,ordinal-1,p_receipt_identities[ordinal]);
+    IF fail_after='AfterEachBuildUse' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END LOOP;
+  INSERT INTO composer_private.rd_develop_composer_receipts_v2 VALUES (p_artifact_identity,p_composer_bytes);
+  IF fail_after='AfterComposerReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_host_receipts_v2 VALUES (p_artifact_identity,p_host_bytes);
+  IF fail_after='AfterHostReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_operations_v2 VALUES (p_request_identity,p_request_digest,p_research_identity,p_intent_identity,p_artifact_identity,p_operation_bytes,p_response_bytes);
+  IF fail_after='AfterOperation' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1 VALUES (p_request_identity,p_role_schema_version,p_role_operation_receipt_identity,p_role_artifact_locator,p_artifact_identity,p_plan_digest,p_role_design_digest,p_role_attestation_identity,p_role_attestation_digest,p_role_bytes);
+  IF fail_after='AfterRoleSetAttestation' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  IF octet_length(p_native_join_bytes)>0 THEN
+    INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (p_request_identity,p_native_join_digest,p_projection_receipt_digest,p_joined_cut_digest,p_schedule_dependency_set_digest,p_native_join_bytes);
+    IF fail_after='AfterNativeJoin' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END IF;
+  INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
+  IF fail_after='AfterOutbox' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  RETURN true;
+END"#;
 const COMPOSER_TABLES_V2: [&str; 12] = [
     "rd_develop_designs_v2",
     "rd_develop_plans_v2",
@@ -1289,7 +1388,7 @@ async fn verify_composer_read_authority_in_transaction(
            FROM required
            JOIN pg_catalog.pg_proc procedure ON procedure.oid=pg_catalog.to_regprocedure(required.signature)
          )
-         SELECT (SELECT count(*)=6 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+         SELECT (SELECT count(*)=$5 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
             AND (SELECT count(*)=2 FROM protected_relations)
             AND count(*)=2
             AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
@@ -1305,6 +1404,7 @@ async fn verify_composer_read_authority_in_transaction(
     .bind(ROLE_SET_READ_FUNCTION_SOURCE_V1)
     .bind(NATIVE_JOIN_READ_FUNCTION_V1)
     .bind(NATIVE_JOIN_READ_FUNCTION_SOURCE_V1)
+    .bind(COMPOSER_OWNER_API_FUNCTION_COUNT_V2)
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
@@ -1325,6 +1425,8 @@ async fn verify_composer_commit_authority_in_transaction(
             AND procedure.provolatile='v' AND procedure.proparallel='u'
             AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
             AND procedure.prosrc=$2
+            AND pg_catalog.strpos(procedure.prosrc,'vibe.sealed_acceptance.composer_fail_after')=0
+            AND pg_catalog.strpos(procedure.prosrc,'Sealed Composer acceptance fault')=0
             AND (
               SELECT count(*)=3
                  AND count(*) FILTER (
@@ -1378,6 +1480,66 @@ async fn verify_composer_commit_authority_in_transaction(
     } else {
         Err(sqlx::Error::Protocol(
             "Composer commit authority is unavailable".to_owned(),
+        ))
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn verify_composer_acceptance_commit_authority_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), sqlx::Error> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT SESSION_USER='rd_owner'
+            AND CURRENT_USER='rd_owner'
+            AND pg_catalog.pg_get_userbyid(procedure.proowner)='composer_owner'
+            AND language.lanname='plpgsql' AND procedure.prokind='f'
+            AND NOT procedure.proretset AND procedure.prosecdef AND procedure.proisstrict
+            AND procedure.provolatile='v' AND procedure.proparallel='u'
+            AND procedure.proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[]
+            AND procedure.prosrc=$2
+            AND pg_catalog.strpos(procedure.prosrc,'vibe.sealed_acceptance.composer_fail_after')>0
+            AND (
+              SELECT count(*)=2
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=procedure.proowner
+                     AND acl.privilege_type='EXECUTE'
+                 )=1
+                 AND count(*) FILTER (
+                   WHERE acl.grantee=(
+                     SELECT oid FROM pg_catalog.pg_roles
+                      WHERE rolname='rd_owner'
+                   )
+                     AND acl.privilege_type='EXECUTE'
+                     AND NOT acl.is_grantable
+                 )=1
+                 AND count(*) FILTER (WHERE acl.grantee=0)=0
+                 AND count(*) FILTER (
+                   WHERE acl.privilege_type<>'EXECUTE'
+                      OR acl.grantee NOT IN (
+                        procedure.proowner,
+                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                      )
+                      OR (acl.grantee<>procedure.proowner AND acl.is_grantable)
+                 )=0
+                FROM pg_catalog.aclexplode(COALESCE(
+                       procedure.proacl,
+                       pg_catalog.acldefault('f',procedure.proowner)
+                     )) acl
+            )
+           FROM pg_catalog.pg_proc procedure
+           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(ACCEPTANCE_COMMIT_FUNCTION_V2)
+    .bind(ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2)
+    .fetch_one(&mut **transaction)
+    .await?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(sqlx::Error::Protocol(
+            "Composer acceptance commit authority is unavailable".to_owned(),
         ))
     }
 }
@@ -2728,6 +2890,7 @@ async fn persist_record(
     .map_err(sqlx::Error::Protocol)?;
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     if let Some(boundary) = fail_after_boundary {
+        verify_composer_acceptance_commit_authority_in_transaction(transaction).await?;
         sqlx::query("SELECT pg_catalog.set_config($1,$2,true)")
             .bind(SEALED_COMPOSER_FAIL_AFTER_GUC_V2)
             .bind(boundary.as_str())
@@ -2782,7 +2945,8 @@ async fn persist_record(
             )
         },
     );
-    let committed: bool = sqlx::query_scalar("SELECT composer_owner_api.commit_develop_composer_v2($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)")
+    let commit_query = sqlx::query_scalar(composer_commit_query_v2(fail_after_boundary));
+    let committed: bool = commit_query
         .bind(&record.request_identity)
         .bind(record.request_digest.as_bytes().as_slice())
         .bind(record.research_request_identity.as_bytes().as_slice())
@@ -2793,10 +2957,10 @@ async fn persist_record(
         .bind(&record.design_bytes)
         .bind(&record.plan_bytes)
         .bind(&record.artifact_package_bytes)
-        .bind(module_bytes)
-        .bind(receipt_identities)
-        .bind(attempt_identities)
-        .bind(capsule_identities)
+        .bind(&module_bytes)
+        .bind(&receipt_identities)
+        .bind(&attempt_identities)
+        .bind(&capsule_identities)
         .bind(&record.build_receipt_bytes)
         .bind(&record.composer_receipt_bytes)
         .bind(&record.host_receipt_bytes)
@@ -2810,11 +2974,11 @@ async fn persist_record(
         .bind(role_set.receipt_identity().as_bytes().as_slice())
         .bind(role_set.receipt_digest().as_bytes().as_slice())
         .bind(role_set.canonical_bytes())
-        .bind(native_join_digest)
-        .bind(projection_receipt_digest)
-        .bind(joined_cut_digest)
-        .bind(schedule_digest)
-        .bind(native_bytes)
+        .bind(&native_join_digest)
+        .bind(&projection_receipt_digest)
+        .bind(&joined_cut_digest)
+        .bind(&schedule_digest)
+        .bind(&native_bytes)
         .fetch_one(&mut **transaction)
         .await?;
 
@@ -2895,7 +3059,12 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sha2::{Digest, Sha256};
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+    fn sha256_hex(value: &str) -> String {
+        format!("{:x}", Sha256::digest(value.as_bytes()))
+    }
 
     #[rstest]
     fn public_materializer_covers_the_complete_composer_family() {
@@ -2974,6 +3143,15 @@ mod tests {
 
     #[rstest]
     fn composer_authority_rejects_public_execute_on_commit() {
+        assert_eq!(
+            super::composer_commit_query_v2(None),
+            super::COMMIT_QUERY_V2
+        );
+        assert_eq!(
+            sha256_hex(super::COMMIT_FUNCTION_SOURCE_V2),
+            "ed9b2945a114c2ffc846b780022fca57df6e0448076ac3520e00074597de3b38"
+        );
+        assert!(!super::COMMIT_FUNCTION_SOURCE_V2.contains("composer_fail_after"));
         let source = include_str!("develop_composer_postgres_v2.rs");
         let read_authority = source
             .split("async fn verify_composer_read_authority_in_transaction")
@@ -3005,6 +3183,17 @@ mod tests {
     #[test]
     fn acceptance_write_boundaries_are_closed_and_in_persistence_order() {
         assert_eq!(
+            super::COMMIT_FUNCTION_V2.split_once('(').unwrap().1,
+            super::ACCEPTANCE_COMMIT_FUNCTION_V2
+                .split_once('(')
+                .unwrap()
+                .1
+        );
+        assert_eq!(
+            sha256_hex(super::ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2),
+            "f4f0d3342ba5b537d716fd142245127e637eedb93f88a75a092b540d2702482c"
+        );
+        assert_eq!(
             super::DevelopComposerAcceptanceWriteBoundaryV2::ALL.map(|value| value.as_str()),
             [
                 "AfterDesign",
@@ -3025,5 +3214,15 @@ mod tests {
             super::SEALED_COMPOSER_FAIL_AFTER_GUC_V2,
             "vibe.sealed_acceptance.composer_fail_after"
         );
+        assert_eq!(
+            super::composer_commit_query_v2(None),
+            super::COMMIT_QUERY_V2
+        );
+        for boundary in super::DevelopComposerAcceptanceWriteBoundaryV2::ALL {
+            assert_eq!(
+                super::composer_commit_query_v2(Some(boundary)),
+                super::ACCEPTANCE_COMMIT_QUERY_V2
+            );
+        }
     }
 }

@@ -5,6 +5,17 @@ check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=product/rd-workbench/scripts/check/common.bash
 . "$check_dir/common.bash"
 
+sha256_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | awk '{print $1}'
+  else
+    echo "sha256sum or shasum is required" >&2
+    exit 1
+  fi
+}
+
 # The expression is the literal contract under inspection.
 # shellcheck disable=SC2016
 grep -Fq ': "${RD_OWNER_DATABASE_NAME:=rd_owner}"' "$package_dir/postgres-init/00-create-rd-owner.sh"
@@ -122,7 +133,26 @@ grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_repl
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
 test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
-grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+composer_migration="$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-research-composer-sealed-acceptance.yml" |
+  grep -Fq 'SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"'
+grep -Fq 'case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in' "$composer_migration"
+production_composer_source=$(sed -n '/AS \$composer_commit\$/,/END\$composer_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_commit\$//; $s/\$composer_commit\$;//')
+test "$(printf '%s' "$production_composer_source" | sha256_stdin)" = ed9b2945a114c2ffc846b780022fca57df6e0448076ac3520e00074597de3b38
+if printf '%s' "$production_composer_source" | grep -Eq 'composer_fail_after|acceptance fault'; then
+  echo "production Composer commit routine must not contain acceptance fault hooks" >&2
+  exit 1
+fi
+acceptance_composer_header=$(sed -n '/^CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(/,/^SET search_path = pg_catalog, pg_temp AS \$composer_acceptance_commit\$/p' "$composer_migration" | sed '$s/AS \$composer_acceptance_commit\$.*$/AS $composer_acceptance_commit$/')
+test "$(printf '%s' "$acceptance_composer_header" | sha256_stdin)" = 77142de253600dfe15f89abac27c24867576a26fc2d4deeee9c630fed05cb9d5
+acceptance_composer_source=$(sed -n '/AS \$composer_acceptance_commit\$/,/END\$composer_acceptance_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_acceptance_commit\$//; $s/\$composer_acceptance_commit\$;//')
+# This exact source identity binds the closed GUC validation and every insert -> matching raise,
+# including module/build-use loops, ROW_COUNT-gated new receipts, and the native-join conditional.
+test "$(printf '%s' "$acceptance_composer_source" | sha256_stdin)" = f4f0d3342ba5b537d716fd142245127e637eedb93f88a75a092b540d2702482c
+acceptance_composer_acl=$(sed -n '/^ALTER FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(/,/^GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(.* TO rd_owner;$/p' "$composer_migration")
+test "$(printf '%s' "$acceptance_composer_acl" | sha256_stdin)" = c2fc6bbd3d0c1e38ebfa6f830830ac90aed222499b42e11c819d1f6a3879ad19
+test "$(grep -Fc '\if :composer_acceptance' "$composer_migration")" -eq 3
+grep -Fq 'DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_acceptance_v2(' "$composer_migration"
 grep -Fq 'CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"

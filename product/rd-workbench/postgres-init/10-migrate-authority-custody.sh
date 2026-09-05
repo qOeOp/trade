@@ -4,8 +4,14 @@ set -eu
 : "${RD_FACT_WRITER_DB_PASSWORD:?set RD_FACT_WRITER_DB_PASSWORD}"
 : "${MARKET_DATA_OWNER_DB_PASSWORD:?set MARKET_DATA_OWNER_DB_PASSWORD}"
 : "${REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD:?set REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD}"
+case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in
+  0) composer_acceptance=false ;;
+  1) composer_acceptance=true ;;
+  *) echo "SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE must be 0, 1, or unset" >&2; exit 1 ;;
+esac
 export PGPASSWORD="$POSTGRES_PASSWORD"
 psql --set=ON_ERROR_STOP=1 --host "${POSTGRES_HOST:-postgres}" --username postgres --dbname "${POSTGRES_DATABASE:-rd_owner}" \
+  --set=composer_acceptance="$composer_acceptance" \
   --set=rd_password="$RD_OWNER_DB_PASSWORD" \
   --set=fact_writer_password="$RD_FACT_WRITER_DB_PASSWORD" \
   --set=market_data_owner_password="$MARKET_DATA_OWNER_DB_PASSWORD" \
@@ -1390,6 +1396,97 @@ END$composer_commit$;
 ALTER FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) FROM PUBLIC, rd_owner, rd_fact_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer, rd_owner;
+\if :composer_acceptance
+CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(
+  p_request_identity text, p_request_digest bytea, p_research_identity bytea, p_intent_identity bytea,
+  p_artifact_identity bytea, p_design_identity bytea, p_plan_digest bytea, p_design_bytes bytea,
+  p_plan_bytes bytea, p_package_bytes bytea, p_module_bytes bytea[], p_receipt_identities bytea[],
+  p_attempt_identities bytea[], p_capsule_identities bytea[], p_build_bytes bytea[],
+  p_composer_bytes bytea, p_host_bytes bytea, p_operation_bytes bytea, p_response_bytes bytea, p_outbox_bytes bytea,
+  p_role_schema_version integer, p_role_operation_receipt_identity bytea, p_role_artifact_locator text,
+  p_role_design_digest bytea, p_role_attestation_identity bytea, p_role_attestation_digest bytea, p_role_bytes bytea,
+  p_native_join_digest bytea, p_projection_receipt_digest bytea, p_joined_cut_digest bytea,
+  p_schedule_dependency_set_digest bytea, p_native_join_bytes bytea
+) RETURNS boolean LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $composer_acceptance_commit$DECLARE ordinal integer; inserted_rows bigint; fail_after text;
+BEGIN
+  IF SESSION_USER<>'rd_owner' THEN RAISE EXCEPTION 'R&D Composer acceptance writer required' USING ERRCODE='42501'; END IF;
+  fail_after := pg_catalog.current_setting('vibe.sealed_acceptance.composer_fail_after',true);
+  IF fail_after IS NOT NULL AND fail_after<>'' AND fail_after NOT IN ('AfterDesign','AfterPlan','AfterArtifact','AfterEachModule','AfterEachNewIntrinsicBuildReceipt','AfterEachBuildUse','AfterComposerReceipt','AfterHostReceipt','AfterOperation','AfterRoleSetAttestation','AfterNativeJoin','AfterOutbox') THEN
+    RAISE EXCEPTION 'Unknown Composer acceptance boundary' USING ERRCODE='22023';
+  END IF;
+  IF cardinality(p_receipt_identities)<>cardinality(p_attempt_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_capsule_identities)
+     OR cardinality(p_receipt_identities)<>cardinality(p_build_bytes) THEN RETURN false; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
+  PERFORM operation.request_identity FROM composer_private.rd_develop_operations_v2 operation WHERE operation.request_identity=p_request_identity FOR UPDATE;
+  IF FOUND THEN
+    RETURN EXISTS (
+      SELECT 1
+        FROM composer_private.rd_develop_operations_v2 operation
+        JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity
+        JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+        JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+        JOIN composer_private.rd_develop_composer_receipts_v2 composer ON composer.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_host_receipts_v2 host ON host.artifact_identity=artifact.artifact_identity
+        JOIN composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set ON role_set.request_identity=operation.request_identity
+        JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
+        LEFT JOIN composer_private.rd_develop_strategy_design_native_joins_v1 native_join ON native_join.request_identity=operation.request_identity
+        LEFT JOIN LATERAL (SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_modules_v2 module WHERE module.artifact_identity=artifact.artifact_identity) modules ON true
+        LEFT JOIN LATERAL (SELECT array_agg(receipt_use.ordinal ORDER BY receipt_use.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt_use.ordinal) AS identities,array_agg(receipt.build_attempt_identity ORDER BY receipt_use.ordinal) AS attempts,array_agg(receipt.capsule_identity ORDER BY receipt_use.ordinal) AS capsules,array_agg(receipt.canonical_bytes ORDER BY receipt_use.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use JOIN composer_private.rd_develop_build_receipts_v2 receipt ON receipt.receipt_identity=receipt_use.receipt_identity WHERE receipt_use.artifact_identity=artifact.artifact_identity) builds ON true
+       WHERE operation.request_identity=p_request_identity
+         AND operation.request_digest=p_request_digest AND operation.research_request_identity=p_research_identity AND operation.intent_identity=p_intent_identity AND operation.artifact_identity=p_artifact_identity AND operation.canonical_receipt_bytes=p_operation_bytes AND operation.response_bytes=p_response_bytes
+         AND artifact.plan_digest=p_plan_digest AND artifact.package_bytes=p_package_bytes
+         AND plan.design_identity=p_design_identity AND plan.canonical_bytes=p_plan_bytes AND design.canonical_bytes=p_design_bytes
+         AND COALESCE(modules.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_module_bytes)-1) value)
+         AND COALESCE(modules.canonical_bytes,ARRAY[]::bytea[])=p_module_bytes
+         AND COALESCE(builds.ordinals,ARRAY[]::integer[])=(SELECT COALESCE(array_agg(value),ARRAY[]::integer[]) FROM generate_series(0,cardinality(p_receipt_identities)-1) value)
+         AND COALESCE(builds.identities,ARRAY[]::bytea[])=p_receipt_identities AND COALESCE(builds.attempts,ARRAY[]::bytea[])=p_attempt_identities AND COALESCE(builds.capsules,ARRAY[]::bytea[])=p_capsule_identities AND COALESCE(builds.canonical_bytes,ARRAY[]::bytea[])=p_build_bytes
+         AND composer.canonical_bytes=p_composer_bytes AND host.canonical_bytes=p_host_bytes AND outbox.canonical_bytes=p_outbox_bytes
+         AND role_set.composer_schema_version=p_role_schema_version AND role_set.operation_receipt_identity=p_role_operation_receipt_identity AND role_set.artifact_locator=p_role_artifact_locator AND role_set.artifact_identity=p_artifact_identity AND role_set.canonical_plan_digest=p_plan_digest AND role_set.design_digest=p_role_design_digest AND role_set.attestation_identity=p_role_attestation_identity AND role_set.attestation_digest=p_role_attestation_digest AND role_set.canonical_bytes=p_role_bytes
+         AND ((octet_length(p_native_join_bytes)=0 AND native_join.request_identity IS NULL) OR (octet_length(p_native_join_bytes)>0 AND native_join.native_join_digest=p_native_join_digest AND native_join.projection_receipt_digest=p_projection_receipt_digest AND native_join.joined_cut_digest=p_joined_cut_digest AND native_join.schedule_dependency_set_digest=p_schedule_dependency_set_digest AND native_join.canonical_bytes=p_native_join_bytes))
+    );
+  END IF;
+  INSERT INTO composer_private.rd_develop_designs_v2 VALUES (p_design_identity,p_design_bytes);
+  IF fail_after='AfterDesign' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_plans_v2 VALUES (p_plan_digest,p_design_identity,p_plan_bytes);
+  IF fail_after='AfterPlan' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_artifacts_v2 VALUES (p_artifact_identity,p_plan_digest,p_package_bytes);
+  IF fail_after='AfterArtifact' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  FOR ordinal IN SELECT generate_subscripts(p_module_bytes,1) LOOP
+    INSERT INTO composer_private.rd_develop_artifact_modules_v2 VALUES (p_artifact_identity,ordinal-1,p_module_bytes[ordinal]);
+    IF fail_after='AfterEachModule' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END LOOP;
+  FOR ordinal IN SELECT generate_subscripts(p_receipt_identities,1) LOOP
+    INSERT INTO composer_private.rd_develop_build_receipts_v2 VALUES (p_receipt_identities[ordinal],p_attempt_identities[ordinal],p_capsule_identities[ordinal],p_build_bytes[ordinal]) ON CONFLICT (receipt_identity) DO NOTHING;
+    GET DIAGNOSTICS inserted_rows = ROW_COUNT;
+    IF inserted_rows>0 AND fail_after='AfterEachNewIntrinsicBuildReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+    IF NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_build_receipts_v2 receipt WHERE receipt.receipt_identity=p_receipt_identities[ordinal] AND receipt.build_attempt_identity=p_attempt_identities[ordinal] AND receipt.capsule_identity=p_capsule_identities[ordinal] AND receipt.canonical_bytes=p_build_bytes[ordinal]) THEN RETURN false; END IF;
+    INSERT INTO composer_private.rd_develop_artifact_build_receipt_uses_v2 VALUES (p_artifact_identity,ordinal-1,p_receipt_identities[ordinal]);
+    IF fail_after='AfterEachBuildUse' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END LOOP;
+  INSERT INTO composer_private.rd_develop_composer_receipts_v2 VALUES (p_artifact_identity,p_composer_bytes);
+  IF fail_after='AfterComposerReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_host_receipts_v2 VALUES (p_artifact_identity,p_host_bytes);
+  IF fail_after='AfterHostReceipt' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_operations_v2 VALUES (p_request_identity,p_request_digest,p_research_identity,p_intent_identity,p_artifact_identity,p_operation_bytes,p_response_bytes);
+  IF fail_after='AfterOperation' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  INSERT INTO composer_private.rd_develop_strategy_design_role_set_attestations_v1 VALUES (p_request_identity,p_role_schema_version,p_role_operation_receipt_identity,p_role_artifact_locator,p_artifact_identity,p_plan_digest,p_role_design_digest,p_role_attestation_identity,p_role_attestation_digest,p_role_bytes);
+  IF fail_after='AfterRoleSetAttestation' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  IF octet_length(p_native_join_bytes)>0 THEN
+    INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (p_request_identity,p_native_join_digest,p_projection_receipt_digest,p_joined_cut_digest,p_schedule_dependency_set_digest,p_native_join_bytes);
+    IF fail_after='AfterNativeJoin' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  END IF;
+  INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
+  IF fail_after='AfterOutbox' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  RETURN true;
+END$composer_acceptance_commit$;
+ALTER FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) FROM PUBLIC, rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_owner;
+\else
+DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea);
+\endif
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(p_request_identity text)
 RETURNS TABLE (request_digest bytea, research_request_identity bytea, intent_identity bytea, artifact_identity bytea, operation_receipt_bytes bytea, response_bytes bytea, plan_digest bytea, artifact_package_bytes bytea, design_identity bytea, plan_bytes bytea, design_bytes bytea, module_ordinals integer[], module_bytes bytea[], build_ordinals integer[], build_receipt_identities bytea[], build_attempt_identities bytea[], capsule_identities bytea[], build_receipt_bytes bytea[], composer_receipt_bytes bytea, host_receipt_bytes bytea, outbox_bytes bytea)
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -1570,10 +1667,18 @@ $catalog_composer_function_acl_cutover$;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer, rd_owner;
+\if :composer_acceptance
+GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_owner;
+\endif
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
+\if :composer_acceptance
+SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','true',true);
+\else
+SELECT pg_catalog.set_config('vibe.migration.install_composer_acceptance','false',true);
+\endif
 DO $catalog_composer_readback$
-DECLARE exact boolean;
+DECLARE exact boolean; composer_acceptance boolean := pg_catalog.current_setting('vibe.migration.install_composer_acceptance')::boolean;
 BEGIN
   SELECT pg_catalog.pg_get_userbyid(database.datdba)='rd_database_owner'
     AND pg_catalog.has_database_privilege('market_data_reader',database.oid,'CONNECT')
@@ -1641,14 +1746,14 @@ BEGIN
 $catalog_audit_read$
     ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
       WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
-    AND (SELECT count(*)=6 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=CASE WHEN composer_acceptance THEN 7 ELSE 6 END AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)')
-    )) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+    ) OR (composer_acceptance AND procedure.oid=pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'))) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()','EXECUTE')
@@ -1662,6 +1767,7 @@ $catalog_audit_read$
     AND pg_catalog.has_function_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
     AND pg_catalog.has_function_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')
+    AND (NOT composer_acceptance OR (pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE') AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')))
     AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_accepted_develop_composer_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE')
