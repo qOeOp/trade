@@ -167,26 +167,44 @@ state. First success and exact response-loss or restart replay return the same b
 that typed readback is the sole projection, with no administration receipt or outbox. Missing or conflicting
 bootstrap custody fails startup closed without a default.
 
-The public Composer `RUN` accepts only an untrusted request identity, Research custody reference, Design proposal,
-binding requests, and bounded plugin-source capsule. These values are proposals and locators, never verified facts.
-In the same process, the operation must invoke the accepted A0 deterministic build boundary, preserve its opaque
-verified build in-process, and consume that token by move. That positive type is neither `Clone` nor
-serializable/deserializable. The private canonical A0 Build Receipt bytes are a separate durable fact, not a token
-representation. There is no public verified-build locator, verified-build read port, database or API token
-representation, and no provider, caller, Windmill flow, or restart path may reconstruct a verified token from
-bytes, digests, receipts, or labels.
+The public Composer `RUN` accepts exactly one untrusted canonical Research request locator. It rejects a caller
+request identity, Design, digest, binding request, plugin-source capsule, provider selection, build receipt, or any
+other field. Under the same Owner lock/write transaction used for the positive commit, R&D canonically rereads the
+located current Research custody and alone derives the Composer request identity and digest, Research/Intent and
+Design identities and digests, Design, binding set, source capsule, and provider identity. The derivation retains
+the exact Product Edge Operator Authorization frontier and final commit cut; neither Windmill nor a caller can
+replace, omit, or recompute them. The Owner-internal exact commit-cut capability locks only that request and its
+aggregate rows and never takes a table-wide lock.
 
-After A0 and immediately before its positive commit, A1 locks and rereads the final accepted Research custody and
-every exact fact-Owner binding. The R&D, Composer, and Market Data path uses one admitted R&D PostgreSQL
-transaction domain: A1 passes its existing transaction capability to each applicable Owner-owned sealed Composer
+Before `RUN`, the authenticated read-only `GET /v2/develop-composer/request-projections` may project the derived
+request identity and its complete identity/digest tuple from the same canonical Research locator. This projection
+exists only so transport can know the identity before sending and use bodyless same-identity `RESOLVE` after
+response loss. It performs no write and grants no custody. `POST /v2/develop-composer/runs` independently rereads
+and derives everything from its sole locator; it never trusts or accepts projected values fed back by a caller.
+
+In the same process, the operation invokes the accepted A0 deterministic build boundary, preserves its opaque
+verified build in-process, and consumes that token by move. That positive type is neither `Clone` nor
+serializable/deserializable. The private canonical A0 Build Receipt bytes are an intrinsic, content-addressed sealed
+build fact, independent of a Research request or Artifact. Each Artifact references it through a separate immutable,
+canonically ordered use relation. Multiple Research-derived Artifacts may therefore share one byte-identical sealed
+build fact while retaining distinct use rows and complete Research/Design/Artifact lineage. An exact legacy schema
+that embedded those same bytes may be normalized once by byte-preserving migration; every other legacy shape,
+partial relation, byte mismatch, or ambiguous duplicate fails closed. There is no public verified-build locator,
+verified-build read port, database or API token representation, and no provider, caller, Windmill flow, or restart
+path may reconstruct a verified token from bytes, digests, receipts, or labels.
+
+After A0 and immediately before its positive commit, A1 uses the same admitted R&D PostgreSQL transaction to lock
+and canonically reread the final accepted Research custody, derive all Composer meaning, and reread every exact
+fact-Owner binding. A1 passes its existing transaction capability to each applicable Owner-owned sealed Composer
 or Market Data read method. Each Owner locks, canonically rereads, validates, and seals its own facts on
 that exact transaction. No method may open another pool, connection, or transaction; neither caller nor Windmill
 may read raw Owner tables, reconstruct sealed evidence, or acquire the Owner's fact authority. Missing,
 unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or an invalid
 family-sealed policy cross-binding, fails before the first positive write. That same R&D transaction atomically
 stores the canonical `StrategyDesignV2`,
-`StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, private canonical A0 Build Receipt bytes,
-the Composer receipt, host-admission receipt, operation receipt, and R&D outbox. JSON is a projection only and
+`StrategyPlanV2`, `StrategyArtifactV2` package and private module bytes, the intrinsic private canonical A0 Build
+Receipt bytes, ordered Artifact-build use relation, Composer receipt, host-admission receipt, operation receipt,
+and R&D outbox. JSON is a projection only and
 cannot be the canonical readback or hash source. Restart and `RESOLVE` reread and parse the canonical Build Receipt,
 validate its capsule, toolchain, linker, configuration, and deterministic two-build provenance, bind that receipt to
 the Artifact and Composer receipts, then recompute and compare every content and binding digest before readmitting
@@ -239,22 +257,26 @@ authority.
 
 The composed runner must prove all of the following against the deployed operations and canonical Owner readback:
 
-1. concurrent same-meaning `RUN`s join one byte-identical receipt, while concurrent same-identity changed meaning
-   conflicts with zero changed-meaning or partial rows;
-2. injected failure at each A1 write boundary leaves zero partial Design, Plan, Artifact/module, receipt,
-   host-admission, operation, or outbox rows;
-3. response loss after atomic commit resolves the exact terminal with one A0 execution and no successor attempt;
-4. process and database restart followed by `RESOLVE` rereads and parses the private canonical A0 Build Receipt,
+1. two distinct canonical Research custodies produce distinct Artifacts and exactly two ordered use relations while
+   sharing exactly one intrinsic sealed A0 Build Receipt fact;
+2. locator-only transport rejects empty, unknown, oversized, malformed, and full-DTO injection inputs; concurrent
+   same-meaning `RUN`s join one byte-identical receipt, while same-identity changed meaning conflicts with zero
+   changed-meaning or partial rows;
+3. injected failure at each A1 write boundary leaves zero partial Design, Plan, Artifact/module, intrinsic build,
+   build-use, receipt, host-admission, operation, or outbox rows in the single R&D transaction;
+4. read-only projection before `RUN`, response loss after atomic commit, and bodyless same-identity `RESOLVE` recover
+   the exact terminal with one A0 execution and no successor attempt; POST proves it did not trust projection input;
+5. process and database restart followed by `RESOLVE` rereads and parses the private canonical A0 Build Receipt,
    validates its capsule/toolchain/linker/configuration/two-build provenance and Artifact/Composer receipt bindings,
    then returns byte-identical public evidence after remaining canonical-byte parse/hash verification and successful
    `ProgramHostV2` readmission;
-5. a single-field mutation of every Source Intake ancestry member, Research proposal/Design/binding/source-capsule
-   input, A0 identity, stored canonical object, module byte, receipt, or outbox binding fails closed and creates no
+6. a single-field mutation of every Source Intake ancestry member and every Owner-derived Research/Design/binding/
+   source-capsule input, A0 identity, stored canonical object, module byte, receipt, or outbox binding fails closed and creates no
    positive successor; a separate single-field mutation of the private canonical A0 Build Receipt does the same;
-6. the deployed Windmill golden path reaches `RETRIEVED`, canonical Research admission with typed accepted Research
+7. the deployed Windmill golden path reaches `RETRIEVED`, canonical Research admission with typed accepted Research
    custody, and the durable Composer terminal; exact replay uses all three same-request `RESOLVE` paths and joins
    the same receipts; and
-7. cleanup removes the unique Windmill project/workspace, PostgreSQL state, network, ingress allocation, and every
+8. cleanup removes the unique Windmill project/workspace, PostgreSQL state, network, ingress allocation, and every
    volume, then proves byte-for-byte or enumerated baseline equality, zero isolated residue, and zero shared-target
    change.
 

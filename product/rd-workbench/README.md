@@ -203,12 +203,17 @@ identity.
 The `artifact_build.submit_or_resolve.v1` script is the one App/MCP operation. `RUN` reads canonical frozen Intent bytes from the Owner, invokes a bounded server-side provider, and submits only a typed untrusted candidate. Missing provider configuration and provider/parse failures fail closed through the Owner without a template fallback. The sandbox has no network, secret, Docker socket, host effect port, or ambient input mount; its schema-v2 receipt binds the pinned image, Dockerfile, toolchain, target, offline policy, and byte-identical double build before runtime admission.
 
 The Develop Composer V2 Agent entry is one typed App/MCP transport operation at
-`f/trade/product_edge/develop_composer_v2`. `RUN` forwards only an unchanged,
-untrusted `DevelopComposerRunRequestV2`-compatible Design, binding-request set,
-and bounded plugin capsule set to the existing R&D Owner endpoint. `RESOLVE`
-sends no request body and can address only that exact request identity. The
-script never calls a database, creates an Owner fact or receipt, handles a
-verified-build token, or turns transport ambiguity into success. The default
+`f/trade/product_edge/develop_composer_v2`. `RUN` accepts only a canonical
+Research request locator. It first uses the authenticated read-only Owner
+projection to learn the derived request identity, then POSTs exactly
+`{"research_request_locator":"..."}`. The Owner independently rereads canonical
+Research custody and derives the request, Design, digests, bindings, provider,
+Operator Authorization frontier, and final cut in its single lock/write
+transaction; the POST never trusts projection fields. `RESOLVE` projects the
+same identity and sends a bodyless request for that identity. The script never
+calls a database, creates an Owner fact or receipt, handles a verified-build
+token, or turns transport ambiguity into success. After a lost RUN response it
+returns only `SUBMITTED_OR_UNKNOWN` with that prefetched identity. The default
 Owner composition remains truthfully `UNAVAILABLE`; only the compile-time
 sealed acceptance composition can expose its bounded positive proof.
 

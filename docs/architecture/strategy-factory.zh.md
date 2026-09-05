@@ -24,6 +24,16 @@ startup 不得重新获得 schema lease 或编写 Catalog state；预物化 lega
 readback 缺失、不匹配、未认证或尚未解析时，必须 fail closed。read 不创建 custody，cutover 保留
 既有 OID、row 与 bytes。
 
+TARGET Composer product entry 只携带规范 Research request locator。R&D 使用一笔 transaction 与
+Owner-internal exact request/aggregate commit-cut lock，重读规范 Research custody，并派生完整 request、
+Design、digest、binding、provider、Operator Authorization frontier 与 final-cut lineage。只读 GET projection
+可以暴露发送前 request identity 以供 response-loss recovery，但 POST 不接收这些字段回灌。sealed A0 Build
+Receipt 被规范化为一项 intrinsic content-addressed build fact；独立 ordered use relation 把每个 Artifact 绑定
+到该 fact，因此两个 Research-derived Artifact 可以共享一个 build corpus，但不共享 Research 或 Artifact
+custody。准确 legacy bytes 只允许一次 normalization；其他 schema shape 全部 fail closed。在隔离 Windmill
+golden chain 及其 dual-custody、locator-negative、transaction-fault、concurrency、restart 与 cleanup gate 全部
+通过前，该能力保持 `TARGET`，不构成 deployed 或 production maturity。
+
 Qualification 投影构成一条按 principal/scope 绑定、只追加且无环的单链。某个准确且已验证的 Independence Basis 的最新投影若在 Qualification 提交或响应丢失后过期，只有 Qualification Owner 能在同一 principal/scope 锁下追加后继；该后继绑定准确 basis ref/digest、前驱投影 ref/digest、不变的规范 source sequence/cut/frontier、Owner clock epoch、新半开有效期、回执与 outbox，并原子推进 head。仍为 current 的投影必须按字节等价 join；调用方与 R&D 均不得自行续期。历史 R&D 终态 custody 继续绑定并暴露其实际消费的准确历史投影，而新的 S1 写入必须在最终锁定 cut 使用规范最新且仍 current 的投影。
 
 R&D 内的 Develop 能力返回内容寻址 Strategy Artifact 和 Build Receipt，Research 能力再冻结一个 Exploratory Replay Request，绑定准确工件 数据范围 重放配置和模型身份后，独立 Backtest 服务才接收。探索事实只返回 R&D 并可形成后继 Intent。R&D 维护只追加 TrialFamily Census Frontier，且只有 R&D 能提交 Iteration Decision；终态停止不创建 Selection。只有 `READY_FOR_SELECTION` 决定才能产生仅选择 `SELECTED_FOR_QUALIFICATION` disposition 并提交 Qualification Candidate。

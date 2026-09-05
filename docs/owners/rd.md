@@ -139,6 +139,22 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
+**TARGET - canonical Research-to-Composer custody:** the public operation accepts only a canonical Research request
+locator. On one R&D transaction, the Owner-internal exact commit-cut capability takes request/aggregate row locks,
+canonically rereads current Research custody, and derives the request, Design, all Research/Intent/Design digests,
+bindings, source capsule, provider, Operator Authorization frontier, and final cut before any write. The authenticated
+GET request projection is read-only recovery metadata; POST derives independently and cannot accept projection
+feedback. The same transaction persists all positive Composer facts or none. The sealed A0 Build Receipt is one
+intrinsic content-addressed fact, while each Artifact owns a separate canonically ordered use relation. Thus two
+distinct Research custodies may produce two Artifacts and two use rows that share one build fact without collapsing
+their lineage. The intrinsic relation is
+`rd_develop_build_receipts_v2(receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes)`;
+`rd_develop_artifact_build_receipt_uses_v2(artifact_identity, ordinal, receipt_identity)` owns the ordered references.
+Only the exact legacy embedded-receipt schema permits a one-time byte-preserving normalization; partial, mismatched,
+ambiguous, or any other shape fails closed. This remains `TARGET` until the isolated Windmill
+golden chain, locator/full-DTO negatives, dual-custody sharing, concurrency/conflict, fault atomicity, response loss,
+restart readback, and exact cleanup baseline all pass.
+
 **CURRENT/PARTIAL - authenticated Strategy Design role-set readback:** the fixed R&D Owner adapter can resolve one
 exact accepted Composer request locator against the existing durable Design/Plan/Composer custody and return the
 additive `StrategyDesignRoleSetReceiptV1`. It repeats schema/reserved, exact request and operation receipt,

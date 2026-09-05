@@ -24,6 +24,16 @@ startup never reacquires the schema lease or authors Catalog state: missing pre-
 absent, mismatched, unauthenticated, or unresolved bootstrap readback fails closed. Reads never create custody;
 cutover preserves existing OIDs, rows and bytes.
 
+The TARGET Composer product entry carries only a canonical Research request locator. R&D uses one transaction and
+an Owner-internal exact request/aggregate commit-cut lock to reread canonical Research custody and derive the entire
+request, Design, digest, binding, provider, Operator Authorization frontier and final-cut lineage. A read-only GET
+projection may expose the pre-send request identity for response-loss recovery, but POST never accepts those fields
+back. The sealed A0 Build Receipt is normalized as one intrinsic content-addressed build fact; a separate ordered
+use relation binds each Artifact to it, so two Research-derived Artifacts may share one build corpus without sharing
+their Research or Artifact custody. Exact legacy bytes admit one one-time normalization; every other schema shape
+fails closed. This remains `TARGET`, not deployed or production maturity, until the isolated Windmill golden chain
+and its dual-custody, locator-negative, transaction-fault, concurrency, restart, and cleanup gates pass.
+
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
 
 R&D's Develop capability returns one content-addressed Strategy Artifact and Build Receipt, then its Research capability freezes one Exploratory Replay Request binding that exact artifact, data scope, replay configuration, and model identities before the separate Backtest service accepts it. Exploratory facts return only to R&D and can create a successor Intent. R&D maintains the append-only TrialFamily Census Frontier and alone commits Iteration Decision. A terminal stop ends there with no Selection. Only a `READY_FOR_SELECTION` decision may produce the selected-only `SELECTED_FOR_QUALIFICATION` disposition and submit the Qualification Candidate.

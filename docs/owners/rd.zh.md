@@ -128,6 +128,21 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
+**TARGET - 规范 Research-to-Composer custody：** public operation 只接收规范 Research request locator。在一笔
+R&D transaction 上，Owner-internal exact commit-cut capability 取得 request/aggregate row lock，规范重读
+current Research custody，并在任何写入前派生 request、Design、全部 Research/Intent/Design digest、binding、
+source capsule、provider、Operator Authorization frontier 与 final cut。已认证 GET request projection 只是
+只读 recovery metadata；POST 独立派生，不能接收 projection 回灌。同一 transaction 要么持久化全部正向
+Composer fact，要么零写入。sealed A0 Build Receipt 是一项 intrinsic content-addressed fact，而每个 Artifact
+拥有独立且规范排序的 use relation。因此两份不同 Research custody 可以产生两个 Artifact 与两条 use row，
+共享一份 build fact 而不合并其 lineage。intrinsic relation 是
+`rd_develop_build_receipts_v2(receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes)`；
+`rd_develop_artifact_build_receipt_uses_v2(artifact_identity, ordinal, receipt_identity)` 拥有 ordered reference。
+只有准确 legacy embedded-receipt schema 允许一次 byte-preserving normalization；partial、mismatched、
+ambiguous 或其他 shape 均 fail closed。在隔离 Windmill golden chain、
+locator/full-DTO negative、dual-custody sharing、concurrency/conflict、fault atomicity、response loss、restart
+readback 与准确 cleanup baseline 全部通过前，该能力保持 `TARGET`。
+
 **CURRENT/PARTIAL - authenticated Strategy Design role-set readback：** 固定 R&D Owner adapter 可用一个
 准确的已接纳 Composer request locator 解析既有持久 Design/Plan/Composer custody，并返回 additive
 `StrategyDesignRoleSetReceiptV1`。它重复 schema/reserved、准确 request 与 operation receipt、Research request
