@@ -1,9 +1,11 @@
 # Trade Dashboard
 
-This chapter is the living implementation contract for the future Trade-owned Dashboard. It defines the product
-shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the narrow
-Windmill capability set that the Dashboard may replace. It does not claim that the Dashboard service exists today
-or that the capability inventory is final while the observed backend programme remains active.
+This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
+the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
+narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard
+implementation and packaging under the exact contracts in this chapter. That admission
+does not claim that a Dashboard service is merged or available, that the capability inventory is final, or that any
+Windmill cutover, business acceptance, production write, provider effect, or trading action is authorized.
 
 ## Status vocabulary and evidence cut
 
@@ -22,6 +24,9 @@ or that the capability inventory is final while the observed backend programme r
   current cut, and no positive action is enabled.
 - `TARGET_DRAFT` means the current design expects the future Dashboard to provide the capability. The expectation
   remains revisable until the relevant real consumer flow is terminal.
+- `IMPLEMENTATION_ADMITTED` means repository work may implement a documented `DRAWABLE_EXACT` route or reusable
+  atom as a bounded, separately reviewable slice. It is permission to build and verify, not evidence that the slice
+  is merged, deployed, accepted by an Owner, replacement-ready, or authorized to perform a production effect.
 - `NOT_ADMITTED` means a UI, green job, chart, log, or this document does not prove the capability or authorize a
   related business transition.
 
@@ -1294,8 +1299,11 @@ hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this
 languages: all summary labels and value states; ordered `P/Q` children with dimensions; every `T` column, row
 action, grouping, sort, filter, pagination and loading-row count; ordered `D` fields; empty/partial/stale/
 unavailable/error/permission-denied geometry; and exact button order plus admission gate. Its reusable atoms must
-then be added to the inventory. Until that closure and a separate status change, Dashboard implementation remains
-prohibited by `AGENTS.md` even for a route listed as drawable.
+then be added to the inventory. Dashboard implementation is `IMPLEMENTATION_ADMITTED` only for those exact routes
+and shared atoms, delivered as bounded reviewable slices with fail-closed data/effect boundaries. A
+`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` or `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface remains prohibited until the
+same bilingual completeness closure promotes it; implementation admission never promotes backend availability,
+Owner acceptance, replacement readiness, Windmill cutover, or production effects.
 
 ### Routed page blueprint registry
 

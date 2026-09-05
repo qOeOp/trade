@@ -1,8 +1,9 @@
 # Trade Dashboard
 
-本章是未来 Trade 自有 Dashboard 的滚动实现合同，定义产品外壳、信息架构、可复用 UI 系统，以及当前有
-证据支持的 Windmill 最小替代能力假设。本章不声称 Dashboard 服务当前已经存在；被观察的后台工程仍在
-运行时，也不声称能力目录已经定稿。
+本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
+以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
+实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
+授权 Windmill 切换、业务验收、生产写、provider effect 或交易动作。
 
 ## 状态词汇与证据切面
 
@@ -17,6 +18,9 @@
   但下游 consumer revalidation 尚未完成。它不是 `RESTORED`：stale fact 在 current cut 仍 unavailable，且不得启用
   任何正向 action。
 - `TARGET_DRAFT` 表示当前设计预期未来 Dashboard 提供该能力；相关真实消费者流程终结前仍可修订。
+- `IMPLEMENTATION_ADMITTED` 表示 repository 可以把已文档化的 `DRAWABLE_EXACT` route 或 reusable atom
+  作为有边界、可独立 review 的切面实现。它只是构建与验证许可，不证明切面已合并、已部署、已被 Owner
+  验收、已具备替换条件，或已被授权执行生产 effect。
 - `NOT_ADMITTED` 表示 UI、绿色 job、图表、日志或本章都不能证明能力存在，也不能授权相关业务迁移。
 
 ### 2026-08-28 已合并 Source、Windmill、Scanner 与 Market Data 回读
@@ -1226,8 +1230,11 @@ Route 引用但 reusable component inventory 中缺席的名称只是 page-local
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
 尺寸的 `P/Q` child；每个 `T` column、row action、grouping、sort、filter、pagination 与 loading-row count；有序
 `D` field；empty/partial/stale/unavailable/error/permission-denied geometry；以及准确 button order 与 admission
-gate。其 reusable atom 随后还必须加入 inventory。在完成该闭合并另行改变状态前，即使 route 被列为 drawable，
-`AGENTS.md` 仍禁止 Dashboard 实现。
+gate。其 reusable atom 随后还必须加入 inventory。Dashboard 实现仅对这些精确 route 与 shared atom 标记为
+`IMPLEMENTATION_ADMITTED`，并必须作为有边界、可 review 的切面交付，保持 fail-closed data/effect 边界。
+`DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` 或 `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE` surface 在完成同样的双语闭合并
+晋升前仍禁止实现；实现准入绝不提升 backend availability、Owner acceptance、replacement readiness、Windmill
+cutover 或 production effect。
 
 ### Routed page blueprint registry
 
