@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { createHash } from "node:crypto"
 import { pathToFileURL } from "node:url"
 
 import { actionControls, artifactActionControls } from "../rd_workbench.raw_app/control-policy.mjs"
@@ -158,6 +159,9 @@ async function resealTrialFamily(value) {
   const nextFrontierDigest = await canonicalTestDigest("rd.trial-family.census-frontier.v1", {
     schema_version: 1, trial_family_identity: nextFamilyIdentity, root_digest: nextRootDigest,
     member_digests: [nextMemberDigest], consumed_trial_budget: 1,
+    ...(policy.replay_execution_policy_v2 === undefined ? {} : {
+      replay_execution_policy_v2: policy.replay_execution_policy_v2,
+    }),
   })
   current.root.policy_digest = nextPolicyDigest
   current.root.trial_family_identity = nextFamilyIdentity
@@ -421,6 +425,139 @@ function successArtifact() {
   }
   return result
 }
+
+// Rust ReplayExecutionPolicyV2 fixed-record-le.v2 and catalog record encoding.
+function replayPolicyFixtureBytes(firstIdentity = "runtime", cost = "cost-1", digest = `sha256:${"11".repeat(32)}`) {
+  const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32LE(n); return b }
+  const u64 = (n) => { const b = Buffer.alloc(8); b.writeBigUInt64LE(BigInt(n)); return b }
+  const text = (s) => { const b = Buffer.from(s); return Buffer.concat([u32(b.length), b]) }
+  const names = [firstIdentity, "simulator", cost, "slippage-1", "capacity-1", "runner", "diagnostic",
+    null, null, "calendar", "session", "timezone", "correction", "semantics", "configuration",
+    "corporate-actions", "membership"]
+  const parts = [Buffer.from([82, 80, 69, 50, 2, 0, 17, 0])]
+  for (let tag = 1; tag <= 17; tag++) {
+    const kind = tag === 8 ? 2 : tag === 9 ? 3 : tag >= 15 ? 4 : 1
+    parts.push(Buffer.from([tag, kind]))
+    if (tag === 8) parts.push(u64(18446744073709551615n))
+    else if (tag === 9) parts.push(u64(9007199254740993n), u64(9007199254740994n))
+    else parts.push(text(names[tag - 1]), text(kind === 4 ? digest : "v1"))
+  }
+  return [...Buffer.concat(parts)]
+}
+
+function replayBinding(bytes = replayPolicyFixtureBytes()) {
+  const hash = (...parts) => [...createHash("sha256").update(Buffer.concat(parts)).digest()]
+  const frame = (data) => {
+    const b = Buffer.from(data), length = Buffer.alloc(4)
+    length.writeUInt32LE(b.length)
+    return Buffer.concat([length, b])
+  }
+  const parser = "rd.replay-execution-policy.fixed-record-le.v2"
+  const parserDigest = [115, 95, 189, 134, 43, 39, 33, 97, 136, 227, 16, 45, 162, 186, 0, 134,
+    81, 189, 82, 202, 128, 188, 148, 64, 57, 245, 220, 142, 112, 185, 12, 185]
+  const digest = hash(Buffer.from("rd.replay-execution-policy.v2\0"), Buffer.from(bytes))
+  return {
+    catalog_record_id: "catalog-policy-v2-a", catalog_version: 1,
+    policy_grammar_parser_id: parser, policy_grammar_parser_digest: parserDigest,
+    policy_canonical_bytes: bytes, policy_digest: digest,
+    catalog_record_digest: hash(Buffer.from("rd.replay-policy-catalog-record.v2\0"),
+      frame("catalog-policy-v2-a"), Buffer.from([1, 0, 0, 0, 0, 0, 0, 0]), frame(parser),
+      Buffer.from(parserDigest), frame(bytes), Buffer.from(digest)),
+  }
+}
+
+async function researchWithReplay(binding = replayBinding()) {
+  const value = acceptedResearch()
+  for (const carrier of [value.trial_family.root.policy, value.trial_family.root_receipt,
+    value.trial_family.census_frontier]) carrier.replay_execution_policy_v2 = clone(binding)
+  await resealTrialFamily(value)
+  return value
+}
+
+async function artifactWithReplay(research) {
+  const artifact = successArtifact()
+  const family = artifact.artifact_trial_family
+  family.trial_family = clone(research.trial_family)
+  const root = research.trial_family.root, frontier = research.trial_family.census_frontier
+  const meaning = {
+    schema_version: 1, artifact_identity: "blake3:artifact", build_receipt_identity: "rd-build-receipt-v1-artifact",
+    intent_identity: intentIdentity, trial_family_identity: root.trial_family_identity,
+    census_frontier_identity: frontier.frontier_identity, census_frontier_digest: frontier.frontier_digest,
+  }
+  const digest = await canonicalTestDigest("rd.artifact-trial-family-binding.v1", meaning)
+  const identity = `rd-artifact-trial-family-binding-v1-${digest.slice(7)}`
+  family.binding = { ...meaning, binding_identity: identity, binding_digest: digest }
+  const receipt = { schema_version: 1, binding_identity: identity, binding_digest: digest, committed_at_epoch_ms: 300 }
+  const receiptDigest = await canonicalTestDigest("rd.artifact-trial-family-binding-receipt.v1", receipt)
+  family.binding_receipt = { ...receipt, receipt_identity: `rd-artifact-family-binding-receipt-v1-${receiptDigest.slice(7)}` }
+  return artifact
+}
+
+test("current Owner Replay binding reaches Research ACCEPTED and remains bound through Artifact S1", async () => {
+  const research = await researchWithReplay()
+  const projected = await deriveResearchConsumerProjectionV1(research, "request-1")
+  assert.equal(projected.resolution, "ACCEPTED")
+  assert.equal((await verifyResearchConsumerProjectionV1(projected, "request-1")).resolution, "ACCEPTED")
+  const reordered = clone(research)
+  for (const c of [reordered.trial_family.root.policy, reordered.trial_family.root_receipt,
+    reordered.trial_family.census_frontier]) {
+    c.replay_execution_policy_v2 = Object.fromEntries(Object.entries(c.replay_execution_policy_v2).reverse())
+  }
+  assert.equal((await deriveResearchConsumerProjectionV1(reordered, "request-1")).resolution, "ACCEPTED")
+  const context = await deriveVerifiedS1ConsumerContextV1(research, "request-1")
+  assert.ok(context)
+  const artifact = await artifactWithReplay(research)
+  const artifactProjection = await projectionModule.deriveArtifactConsumerProjectionV1(artifact, "build-1", "attempt-1", context)
+  const verified = await projectionModule.verifyArtifactConsumerProjectionV1(artifactProjection, "build-1", "attempt-1", context)
+  assert.equal(verified.resolution, "SUCCESS")
+  assert.deepEqual(verified.artifact_trial_family.trial_family.root.policy.replay_execution_policy_v2, replayBinding())
+  const artifactS1 = await deriveVerifiedArtifactS1ContextV1(artifact, "build-1", "attempt-1", "request-1")
+  assert.equal(artifactS1?.trial_family_identity, context.trial_family_identity)
+  assert.equal(artifactS1?.census_frontier_digest, context.census_frontier_digest)
+  assert.equal((await projectionModule.verifyArtifactConsumerProjectionV1(
+    artifactProjection, "build-1", "attempt-1", s1Context(),
+  )).resolution, "SUBMITTED_OR_UNKNOWN")
+
+  for (const carrier of ["policy", "receipt", "census"]) {
+    for (const mutate of [
+      (c) => { delete c.replay_execution_policy_v2 },
+      (c) => { c.replay_execution_policy_v2 = null },
+      (c) => { c.replay_execution_policy_v2 = {} },
+      (c) => { c.replay_execution_policy_v2.unrecognized = true },
+      ...["policy_canonical_bytes", "policy_digest", "catalog_record_digest", "policy_grammar_parser_digest"]
+        .map((key) => (c) => { c.replay_execution_policy_v2[key][0] ^= 1 }),
+      (c) => { c.replay_execution_policy_v2.catalog_version++ },
+      (c) => { c.replay_execution_policy_v2.catalog_record_id += "-other" },
+      (c) => { c.replay_execution_policy_v2.policy_grammar_parser_id += "-other" },
+    ]) {
+      const broken = clone(research)
+      const f = broken.trial_family
+      mutate(carrier === "policy" ? f.root.policy : carrier === "receipt" ? f.root_receipt : f.census_frontier)
+      await assertResearchUnknown(broken)
+      const terminal = clone(artifact)
+      terminal.artifact_trial_family.trial_family = clone(f)
+      assert.equal(await deriveVerifiedArtifactS1ContextV1(terminal, "build-1", "attempt-1", "request-1"), null)
+    }
+  }
+})
+
+test("Replay policy parser rejects malformed bytes even with recomputed policy, catalog and family digests", async () => {
+  const valid = replayPolicyFixtureBytes()
+  const variants = [[], valid.slice(0, -1), [...valid, 0], Array(16385).fill(0),
+    replayPolicyFixtureBytes(" runtime"), replayPolicyFixtureBytes("\u0085runtime"),
+    replayPolicyFixtureBytes("x".repeat(257)), replayPolicyFixtureBytes("runtime", "cost-other"),
+    replayPolicyFixtureBytes("runtime", "cost-1", `sha256:${"11".repeat(32)}\n`)]
+  for (const [offset, replacement] of [[0, 0], [4, 1], [6, 16], [8, 2], [9, 4], [10, 255], [14, 255]]) {
+    const changed = [...valid]; changed[offset] = replacement; variants.push(changed)
+  }
+  for (const bytes of variants) await assertResearchUnknown(await researchWithReplay(replayBinding(bytes)))
+  // Rust permits an initial BOM and Unicode identities; JS trim/TextDecoder defaults must not narrow that grammar.
+  for (const identity of ["\ufeffruntime", "运行", "a\u0085b"]) {
+    assert.equal((await deriveResearchConsumerProjectionV1(
+      await researchWithReplay(replayBinding(replayPolicyFixtureBytes(identity))), "request-1",
+    )).resolution, "ACCEPTED")
+  }
+})
 
 test("Artifact terminal view cannot replace the independently sealed Research projection", async () => {
   const research = acceptedResearch()

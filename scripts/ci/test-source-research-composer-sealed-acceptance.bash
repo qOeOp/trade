@@ -125,6 +125,7 @@ static_check() {
   node --test --experimental-strip-types \
     "$package_dir/f/trade/product_edge/source_intake_v1.test.mjs" \
     "$package_dir/f/trade/product_edge/source_intake_research_v1.test.mjs" \
+    "$package_dir/f/trade/product_edge/consumer_projection_v1.test.mjs" \
     "$package_dir/f/trade/product_edge/develop_composer_v2.test.mjs" \
     "$package_dir/f/trade/product_edge/develop_composer_v2.metadata.test.mjs"
 
@@ -671,8 +672,17 @@ form_research() {
     --slurpfile context "$run_dir/$stem-source-context.json" '
     {proposal:{request_identity:$research,channel:"WINDMILL_PRODUCT_EDGE",goal:{hypothesis:("A2 sealed source " + $research + " supports the fixed complex strategy."),mechanism:"The bounded mechanism survives the fixed control.",falsification_question:"Does the fixed control erase the effect?",expected_observation:"The effect remains stable.",required_data:["sealed-source-v1"],cost_assumption:"Fixed sealed cost model.",capacity_assumption:"Fixed sealed capacity model."},trial_family_proposal:{trial_budget:1,stop_rule:"Stop after the fixed sealed trial.",pit_rule_identity:"sealed-pit-rule-v1",cost_model_identity:"sealed-cost-model-v1",slippage_model_identity:"sealed-slippage-model-v1",capacity_model_identity:"sealed-capacity-model-v1",independence_rationale:"Genesis has no semantic predecessor."}},ancestry:{request_identity:$source,attempt_identity:$attempt,terminal_receipt_identity:$receipt},policy_query:{request_identity:$source,gateway:"WINDMILL_PRODUCT_EDGE",admission:$context[0].admission,operation_manifest_identity:$context[0].operation_manifest_identity,operation_manifest_digest:$context[0].operation_manifest_digest,connector_policy_locator:"sealed-source-intake-connector-policy-v1",network_policy_locator:"sealed-source-intake-network-policy-v1",rights_policy_locator:"sealed-source-intake-rights-policy-v1",retention_policy_locator:"sealed-source-intake-retention-policy-v1",dns_observation_locator:"sealed-source-intake-dns-observation-v1",shared_time_head:{head_identity:([range(32)|1]),head_digest:([range(32)|2])},shared_time_successor:null}}' > "$run_dir/$stem-research-operation.json"
   run_deployed research RUN "$research_request" "$run_dir/$stem-research-operation.json" "$run_dir/$stem-research.json"
-  jq -e '.resolution=="ACCEPTED" and .owner_receipt and .research_view and .trial_family_resolution=="AVAILABLE"' "$run_dir/$stem-research.json" > /dev/null ||
+  if ! jq -e '.resolution=="ACCEPTED" and .owner_receipt and .research_view and .trial_family_resolution=="AVAILABLE"' "$run_dir/$stem-research.json" > /dev/null; then
+    # Classify the original Windmill RUN before cleanup, without a second Owner
+    # POST that would turn the product entrypoint into an already-committed replay.
+    jq -c '{accepted:(.resolution=="ACCEPTED"), submitted_or_unknown:(.resolution=="SUBMITTED_OR_UNKNOWN"),
+      family_available:(.trial_family_resolution=="AVAILABLE"),
+      has_owner_receipt:(.owner_receipt!=null),has_research_view:(.research_view!=null)}' \
+      "$run_dir/$stem-research.json" >&2 || true
+    printf 'Research canonical receipt count: %s\n' \
+      "$(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$research_request';")" >&2
     die "$stem Research RUN was not canonically accepted"
+  fi
   [[ $(db_scalar "SELECT count(*) FROM public.rd_research_request_receipts_v1 WHERE request_identity='$research_request';") == 1 ]] ||
     die "$stem canonical Research receipt count is not one"
 }
