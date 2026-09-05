@@ -1085,6 +1085,9 @@ impl PostgresResearchGoalOwnerV1 {
                     .map_err(|e| storage(&e))?;
             }
         }
+        crate::exploratory_replay::postgres::require_runtime_relation_name_census(pool)
+            .await
+            .map_err(|e| storage(&e))?;
         Ok(())
     }
 
