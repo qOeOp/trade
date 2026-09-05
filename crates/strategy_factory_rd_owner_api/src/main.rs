@@ -1,9 +1,11 @@
 use std::{env, future::Future, sync::Arc, time::Duration};
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use axum::extract::Query;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -70,13 +72,40 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopC
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use vibe_strategy_factory::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
+use vibe_strategy_factory::source_research_composer_postgres_v2::{
+    SealedPostgresSourceResearchComposerV2, SourceResearchComposerAcceptanceControlV2,
+    SourceResearchComposerAcceptanceTamperV2,
+    sealed_source_research_composer_a0_execution_count_v2,
+};
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SourceResearchComposerLocatorV2 {
     research_request_locator: String,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerAcceptanceRunV2 {
+    research_request_locator: String,
+    control: SourceResearchComposerAcceptanceControlV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerAcceptanceResolveV2 {
+    tamper: SourceResearchComposerAcceptanceTamperV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DevelopComposerA0ExecutionsV1 {
+    schema_version: u16,
+    a0_executions: u64,
 }
 
 mod exploratory_replay;
@@ -343,7 +372,22 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
+        );
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let app = app
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/a0-executions",
+            get(develop_composer_a0_executions),
         )
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/runs",
+            post(run_develop_composer_with_acceptance_control),
+        )
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/runs/{request_identity}/resolve",
+            post(resolve_develop_composer_with_acceptance_tamper),
+        );
+    let app = app
         .with_state(state)
         .merge(source_intake)
         .merge(source_intake_research::router(
@@ -382,6 +426,82 @@ async fn bootstrap_deployment_store_admission_from_lookup(
 
 async fn health() -> &'static str {
     "ok"
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn develop_composer_a0_executions(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(DevelopComposerA0ExecutionsV1 {
+            schema_version: 1,
+            a0_executions: sealed_source_research_composer_a0_execution_count_v2(),
+        }),
+    )
+        .into_response()
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn run_develop_composer_with_acceptance_control(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
+        return status.into_response();
+    }
+    let request: SourceResearchComposerAcceptanceRunV2 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    match state
+        .develop_composer
+        .run_with_acceptance_control(&request.research_request_locator, request.control)
+        .await
+    {
+        Ok(response) => composer_operation_response(response),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn resolve_develop_composer_with_acceptance_tamper(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
+        return status.into_response();
+    }
+    let request: SourceResearchComposerAcceptanceResolveV2 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    match state
+        .develop_composer
+        .resolve_with_acceptance_tamper(&request_identity, request.tamper)
+        .await
+    {
+        Ok(response) => composer_operation_response(response),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn admit_sealed_acceptance_fault_control(enabled: bool) -> Result<(), StatusCode> {
+    enabled.then_some(()).ok_or(StatusCode::NOT_FOUND)
 }
 
 async fn issue_replay_composition(
@@ -684,6 +804,82 @@ mod develop_composer_api_contract_tests {
             )
             .is_err()
         );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn a2_execution_count_json_has_only_the_exact_contract_keys() {
+        let value = serde_json::to_value(DevelopComposerA0ExecutionsV1 {
+            schema_version: 1,
+            a0_executions: 7,
+        })
+        .expect("A0 execution response");
+        assert_eq!(
+            value,
+            serde_json::json!({"schema_version": 1, "a0_executions": 7})
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[test]
+    fn acceptance_routes_accept_only_closed_control_selectors() {
+        let request: SourceResearchComposerAcceptanceRunV2 = serde_json::from_slice(
+            br#"{"research_request_locator":"research-1","control":{"kind":"FailAfter","selector":"AfterDesign"}}"#,
+        )
+        .expect("closed write boundary");
+        assert!(matches!(
+            request.control,
+            SourceResearchComposerAcceptanceControlV2::FailAfter(
+                vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerAcceptanceWriteBoundaryV2::AfterDesign
+            )
+        ));
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerAcceptanceRunV2>(
+                br#"{"research_request_locator":"research-1","control":{"kind":"FailAfter","selector":"AfterArbitrarySql"}}"#,
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerAcceptanceResolveV2>(
+                br#"{"tamper":"ArbitraryField"}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[test]
+    fn acceptance_fault_controls_require_the_explicit_runtime_gate() {
+        assert_eq!(
+            admit_sealed_acceptance_fault_control(false),
+            Err(StatusCode::NOT_FOUND)
+        );
+        assert_eq!(admit_sealed_acceptance_fault_control(true), Ok(()));
+
+        let source = include_str!("main.rs");
+        for (handler, next_item) in [
+            (
+                "async fn run_develop_composer_with_acceptance_control",
+                "async fn resolve_develop_composer_with_acceptance_tamper",
+            ),
+            (
+                "async fn resolve_develop_composer_with_acceptance_tamper",
+                "fn admit_sealed_acceptance_fault_control",
+            ),
+        ] {
+            let body = source
+                .split(handler)
+                .nth(1)
+                .expect("acceptance handler")
+                .split(next_item)
+                .next()
+                .expect("bounded acceptance handler");
+            assert!(
+                body.contains(
+                    "admit_sealed_acceptance_fault_control(state.allow_acceptance_faults)"
+                )
+            );
+        }
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]

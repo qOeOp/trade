@@ -20,6 +20,9 @@ script_paths=(
 	f/trade/product_edge/source_intake_research_v1
 	f/trade/product_edge/develop_composer_v2
 )
+dependency_script_paths=(
+	f/trade/product_edge/consumer_projection_v1
+)
 
 die() {
 	printf 'Source -> Research -> Composer sealed acceptance: %s\n' "$*" >&2
@@ -51,14 +54,17 @@ static_check() {
 	grep -Fq 'sealed-source-intake-composer-acceptance' \
 		"$repo_root/crates/strategy_factory_rd_owner_api/Cargo.toml"
 	grep -Fq -- '--features sealed-source-intake-composer-acceptance' "$dockerfile"
+	grep -Fq 'COPY product/rd-workbench/postgres-init/10-migrate-authority-custody.sh' "$dockerfile"
 	grep -Fq 'RD_FACT_WRITER_DATABASE_URL:' "$overlay_compose"
 	grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL:' "$overlay_compose"
 	grep -Fq 'MARKET_DATA_RD_ROLE_SET_DATABASE_URL:' "$overlay_compose"
 	grep -Fq 'POSTGRES_INITDB_ARGS: --auth-host=trust' "$overlay_compose"
+	grep -Fq 'POSTGRES_HOST_AUTH_METHOD: trust' "$overlay_compose"
 	grep -Fq '/v2/develop-composer/request-projections?research_request_locator=' "$runner_file"
 	grep -Fq 'rd_develop_artifact_build_receipt_uses_v2' "$runner_file"
 	grep -Fq 'x-rd-acceptance-delay-after-commit-ms' "$runner_file"
 	grep -Fq 'run_deployed source RUN' "$runner_file"
+	grep -Fq '.resolution=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$runner_file"
 	grep -Fq 'run_deployed research RUN' "$runner_file"
 	grep -Fq 'run_deployed composer RUN' "$runner_file"
 	grep -Fq 'run_deployed source RESOLVE' "$runner_file"
@@ -67,7 +73,7 @@ static_check() {
 	if grep -Eq 'ports:|127\.0\.0\.1' "$overlay_compose"; then
 		die 'host-published acceptance traffic is forbidden'
 	fi
-	for path in "${script_paths[@]}"; do
+	for path in "${dependency_script_paths[@]}" "${script_paths[@]}"; do
 		test -f "$package_dir/$path.ts"
 		test -f "$package_dir/$path.script.yaml"
 		test -f "$package_dir/$path.script.lock"
@@ -78,6 +84,7 @@ static_check() {
 		"$package_dir/f/trade/product_edge/develop_composer_v2.test.mjs"
 
 	yq -e '.services.postgres.environment.POSTGRES_INITDB_ARGS == "--auth-host=trust"' "$overlay_compose" >/dev/null
+	yq -e '.services.postgres.environment.POSTGRES_HOST_AUTH_METHOD == "trust"' "$overlay_compose" >/dev/null
 	yq -e '.services."rd-owner-api".environment.RD_OWNER_ENABLE_ACCEPTANCE_FAULTS == "1"' "$overlay_compose" >/dev/null
 }
 
@@ -107,6 +114,7 @@ builder_node="${builder_name}0"
 builder_container="buildx_buildkit_$builder_node"
 builder_state_volume="${builder_container}_state"
 workspace="src-sealed-$(random_hex | cut -c1-16)"
+postgres_container=
 base_url=http://windmill-server:8000
 env_file="$run_dir/compose.env"
 bootstrap_config="$run_dir/product-edge-bootstrap.json"
@@ -126,7 +134,7 @@ api_json() {
 	[[ $header_file == /dev/null || $header_file == "$run_dir/"* ]] || return 1
 	[[ $output == /dev/null || $output == "$run_dir/"* ]] || return 1
 	[[ -z $payload || $payload == "$run_dir/"* ]] || return 1
-	python3 - "$method" "$header_file" "$url" "$payload" <<'PY' |
+	if ! python3 - "$method" "$header_file" "$url" "$payload" <<'PY' |
 import pathlib
 import sys
 
@@ -148,7 +156,10 @@ if payload_path:
     print('header = "Content-Type: application/json"')
     print(f"data-binary = {quote(pathlib.Path(payload_path).read_text(encoding='utf-8'))}")
 PY
-		with_deadline 130 "${compose[@]}" exec -T windmill-server curl --config - >"$output"
+		with_deadline 130 "${compose[@]}" exec -T windmill-server curl --config - >"$output"; then
+		sed -n '1,200p' "$output" >&2 || true
+		return 1
+	fi
 }
 
 write_auth_header() {
@@ -266,9 +277,16 @@ with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --nod
 with_deadline 1800 "${docker_local[@]}" buildx build --builder "$builder_name" --load --pull=false \
 	--no-cache --tag "$owner_image" --file "$dockerfile" "$repo_root"
 compose_touched=1
-with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait \
+if ! with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait \
 	postgres schema-materialize authority-custody-migrate authority-bootstrap rd-owner-api \
-	windmill-server windmill-worker
+	windmill-server windmill-worker; then
+	"${compose[@]}" logs --no-color rd-owner-api >&2 || true
+	die 'isolated acceptance topology did not become healthy'
+fi
+postgres_container=$(with_deadline 10 "${compose[@]}" ps -q postgres) ||
+	die 'isolated PostgreSQL container identity is unavailable'
+[[ $postgres_container =~ ^[0-9a-f]{64}$ ]] ||
+	die 'isolated PostgreSQL container identity is malformed'
 
 printf '%s\n' '{"email":"admin@windmill.dev","password":"changeme"}' >"$run_dir/login.json"
 api_json POST /dev/null "$base_url/api/auth/login" "$run_dir/login.response" "$run_dir/login.json"
@@ -328,7 +346,7 @@ if (readback.get("path") != expected_path or readback.get("language") != "bun"
     raise SystemExit("deployed Windmill script identity differs from repository bytes")
 PY
 }
-for script_path in "${script_paths[@]}"; do deploy_script "$script_path"; done
+for script_path in "${dependency_script_paths[@]}" "${script_paths[@]}"; do deploy_script "$script_path"; done
 
 run_deployed() {
 	local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path
@@ -364,8 +382,36 @@ run_deployed() {
 }
 
 db_scalar() {
-	with_deadline 30 "${compose[@]}" exec -T postgres psql --username postgres --dbname rd_owner \
+	with_deadline 20 "${docker_local[@]}" exec "$postgres_container" env \
+		'PGOPTIONS=-c lock_timeout=5s -c statement_timeout=10s' \
+		psql -X --username postgres --dbname rd_owner \
 		--tuples-only --no-align --set=ON_ERROR_STOP=1 --command "$1" | tr -d '\r'
+}
+dump_db_waits() {
+	with_deadline 10 "${docker_local[@]}" exec -i "$postgres_container" psql -X \
+		--username postgres --dbname rd_owner --set=ON_ERROR_STOP=1 <<'SQL'
+SELECT pid,usename,application_name,backend_type,state,xact_start,query_start,
+       wait_event_type,wait_event,pg_catalog.pg_blocking_pids(pid) AS blocking_pids
+FROM pg_catalog.pg_stat_activity
+WHERE datname=pg_catalog.current_database()
+ORDER BY xact_start NULLS LAST,pid;
+SELECT locks.pid,namespace.nspname,relation.relname,locks.mode,locks.granted,
+       pg_catalog.pg_blocking_pids(locks.pid) AS blocking_pids
+FROM pg_catalog.pg_locks locks
+JOIN pg_catalog.pg_class relation ON relation.oid=locks.relation
+JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+WHERE namespace.nspname IN ('public','composer_private')
+  AND relation.relname IN (
+    'rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2',
+    'rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2',
+    'rd_develop_artifact_build_receipt_uses_v2','rd_develop_composer_receipts_v2',
+    'rd_develop_host_receipts_v2','rd_develop_operations_v2',
+    'rd_develop_strategy_design_role_set_attestations_v1',
+    'rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'
+  )
+ORDER BY relation.relname,locks.granted,locks.pid,locks.mode;
+SQL
+	"${compose[@]}" ps --all >&2 || true
 }
 composer_count() {
 	db_scalar "SELECT count(*) FROM composer_private.rd_develop_operations_v2 WHERE request_identity='$1';"
@@ -409,8 +455,12 @@ PY
 form_research() {
 	local source_request=$1 research_request=$2 stem=$3
 	run_deployed source RUN "$source_request" /dev/null "$run_dir/$stem-source.json"
-	jq -e '.terminal=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$run_dir/$stem-source.json" >/dev/null ||
+	if ! jq -e '.resolution=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' \
+		"$run_dir/$stem-source.json" >/dev/null; then
+		jq -c . "$run_dir/$stem-source.json" >&2 || true
+		"${compose[@]}" logs --no-color --tail 200 rd-owner-api windmill-worker >&2 || true
 		die "$stem Source RUN was not RETRIEVED"
+	fi
 	db_scalar "SELECT json_build_object('admission',binding_json->'product_edge_admission','operation_manifest_identity',binding_json->>'operation_manifest_identity','operation_manifest_digest',binding_json->>'operation_manifest_digest') FROM public.rd_source_intake_bindings_v1 WHERE request_identity='$source_request' AND state='TERMINAL';" >"$run_dir/$stem-source-context.json"
 	jq -n --arg research "$research_request" --arg source "$source_request" \
 		--arg attempt "$(jq -er '.binding_identity' "$run_dir/$stem-source.json")" \
@@ -424,7 +474,22 @@ form_research() {
 		die "$stem canonical Research receipt count is not one"
 }
 
-[[ $(composer_total_count) == 0 ]] || die 'Composer custody was not empty before the first operation'
+if db_scalar 'SELECT 1;' >/dev/null; then
+	:
+else
+	connection_status=$?
+	dump_db_waits >&2 || true
+	die "PostgreSQL scalar transport failed before Composer census (status=$connection_status)"
+fi
+if composer_total_before=$(composer_total_count); then
+	:
+else
+	scalar_status=$?
+	dump_db_waits >&2 || true
+	die "Composer custody census failed (status=$scalar_status)"
+fi
+[[ $composer_total_before == 0 ]] ||
+	die "Composer custody was not empty before the first operation (observed=$composer_total_before)"
 source_request_one="sealed-source-a-$(random_hex | cut -c1-12)"
 source_request_two="sealed-source-b-$(random_hex | cut -c1-12)"
 form_research "$source_request_one" "$research_request_one" one

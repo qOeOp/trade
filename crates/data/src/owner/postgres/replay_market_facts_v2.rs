@@ -83,7 +83,19 @@ const REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1: &[&str] = &[
 const COMPOSER_ROLE_SET_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const COMPOSER_NATIVE_JOIN_RESOLVER_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const COMPOSER_CUT_LOCK_V1: &str = "composer_owner_api.lock_replay_composition_cut_v1(text)";
-const COMPOSER_READER_ACL_QUERY_V1: &str = "SELECT
+const COMPOSER_READER_ACL_QUERY_V1: &str = "WITH role_set_relation AS (
+                SELECT relation.oid
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='composer_private'
+                   AND relation.relname='rd_develop_strategy_design_role_set_attestations_v1'
+             ), native_join_relation AS (
+                SELECT relation.oid
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='composer_private'
+                   AND relation.relname='rd_develop_strategy_design_native_joins_v1'
+             ) SELECT
                 pg_catalog.has_schema_privilege(current_user,'composer_owner_api','USAGE') AS schema_usage,
                 pg_catalog.has_schema_privilege(current_user,'composer_owner_api','CREATE') AS schema_create,
                 pg_catalog.has_schema_privilege(current_user,'composer_private','USAGE') AS private_schema_usage,
@@ -91,11 +103,13 @@ const COMPOSER_READER_ACL_QUERY_V1: &str = "SELECT
                 pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS function_execute,
                 pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS native_function_execute,
                 pg_catalog.has_function_privilege(current_user,'composer_owner_api.lock_replay_composition_cut_v1(text)','EXECUTE') AS cut_lock_execute,
-                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT') AS raw_select,
-                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_role_set_attestations_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write,
-                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_native_joins_v1','SELECT') AS native_raw_select,
-                pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_strategy_design_native_joins_v1','INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS native_raw_write,
-                pg_catalog.pg_has_role(current_user,'composer_owner','MEMBER') AS composer_owner_member";
+                pg_catalog.has_table_privilege(current_user,role_set_relation.oid,'SELECT') AS raw_select,
+                pg_catalog.has_table_privilege(current_user,role_set_relation.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS raw_write,
+                pg_catalog.has_table_privilege(current_user,native_join_relation.oid,'SELECT') AS native_raw_select,
+                pg_catalog.has_table_privilege(current_user,native_join_relation.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS native_raw_write,
+                pg_catalog.pg_has_role(current_user,'composer_owner','MEMBER') AS composer_owner_member
+           FROM role_set_relation
+           CROSS JOIN native_join_relation";
 const COMPOSER_ROLE_SET_RESOLVE_QUERY_V1: &str =
     "SELECT attestation_identity, attestation_digest, canonical_bytes
        FROM composer_owner_api.resolve_strategy_design_role_set_attestation_v1($1,$2,$3,$4,$5,$6,$7)";
@@ -103,7 +117,8 @@ const COMPOSER_NATIVE_JOIN_RESOLVE_QUERY_V1: &str = "SELECT native_join_digest,c
        FROM composer_owner_api.resolve_strategy_design_native_join_v1($1,$2,$3,$4,$5,$6,$7)";
 const COMPOSER_CUT_LOCK_QUERY_V1: &str =
     "SELECT composer_owner_api.lock_replay_composition_cut_v1($1)";
-const COMPOSER_CUT_LOCK_SOURCE_V1: &str = "BEGIN
+const COMPOSER_CUT_LOCK_SOURCE_V1: &str = "
+BEGIN
   IF session_user NOT IN ('market_data_reader','market_data_owner') OR current_user<>'composer_owner' THEN
     RAISE EXCEPTION 'Replay composition cut caller mismatch' USING ERRCODE='42501';
   END IF;
@@ -119,15 +134,23 @@ const COMPOSER_CUT_LOCK_SOURCE_V1: &str = "BEGIN
     );
   END IF;
   RETURN pg_catalog.pg_backend_pid();
-END";
-const MARKET_OWNER_COMPOSER_ACL_QUERY_V1: &str = "SELECT
+END
+";
+const MARKET_OWNER_COMPOSER_ACL_QUERY_V1: &str = "WITH raw_relation AS (
+                SELECT relation.oid
+                  FROM pg_catalog.pg_class relation
+                  JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+                 WHERE namespace.nspname='composer_private'
+                   AND relation.relname='rd_develop_operations_v2'
+             ) SELECT
                 pg_catalog.has_schema_privilege(current_user,'composer_owner_api','USAGE') AS schema_usage,
                 NOT pg_catalog.has_schema_privilege(current_user,'composer_owner_api','CREATE') AS no_schema_create,
                 pg_catalog.has_function_privilege(current_user,'composer_owner_api.lock_replay_composition_cut_v1(text)','EXECUTE') AS cut_lock_execute,
                 NOT pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS no_role_resolve,
                 NOT pg_catalog.has_function_privilege(current_user,'composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)','EXECUTE') AS no_native_resolve,
                 NOT pg_catalog.has_schema_privilege(current_user,'composer_private','USAGE,CREATE') AS no_private_schema,
-                NOT pg_catalog.has_table_privilege(current_user,'composer_private.rd_develop_operations_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS no_raw";
+                NOT pg_catalog.has_table_privilege(current_user,raw_relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') AS no_raw
+           FROM raw_relation";
 const V4_CUSTODY_DOMAIN: &[u8] = b"market-data.sample-projection-postgres-custody.v4\0";
 
 struct ComposerReaderAclV1 {
@@ -2573,14 +2596,59 @@ mod composer_facade_tests {
         }
         assert!(
             COMPOSER_READER_ACL_QUERY_V1
-                .contains("composer_private.rd_develop_strategy_design_role_set_attestations_v1")
+                .contains("relation.relname='rd_develop_strategy_design_role_set_attestations_v1'")
         );
         assert!(
             COMPOSER_READER_ACL_QUERY_V1
-                .contains("composer_private.rd_develop_strategy_design_native_joins_v1")
+                .contains("relation.relname='rd_develop_strategy_design_native_joins_v1'")
         );
         assert!(COMPOSER_READER_ACL_QUERY_V1.contains("'composer_owner','MEMBER'"));
         assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("public."));
         assert!(!COMPOSER_READER_ACL_QUERY_V1.contains("rd_owner_api"));
+    }
+
+    #[rstest]
+    fn composer_private_acl_checks_resolve_relations_by_catalog_oid() {
+        assert_eq!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .matches("JOIN pg_catalog.pg_namespace")
+                .count(),
+            2
+        );
+        assert_eq!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .matches("has_table_privilege(current_user,role_set_relation.oid,")
+                .count(),
+            2
+        );
+        assert_eq!(
+            COMPOSER_READER_ACL_QUERY_V1
+                .matches("has_table_privilege(current_user,native_join_relation.oid,")
+                .count(),
+            2
+        );
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains("FROM role_set_relation"));
+        assert!(COMPOSER_READER_ACL_QUERY_V1.contains("CROSS JOIN native_join_relation"));
+
+        assert_eq!(
+            MARKET_OWNER_COMPOSER_ACL_QUERY_V1
+                .matches("JOIN pg_catalog.pg_namespace")
+                .count(),
+            1
+        );
+        assert_eq!(
+            MARKET_OWNER_COMPOSER_ACL_QUERY_V1
+                .matches("has_table_privilege(current_user,raw_relation.oid,")
+                .count(),
+            1
+        );
+        assert!(MARKET_OWNER_COMPOSER_ACL_QUERY_V1.contains("FROM raw_relation"));
+
+        for query in [
+            COMPOSER_READER_ACL_QUERY_V1,
+            MARKET_OWNER_COMPOSER_ACL_QUERY_V1,
+        ] {
+            assert!(!query.contains("has_table_privilege(current_user,'"));
+        }
     }
 }

@@ -7,9 +7,13 @@
 //! census. The same R&D Owner transaction is passed to the fact-Owner binding resolver and remains
 //! open until the Composer decision completes.
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use serde::Deserialize;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use std::sync::atomic::{AtomicU64, Ordering};
 use vibe_common::{clock::Clock, live::clock::LiveClock};
 use vibe_data::owner::source_binding::BindingDigest;
 
@@ -30,8 +34,12 @@ use crate::{
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_postgres_v2::{
+    DevelopComposerAcceptanceWriteBoundaryV2, PreparedDevelopComposerRunInTransactionV2,
+};
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
-    develop_composer_operation_v2::conflict_response,
     develop_plugin_build_v2::{
         DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
         UntrustedDevelopPluginSourceFileV2, VerifiedDevelopPluginBuildReadV2, bounded_source,
@@ -43,6 +51,9 @@ use crate::{
         StrategyDesignPreparationV2, prepare_strategy_design_v2, strategy_input_role_identity_v2,
     },
 };
+
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+use crate::develop_composer_operation_v2::conflict_response;
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::pit_snapshot::sealed_acceptance::{
@@ -66,6 +77,98 @@ pub const SEALED_SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY_V2: &str =
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub const SOURCE_RESEARCH_COMPOSER_PROVIDER_IDENTITY_V2: &str =
     "rd.source-research-composer.fixed-a0.v2";
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+static SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2: AtomicU64 = AtomicU64::new(0);
+
+/// Returns the process-local number of fixed A0 builder invocations for the isolated A2 runner.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub fn sealed_source_research_composer_a0_execution_count_v2() -> u64 {
+    SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2.load(Ordering::SeqCst)
+}
+
+/// Closed selectors for compile-time A2 inputs that have no separately mutable Owner row.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum SourceResearchComposerAcceptanceTamperV2 {
+    BindingResearchRequestIdentity,
+    BindingStrategyDesignIdentity,
+    BindingInputRoleIdentity,
+    BindingScopeSelectionIdentity,
+    BindingFieldSemantic,
+    BindingChannel,
+    BindingTimeframe,
+    BindingUnit,
+    BindingScale,
+    BindingPitRequestIdentity,
+    BindingPitRequestDigest,
+    BindingSnapshotIdentity,
+    BindingSnapshotFactDigest,
+    BindingObservationBatchDigest,
+    BindingSourceBindingIdentity,
+    BindingSourceFrontierDigest,
+    BindingCorrectionFrontierDigest,
+    BindingInstrumentMasterDigest,
+    BindingUniverseSelectionDigest,
+    BindingMarketSemanticsIdentity,
+    BindingDecisionCut,
+    CapsuleSchemaVersion,
+    CapsuleManifestSemanticIdentity,
+    CapsuleLanguage,
+    CapsuleRustcRelease,
+    CapsuleRustcCommit,
+    CapsuleTarget,
+    CapsuleBuildCommand,
+    CapsuleSourceFilePath,
+    CapsuleSourceFileBytes,
+    CapsuleSourceFileSymlinkTarget,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl SourceResearchComposerAcceptanceTamperV2 {
+    pub const ALL: [Self; 31] = [
+        Self::BindingResearchRequestIdentity,
+        Self::BindingStrategyDesignIdentity,
+        Self::BindingInputRoleIdentity,
+        Self::BindingScopeSelectionIdentity,
+        Self::BindingFieldSemantic,
+        Self::BindingChannel,
+        Self::BindingTimeframe,
+        Self::BindingUnit,
+        Self::BindingScale,
+        Self::BindingPitRequestIdentity,
+        Self::BindingPitRequestDigest,
+        Self::BindingSnapshotIdentity,
+        Self::BindingSnapshotFactDigest,
+        Self::BindingObservationBatchDigest,
+        Self::BindingSourceBindingIdentity,
+        Self::BindingSourceFrontierDigest,
+        Self::BindingCorrectionFrontierDigest,
+        Self::BindingInstrumentMasterDigest,
+        Self::BindingUniverseSelectionDigest,
+        Self::BindingMarketSemanticsIdentity,
+        Self::BindingDecisionCut,
+        Self::CapsuleSchemaVersion,
+        Self::CapsuleManifestSemanticIdentity,
+        Self::CapsuleLanguage,
+        Self::CapsuleRustcRelease,
+        Self::CapsuleRustcCommit,
+        Self::CapsuleTarget,
+        Self::CapsuleBuildCommand,
+        Self::CapsuleSourceFilePath,
+        Self::CapsuleSourceFileBytes,
+        Self::CapsuleSourceFileSymlinkTarget,
+    ];
+}
+
+/// One acceptance-only intervention. It is never part of a production RUN or RESOLVE DTO.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "selector", deny_unknown_fields)]
+pub enum SourceResearchComposerAcceptanceControlV2 {
+    FailAfter(DevelopComposerAcceptanceWriteBoundaryV2),
+    Tamper(SourceResearchComposerAcceptanceTamperV2),
+}
 
 /// Read-only projection of the exact runtime request that R&D will derive from canonical custody.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -403,6 +506,130 @@ fn derive_source_research_composer_request_v2(
         binding_requests,
         plugin_source_capsules: vec![capsule],
     })
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn tamper_source_research_composer_request_v2(
+    request: &mut DevelopComposerRunRequestV2,
+    selector: SourceResearchComposerAcceptanceTamperV2,
+) -> Result<(), DevelopComposerTerminalV2> {
+    let binding = request.binding_requests.first_mut().ok_or_else(|| {
+        DevelopComposerTerminalV2::unavailable(
+            "acceptance_tamper",
+            "the fixed A2 binding input is unavailable",
+        )
+    })?;
+    let capsule = request.plugin_source_capsules.first_mut().ok_or_else(|| {
+        DevelopComposerTerminalV2::unavailable(
+            "acceptance_tamper",
+            "the fixed A2 source capsule is unavailable",
+        )
+    })?;
+    if capsule.files.is_empty() {
+        return Err(DevelopComposerTerminalV2::unavailable(
+            "acceptance_tamper",
+            "the fixed A2 source file is unavailable",
+        ));
+    }
+    let changed_digest = BindingDigest::from_untrusted_bytes([0xff; 32]);
+    match selector {
+        SourceResearchComposerAcceptanceTamperV2::BindingResearchRequestIdentity => {
+            binding.research_request_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingStrategyDesignIdentity => {
+            binding.strategy_design_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingInputRoleIdentity => {
+            binding.input_role_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingScopeSelectionIdentity => {
+            binding.scope = UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: changed_digest,
+            };
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingFieldSemantic => {
+            binding.field_semantic = MarketDataFieldSemantic::BarHighPrice;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingChannel => {
+            binding.channel = StrategyInputChannel::Reference;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingTimeframe => {
+            binding.timeframe.push_str("-tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingUnit => {
+            binding.unit = StrategyInputUnit::Quantity;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingScale => {
+            binding.scale = binding.scale.wrapping_add(1);
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingPitRequestIdentity => {
+            binding.pit_request_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingPitRequestDigest => {
+            binding.pit_request_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingSnapshotIdentity => {
+            binding.snapshot_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingSnapshotFactDigest => {
+            binding.snapshot_fact_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingObservationBatchDigest => {
+            binding.observation_batch_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingSourceBindingIdentity => {
+            binding.source_binding_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingSourceFrontierDigest => {
+            binding.source_frontier_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingCorrectionFrontierDigest => {
+            binding.correction_frontier_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingInstrumentMasterDigest => {
+            binding.instrument_master_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingUniverseSelectionDigest => {
+            binding.universe_selection_digest = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingMarketSemanticsIdentity => {
+            binding.market_semantics_identity = changed_digest;
+        }
+        SourceResearchComposerAcceptanceTamperV2::BindingDecisionCut => {
+            binding.decision_cut = binding.decision_cut.wrapping_add(1);
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleSchemaVersion => {
+            capsule.schema_version = capsule.schema_version.wrapping_add(1);
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleManifestSemanticIdentity => {
+            capsule.manifest.semantic_id.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleLanguage => {
+            capsule.language.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleRustcRelease => {
+            capsule.rustc_release.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleRustcCommit => {
+            capsule.rustc_commit.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleTarget => {
+            capsule.target.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleBuildCommand => {
+            capsule.build_command.push("--tampered".to_owned());
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleSourceFilePath => {
+            capsule.files[0].path.push_str(".tampered");
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleSourceFileBytes => {
+            capsule.files[0].bytes.push(b' ');
+        }
+        SourceResearchComposerAcceptanceTamperV2::CapsuleSourceFileSymlinkTarget => {
+            capsule.files[0].symlink_target = Some("tampered".to_owned());
+        }
+    }
+    Ok(())
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -758,6 +985,7 @@ impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
         manifest: &PluginManifestV2,
         capsule: &UntrustedDevelopPluginCapsuleV2,
     ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopComposerTerminalV2> {
+        SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2.fetch_add(1, Ordering::SeqCst);
         source_research_composer_sealed_corpus_verified_build_v2(manifest, capsule).map_err(
             |terminal| DevelopComposerTerminalV2 {
                 kind: if terminal.kind == DevelopPluginBuildTerminalKindV2::Conflict {
@@ -829,6 +1057,17 @@ where
         builder: &mut impl DevelopComposerA0BuildPortV2,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.run_with_acceptance_control(builder, research_request_locator, None)
+            .await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    async fn run_with_acceptance_control(
+        &self,
+        builder: &mut impl DevelopComposerA0BuildPortV2,
+        research_request_locator: &str,
+        control: Option<SourceResearchComposerAcceptanceControlV2>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
         let research = match self
@@ -848,7 +1087,7 @@ where
                 ));
             }
         };
-        let request = match derive_source_research_composer_request_v2(&research) {
+        let mut request = match derive_source_research_composer_request_v2(&research) {
             Ok(request) => request,
             Err(terminal) => {
                 owner_transaction.rollback().await?;
@@ -858,6 +1097,13 @@ where
                 ));
             }
         };
+        if let Some(SourceResearchComposerAcceptanceControlV2::Tamper(selector)) = control
+            && let Err(terminal) =
+                tamper_source_research_composer_request_v2(&mut request, selector)
+        {
+            owner_transaction.rollback().await?;
+            return Ok(terminal_response_for_request(&request, terminal));
+        }
         let initial = self
             .lock_run_evidence(&mut owner_transaction, &request, read_cut_epoch_ms)
             .await;
@@ -869,49 +1115,12 @@ where
             }
         };
 
-        // Prove the fixed A0 corpus before the final canonical Research reread. The store verifies
-        // it again while consuming the move-only build token; both checks are deterministic reads.
-        for manifest in &request.design.plugins {
-            let Some(capsule) = request
-                .plugin_source_capsules
-                .iter()
-                .find(|capsule| capsule.manifest.semantic_id == manifest.semantic_id)
-            else {
-                owner_transaction.rollback().await?;
-                return Ok(conflict_response(
-                    &request.request_identity,
-                    "plugin_source_capsules",
-                ));
-            };
-            if let Err(terminal) = builder.build(manifest, capsule) {
-                owner_transaction.rollback().await?;
-                return Ok(terminal_response_for_request(&request, terminal));
-            }
-        }
-
-        let final_locked = self
-            .lock_run_evidence(&mut owner_transaction, &request, read_cut_epoch_ms)
-            .await;
-        let final_locked = match final_locked {
-            Ok(locked) if locked == initial => locked,
-            Ok(_) => {
-                owner_transaction.rollback().await?;
-                return Ok(default_unavailable_for_request(
-                    &request.request_identity,
-                    "final Research custody or binding evidence drifted after A0",
-                ));
-            }
-            Err(terminal) => {
-                owner_transaction.rollback().await?;
-                return Ok(terminal_response_for_request(&request, terminal));
-            }
-        };
         let evidence = LockedOwnerEvidenceV2 {
-            locked: Ok(final_locked),
+            locked: Ok(initial),
         };
-        let response = self
+        let prepared = self
             .store
-            .run_in_transaction(
+            .prepare_run_in_transaction(
                 &mut owner_transaction,
                 builder,
                 &evidence,
@@ -919,6 +1128,45 @@ where
                 read_cut_epoch_ms,
             )
             .await;
+        let response = match prepared {
+            Ok(PreparedDevelopComposerRunInTransactionV2::Complete(response)) => Ok(response),
+            Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(prepared)) => {
+                let final_locked = match self
+                    .lock_run_evidence(&mut owner_transaction, &request, read_cut_epoch_ms)
+                    .await
+                {
+                    Ok(locked) => locked,
+                    Err(terminal) => {
+                        owner_transaction.rollback().await?;
+                        return Ok(terminal_response_for_request(&request, terminal));
+                    }
+                };
+                match control {
+                    Some(SourceResearchComposerAcceptanceControlV2::FailAfter(boundary)) => {
+                        self.store
+                            .commit_prepared_run_in_transaction_with_acceptance_boundary(
+                                &mut owner_transaction,
+                                &request,
+                                prepared,
+                                final_locked,
+                                boundary,
+                            )
+                            .await
+                    }
+                    _ => {
+                        self.store
+                            .commit_prepared_run_in_transaction(
+                                &mut owner_transaction,
+                                &request,
+                                prepared,
+                                final_locked,
+                            )
+                            .await
+                    }
+                }
+            }
+            Err(error) => Err(error),
+        };
         match response {
             Ok(response) => match owner_transaction.commit().await {
                 Ok(()) => Ok(response),
@@ -938,6 +1186,16 @@ where
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.resolve_with_acceptance_tamper(request_identity, None)
+            .await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    async fn resolve_with_acceptance_tamper(
+        &self,
+        request_identity: &str,
+        tamper: Option<SourceResearchComposerAcceptanceTamperV2>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let Some(locator) = self
             .store
@@ -951,6 +1209,23 @@ where
         let locked = self
             .lock_resolve_evidence(&mut owner_transaction, &locator, read_cut_epoch_ms)
             .await;
+        let locked = match (locked, tamper) {
+            (Ok(locked), Some(selector)) => {
+                let mut expected = derive_source_research_composer_request_v2(&locked.research)
+                    .map_err(composer_terminal_protocol)?;
+                tamper_source_research_composer_request_v2(&mut expected, selector)
+                    .map_err(composer_terminal_protocol)?;
+                if request_digest(&expected) != locator.request_digest {
+                    Err(DevelopComposerTerminalV2::unavailable(
+                        "acceptance_tamper",
+                        "the selected compile-time A2 input no longer matches durable custody",
+                    ))
+                } else {
+                    Ok(locked)
+                }
+            }
+            (locked, _) => locked,
+        };
         let evidence = LockedOwnerEvidenceV2 { locked };
         let response = self
             .store
@@ -1084,11 +1359,35 @@ impl SealedPostgresSourceResearchComposerV2 {
             .await
     }
 
+    pub async fn run_with_acceptance_control(
+        &self,
+        research_request_locator: &str,
+        control: SourceResearchComposerAcceptanceControlV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.inner
+            .run_with_acceptance_control(
+                &mut SealedSourceResearchComposerA0BuildV2,
+                research_request_locator,
+                Some(control),
+            )
+            .await
+    }
+
     pub async fn resolve(
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         self.inner.resolve(request_identity).await
+    }
+
+    pub async fn resolve_with_acceptance_tamper(
+        &self,
+        request_identity: &str,
+        tamper: SourceResearchComposerAcceptanceTamperV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.inner
+            .resolve_with_acceptance_tamper(request_identity, Some(tamper))
+            .await
     }
 }
 
@@ -1145,23 +1444,6 @@ fn terminal_response_for_identity(
         artifact: None,
         coordinate: Some(terminal.coordinate),
         reason: Some(terminal.reason),
-    }
-}
-
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-fn default_unavailable_for_request(
-    request_identity: &str,
-    reason: &str,
-) -> DevelopComposerOperationResponseV2 {
-    DevelopComposerOperationResponseV2 {
-        schema_version: 2,
-        request_identity: request_identity.to_owned(),
-        disposition:
-            crate::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Unavailable,
-        receipt_identity: None,
-        artifact: None,
-        coordinate: Some("final_evidence".to_owned()),
-        reason: Some(reason.to_owned()),
     }
 }
 
@@ -1268,7 +1550,77 @@ fn research_unavailable() -> DevelopComposerTerminalV2 {
 
 #[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
 mod tests {
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+    };
+
     use super::*;
+
+    static A0_COUNTER_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn test_locked_evidence(
+        research: CurrentResearchDevelopCustodyV2,
+        request: &DevelopComposerRunRequestV2,
+    ) -> DevelopComposerLockedEvidenceV2 {
+        let bindings = crate::strategy_plan_v2::verified_strategy_input_bindings_for_test(
+            &request.design,
+            request
+                .design
+                .inputs
+                .iter()
+                .cloned()
+                .enumerate()
+                .map(|(index, input)| {
+                    (
+                        input,
+                        BindingDigest::from_untrusted_bytes([index as u8 + 1; 32]),
+                    )
+                })
+                .collect(),
+        );
+        DevelopComposerLockedEvidenceV2 { research, bindings }
+    }
+
+    struct OrderedEvidenceV2 {
+        locked: DevelopComposerLockedEvidenceV2,
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl DevelopComposerFinalEvidencePortV2 for OrderedEvidenceV2 {
+        fn lock_and_reread(
+            &self,
+            _request: &DevelopComposerRunRequestV2,
+            _design_identity: BindingDigest,
+            _read_cut_epoch_ms: u64,
+        ) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
+            self.reads.fetch_add(1, AtomicOrdering::SeqCst);
+            Ok(self.locked.clone())
+        }
+
+        fn lock_and_reread_durable(
+            &self,
+            _locator: &DevelopComposerDurableEvidenceLocatorV2,
+            _read_cut_epoch_ms: u64,
+        ) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
+            unreachable!("not used by this two-phase unit boundary")
+        }
+    }
+
+    struct OrderedA0BuilderV2 {
+        reads: Arc<AtomicUsize>,
+    }
+
+    impl DevelopComposerA0BuildPortV2 for OrderedA0BuilderV2 {
+        fn build(
+            &mut self,
+            manifest: &PluginManifestV2,
+            capsule: &UntrustedDevelopPluginCapsuleV2,
+        ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopComposerTerminalV2> {
+            assert_eq!(self.reads.load(AtomicOrdering::SeqCst), 1);
+            SealedSourceResearchComposerA0BuildV2.build(manifest, capsule)
+        }
+    }
 
     #[test]
     fn runtime_projection_derives_all_lineage_from_canonical_research() {
@@ -1583,6 +1935,106 @@ mod tests {
     }
 
     #[test]
+    fn fixed_a2_a0_builder_counts_each_actual_invocation_once() {
+        let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
+        let request = sealed_source_research_composer_request_v2();
+        let before = sealed_source_research_composer_a0_execution_count_v2();
+        SealedSourceResearchComposerA0BuildV2
+            .build(
+                &request.design.plugins[0],
+                &request.plugin_source_capsules[0],
+            )
+            .expect("fixed A2 A0 build");
+        assert_eq!(
+            sealed_source_research_composer_a0_execution_count_v2(),
+            before + 1
+        );
+    }
+
+    #[test]
+    fn prepared_a0_is_built_between_initial_and_final_evidence_reads() {
+        let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
+        let research = CurrentResearchDevelopCustodyV2::fixture(
+            "prepared-a0-order",
+            "prepared A0 order falsifier",
+            47,
+        );
+        let request =
+            derive_source_research_composer_request_v2(&research).expect("derived request");
+        let reads = Arc::new(AtomicUsize::new(0));
+        let evidence = OrderedEvidenceV2 {
+            locked: test_locked_evidence(research, &request),
+            reads: reads.clone(),
+        };
+        let preflight = crate::develop_composer_operation_v2::preflight_develop_composer_v2(
+            &evidence, &request, 47,
+        )
+        .expect("preflight");
+        let before = sealed_source_research_composer_a0_execution_count_v2();
+        let prepared = crate::develop_composer_operation_v2::prepare_develop_composer_a0_v2(
+            &mut OrderedA0BuilderV2 {
+                reads: reads.clone(),
+            },
+            &request,
+            preflight,
+        )
+        .expect("one prepared A0");
+        assert_eq!(
+            sealed_source_research_composer_a0_execution_count_v2(),
+            before + 1
+        );
+        let final_locked = evidence
+            .lock_and_reread(&request, prepared.design_identity(), 47)
+            .expect("final reread");
+        let _ = crate::develop_composer_operation_v2::finish_positive_record_from_prepared_a0_v2(
+            &request,
+            prepared,
+            final_locked,
+        );
+        assert_eq!(reads.load(AtomicOrdering::SeqCst), 2);
+    }
+
+    #[test]
+    fn prepared_a0_rejects_postbuild_owner_drift_before_positive_construction() {
+        let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
+        let research = CurrentResearchDevelopCustodyV2::fixture(
+            "prepared-a0-drift",
+            "prepared A0 drift falsifier",
+            51,
+        );
+        let request =
+            derive_source_research_composer_request_v2(&research).expect("derived request");
+        let initial = test_locked_evidence(research, &request);
+        let evidence = LockedOwnerEvidenceV2 {
+            locked: Ok(initial.clone()),
+        };
+        let preflight = crate::develop_composer_operation_v2::preflight_develop_composer_v2(
+            &evidence, &request, 51,
+        )
+        .expect("preflight");
+        let prepared = crate::develop_composer_operation_v2::prepare_develop_composer_a0_v2(
+            &mut SealedSourceResearchComposerA0BuildV2,
+            &request,
+            preflight,
+        )
+        .expect("prepared A0");
+        let mut drifted = initial;
+        drifted.research = CurrentResearchDevelopCustodyV2::fixture(
+            "prepared-a0-drift-changed",
+            "changed after A0",
+            52,
+        );
+        let terminal =
+            match crate::develop_composer_operation_v2::finish_positive_record_from_prepared_a0_v2(
+                &request, prepared, drifted,
+            ) {
+                Ok(_) => panic!("postbuild drift must reject before a positive record exists"),
+                Err(terminal) => terminal,
+            };
+        assert_eq!(terminal.coordinate, "final_evidence");
+    }
+
+    #[test]
     #[ignore = "regenerates the dedicated A2 sealed A0 corpus from the admitted Darwin producer"]
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     fn regenerate_source_research_composer_sealed_a0_corpus_from_real_producer() {
@@ -1645,5 +2097,17 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn every_closed_acceptance_tamper_changes_the_derived_request_digest() {
+        let canonical = sealed_source_research_composer_request_v2();
+        let canonical_digest = request_digest(&canonical);
+        for selector in SourceResearchComposerAcceptanceTamperV2::ALL {
+            let mut tampered = canonical.clone();
+            tamper_source_research_composer_request_v2(&mut tampered, selector)
+                .expect("fixed A2 input is present");
+            assert_ne!(request_digest(&tampered), canonical_digest, "{selector:?}");
+        }
     }
 }

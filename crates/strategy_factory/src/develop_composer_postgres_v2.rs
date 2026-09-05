@@ -10,6 +10,8 @@ use std::{
 };
 
 use async_trait::async_trait;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use vibe_data::owner::replay_market_facts_v2::AuthenticatedComposerNativeJoinV1;
@@ -31,6 +33,11 @@ use crate::develop_composer_operation_v2::{
     build_positive_record_from_preflight_v2, conflict_response, preflight_develop_composer_v2,
     request_digest, resolve_positive_record_v2,
 };
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::{
+    PreparedDevelopComposerA0V2, finish_positive_record_from_prepared_a0_v2,
+    prepare_develop_composer_a0_v2,
+};
 use crate::strategy_plan_v2::project_strategy_design_role_set_v1;
 
 const SEALED_READ_SCHEMA_V2: u16 = 2;
@@ -39,6 +46,66 @@ const SEALED_READ_UNAVAILABLE_PROTOCOL_V2: &str = "Composer sealed readback is u
 const COMMIT_FUNCTION_V2: &str = "composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)";
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 const COMMIT_CUT_FUNCTION_V2: &str = "composer_owner_api.lock_develop_composer_commit_cut_v2(text)";
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub const SEALED_COMPOSER_FAIL_AFTER_GUC_V2: &str = "vibe.sealed_acceptance.composer_fail_after";
+
+/// Closed acceptance-only names for the ordered A1 persistence boundaries.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub enum DevelopComposerAcceptanceWriteBoundaryV2 {
+    AfterDesign,
+    AfterPlan,
+    AfterArtifact,
+    AfterEachModule,
+    AfterEachNewIntrinsicBuildReceipt,
+    AfterEachBuildUse,
+    AfterComposerReceipt,
+    AfterHostReceipt,
+    AfterOperation,
+    AfterRoleSetAttestation,
+    AfterNativeJoin,
+    AfterOutbox,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl DevelopComposerAcceptanceWriteBoundaryV2 {
+    pub const ALL: [Self; 12] = [
+        Self::AfterDesign,
+        Self::AfterPlan,
+        Self::AfterArtifact,
+        Self::AfterEachModule,
+        Self::AfterEachNewIntrinsicBuildReceipt,
+        Self::AfterEachBuildUse,
+        Self::AfterComposerReceipt,
+        Self::AfterHostReceipt,
+        Self::AfterOperation,
+        Self::AfterRoleSetAttestation,
+        Self::AfterNativeJoin,
+        Self::AfterOutbox,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AfterDesign => "AfterDesign",
+            Self::AfterPlan => "AfterPlan",
+            Self::AfterArtifact => "AfterArtifact",
+            Self::AfterEachModule => "AfterEachModule",
+            Self::AfterEachNewIntrinsicBuildReceipt => "AfterEachNewIntrinsicBuildReceipt",
+            Self::AfterEachBuildUse => "AfterEachBuildUse",
+            Self::AfterComposerReceipt => "AfterComposerReceipt",
+            Self::AfterHostReceipt => "AfterHostReceipt",
+            Self::AfterOperation => "AfterOperation",
+            Self::AfterRoleSetAttestation => "AfterRoleSetAttestation",
+            Self::AfterNativeJoin => "AfterNativeJoin",
+            Self::AfterOutbox => "AfterOutbox",
+        }
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+type DevelopComposerFaultBoundaryV2 = DevelopComposerAcceptanceWriteBoundaryV2;
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+type DevelopComposerFaultBoundaryV2 = usize;
 const ROLE_SET_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const NATIVE_JOIN_READ_FUNCTION_V1: &str = "composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)";
 const ROLE_SET_READ_FUNCTION_SOURCE_V1: &str = "SELECT attestation.attestation_identity,attestation.attestation_digest,attestation.canonical_bytes FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1 attestation WHERE attestation.request_identity=p_request_identity AND attestation.composer_schema_version=p_composer_schema_version AND attestation.operation_receipt_identity=p_operation_receipt_identity AND attestation.artifact_locator=p_artifact_locator AND attestation.artifact_identity=p_artifact_identity AND attestation.canonical_plan_digest=p_canonical_plan_digest AND attestation.design_digest=p_design_digest";
@@ -954,7 +1021,8 @@ async fn verify_composer_read_authority_in_transaction(
                   caller.oid AS caller_oid,
                   rd_owner.oid AS rd_owner_oid,
                   fact_writer.oid AS fact_writer_oid,
-                  market_reader.oid AS market_reader_oid
+                  market_reader.oid AS market_reader_oid,
+                  market_owner.oid AS market_owner_oid
              FROM pg_catalog.pg_proc procedure
              JOIN pg_catalog.pg_namespace namespace
                ON namespace.oid=procedure.pronamespace
@@ -964,6 +1032,7 @@ async fn verify_composer_read_authority_in_transaction(
              LEFT JOIN pg_catalog.pg_roles rd_owner ON rd_owner.rolname='rd_owner'
              LEFT JOIN pg_catalog.pg_roles fact_writer ON fact_writer.rolname='rd_fact_writer'
              LEFT JOIN pg_catalog.pg_roles market_reader ON market_reader.rolname='market_data_reader'
+             LEFT JOIN pg_catalog.pg_roles market_owner ON market_owner.rolname='market_data_owner'
             WHERE procedure.oid=pg_catalog.to_regprocedure($1)
               AND procedure.proname='lock_accepted_develop_composer_v2'
          ), required(table_name) AS (
@@ -1101,9 +1170,11 @@ async fn verify_composer_read_authority_in_transaction(
                             )) acl
                       WHERE acl.privilege_type NOT IN ('USAGE','CREATE')
                          OR (acl.grantee NOT IN (nspowner, rd_owner_oid, fact_writer_oid)
-                             AND acl.grantee IS DISTINCT FROM market_reader_oid)
+                             AND acl.grantee IS DISTINCT FROM market_reader_oid
+                             AND acl.grantee IS DISTINCT FROM market_owner_oid)
                          OR ((acl.grantee IN (rd_owner_oid,fact_writer_oid)
-                              OR acl.grantee IS NOT DISTINCT FROM market_reader_oid)
+                              OR acl.grantee IS NOT DISTINCT FROM market_reader_oid
+                              OR acl.grantee IS NOT DISTINCT FROM market_owner_oid)
                              AND (acl.privilege_type<>'USAGE' OR acl.is_grantable))
                    )
                  FROM target)
@@ -1202,20 +1273,32 @@ async fn verify_composer_read_authority_in_transaction(
     }
     let locator_functions_are_exact: bool = sqlx::query_scalar(
         "WITH required(signature,source) AS (VALUES ($1::text,$2::text),($3::text,$4::text)),
+         protected_relations AS (
+           SELECT relation.relname,relation.oid
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+           WHERE namespace.nspname='composer_private'
+             AND relation.relname IN (
+               'rd_develop_strategy_design_role_set_attestations_v1',
+               'rd_develop_strategy_design_native_joins_v1'
+             )
+             AND relation.relkind IN ('r','p')
+         ),
          routines AS (
            SELECT procedure.*,required.source
            FROM required
            JOIN pg_catalog.pg_proc procedure ON procedure.oid=pg_catalog.to_regprocedure(required.signature)
          )
          SELECT (SELECT count(*)=6 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='composer_owner_api')
+            AND (SELECT count(*)=2 FROM protected_relations)
             AND count(*)=2
             AND bool_and(pg_catalog.pg_get_userbyid(proowner)='composer_owner' AND prosrc=source AND prokind='f' AND proretset AND prosecdef AND proisstrict AND provolatile='s' AND proparallel='s' AND proconfig=ARRAY['search_path=pg_catalog, pg_temp']::text[])
             AND bool_and(NOT pg_catalog.has_function_privilege('rd_owner',oid,'EXECUTE'))
             AND bool_and(pg_catalog.has_function_privilege('market_data_reader',oid,'EXECUTE'))
             AND bool_and(NOT pg_catalog.has_function_privilege('rd_fact_writer',oid,'EXECUTE'))
             AND bool_and((SELECT count(*)=2 AND count(*) FILTER (WHERE acl.grantee=routines.proowner AND acl.privilege_type='EXECUTE')=1 AND count(*) FILTER (WHERE role.rolname='market_data_reader' AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)=1 AND count(*) FILTER (WHERE acl.grantee=0 OR acl.privilege_type<>'EXECUTE' OR (acl.grantee<>routines.proowner AND (role.rolname<>'market_data_reader' OR acl.is_grantable)))=0 FROM pg_catalog.aclexplode(COALESCE(routines.proacl,pg_catalog.acldefault('f',routines.proowner))) acl LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee))
-            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_role_set_attestations_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
-            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner','composer_private.rd_develop_strategy_design_native_joins_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner',(SELECT oid FROM protected_relations WHERE relname='rd_develop_strategy_design_role_set_attestations_v1'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
+            AND bool_and(NOT pg_catalog.has_table_privilege('rd_owner',(SELECT oid FROM protected_relations WHERE relname='rd_develop_strategy_design_native_joins_v1'),'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))
          FROM routines",
     )
     .bind(ROLE_SET_READ_FUNCTION_V1)
@@ -1665,6 +1748,15 @@ async fn verify_transaction_database(
     }
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn transaction_identity(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<String, sqlx::Error> {
+    sqlx::query_scalar("SELECT pg_catalog.pg_current_xact_id()::text")
+        .fetch_one(&mut **transaction)
+        .await
+}
+
 async fn verify_same_live_primary(
     read_pool: &PgPool,
     mutation_pool: &PgPool,
@@ -1722,6 +1814,28 @@ pub struct PostgresDevelopComposerStoreV2 {
     read_pool: PgPool,
     mutation_pool: PgPool,
     database_fingerprint: ComposerDatabaseFingerprintV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) enum PreparedDevelopComposerRunInTransactionV2 {
+    Complete(DevelopComposerOperationResponseV2),
+    Prepared(PreparedPostgresDevelopComposerRunV2),
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) struct PreparedPostgresDevelopComposerRunV2 {
+    database_fingerprint: ComposerDatabaseFingerprintV2,
+    transaction_identity: String,
+    request_identity: String,
+    request_digest: BindingDigest,
+    a0: PreparedDevelopComposerA0V2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl PreparedPostgresDevelopComposerRunV2 {
+    fn design_identity(&self) -> BindingDigest {
+        self.a0.design_identity()
+    }
 }
 
 impl PostgresDevelopComposerStoreV2 {
@@ -2010,7 +2124,47 @@ impl PostgresDevelopComposerStoreV2 {
         read_cut_epoch_ms: u64,
         fail_after_boundary: Option<usize>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        match self
+            .prepare_run_in_transaction(transaction, builder, evidence, request, read_cut_epoch_ms)
+            .await?
+        {
+            PreparedDevelopComposerRunInTransactionV2::Complete(response) => Ok(response),
+            PreparedDevelopComposerRunInTransactionV2::Prepared(prepared) => {
+                let final_locked = match evidence.lock_and_reread(
+                    request,
+                    prepared.design_identity(),
+                    read_cut_epoch_ms,
+                ) {
+                    Ok(locked) => locked,
+                    Err(terminal) => return Ok(terminal_response(request, terminal)),
+                };
+                self.commit_prepared_run_in_transaction_with_fault_for_test(
+                    transaction,
+                    request,
+                    prepared,
+                    final_locked,
+                    fail_after_boundary.and_then(|index| {
+                        DevelopComposerAcceptanceWriteBoundaryV2::ALL
+                            .get(index)
+                            .copied()
+                    }),
+                )
+                .await
+            }
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn prepare_run_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        builder: &mut impl DevelopComposerA0BuildPortV2,
+        evidence: &impl DevelopComposerFinalEvidencePortV2,
+        request: &DevelopComposerRunRequestV2,
+        read_cut_epoch_ms: u64,
+    ) -> Result<PreparedDevelopComposerRunInTransactionV2, sqlx::Error> {
         verify_transaction_database(transaction, &self.database_fingerprint).await?;
+        let prepared_transaction_identity = transaction_identity(transaction).await?;
         acquire_advisory_locks(transaction, &[request_lock_key(&request.request_identity)]).await?;
         let existing =
             match load_record_via_commit_cut_in_transaction(transaction, &request.request_identity)
@@ -2018,49 +2172,128 @@ impl PostgresDevelopComposerStoreV2 {
             {
                 Ok(existing) => existing,
                 Err(e) if is_record_integrity_error(&e) => {
-                    return Ok(unavailable_response(
-                        &request.request_identity,
-                        "stored terminal custody is incomplete or malformed",
+                    return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                        unavailable_response(
+                            &request.request_identity,
+                            "stored terminal custody is incomplete or malformed",
+                        ),
                     ));
                 }
                 Err(e) => return Err(e),
             };
         if let Some(existing) = existing {
-            return Ok(if existing.request_digest == request_digest(request) {
-                evidence
-                    .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
-                    .and_then(|current| resolve_positive_record_v2(&existing, current))
-                    .unwrap_or_else(|terminal| terminal_response(request, terminal))
-            } else {
-                DevelopComposerOperationResponseV2 {
-                    schema_version: 2,
-                    request_identity: request.request_identity.clone(),
-                    disposition: DevelopComposerOperationDispositionV2::Conflict,
-                    receipt_identity: None,
-                    artifact: None,
-                    coordinate: Some("request_identity".to_owned()),
-                    reason: Some(
-                        "identity is already bound to different canonical meaning".to_owned(),
-                    ),
-                }
-            });
+            return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                if existing.request_digest == request_digest(request) {
+                    evidence
+                        .lock_and_reread(request, existing.design_identity, read_cut_epoch_ms)
+                        .and_then(|current| resolve_positive_record_v2(&existing, current))
+                        .unwrap_or_else(|terminal| terminal_response(request, terminal))
+                } else {
+                    DevelopComposerOperationResponseV2 {
+                        schema_version: 2,
+                        request_identity: request.request_identity.clone(),
+                        disposition: DevelopComposerOperationDispositionV2::Conflict,
+                        receipt_identity: None,
+                        artifact: None,
+                        coordinate: Some("request_identity".to_owned()),
+                        reason: Some(
+                            "identity is already bound to different canonical meaning".to_owned(),
+                        ),
+                    }
+                },
+            ));
         }
 
         let preflight = match preflight_develop_composer_v2(evidence, request, read_cut_epoch_ms) {
             Ok(preflight) => preflight,
-            Err(terminal) => return Ok(terminal_response(request, terminal)),
+            Err(terminal) => {
+                return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                    terminal_response(request, terminal),
+                ));
+            }
         };
         acquire_advisory_locks(transaction, &preflight_lock_keys(&preflight)).await?;
-        let (record, current) = match build_positive_record_from_preflight_v2(
-            builder,
-            evidence,
-            request,
-            read_cut_epoch_ms,
-            preflight,
-        ) {
-            Ok(record) => record,
-            Err(terminal) => return Ok(terminal_response(request, terminal)),
+        let a0 = match prepare_develop_composer_a0_v2(builder, request, preflight) {
+            Ok(prepared) => prepared,
+            Err(terminal) => {
+                return Ok(PreparedDevelopComposerRunInTransactionV2::Complete(
+                    terminal_response(request, terminal),
+                ));
+            }
         };
+        Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(
+            PreparedPostgresDevelopComposerRunV2 {
+                database_fingerprint: self.database_fingerprint.clone(),
+                transaction_identity: prepared_transaction_identity,
+                request_identity: request.request_identity.clone(),
+                request_digest: request_digest(request),
+                a0,
+            },
+        ))
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn commit_prepared_run_in_transaction(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.commit_prepared_run_in_transaction_with_fault_for_test(
+            transaction,
+            request,
+            prepared,
+            final_locked,
+            None,
+        )
+        .await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    pub(crate) async fn commit_prepared_run_in_transaction_with_acceptance_boundary(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+        boundary: DevelopComposerAcceptanceWriteBoundaryV2,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        self.commit_prepared_run_in_transaction_with_fault_for_test(
+            transaction,
+            request,
+            prepared,
+            final_locked,
+            Some(boundary),
+        )
+        .await
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    async fn commit_prepared_run_in_transaction_with_fault_for_test(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        request: &DevelopComposerRunRequestV2,
+        prepared: PreparedPostgresDevelopComposerRunV2,
+        final_locked: DevelopComposerLockedEvidenceV2,
+        fail_after_boundary: Option<DevelopComposerAcceptanceWriteBoundaryV2>,
+    ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+        verify_transaction_database(transaction, &self.database_fingerprint).await?;
+        let current_transaction_identity = transaction_identity(transaction).await?;
+        if prepared.database_fingerprint != self.database_fingerprint
+            || prepared.transaction_identity != current_transaction_identity
+            || prepared.request_identity != request.request_identity
+            || prepared.request_digest != request_digest(request)
+        {
+            return Err(sqlx::Error::Protocol(
+                "prepared Composer A0 state does not bind this transaction and request".to_owned(),
+            ));
+        }
+        let (record, current) =
+            match finish_positive_record_from_prepared_a0_v2(request, prepared.a0, final_locked) {
+                Ok(record) => record,
+                Err(terminal) => return Ok(terminal_response(request, terminal)),
+            };
         acquire_advisory_locks(transaction, &postbuild_lock_keys(&record)).await?;
         let response =
             resolve_positive_record_v2(&record, current.clone()).map_err(|terminal| {
@@ -2121,7 +2354,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         request: &DevelopComposerRunRequestV2,
         read_cut_epoch_ms: u64,
-        fail_after_boundary: Option<usize>,
+        fail_after_boundary: Option<DevelopComposerFaultBoundaryV2>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         self.run_inner(
             builder,
@@ -2140,7 +2373,7 @@ impl PostgresDevelopComposerStoreV2 {
         evidence: &impl DevelopComposerFinalEvidencePortV2,
         request: &DevelopComposerRunRequestV2,
         read_cut_epoch_ms: u64,
-        fail_after_boundary: Option<usize>,
+        fail_after_boundary: Option<DevelopComposerFaultBoundaryV2>,
         native_join: Option<&AuthenticatedComposerNativeJoinV1>,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         let existing = match load_record(self, &request.request_identity).await {
@@ -2466,7 +2699,12 @@ async fn persist_record(
     role_set: &StrategyDesignRoleSetReceiptV1,
     native_join: Option<&StrategyDesignNativeJoinReceiptV1>,
     current_bindings: crate::strategy_plan_v2::VerifiedStrategyInputBindingsV2,
-    fail_after_boundary: Option<usize>,
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")] fail_after_boundary: Option<
+        DevelopComposerAcceptanceWriteBoundaryV2,
+    >,
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))] fail_after_boundary: Option<
+        usize,
+    >,
 ) -> Result<(), sqlx::Error> {
     verify_transaction_database(transaction, database_fingerprint).await?;
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -2488,11 +2726,16 @@ async fn persist_record(
         current_bindings,
     )
     .map_err(sqlx::Error::Protocol)?;
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     if let Some(boundary) = fail_after_boundary {
-        return Err(sqlx::Error::Protocol(format!(
-            "injected Composer write-boundary failure {boundary}"
-        )));
+        sqlx::query("SELECT pg_catalog.set_config($1,$2,true)")
+            .bind(SEALED_COMPOSER_FAIL_AFTER_GUC_V2)
+            .bind(boundary.as_str())
+            .execute(&mut **transaction)
+            .await?;
     }
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    debug_assert!(fail_after_boundary.is_none());
     let module_bytes = record
         .module_bytes
         .iter()
@@ -2686,6 +2929,7 @@ mod tests {
         assert!(read_authority.contains("relation.relpersistence"));
         assert!(read_authority.contains("relpersistence='p'"));
         assert!(read_authority.contains("index_relation.relpersistence='p'"));
+        assert!(read_authority.contains("market_owner_oid"));
     }
 
     #[tokio::test]
@@ -2755,5 +2999,31 @@ mod tests {
         assert!(commit_authority.contains("SESSION_USER IN ('rd_fact_writer','rd_owner')"));
         assert!(commit_authority.contains("SELECT count(*)=3"));
         assert!(commit_authority.contains("count(*) FILTER (WHERE acl.grantee=0)=0"));
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[test]
+    fn acceptance_write_boundaries_are_closed_and_in_persistence_order() {
+        assert_eq!(
+            super::DevelopComposerAcceptanceWriteBoundaryV2::ALL.map(|value| value.as_str()),
+            [
+                "AfterDesign",
+                "AfterPlan",
+                "AfterArtifact",
+                "AfterEachModule",
+                "AfterEachNewIntrinsicBuildReceipt",
+                "AfterEachBuildUse",
+                "AfterComposerReceipt",
+                "AfterHostReceipt",
+                "AfterOperation",
+                "AfterRoleSetAttestation",
+                "AfterNativeJoin",
+                "AfterOutbox",
+            ]
+        );
+        assert_eq!(
+            super::SEALED_COMPOSER_FAIL_AFTER_GUC_V2,
+            "vibe.sealed_acceptance.composer_fail_after"
+        );
     }
 }

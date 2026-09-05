@@ -530,7 +530,21 @@ pub(crate) struct DevelopComposerPreflightV2 {
     pub(crate) intent_identity: BindingDigest,
     pub(crate) build_attempt_identities: Vec<BindingDigest>,
     pub(crate) capsule_identities: Vec<BindingDigest>,
+    read_cut_epoch_ms: u64,
     locked: DevelopComposerLockedEvidenceV2,
+}
+
+/// Opaque, move-only A0 state. Its verified builds can only be consumed by the finishing boundary.
+pub(crate) struct PreparedDevelopComposerA0V2 {
+    preflight: DevelopComposerPreflightV2,
+    build_reads: Vec<VerifiedDevelopPluginBuildReadV2>,
+    build_receipt_bytes: Vec<Vec<u8>>,
+}
+
+impl PreparedDevelopComposerA0V2 {
+    pub(crate) fn design_identity(&self) -> BindingDigest {
+        self.preflight.design_identity
+    }
 }
 
 pub(crate) fn preflight_develop_composer_v2(
@@ -612,6 +626,7 @@ pub(crate) fn preflight_develop_composer_v2(
         intent_identity: locked.research.intent_identity(),
         build_attempt_identities,
         capsule_identities,
+        read_cut_epoch_ms,
         locked,
     })
 }
@@ -629,6 +644,17 @@ pub(crate) fn build_positive_record_from_preflight_v2(
     ),
     DevelopComposerTerminalV2,
 > {
+    let prepared = prepare_develop_composer_a0_v2(builder, request, preflight)?;
+    let locked =
+        evidence.lock_and_reread(request, prepared.design_identity(), read_cut_epoch_ms)?;
+    finish_positive_record_from_prepared_a0_v2(request, prepared, locked)
+}
+
+pub(crate) fn prepare_develop_composer_a0_v2(
+    builder: &mut impl DevelopComposerA0BuildPortV2,
+    request: &DevelopComposerRunRequestV2,
+    preflight: DevelopComposerPreflightV2,
+) -> Result<PreparedDevelopComposerA0V2, DevelopComposerTerminalV2> {
     let mut manifests = request.design.plugins.iter().collect::<Vec<_>>();
     manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let mut build_reads = Vec::with_capacity(manifests.len());
@@ -639,16 +665,38 @@ pub(crate) fn build_positive_record_from_preflight_v2(
         build_reads.push(build);
     }
 
-    // This is the final accepted Research/binding cut. Production must replace the sealed adapter
-    // with durable Owner ports without changing the Composer or storage authorities.
-    let locked = evidence.lock_and_reread(request, preflight.design_identity, read_cut_epoch_ms)?;
-    if locked != preflight.locked {
+    Ok(PreparedDevelopComposerA0V2 {
+        preflight,
+        build_reads,
+        build_receipt_bytes,
+    })
+}
+
+pub(crate) fn finish_positive_record_from_prepared_a0_v2(
+    request: &DevelopComposerRunRequestV2,
+    prepared: PreparedDevelopComposerA0V2,
+    final_locked: DevelopComposerLockedEvidenceV2,
+) -> Result<
+    (
+        StoredDevelopComposerPositiveV2,
+        DevelopComposerLockedEvidenceV2,
+    ),
+    DevelopComposerTerminalV2,
+> {
+    let PreparedDevelopComposerA0V2 {
+        preflight,
+        build_reads,
+        build_receipt_bytes,
+    } = prepared;
+    if final_locked != preflight.locked {
         return Err(unavailable(
             "final_evidence",
             "final Research custody or binding evidence drifted after A0",
         ));
     }
-    let binding_receipt_digests = locked.bindings.receipt_digests();
+    let binding_receipt_digests = final_locked.bindings.receipt_digests();
+    let mut manifests = request.design.plugins.iter().collect::<Vec<_>>();
+    manifests.sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
     let plugin_builds = build_reads
         .iter()
         .zip(manifests.iter())
@@ -662,7 +710,7 @@ pub(crate) fn build_positive_record_from_preflight_v2(
         .map(VerifiedDevelopPluginBuildReadV2::into_composer_build)
         .collect();
     let composer_evidence = ComposerEvidenceV2 {
-        locked: locked.clone(),
+        locked: final_locked.clone(),
         builds: RefCell::new(verified_builds),
     };
     let proposal = UntrustedDevelopComposerProposalV2 {
@@ -673,7 +721,7 @@ pub(crate) fn build_positive_record_from_preflight_v2(
     };
     let positive = match DevelopComposerV2::default().compose(
         &proposal,
-        read_cut_epoch_ms,
+        preflight.read_cut_epoch_ms,
         &composer_evidence,
     ) {
         DevelopComposerResultV2::Composed(positive) => *positive,
@@ -688,7 +736,7 @@ pub(crate) fn build_positive_record_from_preflight_v2(
         preflight.capsule_identities,
         build_receipt_bytes,
     )?;
-    Ok((record, locked))
+    Ok((record, final_locked))
 }
 
 fn finish_positive(

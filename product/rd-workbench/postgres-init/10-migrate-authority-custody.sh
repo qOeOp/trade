@@ -957,9 +957,9 @@ BEGIN
   SELECT count(*),COALESCE(bool_and(c.relkind='r' AND c.relpersistence='p'),false) INTO composer_public_count,composer_public_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname=ANY(composer_names);
   SELECT count(*),COALESCE(bool_and(c.relkind='r' AND c.relpersistence='p'),false) INTO composer_private_count,composer_private_exact FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='composer_private' AND c.relname=ANY(composer_names);
   IF NOT (
-    (catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11) AND composer_public_exact AND composer_private_count=0)
+    (catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11,12) AND composer_public_exact AND composer_private_count=0)
     OR
-    (catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11) AND composer_private_exact)
+    (catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11,12) AND composer_private_exact)
   ) THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'; END IF;
   FOREACH relation_name IN ARRAY catalog_names LOOP
     IF catalog_public_count=4 THEN EXECUTE pg_catalog.format('LOCK TABLE public.%I IN ACCESS EXCLUSIVE MODE',relation_name);
@@ -1619,7 +1619,7 @@ BEGIN
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
-    AND (SELECT count(*)=6 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=5 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'),
