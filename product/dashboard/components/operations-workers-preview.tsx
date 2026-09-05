@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
-  parseWorkerDetailBrowserEnvelopeV1,
-  parseWorkerBrowserEnvelopeV1,
+  readWorkerBrowserResponsesV1,
   type WorkerBrowserEnvelopeV1,
   type WorkerDetailBrowserEnvelopeV1,
   type WorkerBrowserProjectionV1,
@@ -35,29 +34,6 @@ type LeaseFilter = "all" | "available" | "expired";
 
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Unavailable";
-}
-
-function unavailable(reason: string): WorkerBrowserEnvelopeV1 {
-  return {
-    schema_version: 1,
-    operation: "dashboard.shadow_workers.list.v1",
-    availability: "unavailable",
-    unavailable_reason: reason,
-    observed_at: new Date().toISOString(),
-    workers: [],
-  };
-}
-
-function detailUnavailable(workerIdentity: string, reason: string): WorkerDetailBrowserEnvelopeV1 {
-  return {
-    schema_version: 1,
-    operation: "dashboard.shadow_workers.detail.v1",
-    availability: "unavailable",
-    unavailable_reason: reason,
-    observed_at: new Date().toISOString(),
-    requested_worker_identity: workerIdentity,
-    worker: null,
-  };
 }
 
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
@@ -131,17 +107,10 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
   const refresh = useCallback(async () => {
     setPending(true);
     try {
-      const [listResponse, detailResponse] = await Promise.all([
-        fetch("/api/operations/workers/", { method: "GET", cache: "no-store" }),
-        initialWorkerIdentity
-          ? fetch(`/api/operations/workers/${encodeURIComponent(initialWorkerIdentity)}/`, { method: "GET", cache: "no-store" })
-          : Promise.resolve(null),
-      ]);
-      const parsed = parseWorkerBrowserEnvelopeV1(await listResponse.json());
-      setResult(parsed ?? unavailable("WORKER_RESPONSE_UNAVAILABLE"));
-      if (initialWorkerIdentity && detailResponse) {
-        setDetail(parseWorkerDetailBrowserEnvelopeV1(await detailResponse.json(), initialWorkerIdentity)
-          ?? detailUnavailable(initialWorkerIdentity, "WORKER_DETAIL_RESPONSE_UNAVAILABLE"));
+      const { list: parsed, detail: parsedDetail } = await readWorkerBrowserResponsesV1(fetch, initialWorkerIdentity);
+      setResult(parsed);
+      setDetail(parsedDetail);
+      if (initialWorkerIdentity) {
         setSelectedIdentity(initialWorkerIdentity);
       } else if (parsed?.availability === "available") {
         setSelectedIdentity((current) => parsed.workers.some(({ worker_identity }) => worker_identity === current)
@@ -151,12 +120,6 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         setSelectedIdentity(null);
         setDetail(null);
       }
-    } catch {
-      setResult(unavailable("WORKER_TRANSPORT_UNAVAILABLE"));
-      if (!initialWorkerIdentity) setSelectedIdentity(null);
-      setDetail(initialWorkerIdentity
-        ? detailUnavailable(initialWorkerIdentity, "WORKER_DETAIL_TRANSPORT_UNAVAILABLE")
-        : null);
     } finally {
       setPending(false);
     }
@@ -318,8 +281,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
             <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
               title="Worker store unavailable" reason={result?.unavailable_reason ?? "READING_WORKERS"} />
-            <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity}
-              reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />
+            {selected ? <WorkerDetail worker={selected} exact />
+              : <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity}
+                reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />}
           </SplitBento> : <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
             title="Worker store unavailable" reason={result?.unavailable_reason ?? "READING_WORKERS"} />
         )}

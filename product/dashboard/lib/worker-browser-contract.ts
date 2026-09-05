@@ -106,8 +106,7 @@ export function parseWorkerBrowserEnvelopeV1(value: unknown): WorkerBrowserEnvel
   const workers = value.workers.map((worker) => parseWorker(worker, value.observed_at as string));
   if (workers.some((worker) => worker === null)) return null;
   const parsed = workers as WorkerBrowserProjectionV1[];
-  if (parsed.some((worker, index) => index > 0
-    && parsed[index - 1].worker_identity >= worker.worker_identity)) return null;
+  if (new Set(parsed.map(({ worker_identity }) => worker_identity)).size !== parsed.length) return null;
   return { ...(value as WorkerBrowserEnvelopeV1), workers: parsed };
 }
 
@@ -129,4 +128,31 @@ export function parseWorkerDetailBrowserEnvelopeV1(
   return worker?.worker_identity === expectedWorkerIdentity
     ? { ...(value as WorkerDetailBrowserEnvelopeV1), worker }
     : null;
+}
+
+// Each endpoint owns its own availability, including transport and JSON failures.
+export async function readWorkerBrowserResponsesV1(
+  fetcher: (url: string, init: RequestInit) => Promise<Pick<Response, "json">>,
+  workerIdentity: string | null,
+) {
+  const read = async (url: string) => (await fetcher(url, { method: "GET", cache: "no-store" })).json();
+  const [listResponse, detailResponse] = await Promise.allSettled([
+    read("/api/operations/workers/"),
+    workerIdentity ? read(`/api/operations/workers/${encodeURIComponent(workerIdentity)}/`) : Promise.resolve(null),
+  ]);
+  const observed_at = new Date().toISOString();
+  const list: WorkerBrowserEnvelopeV1 = (listResponse.status === "fulfilled"
+    ? parseWorkerBrowserEnvelopeV1(listResponse.value) : null) ?? {
+    schema_version: 1, operation: "dashboard.shadow_workers.list.v1", availability: "unavailable",
+    unavailable_reason: listResponse.status === "rejected" ? "WORKER_TRANSPORT_UNAVAILABLE" : "WORKER_RESPONSE_UNAVAILABLE",
+    observed_at, workers: [],
+  };
+  const detail: WorkerDetailBrowserEnvelopeV1 | null = workerIdentity ? (
+    (detailResponse.status === "fulfilled" ? parseWorkerDetailBrowserEnvelopeV1(detailResponse.value, workerIdentity) : null) ?? {
+      schema_version: 1, operation: "dashboard.shadow_workers.detail.v1", availability: "unavailable",
+      unavailable_reason: detailResponse.status === "rejected" ? "WORKER_DETAIL_TRANSPORT_UNAVAILABLE" : "WORKER_DETAIL_RESPONSE_UNAVAILABLE",
+      observed_at, requested_worker_identity: workerIdentity, worker: null,
+    }
+  ) : null;
+  return { list, detail };
 }

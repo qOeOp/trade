@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
+import { createRequire } from "node:module";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import ts from "typescript";
 
 const root = new URL("../", import.meta.url);
 
@@ -54,4 +58,56 @@ test("Workers uses the shared Vibe, table, and Lucide-backed atoms", async () =>
   assert.match(workers, /from "\.\/ui\/iconography"/);
   assert.doesNotMatch(workers, /from "lucide-react"/);
   assert.doesNotMatch(workers, /#[0-9a-fA-F]{3,8}/);
+});
+
+test("exact detail rendering is independent of list availability", async () => {
+  const compiled = ts.transpileModule(await source("components/operations-workers-preview.tsx"), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+  }).outputText;
+  const require = createRequire(import.meta.url);
+  const identity = "a-worker";
+  const worker = {
+    worker_identity: identity, operation_ids: [], lease_state: "available", job_count: 0,
+    active_job_count: 0, last_run_identity: null, last_run_state: null, last_run_at: null,
+    registered_at: null, last_heartbeat_at: null, lease_expires_at: null,
+    worker_artifact_digest: "test-artifact",
+  };
+  const atom = ({ children }) => React.createElement("div", null, children);
+  const icons = new Proxy({}, { get: () => atom });
+  for (const listAvailable of [false, true]) {
+    for (const detailAvailable of [false, true]) {
+      const state = [
+        { availability: listAvailable ? "available" : "unavailable", workers: [], unavailable_reason: "LIST_UNAVAILABLE" },
+        { availability: detailAvailable ? "available" : "unavailable", worker: detailAvailable ? worker : null, unavailable_reason: "DETAIL_UNAVAILABLE" },
+        identity, "all", "", false,
+      ];
+      const exports = {};
+      const load = (path) => {
+        if (path === "react") return {
+          ...React, useState: () => [state.shift(), () => {}], useEffect: () => {},
+          useMemo: (fn) => fn(), useCallback: (fn) => fn,
+        };
+        if (path === "react/jsx-runtime") return require(path);
+        if (path.includes("worker-browser-contract")) return {};
+        return new Proxy({}, { get: (_, key) => {
+          if (String(key).endsWith("Icons")) return icons;
+          if (key === "dataWorkspaceSelectedRowStyles") return () => [];
+          if (key === "availabilityTone") return () => "neutral";
+          if (key === "DetailInspectorHeader") return ({ eyebrow, title }) => React.createElement("header", null, eyebrow, title);
+          return atom;
+        } });
+      };
+      // Execute the production render tree; only hooks and unrelated visual atoms are substituted.
+      new Function("require", "exports", compiled)(load, exports);
+      const html = renderToStaticMarkup(React.createElement(exports.OperationsWorkersPreview, { initialWorkerIdentity: identity }));
+      assert.match(html, /Exact worker readback/);
+      if (detailAvailable) {
+        assert.match(html, /test-artifact/);
+        assert.doesNotMatch(html, /DETAIL_UNAVAILABLE/);
+      } else {
+        assert.match(html, /DETAIL_UNAVAILABLE/);
+        assert.doesNotMatch(html, /test-artifact/);
+      }
+    }
+  }
 });
