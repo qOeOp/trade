@@ -821,6 +821,9 @@ export async function executeArtifactBuildV1(
     research_request_identity,
     identity_mode,
   } = request
+  if (runtime.dispatcher === "TRADE_DASHBOARD") {
+    return unknown(build_request_identity, attempt_identity)
+  }
   let effectiveBuildRequestIdentity = build_request_identity
   let effectiveAttemptIdentity = attempt_identity
   if (action === "RUN" && identity_mode === "GENERATE") {
@@ -836,13 +839,7 @@ export async function executeArtifactBuildV1(
     return unknown(build_request_identity, attempt_identity)
   }
   if (!runtime.owner_token) return unknown(effectiveBuildRequestIdentity, effectiveAttemptIdentity)
-  const suppliedContext = runtime.dispatcher === "TRADE_DASHBOARD"
-    && runtime.verified_s1_context?.request_identity === research_request_identity
-    ? runtime.verified_s1_context
-    : null
-  const preflight = suppliedContext
-    ? { availability: "available" as const, unavailable_reason: null, context: suppliedContext }
-    : await preflightArtifactBuildV1(research_request_identity, runtime)
+  const preflight = await preflightArtifactBuildV1(research_request_identity, runtime)
   const s1Context = preflight.context
   const operation = await runOwnerOperation(
     runtime,
