@@ -105,6 +105,12 @@ function envelope() {
       event_code: "OWNER_UNKNOWN",
     }],
     operational_cache: { state: "retained", deletion_receipt: null },
+    operational_cancellation: {
+      state: "none",
+      unavailable_reason: null,
+      action_envelope: null,
+      receipt: null,
+    },
   };
 }
 
@@ -197,6 +203,7 @@ test("Run Detail unavailable geometry contains no run or log projection", () => 
     bounded_result: null,
     logs: [],
     operational_cache: null,
+    operational_cancellation: null,
   }));
 });
 

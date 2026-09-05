@@ -122,12 +122,18 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     new URL("../migrations/0007_operational_cache_deletion.sql", import.meta.url),
     "utf8",
   );
+  const cancellationMigration = await readFile(
+    new URL("../migrations/0008_queued_dependency_cancellation.sql", import.meta.url),
+    "utf8",
+  );
   await admin.query(migration);
   await admin.query(scheduleMigration);
   await admin.query(effectMigration);
   await admin.query(sourceResearchMigration);
   await admin.query(cacheDeletionMigration);
-  await admin.query(`TRUNCATE dashboard_operation_run_cache_deletions_v1,
+  await admin.query(cancellationMigration);
+  await admin.query(`TRUNCATE dashboard_operation_run_cancellations_v1,
+    dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
     dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
@@ -145,6 +151,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(effectMigration);
   await admin.query(sourceResearchMigration);
   await admin.query(cacheDeletionMigration);
+  await admin.query(cancellationMigration);
   const predecessorUpgrade = await admin.query(
     `SELECT column_name, is_nullable
        FROM information_schema.columns
@@ -380,6 +387,67 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     message: "WORKER_IDENTITY_INVALID",
   });
   assert.equal(JSON.stringify(workerPage).includes(workerCapability), false);
+  const cancellationAuthorizationDigest = `sha256:${"8".repeat(64)}`;
+  const cancellable = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
+    request_identity: "source-request-cancel-1",
+  }, bindingFor(SOURCE_INTAKE_SHADOW_READ_OPERATION));
+  const cancellableDetail = await store.readRunDetail(cancellable.run_identity, {
+    authorizationDigest: cancellationAuthorizationDigest,
+  });
+  assert.equal(cancellableDetail?.operational_cancellation.state, "pending");
+  const actionEnvelope = cancellableDetail?.operational_cancellation.action_envelope;
+  assert.ok(actionEnvelope);
+  const cancellationReceipt = await store.cancelQueuedDependency({
+    runIdentity: cancellable.run_identity,
+    actionEnvelope,
+    authorizationDigest: cancellationAuthorizationDigest,
+  });
+  assert.equal(cancellationReceipt.prior_state, "queued");
+  assert.equal(cancellationReceipt.transition_version, cancellable.transition_version + 1);
+  await assert.rejects(() => store.cancelQueuedDependency({
+    runIdentity: cancellable.run_identity,
+    actionEnvelope,
+    authorizationDigest: cancellationAuthorizationDigest,
+  }), { message: "RUN_CANCELLATION_NOT_ELIGIBLE" });
+  const cancelledDetail = await store.readRunDetail(cancellable.run_identity, {
+    authorizationDigest: cancellationAuthorizationDigest,
+  });
+  assert.equal(cancelledDetail?.run.state, "cancelled");
+  assert.equal(cancelledDetail?.run.started_at, null);
+  assert.equal(cancelledDetail?.operational_cancellation.state, "receipt");
+  assert.equal(cancelledDetail?.operational_cancellation.receipt?.receipt_identity,
+    cancellationReceipt.receipt_identity);
+  await assert.rejects(() => store.cancelQueuedDependency({
+    runIdentity: "dashboard-run-v1-00000000-0000-4000-8000-000000000099",
+    actionEnvelope,
+    authorizationDigest: cancellationAuthorizationDigest,
+  }), { message: "RUN_CANCELLATION_REQUEST_INVALID" });
+  const claimThenCancel = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
+    request_identity: "source-request-claim-then-cancel-1",
+  }, bindingFor(SOURCE_INTAKE_SHADOW_READ_OPERATION));
+  const claimThenCancelDetail = await store.readRunDetail(claimThenCancel.run_identity, {
+    authorizationDigest: cancellationAuthorizationDigest,
+  });
+  const staleAction = claimThenCancelDetail?.operational_cancellation.action_envelope;
+  assert.ok(staleAction);
+  const interveningClaim = await store.claimNextRead({
+    workerIdentity: "postgres-shadow-worker-1",
+    workerCapability,
+  });
+  assert.equal(interveningClaim?.run.run_identity, claimThenCancel.run_identity);
+  await assert.rejects(() => store.cancelQueuedDependency({
+    runIdentity: claimThenCancel.run_identity,
+    actionEnvelope: staleAction,
+    authorizationDigest: cancellationAuthorizationDigest,
+  }), { message: "RUN_CANCELLATION_NOT_ELIGIBLE" });
+  await store.completeClaimedRead({
+    runIdentity: claimThenCancel.run_identity,
+    workerIdentity: "postgres-shadow-worker-1",
+    claimToken: interveningClaim.claim_token,
+    expectedTransitionVersion: interveningClaim.run.transition_version,
+    ownerOutcomeState: "unavailable",
+    terminalCode: "OWNER_UNAVAILABLE",
+  });
   const legacy = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
     request_identity: "source-request-legacy-binding-1",
   }, bindingFor(SOURCE_INTAKE_SHADOW_READ_OPERATION));
@@ -1017,7 +1085,8 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     query: "",
   }), { message: "OPERATIONAL_DATA_EXPIRED" });
   await restarted.close();
-  await admin.query(`TRUNCATE dashboard_operation_run_cache_deletions_v1,
+  await admin.query(`TRUNCATE dashboard_operation_run_cancellations_v1,
+    dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
     dashboard_artifact_formation_run_bindings_v1,
     dashboard_shadow_read_schedules_v1,
@@ -1037,6 +1106,7 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     "0003_artifact_formation_run_store.sql",
     "0006_source_research_run_store.sql",
     "0007_operational_cache_deletion.sql",
+    "0008_queued_dependency_cancellation.sql",
   ]) {
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }

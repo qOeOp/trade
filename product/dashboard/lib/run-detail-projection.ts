@@ -23,6 +23,10 @@ import {
   parseOperationalCacheDeletionReceiptV1,
   type OperationalCacheDeletionReceiptV1,
 } from "./run-cache-deletion-contract.ts";
+import {
+  parseOperationalCancellationReadbackV1,
+  type OperationalCancellationReadbackV1,
+} from "./run-cancellation-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -118,6 +122,7 @@ export type RunDetailEnvelopeV1 = {
     state: "retained" | "deleted" | "expired";
     deletion_receipt: OperationalCacheDeletionReceiptV1 | null;
   } | null;
+  operational_cancellation: OperationalCancellationReadbackV1 | null;
 };
 
 function exactKeys(value: Record<string, unknown>, expected: readonly string[]): boolean {
@@ -261,9 +266,12 @@ function parseRun(value: unknown, envelope: RunDetailEnvelopeV1): RunDetailRunV1
   const observed = Date.parse(envelope.observed_at);
   const retained = Date.parse(run.retained_until as string);
   const terminal = ["succeeded", "failed", "cancelled", "unknown"].includes(String(run.state));
-  if (received > observed || retained <= received || (run.state === "queued") !== (started === null)
+  const cancelledBeforeStart = run.state === "cancelled" && started === null;
+  if (received > observed || retained <= received
+    || (started === null && run.state !== "queued" && !cancelledBeforeStart)
+    || (run.state === "queued" && started !== null)
     || terminal !== (completed !== null) || (started !== null && started < received)
-    || (completed !== null && (started === null || completed < started || completed > observed))
+    || (completed !== null && ((started !== null && completed < started) || completed > observed))
     || run.duration_ms !== durationMs(run.started_at as string | null, run.completed_at as string | null)) {
     return null;
   }
@@ -318,10 +326,12 @@ export function parseBoundedRunResultV1(value: unknown): BoundedRunResultV1 | nu
       { field: "recovery_identity_digest", reason: "INTERNAL_BINDING" },
     ])) return null;
   const terminal = ["succeeded", "failed", "cancelled", "unknown"].includes(String(result.operational_state));
-  if ((result.operational_state === "queued") !== (result.started_at === null)
+  const cancelledBeforeStart = result.operational_state === "cancelled" && result.started_at === null;
+  if ((result.started_at === null && result.operational_state !== "queued" && !cancelledBeforeStart)
+    || (result.operational_state === "queued" && result.started_at !== null)
     || terminal !== (result.completed_at !== null)
-    || (result.completed_at !== null && Date.parse(result.completed_at as string)
-      < Date.parse(result.started_at as string))
+    || (result.completed_at !== null && result.started_at !== null
+      && Date.parse(result.completed_at as string) < Date.parse(result.started_at as string))
     || (result.started_at !== null && Date.parse(result.retained_until as string)
       <= Date.parse(result.started_at as string))) return null;
   return result as BoundedRunResultV1;
@@ -401,6 +411,7 @@ export function projectRunDetailEnvelopeV1(detail: OperationRunDetailCutV1): Run
       state: "retained",
       deletion_receipt: null,
     },
+    operational_cancellation: detail.operational_cancellation,
   };
 }
 
@@ -409,7 +420,7 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
   const envelope = value as Record<string, unknown>;
   if (!exactKeys(envelope, [
     "schema_version", "operation", "availability", "unavailable_reason", "observed_at",
-    "run_identity", "run", "bounded_result", "logs", "operational_cache",
+    "run_identity", "run", "bounded_result", "logs", "operational_cache", "operational_cancellation",
   ]) || envelope.schema_version !== 1 || envelope.operation !== "dashboard.run_store.detail.v1"
     || !["available", "unavailable"].includes(String(envelope.availability))
     || !isRunIdentityV1(envelope.run_identity) || !timestamp(envelope.observed_at)
@@ -418,7 +429,8 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
   if (envelope.availability === "unavailable") {
     return typeof envelope.unavailable_reason === "string" && envelope.run === null
       && envelope.bounded_result === null && envelope.logs.length === 0
-      && envelope.operational_cache === null ? typedEnvelope : null;
+      && envelope.operational_cache === null && envelope.operational_cancellation === null
+      ? typedEnvelope : null;
   }
   if (envelope.unavailable_reason !== null) return null;
   const run = parseRun(envelope.run, typedEnvelope);
@@ -428,6 +440,21 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
     || Array.isArray(envelope.operational_cache)
     || !exactKeys(envelope.operational_cache as Record<string, unknown>, ["state", "deletion_receipt"])) return null;
   const cache = envelope.operational_cache as Record<string, unknown>;
+  const cancellation = parseOperationalCancellationReadbackV1(
+    envelope.operational_cancellation,
+    envelope.run_identity as string,
+    envelope.observed_at as string,
+  );
+  if (!cancellation) return null;
+  if ((cancellation.state === "pending" && (
+    run.state !== "queued"
+    || cancellation.action_envelope?.transition_version !== run.transition_version
+    || run.worker_compatibility.availability !== "unavailable"
+    || run.worker_compatibility.unavailable_reason !== "RUN_WORKER_NOT_CLAIMED"
+  )) || (cancellation.state === "receipt" && (
+    run.state !== "cancelled"
+    || cancellation.receipt?.transition_version !== run.transition_version
+  ))) return null;
   if (cache.state === "deleted") {
     const receipt = parseOperationalCacheDeletionReceiptV1(cache.deletion_receipt);
     if (!receipt || receipt.run_identity !== run.run_identity
@@ -437,7 +464,7 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
       || envelope.bounded_result !== null || envelope.logs.length !== 0) return null;
     return { ...typedEnvelope, run, bounded_result: null, logs: [], operational_cache: {
       state: "deleted", deletion_receipt: receipt,
-    } };
+    }, operational_cancellation: cancellation };
   }
   if (cache.state === "expired") {
     if (cache.deletion_receipt !== null
@@ -445,7 +472,7 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
       || envelope.bounded_result !== null || envelope.logs.length !== 0) return null;
     return { ...typedEnvelope, run, bounded_result: null, logs: [], operational_cache: {
       state: "expired", deletion_receipt: null,
-    } };
+    }, operational_cancellation: cancellation };
   }
   if (cache.state !== "retained" || cache.deletion_receipt !== null) return null;
   if (Date.parse(run.retained_until) <= Date.parse(typedEnvelope.observed_at)) return null;
@@ -465,5 +492,6 @@ export function parseRunDetailEnvelopeV1(value: unknown): RunDetailEnvelopeV1 | 
   if (new Set(sequences).size !== sequences.length
     || sequences.some((sequence, index) => index > 0 && sequence <= sequences[index - 1])) return null;
   return { ...typedEnvelope, run, bounded_result: boundedResult, logs: logs as RunDetailLogV1[],
-    operational_cache: { state: "retained", deletion_receipt: null } };
+    operational_cache: { state: "retained", deletion_receipt: null },
+    operational_cancellation: cancellation };
 }

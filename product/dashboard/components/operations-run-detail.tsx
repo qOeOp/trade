@@ -17,6 +17,10 @@ import {
   type OperationalCacheDeletionEnvelopeV1,
 } from "../lib/run-cache-deletion-contract";
 import {
+  parseOperationalCancellationEnvelopeV1,
+  type OperationalCancellationEnvelopeV1,
+} from "../lib/run-cancellation-contract";
+import {
   AggregateSummary,
   AggregateSummaryFact,
   AggregateSummaryGroup,
@@ -76,6 +80,9 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   const [deleteCapability, setDeleteCapability] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deletionResult, setDeletionResult] = useState<OperationalCacheDeletionEnvelopeV1 | null>(null);
+  const [cancellationCapability, setCancellationCapability] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancellationResult, setCancellationResult] = useState<OperationalCancellationEnvelopeV1 | null>(null);
 
   const refresh = useCallback(async () => {
     setPending(true);
@@ -96,6 +103,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         bounded_result: null,
         logs: [],
         operational_cache: null,
+        operational_cancellation: null,
       });
     } catch {
       setResult({
@@ -109,6 +117,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         bounded_result: null,
         logs: [],
         operational_cache: null,
+        operational_cancellation: null,
       });
     } finally {
       setPending(false);
@@ -216,7 +225,39 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
     }
   }, [deleteCapability, deleteConfirmed, deleting, refresh, result, runIdentity]);
 
-  if (result?.availability !== "available" || !result.run || !result.operational_cache) {
+  const cancelQueuedDependency = useCallback(async () => {
+    const actionEnvelope = result?.operational_cancellation?.action_envelope;
+    if (!actionEnvelope || cancelling || cancellationCapability.length < 32) return;
+    setCancelling(true);
+    setCancellationResult(null);
+    try {
+      const response = await fetch(
+        `/api/operations/runs/${encodeURIComponent(runIdentity)}/cancel-dependency/`,
+        {
+          method: "POST",
+          cache: "no-store",
+          headers: {
+            authorization: `Bearer ${cancellationCapability}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ action_envelope: actionEnvelope }),
+        },
+      );
+      const parsed = parseOperationalCancellationEnvelopeV1(await response.json());
+      setCancellationResult(parsed);
+      if (parsed?.availability === "available") {
+        setCancellationCapability("");
+        await refresh();
+      }
+    } catch {
+      setCancellationResult(null);
+    } finally {
+      setCancelling(false);
+    }
+  }, [cancellationCapability, cancelling, refresh, result?.operational_cancellation, runIdentity]);
+
+  if (result?.availability !== "available" || !result.run || !result.operational_cache
+    || !result.operational_cancellation) {
     return (
       <PanelFrame variant="flat" className="run-detail-panel" aria-labelledby="run-detail-title">
         <PanelFrameHeader eyebrow="Exact operational readback" title="Run detail" titleId="run-detail-title" actions={
@@ -234,6 +275,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   const boundedResult = result.bounded_result;
   const dispatch = run.dispatch_binding;
   const worker = run.worker_compatibility;
+  const operationalCancellation = result.operational_cancellation;
   return (
     <PageStack className="run-detail-page">
     <PanelFrame variant="flat" className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
@@ -249,12 +291,9 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           <button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
           </button>
-          {result.operational_cache.state === "retained"
-            && ["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <button
-              type="button" onClick={() => setDeleteOpen((open) => !open)}
-            >
-              <InterfaceIcons.delete aria-hidden="true" size={12} /> Delete cache
-            </button> : null}
+          {operationalCancellation.state === "pending" ? <a href="#dependency-cancellation-panel">
+            <RunIcons.cancelled aria-hidden="true" size={12} /> Cancel queued dependency
+          </a> : null}
           {run.owner_view.action_label === "Resolve same identity" ? <button
             type="button"
             onClick={() => void resolveOwnerOutcome()}
@@ -283,6 +322,60 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           <AggregateSummaryFact label="Completed" value={displayTime(run.completed_at)} />
         </AggregateSummaryGroup>
       </AggregateSummary>
+
+      {operationalCancellation.state !== "none" ? <DetailInspector
+        as="section" id="dependency-cancellation-panel" className="dependency-cancellation-panel"
+        aria-label="Queued dependency cancellation"
+      >
+        <DetailInspectorHeader eyebrow="Operational action" title={operationalCancellation.state === "receipt"
+          ? "Dependency cancelled" : "Queued dependency cancellation"}
+          status={<StatusBadge tone={operationalCancellation.state === "receipt" ? "neutral" : "warning"}>
+            {operationalCancellation.state}
+          </StatusBadge>} />
+        {operationalCancellation.state === "pending"
+          && operationalCancellation.action_envelope ? <>
+          <p className="detail-inspector-lede">
+            This action is limited to this exact queued, never-claimed dependency run. The Dispatcher
+            rechecks the transition, zero-effect registry entry and claim absence under one lock.
+          </p>
+          <DetailFactGrid>
+            <DetailFact label="Run / kind"><b>{run.run_identity} · dependency</b></DetailFact>
+            <DetailFact label="Transition"><b>{run.transition_version}</b></DetailFact>
+            <DetailFact label="Domain effects"><b>None</b></DetailFact>
+            <DetailFact label="Envelope expiry"><b>{displayTime(
+              operationalCancellation.action_envelope.expires_at,
+            )}</b></DetailFact>
+          </DetailFactGrid>
+          <label className="run-cache-delete-field">
+            <span>Operator capability</span>
+            <input type="password" autoComplete="off" value={cancellationCapability}
+              onChange={(event) => setCancellationCapability(event.target.value)} />
+          </label>
+          {cancellationResult?.availability === "unavailable" ? <DetailNotice
+            icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
+            title="Cancellation unavailable">{cancellationResult.unavailable_reason}</DetailNotice> : null}
+          <DetailInspectorFooter>
+            <span>No batch, retry, Owner, provider, build or replay cancellation.</span>
+            <button type="button" disabled={cancellationCapability.length < 32 || cancelling}
+              onClick={() => void cancelQueuedDependency()}>
+              <RunIcons.cancelled aria-hidden="true" size={12} />
+              {cancelling ? "Cancelling…" : "Cancel queued dependency"}
+            </button>
+          </DetailInspectorFooter>
+        </> : operationalCancellation.state === "receipt"
+          && operationalCancellation.receipt ? <DetailFactGrid>
+          <DetailFact label="Receipt"><b>{operationalCancellation.receipt.receipt_identity}</b></DetailFact>
+          <DetailFact label="Transition"><b>{operationalCancellation.receipt.prior_transition_version}
+            {" → "}{operationalCancellation.receipt.transition_version}</b></DetailFact>
+          <DetailFact label="Principal"><b>{operationalCancellation.receipt.principal_ref}</b></DetailFact>
+          <DetailFact label="Cancelled"><b>{displayTime(
+            operationalCancellation.receipt.cancelled_at,
+          )}</b></DetailFact>
+        </DetailFactGrid> : <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
+          title="Cancellation unavailable">
+          {operationalCancellation.unavailable_reason ?? "Current action evidence is unavailable."}
+        </DetailNotice>}
+      </DetailInspector> : null}
 
       <SplitBento className="run-detail-columns"
         columns="minmax(560px, 1.4fr) minmax(320px, 1fr)">
@@ -421,6 +514,11 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
             <a href={`/api/operations/runs/${encodeURIComponent(runIdentity)}/result/download/`} download>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded result
             </a>
+            {["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <button
+              type="button" onClick={() => setDeleteOpen((open) => !open)}
+            >
+              <InterfaceIcons.delete aria-hidden="true" size={12} /> Delete cache
+            </button> : null}
           </EvidenceActions>
         </EvidenceStrip>
         <PanelFrameFooter>{boundedResult.withheld_fields.length} fields withheld · {boundedResult.withheld_fields

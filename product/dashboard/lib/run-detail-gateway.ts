@@ -3,6 +3,7 @@ import {
   type RunDetailEnvelopeV1,
 } from "./run-detail-projection.ts";
 import { configuredRunStoreV1, isRunIdentityV1 } from "./run-store.ts";
+import { operatorCapabilityAuthorizationDigestV1 } from "./operator-capability.ts";
 
 export type RunDetailGatewayResultV1 = {
   status: 200 | 400 | 404 | 503;
@@ -24,6 +25,7 @@ export function unavailableRunDetailEnvelopeV1(
     bounded_result: null,
     logs: [],
     operational_cache: null,
+    operational_cancellation: null,
   };
 }
 
@@ -40,7 +42,10 @@ export async function readRunDetailGatewayV1(runIdentity: string): Promise<RunDe
       };
     }
     await store.assertSchema();
-    const detail = await store.readRunDetail(runIdentity);
+    const authorizationDigest = operatorCapabilityAuthorizationDigestV1();
+    const detail = await store.readRunDetail(runIdentity, authorizationDigest
+      ? { authorizationDigest, principalRef: "local_operator" }
+      : undefined);
     return detail
       ? { status: 200, envelope: projectRunDetailEnvelopeV1(detail) }
       : { status: 404, envelope: unavailableRunDetailEnvelopeV1(runIdentity, "RUN_NOT_FOUND") };

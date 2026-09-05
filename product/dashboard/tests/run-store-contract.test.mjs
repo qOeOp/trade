@@ -104,6 +104,10 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
     new URL("../migrations/0007_operational_cache_deletion.sql", import.meta.url),
     "utf8",
   );
+  const cancellation = await readFile(
+    new URL("../migrations/0008_queued_dependency_cancellation.sql", import.meta.url),
+    "utf8",
+  );
   assert.match(sql, /dashboard_operation_runs_v1/);
   assert.match(sql, /dashboard_operation_run_logs_v1/);
   assert.match(sql, /dashboard_shadow_workers_v1/);
@@ -130,6 +134,11 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
   assert.match(cacheDeletion, /dashboard_operation_run_cache_deletions_v1/);
   assert.match(cacheDeletion, /ON DELETE RESTRICT/);
   assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(cacheDeletion), false);
+  assert.match(cancellation, /dashboard_operation_run_cancellations_v1/);
+  assert.match(cancellation, /prior_state TEXT NOT NULL CHECK \(prior_state = 'queued'\)/);
+  assert.match(cancellation, /transition_version = prior_transition_version \+ 1/);
+  assert.match(cancellation, /ON DELETE RESTRICT/);
+  assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(cancellation), false);
   assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(schedules), false);
   assert.match(sourceResearch, /dashboard_source_research_run_bindings_v1/);
   assert.match(sourceResearch, /source_intake\.research\.submit_or_resolve\.v1/);
@@ -188,4 +197,29 @@ test("Run Detail is a specific dynamic route over the bounded RunStore readback"
   assert.match(runStore, /dashboard_shadow_workers_v1 w/);
   assert.match(component, /parseRunDetailEnvelopeV1/);
   assert.equal(/Run again|script editor|worker REPL|>Cancel</i.test(component), false);
+});
+
+test("queued dependency cancellation is envelope-bound and rechecked under the queue transition lock", async () => {
+  const route = await readFile(
+    new URL("../app/api/operations/runs/[runIdentity]/cancel-dependency/route.ts", import.meta.url),
+    "utf8",
+  );
+  const runStore = await readFile(new URL("../lib/run-store.ts", import.meta.url), "utf8");
+  const component = await readFile(
+    new URL("../components/operations-run-detail.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /verifyOperatorCapabilityV1/);
+  assert.match(route, /parseOperationalActionEnvelopeV1/);
+  assert.match(route, /store\.cancelQueuedDependency/);
+  assert.match(runStore, /BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE/);
+  assert.match(runStore, /FOR UPDATE OF r, q/);
+  assert.match(runStore, /canonicalDispatchBindingV1/);
+  assert.match(runStore, /current\.queue_schema_version !== 1/);
+  assert.match(runStore, /current\.claim_attempt !== 0/);
+  assert.match(runStore, /descriptor\.effect_set\.length !== 0/);
+  assert.match(runStore, /state = 'cancelled', transition_version = transition_version \+ 1/);
+  assert.match(component, /operationalCancellation\.state === "pending"/);
+  assert.match(component, /Cancel queued dependency/);
+  assert.match(component, /result\.operational_cache\.state === "retained"/);
 });

@@ -39,6 +39,15 @@ import {
   parseOperationalCacheDeletionReceiptV1,
   type OperationalCacheDeletionReceiptV1,
 } from "./run-cache-deletion-contract.ts";
+import {
+  EMPTY_DOMAIN_EFFECT_DIGEST_V1,
+  operationalCancellationReceiptIdentityV1,
+  parseOperationalActionEnvelopeV1,
+  parseOperationalCancellationReceiptV1,
+  type OperationalActionEnvelopeV1,
+  type OperationalCancellationReadbackV1,
+  type OperationalCancellationReceiptV1,
+} from "./run-cancellation-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -124,6 +133,7 @@ export type OperationRunDetailCutV1 = {
   dispatch_binding: RunDispatchBindingV1;
   worker_compatibility: RunWorkerCompatibilityV1;
   cache_deletion_receipt: OperationalCacheDeletionReceiptV1 | null;
+  operational_cancellation: OperationalCancellationReadbackV1;
 };
 
 export type ShadowReadClaimV1 = {
@@ -272,6 +282,20 @@ type CacheDeletionRow = QueryResultRow & {
   deleted_at: Date;
 };
 
+type CancellationRow = QueryResultRow & {
+  run_identity: string;
+  schema_version: number;
+  receipt_identity: string;
+  action_identity: string;
+  prior_state: string;
+  prior_transition_version: string | number;
+  state: string;
+  transition_version: string | number;
+  principal_ref: string;
+  authorization_digest: string;
+  cancelled_at: Date;
+};
+
 function projectCacheDeletionReceiptV1(row: CacheDeletionRow): OperationalCacheDeletionReceiptV1 {
   const receipt = {
     schema_version: row.schema_version,
@@ -287,6 +311,49 @@ function projectCacheDeletionReceiptV1(row: CacheDeletionRow): OperationalCacheD
   const parsed = parseOperationalCacheDeletionReceiptV1(receipt);
   if (!parsed) throw new Error("RUN_CACHE_DELETION_ROW_INVALID");
   return parsed;
+}
+
+function projectCancellationReceiptV1(row: CancellationRow): OperationalCancellationReceiptV1 {
+  const receipt = {
+    schema_version: row.schema_version,
+    operation: "dashboard.dependency.cancel.queued.v1",
+    receipt_identity: row.receipt_identity,
+    action_identity: row.action_identity,
+    run_identity: row.run_identity,
+    prior_state: row.prior_state,
+    prior_transition_version: Number(row.prior_transition_version),
+    state: row.state,
+    transition_version: Number(row.transition_version),
+    principal_ref: row.principal_ref,
+    authorization_digest: row.authorization_digest,
+    cancelled_at: row.cancelled_at.toISOString(),
+  };
+  const parsed = parseOperationalCancellationReceiptV1(receipt);
+  if (!parsed) throw new Error("RUN_CANCELLATION_ROW_INVALID");
+  return parsed;
+}
+
+function actionIdentityPayloadV1(value: Omit<OperationalActionEnvelopeV1, "action_identity">): string {
+  return JSON.stringify([
+    value.schema_version, value.operation, value.capability, value.run_identity,
+    value.principal_ref, value.authorization_digest, value.transition_version, value.kind,
+    value.state, value.domain_effect_digest, value.claim_absence_observed_at, value.expires_at,
+  ]);
+}
+
+function operationalActionIdentityV1(
+  value: Omit<OperationalActionEnvelopeV1, "action_identity">,
+  hmacKey: string,
+): string {
+  return `dashboard-operational-action-v1-${createHmac("sha256", hmacKey)
+    .update(actionIdentityPayloadV1(value))
+    .digest("hex")}`;
+}
+
+function actionIdentityMatchesV1(value: OperationalActionEnvelopeV1, hmacKey: string): boolean {
+  const { action_identity: actionIdentity, ...unsigned } = value;
+  const expected = operationalActionIdentityV1(unsigned, hmacKey);
+  return timingSafeEqual(Buffer.from(actionIdentity), Buffer.from(expected));
 }
 
 function projectRunLogRowsV1(
@@ -374,6 +441,8 @@ type RunWorkerBindingRow = QueryResultRow & {
   compatibility_envelope_set_digest: string | null;
   claim_attempt: number;
   claimed_by: string | null;
+  claim_token_digest: string | null;
+  claim_lease_expires_at: Date | null;
   claimed_at: Date | null;
   completed_at: Date | null;
   capabilities_json: RegisteredOperationId[] | null;
@@ -786,6 +855,7 @@ export class PostgresRunStoreV1 {
       queue: string | null;
       schedules: string | null;
       cache_deletions: string | null;
+      cancellations: string | null;
       queue_binding_columns: string | number;
     }>(
       `SELECT to_regclass('public.dashboard_operation_runs_v1')::text AS runs,
@@ -794,6 +864,7 @@ export class PostgresRunStoreV1 {
               to_regclass('public.dashboard_shadow_dispatch_queue_v1')::text AS queue,
               to_regclass('public.dashboard_shadow_read_schedules_v1')::text AS schedules,
               to_regclass('public.dashboard_operation_run_cache_deletions_v1')::text AS cache_deletions,
+              to_regclass('public.dashboard_operation_run_cancellations_v1')::text AS cancellations,
               (SELECT COUNT(*)
                  FROM information_schema.columns
                 WHERE table_schema = 'public'
@@ -804,7 +875,7 @@ export class PostgresRunStoreV1 {
     );
     if (!result.rows[0]?.runs || !result.rows[0]?.logs
       || !result.rows[0]?.workers || !result.rows[0]?.queue || !result.rows[0]?.schedules
-      || !result.rows[0]?.cache_deletions
+      || !result.rows[0]?.cache_deletions || !result.rows[0]?.cancellations
       || Number(result.rows[0]?.queue_binding_columns) !== 2) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
     }
@@ -2077,8 +2148,16 @@ export class PostgresRunStoreV1 {
     }
   }
 
-  async readRunDetail(runIdentity: string): Promise<OperationRunDetailCutV1 | null> {
-    if (!isRunIdentityV1(runIdentity)) throw new Error("RUN_STORE_IDENTITY_INVALID");
+  async readRunDetail(
+    runIdentity: string,
+    actionContext?: { authorizationDigest: string; principalRef?: string },
+  ): Promise<OperationRunDetailCutV1 | null> {
+    const principalRef = actionContext?.principalRef ?? "local_operator";
+    if (!isRunIdentityV1(runIdentity)
+      || (actionContext !== undefined && (!DIGEST.test(actionContext.authorizationDigest)
+        || !/^[A-Za-z0-9._:/-]{1,96}$/.test(principalRef)))) {
+      throw new Error("RUN_STORE_IDENTITY_INVALID");
+    }
     const client = await this.#pool.connect();
     try {
       await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
@@ -2105,6 +2184,17 @@ export class PostgresRunStoreV1 {
       const cacheDeletionReceipt = deletionResult.rows[0]
         ? projectCacheDeletionReceiptV1(deletionResult.rows[0])
         : null;
+      const cancellationResult = await client.query<CancellationRow>(
+        `SELECT run_identity, schema_version, receipt_identity, action_identity, prior_state,
+                prior_transition_version, state, transition_version, principal_ref,
+                authorization_digest, cancelled_at
+           FROM dashboard_operation_run_cancellations_v1
+          WHERE run_identity = $1`,
+        [runIdentity],
+      );
+      const cancellationReceipt = cancellationResult.rows[0]
+        ? projectCancellationReceiptV1(cancellationResult.rows[0])
+        : null;
       const logResult = cacheDeletionReceipt || cacheExpired
         ? { rows: [] as RunLogRow[] } : await client.query<RunLogRow>(
         `SELECT run_identity, sequence, observed_at, level, source, event_code
@@ -2118,6 +2208,7 @@ export class PostgresRunStoreV1 {
 
       let dispatchBinding: RunDispatchBindingV1;
       let workerCompatibility: RunWorkerCompatibilityV1 | null = null;
+      let cancellationEligible = false;
       if (run.run_kind === "owner_effect") {
         dispatchBinding = {
           schema_version: 1,
@@ -2143,7 +2234,8 @@ export class PostgresRunStoreV1 {
       } else {
         const binding = (await client.query<RunWorkerBindingRow>(
           `SELECT q.schema_version, q.registry_entry_digest, q.compatibility_envelope_set_digest,
-                  q.claim_attempt, q.claimed_by, q.claimed_at, q.completed_at,
+                  q.claim_attempt, q.claimed_by, q.claim_token_digest,
+                  q.lease_expires_at AS claim_lease_expires_at, q.claimed_at, q.completed_at,
                   w.capabilities_json, w.capabilities_digest, w.worker_artifact_digest,
                   w.lease_expires_at
              FROM dashboard_shadow_dispatch_queue_v1 q
@@ -2217,6 +2309,10 @@ export class PostgresRunStoreV1 {
             claimed_at: null,
             completed_at: null,
           };
+          cancellationEligible = run.state === "queued" && binding.claim_attempt === 0
+            && binding.claim_token_digest === null && binding.claim_lease_expires_at === null
+            && binding.claimed_at === null && binding.completed_at === null
+            && dispatchBinding.availability === "available" && descriptor.effect_set.length === 0;
         } else if (binding) {
           const claimedBy = binding.claimed_by;
           const capabilities = binding.capabilities_json
@@ -2248,6 +2344,54 @@ export class PostgresRunStoreV1 {
         }
       }
       if (!workerCompatibility) throw new Error("RUN_WORKER_BINDING_INVALID");
+      let operationalCancellation: OperationalCancellationReadbackV1;
+      if (cancellationReceipt) {
+        operationalCancellation = {
+          state: "receipt",
+          unavailable_reason: null,
+          action_envelope: null,
+          receipt: cancellationReceipt,
+        };
+      } else if (cancellationEligible && actionContext) {
+        const expiresAt = new Date(observedAt.getTime() + 60_000).toISOString();
+        const unsigned = {
+          schema_version: 1 as const,
+          operation: "dashboard.operational_action.v1" as const,
+          capability: "dependency.cancel.queued" as const,
+          run_identity: runIdentity,
+          principal_ref: principalRef,
+          authorization_digest: actionContext.authorizationDigest,
+          transition_version: run.transition_version,
+          kind: "dependency" as const,
+          state: "queued" as const,
+          domain_effect_digest: EMPTY_DOMAIN_EFFECT_DIGEST_V1,
+          claim_absence_observed_at: observedAt.toISOString(),
+          expires_at: expiresAt,
+        };
+        operationalCancellation = {
+          state: "pending",
+          unavailable_reason: null,
+          action_envelope: {
+            ...unsigned,
+            action_identity: operationalActionIdentityV1(unsigned, this.#cursorHmacKey),
+          },
+          receipt: null,
+        };
+      } else if (cancellationEligible) {
+        operationalCancellation = {
+          state: "unavailable",
+          unavailable_reason: "OPERATOR_CAPABILITY_CONFIGURATION_UNAVAILABLE",
+          action_envelope: null,
+          receipt: null,
+        };
+      } else {
+        operationalCancellation = {
+          state: "none",
+          unavailable_reason: null,
+          action_envelope: null,
+          receipt: null,
+        };
+      }
       await client.query("COMMIT");
       return {
         observed_at: observedAt.toISOString(),
@@ -2256,6 +2400,7 @@ export class PostgresRunStoreV1 {
         dispatch_binding: dispatchBinding,
         worker_compatibility: workerCompatibility,
         cache_deletion_receipt: cacheDeletionReceipt,
+        operational_cancellation: operationalCancellation,
       };
     } catch (error) {
       await client.query("ROLLBACK");
@@ -2334,6 +2479,115 @@ export class PostgresRunStoreV1 {
           principalRef, authorizationDigest, deletedAt],
       );
       const receipt = projectCacheDeletionReceiptV1(inserted.rows[0]);
+      await client.query("COMMIT");
+      return receipt;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async cancelQueuedDependency({
+    runIdentity,
+    actionEnvelope,
+    authorizationDigest,
+    principalRef = "local_operator",
+  }: {
+    runIdentity: string;
+    actionEnvelope: OperationalActionEnvelopeV1;
+    authorizationDigest: string;
+    principalRef?: string;
+  }): Promise<OperationalCancellationReceiptV1> {
+    const action = parseOperationalActionEnvelopeV1(actionEnvelope);
+    if (!isRunIdentityV1(runIdentity) || !action || action.run_identity !== runIdentity
+      || !DIGEST.test(authorizationDigest) || action.authorization_digest !== authorizationDigest
+      || !/^[A-Za-z0-9._:/-]{1,96}$/.test(principalRef) || action.principal_ref !== principalRef
+      || !actionIdentityMatchesV1(action, this.#cursorHmacKey)) {
+      throw new Error("RUN_CANCELLATION_REQUEST_INVALID");
+    }
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+      const result = await client.query<RunRow & RunWorkerBindingRow & {
+        observed_at: Date;
+        queue_schema_version: number;
+      }>(
+        `SELECT r.*, q.schema_version AS queue_schema_version,
+                q.registry_entry_digest, q.compatibility_envelope_set_digest,
+                q.claim_attempt, q.claimed_by, q.claim_token_digest,
+                q.lease_expires_at AS claim_lease_expires_at, q.claimed_at, q.completed_at,
+                clock_timestamp() AS observed_at
+           FROM dashboard_operation_runs_v1 r
+           JOIN dashboard_shadow_dispatch_queue_v1 q USING (run_identity)
+          WHERE r.run_identity = $1
+          FOR UPDATE OF r, q`,
+        [runIdentity],
+      );
+      const current = result.rows[0];
+      if (!current) throw new Error("RUN_NOT_FOUND");
+      const run = record(current);
+      const descriptor = run.run_kind === "owner_read"
+        ? operationByIdV1(run.operation_id as RegisteredOperationId)
+        : null;
+      const dispatchBinding = descriptor ? canonicalDispatchBindingV1(
+        run.operation_id as RegisteredOperationId,
+        {
+          registry_entry_digest: current.registry_entry_digest ?? "",
+          compatibility_envelope_set_digest: current.compatibility_envelope_set_digest ?? "",
+        },
+      ) : null;
+      if (Date.parse(action.expires_at) <= current.observed_at.getTime()
+        || Date.parse(action.claim_absence_observed_at) > current.observed_at.getTime()
+        || action.transition_version !== run.transition_version
+        || run.state !== "queued" || run.run_kind !== "owner_read"
+        || !descriptor || descriptor.effect_set.length !== 0 || current.queue_schema_version !== 1
+        || !dispatchBinding
+        || current.claim_attempt !== 0 || current.claimed_by !== null
+        || current.claim_token_digest !== null || current.claim_lease_expires_at !== null
+        || current.claimed_at !== null || current.completed_at !== null
+        || action.domain_effect_digest !== EMPTY_DOMAIN_EFFECT_DIGEST_V1) {
+        throw new Error("RUN_CANCELLATION_NOT_ELIGIBLE");
+      }
+      const updated = await client.query<{ transition_version: string | number; cancelled_at: Date }>(
+        `UPDATE dashboard_operation_runs_v1
+            SET state = 'cancelled', transition_version = transition_version + 1,
+                updated_at = clock_timestamp(), finished_at = clock_timestamp()
+          WHERE run_identity = $1 AND state = 'queued' AND transition_version = $2
+          RETURNING transition_version, finished_at AS cancelled_at`,
+        [runIdentity, run.transition_version],
+      );
+      if (!updated.rows[0]) throw new Error("RUN_CANCELLATION_TRANSITION_MISMATCH");
+      const cancelledAt = updated.rows[0].cancelled_at;
+      const transitionVersion = Number(updated.rows[0].transition_version);
+      const unsigned = {
+        schema_version: 1 as const,
+        operation: "dashboard.dependency.cancel.queued.v1" as const,
+        action_identity: action.action_identity,
+        run_identity: runIdentity,
+        prior_state: "queued" as const,
+        prior_transition_version: run.transition_version,
+        state: "cancelled" as const,
+        transition_version: transitionVersion,
+        principal_ref: principalRef,
+        authorization_digest: authorizationDigest,
+        cancelled_at: cancelledAt.toISOString(),
+      };
+      const receiptIdentity = operationalCancellationReceiptIdentityV1(unsigned);
+      const inserted = await client.query<CancellationRow>(
+        `INSERT INTO dashboard_operation_run_cancellations_v1
+           (run_identity, schema_version, receipt_identity, action_identity, prior_state,
+            prior_transition_version, state, transition_version, principal_ref,
+            authorization_digest, cancelled_at)
+         VALUES ($1, 1, $2, $3, 'queued', $4, 'cancelled', $5, $6, $7, $8)
+         RETURNING run_identity, schema_version, receipt_identity, action_identity, prior_state,
+                   prior_transition_version, state, transition_version, principal_ref,
+                   authorization_digest, cancelled_at`,
+        [runIdentity, receiptIdentity, action.action_identity, run.transition_version,
+          transitionVersion, principalRef, authorizationDigest, cancelledAt],
+      );
+      const receipt = projectCancellationReceiptV1(inserted.rows[0]);
       await client.query("COMMIT");
       return receipt;
     } catch (error) {
