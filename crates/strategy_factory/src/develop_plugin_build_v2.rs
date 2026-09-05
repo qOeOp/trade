@@ -857,23 +857,70 @@ fn verify_existing(
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_MANIFEST_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("4cfc8b006fe172d687e3af56b3831147561b7ab903c973dba2aa3cbdff346cbe");
+#[derive(Clone, Copy)]
+enum SealedCorpusDiagnosticCoordinateV2 {
+    SixRole,
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    SourceResearchComposer,
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_CAPSULE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("5dec04f405dd8f100b6d00b67615ec527ae532d664b90963b299d27eedc07dae");
+#[derive(Clone, Copy)]
+struct SealedCorpusDescriptorV2 {
+    manifest_digest: [u8; 32],
+    capsule_digest: [u8; 32],
+    source_digest: [u8; 32],
+    module_digest: [u8; 32],
+    receipt_digest: [u8; 32],
+    receipt_bytes_digest: [u8; 32],
+    diagnostic_coordinate: SealedCorpusDiagnosticCoordinateV2,
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_SOURCE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("9302eb6b5bde6b794c407ceac062f34717dedf96fad990fc3185e3f9c2677cc0");
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_MODULE_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("c2b632d80c3c2637fd1f7ba86bbfd95a17775a0ba42cadc2e4d960cd2ac79006");
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_RECEIPT_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("dc6ce22cc9a1b8b06cd817f61b633afdb71a8677720e4d98beddfa9cd64050d6");
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-const SEALED_A0_RECEIPT_BYTES_DIGEST_V2: [u8; 32] =
-    hex_digest_v2("cffd248b62fcb8865e9ad3d1c451d57acaacd2584596188caef249cc0fca0273");
+const SEALED_A0_CORPUS_V2: SealedCorpusDescriptorV2 = SealedCorpusDescriptorV2 {
+    manifest_digest: hex_digest_v2(
+        "4cfc8b006fe172d687e3af56b3831147561b7ab903c973dba2aa3cbdff346cbe",
+    ),
+    capsule_digest: hex_digest_v2(
+        "5dec04f405dd8f100b6d00b67615ec527ae532d664b90963b299d27eedc07dae",
+    ),
+    source_digest: hex_digest_v2(
+        "9302eb6b5bde6b794c407ceac062f34717dedf96fad990fc3185e3f9c2677cc0",
+    ),
+    module_digest: hex_digest_v2(
+        "c2b632d80c3c2637fd1f7ba86bbfd95a17775a0ba42cadc2e4d960cd2ac79006",
+    ),
+    receipt_digest: hex_digest_v2(
+        "dc6ce22cc9a1b8b06cd817f61b633afdb71a8677720e4d98beddfa9cd64050d6",
+    ),
+    receipt_bytes_digest: hex_digest_v2(
+        "cffd248b62fcb8865e9ad3d1c451d57acaacd2584596188caef249cc0fca0273",
+    ),
+    diagnostic_coordinate: SealedCorpusDiagnosticCoordinateV2::SixRole,
+};
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+const SOURCE_RESEARCH_COMPOSER_A0_CORPUS_V2: SealedCorpusDescriptorV2 = SealedCorpusDescriptorV2 {
+    manifest_digest: hex_digest_v2(
+        "6eb061e68e31eda0488fa76b57cc6992b0d80c7b08ea62c711e23aff3d2192ad",
+    ),
+    capsule_digest: hex_digest_v2(
+        "c8b25ba67ae8bc0542381ff6641fdf94f78862553578fc2e83ef5f374735a475",
+    ),
+    source_digest: hex_digest_v2(
+        "fe174c795cebae2bf218ec329026fad0dfebde0bf76210a00f1e477d4e82bc57",
+    ),
+    module_digest: hex_digest_v2(
+        "ece334467363f04a0308f1c312c5f2917124d2464c8abf93b0f35c340073c5ec",
+    ),
+    receipt_digest: hex_digest_v2(
+        "23d11565c257b0c9904fd1ec685434e966d7e286137d5e3de8cda6b41c838e97",
+    ),
+    receipt_bytes_digest: hex_digest_v2(
+        "bd66d4b9266ec8578d0e0f90c7515f2df548e4104c193701bb7764060433b58e",
+    ),
+    diagnostic_coordinate: SealedCorpusDiagnosticCoordinateV2::SourceResearchComposer,
+};
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub(crate) fn sealed_corpus_verified_build_v2(
@@ -888,6 +935,35 @@ pub(crate) fn sealed_corpus_verified_build_v2(
     )
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub(crate) fn source_research_composer_sealed_corpus_verified_build_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
+    verify_source_research_composer_sealed_corpus_artifacts_v2(
+        manifest,
+        capsule,
+        include_bytes!("../fixtures/source_research_composer_sealed_a0_v2/module.wasm"),
+        include_bytes!("../fixtures/source_research_composer_sealed_a0_v2/build_receipt.bin"),
+    )
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn verify_source_research_composer_sealed_corpus_artifacts_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+    module: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
+    verify_sealed_corpus_artifacts_with_descriptor_v2(
+        manifest,
+        capsule,
+        module,
+        receipt_bytes,
+        SOURCE_RESEARCH_COMPOSER_A0_CORPUS_V2,
+    )
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 fn verify_sealed_corpus_artifacts_v2(
     manifest: &PluginManifestV2,
@@ -895,51 +971,148 @@ fn verify_sealed_corpus_artifacts_v2(
     module: &[u8],
     receipt_bytes: &[u8],
 ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
+    verify_sealed_corpus_artifacts_with_descriptor_v2(
+        manifest,
+        capsule,
+        module,
+        receipt_bytes,
+        SEALED_A0_CORPUS_V2,
+    )
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn verify_sealed_corpus_artifacts_with_descriptor_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+    module: &[u8],
+    receipt_bytes: &[u8],
+    corpus: SealedCorpusDescriptorV2,
+) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopPluginBuildTerminalV2> {
     let validated = validate_capsule(manifest, capsule)?;
-    if plugin_manifest_digest(manifest).as_bytes() != &SEALED_A0_MANIFEST_DIGEST_V2
-        || validated.capsule_digest.as_bytes() != &SEALED_A0_CAPSULE_DIGEST_V2
-        || validated.source_digest.as_bytes() != &SEALED_A0_SOURCE_DIGEST_V2
+    if plugin_manifest_digest(manifest).as_bytes() != &corpus.manifest_digest
+        || validated.capsule_digest.as_bytes() != &corpus.capsule_digest
+        || validated.source_digest.as_bytes() != &corpus.source_digest
     {
-        return Err(DevelopPluginBuildTerminalV2::new(
-            DevelopPluginBuildTerminalKindV2::Conflict,
-            "sealed_acceptance.a0_corpus",
-            "manifest or capsule does not match the fixed sealed A0 corpus",
+        return Err(sealed_corpus_terminal_v2(
+            corpus.diagnostic_coordinate,
+            SealedCorpusVerificationStageV2::Corpus,
         ));
     }
 
-    if digest(module).as_bytes() != &SEALED_A0_MODULE_DIGEST_V2
-        || digest(receipt_bytes).as_bytes() != &SEALED_A0_RECEIPT_BYTES_DIGEST_V2
+    if digest(module).as_bytes() != &corpus.module_digest
+        || digest(receipt_bytes).as_bytes() != &corpus.receipt_bytes_digest
     {
-        return Err(DevelopPluginBuildTerminalV2::new(
-            DevelopPluginBuildTerminalKindV2::VerificationFailed,
-            "sealed_acceptance.a0_artifacts",
-            "embedded sealed A0 artifact bytes do not match their fixed digests",
+        return Err(sealed_corpus_terminal_v2(
+            corpus.diagnostic_coordinate,
+            SealedCorpusVerificationStageV2::Artifacts,
         ));
     }
     let receipt = DevelopPluginBuildReceiptV2::parse_canonical(receipt_bytes).ok_or_else(|| {
-        DevelopPluginBuildTerminalV2::new(
-            DevelopPluginBuildTerminalKindV2::VerificationFailed,
-            "sealed_acceptance.a0_receipt",
-            "embedded sealed A0 build receipt is not canonical and valid",
+        sealed_corpus_terminal_v2(
+            corpus.diagnostic_coordinate,
+            SealedCorpusVerificationStageV2::ReceiptCanonical,
         )
     })?;
 
-    if receipt.manifest_digest.as_bytes() != &SEALED_A0_MANIFEST_DIGEST_V2
-        || receipt.implementation_capsule_digest.as_bytes() != &SEALED_A0_CAPSULE_DIGEST_V2
-        || receipt.source_entry_digest.as_bytes() != &SEALED_A0_SOURCE_DIGEST_V2
-        || receipt.module_digest.as_bytes() != &SEALED_A0_MODULE_DIGEST_V2
-        || receipt.receipt_digest.as_bytes() != &SEALED_A0_RECEIPT_DIGEST_V2
+    if receipt.manifest_digest.as_bytes() != &corpus.manifest_digest
+        || receipt.implementation_capsule_digest.as_bytes() != &corpus.capsule_digest
+        || receipt.source_entry_digest.as_bytes() != &corpus.source_digest
+        || receipt.module_digest.as_bytes() != &corpus.module_digest
+        || receipt.receipt_digest.as_bytes() != &corpus.receipt_digest
     {
-        return Err(DevelopPluginBuildTerminalV2::new(
-            DevelopPluginBuildTerminalKindV2::VerificationFailed,
-            "sealed_acceptance.a0_receipt",
-            "embedded sealed A0 receipt does not bind the fixed corpus and module",
+        return Err(sealed_corpus_terminal_v2(
+            corpus.diagnostic_coordinate,
+            SealedCorpusVerificationStageV2::ReceiptBinding,
         ));
     }
     let verified = verify_existing(manifest, &receipt, module)?;
     Ok(VerifiedDevelopPluginBuildReadV2 {
         build: VerifiedDevelopPluginBuildV2::new(receipt, verified),
     })
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[derive(Clone, Copy)]
+enum SealedCorpusVerificationStageV2 {
+    Corpus,
+    Artifacts,
+    ReceiptCanonical,
+    ReceiptBinding,
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_corpus_terminal_v2(
+    diagnostic: SealedCorpusDiagnosticCoordinateV2,
+    stage: SealedCorpusVerificationStageV2,
+) -> DevelopPluginBuildTerminalV2 {
+    let (kind, coordinate, reason) = match (diagnostic, stage) {
+        (SealedCorpusDiagnosticCoordinateV2::SixRole, SealedCorpusVerificationStageV2::Corpus) => (
+            DevelopPluginBuildTerminalKindV2::Conflict,
+            "sealed_acceptance.a0_corpus",
+            "manifest or capsule does not match the fixed sealed A0 corpus",
+        ),
+        (
+            SealedCorpusDiagnosticCoordinateV2::SixRole,
+            SealedCorpusVerificationStageV2::Artifacts,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_artifacts",
+            "embedded sealed A0 artifact bytes do not match their fixed digests",
+        ),
+        (
+            SealedCorpusDiagnosticCoordinateV2::SixRole,
+            SealedCorpusVerificationStageV2::ReceiptCanonical,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_receipt",
+            "embedded sealed A0 build receipt is not canonical and valid",
+        ),
+        (
+            SealedCorpusDiagnosticCoordinateV2::SixRole,
+            SealedCorpusVerificationStageV2::ReceiptBinding,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.a0_receipt",
+            "embedded sealed A0 receipt does not bind the fixed corpus and module",
+        ),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        (
+            SealedCorpusDiagnosticCoordinateV2::SourceResearchComposer,
+            SealedCorpusVerificationStageV2::Corpus,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::Conflict,
+            "sealed_acceptance.source_research_composer_a0_corpus",
+            "manifest or capsule does not match the dedicated fixed A2 A0 corpus",
+        ),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        (
+            SealedCorpusDiagnosticCoordinateV2::SourceResearchComposer,
+            SealedCorpusVerificationStageV2::Artifacts,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.source_research_composer_a0_artifacts",
+            "embedded dedicated A2 A0 artifact bytes do not match their fixed digests",
+        ),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        (
+            SealedCorpusDiagnosticCoordinateV2::SourceResearchComposer,
+            SealedCorpusVerificationStageV2::ReceiptCanonical,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.source_research_composer_a0_receipt",
+            "embedded dedicated A2 A0 build receipt is not canonical and valid",
+        ),
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        (
+            SealedCorpusDiagnosticCoordinateV2::SourceResearchComposer,
+            SealedCorpusVerificationStageV2::ReceiptBinding,
+        ) => (
+            DevelopPluginBuildTerminalKindV2::VerificationFailed,
+            "sealed_acceptance.source_research_composer_a0_receipt",
+            "embedded dedicated A2 A0 receipt does not bind its fixed corpus and module",
+        ),
+    };
+    DevelopPluginBuildTerminalV2::new(kind, coordinate, reason)
 }
 
 #[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
@@ -950,6 +1123,22 @@ pub(crate) fn verify_sealed_corpus_artifacts_for_test_v2(
     receipt_bytes: &[u8],
 ) -> Result<(), DevelopPluginBuildTerminalV2> {
     verify_sealed_corpus_artifacts_v2(manifest, capsule, module, receipt_bytes).map(drop)
+}
+
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
+pub(crate) fn verify_source_research_composer_sealed_corpus_artifacts_for_test_v2(
+    manifest: &PluginManifestV2,
+    capsule: &UntrustedDevelopPluginCapsuleV2,
+    module: &[u8],
+    receipt_bytes: &[u8],
+) -> Result<(), DevelopPluginBuildTerminalV2> {
+    verify_source_research_composer_sealed_corpus_artifacts_v2(
+        manifest,
+        capsule,
+        module,
+        receipt_bytes,
+    )
+    .map(drop)
 }
 
 /// Portable sealed Composer-test evidence for one fixed repository corpus.

@@ -153,6 +153,24 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         .next()
         .expect("bounded installed Composer commit source");
     assert_eq!(installed_commit_source, pinned_commit_source);
+    let pinned_commit_cut_source = source
+        .split("const COMMIT_CUT_FUNCTION_SOURCE_V2: &str = \"")
+        .nth(1)
+        .expect("pinned Composer commit-cut routine source")
+        .split("\";")
+        .next()
+        .expect("bounded pinned Composer commit-cut source");
+    let installed_commit_cut_source = migration
+        .split("AS $composer_commit_cut$")
+        .nth(1)
+        .expect("installed Composer commit-cut routine source")
+        .split("$composer_commit_cut$")
+        .next()
+        .expect("bounded installed Composer commit-cut source");
+    assert_eq!(installed_commit_cut_source, pinned_commit_cut_source);
+    assert!(!pinned_commit_cut_source.contains("LOCK TABLE"));
+    assert!(pinned_commit_cut_source.contains("FOR UPDATE"));
+    assert!(pinned_commit_cut_source.contains("FOR SHARE OF"));
     assert!(source.contains("sealed_read_port::RdOwned"));
     assert!(source.contains("pub struct SealedDevelopComposerReadbackV2"));
     assert!(!source.contains("impl Serialize for SealedDevelopComposerReadbackV2"));
@@ -217,6 +235,7 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
         "composer_private.rd_develop_artifacts_v2",
         "composer_private.rd_develop_artifact_modules_v2",
         "composer_private.rd_develop_build_receipts_v2",
+        "composer_private.rd_develop_artifact_build_receipt_uses_v2",
         "composer_private.rd_develop_composer_receipts_v2",
         "composer_private.rd_develop_host_receipts_v2",
         "composer_private.rd_develop_operations_v2",
@@ -272,7 +291,7 @@ async fn postgres_migration_materializes_only_private_binary_authority() {
     assert!(!native_join);
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
 async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
@@ -312,6 +331,41 @@ async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
+async fn postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows() {
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+        .await
+        .expect("canonical disposable Owner topology");
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let research_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM rd_research_request_receipts_v1")
+            .fetch_one(topology_admin_pool)
+            .await
+            .expect("Research custody count before fault");
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 12]);
+
+    // The Owner commit routine is one SQL write boundary containing the normalized 12-table
+    // positive family and outbox. Injecting immediately before that boundary must roll back the
+    // caller's transaction without touching canonical Research custody.
+    for boundary in 0..1 {
+        let owner = SealedDevelopComposerAcceptanceV2::connect(
+            database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+        )
+        .await
+        .expect("sealed Composer owner");
+        assert!(owner.run_with_fault_for_test(boundary).await.is_err());
+        assert_eq!(custody_counts(topology_admin_pool).await, [0; 12]);
+        let research_after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM rd_research_request_receipts_v1")
+                .fetch_one(topology_admin_pool)
+                .await
+                .expect("Research custody count after fault");
+        assert_eq!(research_after, research_before);
+    }
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[tokio::test]
+#[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
 async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
@@ -335,7 +389,7 @@ async fn sealed_read_port_is_restart_exact_fail_closed_and_query_only() {
         reader.read_accepted(&unknown).await,
         Err(DevelopComposerSealedReadErrorV2::Unavailable)
     );
-    assert_eq!(custody_counts(topology_admin_pool).await, [0; 11]);
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 12]);
 
     let owner = SealedDevelopComposerAcceptanceV2::connect(
         database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
@@ -483,7 +537,7 @@ async fn transaction_bound_read_uses_the_borrowed_backend_locks_and_writes_nothi
         .expect("caller backend after missing read");
     assert_eq!(backend_after, backend_before);
     transaction.rollback().await.expect("missing-read rollback");
-    assert_eq!(custody_counts(topology_admin_pool).await, [0; 11]);
+    assert_eq!(custody_counts(topology_admin_pool).await, [0; 12]);
 
     let run = owner.run().await.expect("sealed Composer RUN");
     let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&run)
@@ -651,7 +705,7 @@ async fn corrupt_plan_bytes(
 }
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 11] {
+async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 12] {
     let row = sqlx::query(
         "SELECT
            (SELECT count(*) FROM composer_private.rd_develop_designs_v2) AS designs,
@@ -659,6 +713,7 @@ async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 11] {
            (SELECT count(*) FROM composer_private.rd_develop_artifacts_v2) AS artifacts,
            (SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2) AS modules,
            (SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2) AS build_receipts,
+           (SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2) AS build_receipt_uses,
            (SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2) AS composer_receipts,
            (SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2) AS host_receipts,
            (SELECT count(*) FROM composer_private.rd_develop_operations_v2) AS operations,
@@ -675,6 +730,7 @@ async fn custody_counts(pool: &sqlx::PgPool) -> [i64; 11] {
         row.get("artifacts"),
         row.get("modules"),
         row.get("build_receipts"),
+        row.get("build_receipt_uses"),
         row.get("composer_receipts"),
         row.get("host_receipts"),
         row.get("operations"),

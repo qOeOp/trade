@@ -3,7 +3,7 @@ use std::{env, future::Future, sync::Arc, time::Duration};
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -55,10 +55,7 @@ use vibe_strategy_factory::{
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
-#[cfg(any(
-    not(feature = "sealed-develop-composer-acceptance"),
-    feature = "sealed-source-intake-composer-acceptance"
-))]
+#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
 #[cfg(all(
     feature = "sealed-develop-composer-acceptance",
@@ -74,6 +71,13 @@ use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopC
 use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerLocatorV2 {
+    research_request_locator: String,
+}
 
 mod exploratory_replay;
 mod source_intake;
@@ -325,6 +329,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/v2/develop-composer/runs", post(run_develop_composer))
         .route(
+            "/v2/develop-composer/request-projections",
+            get(project_develop_composer_request),
+        )
+        .route(
             "/v1/replay-compositions/issuances",
             post(issue_replay_composition),
         )
@@ -499,7 +507,7 @@ async fn run_develop_composer(
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     {
-        let request: DevelopComposerRunRequestV2 = match serde_json::from_slice(&body) {
+        let request: SourceResearchComposerLocatorV2 = match serde_json::from_slice(&body) {
             Ok(request) => request,
             Err(_) => {
                 return composer_response(
@@ -508,15 +516,42 @@ async fn run_develop_composer(
                 );
             }
         };
-        let request_identity = request.request_identity.clone();
-        match state.develop_composer.run(&request).await {
+        match state
+            .develop_composer
+            .run(&request.research_request_locator)
+            .await
+        {
             Ok(response) => composer_operation_response(response),
             Err(_) => composer_response(
-                StatusCode::ACCEPTED,
-                submitted_or_unknown_response(&request_identity),
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request.research_request_locator),
             ),
         }
     }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn project_develop_composer_request(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(request): Query<SourceResearchComposerLocatorV2>,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    match state
+        .develop_composer
+        .request_projection(&request.research_request_locator)
+        .await
+    {
+        Ok(projection) => (StatusCode::OK, Json(projection)).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+async fn project_develop_composer_request() -> Response {
+    StatusCode::NOT_FOUND.into_response()
 }
 
 async fn resolve_develop_composer(
@@ -634,6 +669,21 @@ mod develop_composer_api_contract_tests {
         assert!(develop_composer_body_injects_evidence(
             br#"{"module_bytes":"caller-selected"}"#
         ));
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn a2_run_dto_accepts_only_the_research_locator() {
+        let parsed: SourceResearchComposerLocatorV2 =
+            serde_json::from_slice(br#"{"research_request_locator":"research-1"}"#)
+                .expect("locator-only DTO");
+        assert_eq!(parsed.research_request_locator, "research-1");
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerLocatorV2>(
+                br#"{"research_request_locator":"research-1","design":{}}"#,
+            )
+            .is_err()
+        );
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]

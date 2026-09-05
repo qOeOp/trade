@@ -64,12 +64,12 @@ const STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
     38, 194, 2, 172, 51, 3, 187, 106, 84, 93, 174, 230,
 ];
 const SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY: [u8; 32] = [
-    223, 5, 233, 127, 131, 44, 31, 89, 145, 164, 47, 53, 99, 79, 189, 249, 39, 161, 65, 101,
-    108, 144, 51, 47, 139, 187, 12, 62, 199, 108, 216, 30,
+    223, 5, 233, 127, 131, 44, 31, 89, 145, 164, 47, 53, 99, 79, 189, 249, 39, 161, 65, 101, 108,
+    144, 51, 47, 139, 187, 12, 62, 199, 108, 216, 30,
 ];
 const SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY: [u8; 32] = [
-    23, 101, 12, 129, 34, 127, 211, 104, 159, 109, 51, 8, 231, 70, 29, 88, 127, 26, 216, 112,
-    106, 97, 74, 87, 171, 153, 193, 204, 95, 254, 83, 87,
+    23, 101, 12, 129, 34, 127, 211, 104, 159, 109, 51, 8, 231, 70, 29, 88, 127, 26, 216, 112, 106,
+    97, 74, 87, 171, 153, 193, 204, 95, 254, 83, 87,
 ];
 const OPEN_ROLE_IDENTITY: [u8; 32] = [
     188, 119, 32, 67, 197, 45, 36, 25, 82, 171, 129, 189, 167, 136, 146, 135, 178, 160, 162, 108,
@@ -253,6 +253,20 @@ pub fn issue_source_intake_composer_universe_frame()
     issue_universe_frame_for_compile_time_corpus(
         SOURCE_INTAKE_COMPOSER_RESEARCH_REQUEST_IDENTITY,
         SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
+    )
+}
+
+/// Reissues the immutable A2 Market corpus for an R&D Owner-verified runtime lineage.
+///
+/// Only typed canonical digests cross this boundary. Market facts, clock, provider, selection, and
+/// role identities remain compile-time owned by this module and cannot be supplied by an API DTO.
+pub fn issue_source_intake_composer_universe_frame_for_owner_lineage(
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+) -> Result<SealedAcceptanceStrategyInputUniverseFrame, SealedAcceptanceError> {
+    issue_universe_frame_for_compile_time_corpus(
+        *research_request_identity.as_bytes(),
+        *strategy_design_identity.as_bytes(),
     )
 }
 
@@ -765,6 +779,63 @@ mod tests {
                     == BindingDigest::from_untrusted_bytes(
                         SOURCE_INTAKE_COMPOSER_STRATEGY_DESIGN_IDENTITY,
                     )
+        }));
+    }
+
+    #[rstest]
+    fn a2_runtime_lineages_reuse_only_the_compile_time_market_corpus() {
+        let first_research = BindingDigest::from_untrusted_bytes([41; 32]);
+        let first_design = BindingDigest::from_untrusted_bytes([42; 32]);
+        let second_research = BindingDigest::from_untrusted_bytes([51; 32]);
+        let second_design = BindingDigest::from_untrusted_bytes([52; 32]);
+        let first = issue_source_intake_composer_universe_frame_for_owner_lineage(
+            first_research,
+            first_design,
+        )
+        .expect("first Owner lineage");
+        let second = issue_source_intake_composer_universe_frame_for_owner_lineage(
+            second_research,
+            second_design,
+        )
+        .expect("second Owner lineage");
+
+        assert_eq!(first.selection(), second.selection());
+        assert_eq!(
+            first
+                .values()
+                .iter()
+                .map(|value| (value.member_key(), value.instrument(), value.value_bytes()))
+                .collect::<Vec<_>>(),
+            second
+                .values()
+                .iter()
+                .map(|value| (value.member_key(), value.instrument(), value.value_bytes()))
+                .collect::<Vec<_>>()
+        );
+        assert!(first.role_bindings().iter().all(|binding| {
+            binding.research_request_identity() == first_research
+                && binding.strategy_design_identity() == first_design
+        }));
+        assert!(second.role_bindings().iter().all(|binding| {
+            binding.research_request_identity() == second_research
+                && binding.strategy_design_identity() == second_design
+        }));
+        assert_ne!(first.role_bindings(), second.role_bindings());
+    }
+
+    #[rstest]
+    fn a2_runtime_lineage_does_not_accept_a_single_changed_identity_as_the_expected_lineage() {
+        let research = BindingDigest::from_untrusted_bytes([61; 32]);
+        let design = BindingDigest::from_untrusted_bytes([62; 32]);
+        let wrong = issue_source_intake_composer_universe_frame_for_owner_lineage(
+            research,
+            BindingDigest::from_untrusted_bytes([63; 32]),
+        )
+        .expect("typed but different Owner lineage");
+
+        assert!(wrong.role_bindings().iter().all(|binding| {
+            binding.research_request_identity() == research
+                && binding.strategy_design_identity() != design
         }));
     }
 

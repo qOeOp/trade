@@ -159,6 +159,30 @@ mod sealed {
                 .await
         }
 
+        /// Test-support-only fault injection at the single transactional Composer write call.
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[doc(hidden)]
+        pub async fn run_with_fault_for_test(
+            &self,
+            fail_after_boundary: usize,
+        ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+            let mut builder = SealedDevelopComposerA0BuildV2;
+            let mut transaction = self.store.begin_read_transaction().await?;
+            let result = self
+                .store
+                .run_in_transaction_with_fault_for_test(
+                    &mut transaction,
+                    &mut builder,
+                    &self.evidence,
+                    self.request,
+                    1,
+                    Some(fail_after_boundary),
+                )
+                .await;
+            transaction.rollback().await?;
+            result
+        }
+
         pub async fn resolve(
             &self,
             request_identity: &str,

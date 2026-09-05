@@ -1625,7 +1625,7 @@ mod postgres_tests {
         );
         assert!(
             AUTHORITY_MIGRATION_SQL
-                .contains("count(*)=15 AND bool_and(relation.relpersistence='p')")
+                .contains("count(*)=16 AND bool_and(relation.relpersistence='p')")
         );
         assert!(AUTHORITY_MIGRATION_SQL.contains("index_relation.relpersistence='p'"));
         assert!(AUTHORITY_MIGRATION_SQL.contains(

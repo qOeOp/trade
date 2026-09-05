@@ -941,7 +941,7 @@ GRANT EXECUTE ON FUNCTION product_edge_api.lock_portfolio_read_policy_v1(text,te
 DO $private_owner_cutover_gate$
 DECLARE
   catalog_names constant text[] := ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'];
-  composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'];
+  composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_artifact_build_receipt_uses_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'];
   relation_name text;
   catalog_public_count integer;
   catalog_private_count integer;
@@ -1037,7 +1037,7 @@ GRANT USAGE ON SCHEMA composer_owner_api TO rd_owner, rd_fact_writer, market_dat
 DO $private_owner_cutover$
 DECLARE
   catalog_names constant text[] := ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'];
-  composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'];
+  composer_names constant text[] := ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_artifact_build_receipt_uses_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'];
   relation_name text;
 BEGIN
   FOREACH relation_name IN ARRAY catalog_names LOOP
@@ -1061,7 +1061,71 @@ CREATE TABLE IF NOT EXISTS composer_private.rd_develop_designs_v2 (design_identi
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifacts_v2 (artifact_identity BYTEA PRIMARY KEY, plan_digest BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_plans_v2(plan_digest), package_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifact_modules_v2 (artifact_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, module_bytes BYTEA NOT NULL, PRIMARY KEY (artifact_identity, ordinal));
-CREATE TABLE IF NOT EXISTS composer_private.rd_develop_build_receipts_v2 (receipt_identity BYTEA PRIMARY KEY, build_attempt_identity BYTEA NOT NULL UNIQUE, capsule_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, canonical_bytes BYTEA NOT NULL, UNIQUE (artifact_identity, ordinal));
+DO $normalize_build_receipts$
+DECLARE
+  columns text[];
+  receipt_unique_name name;
+  receipt_unique_count bigint;
+BEGIN
+  IF pg_catalog.to_regclass('composer_private.rd_develop_build_receipts_v2') IS NULL THEN
+    RETURN;
+  END IF;
+  SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum)
+    INTO columns
+    FROM pg_catalog.pg_attribute attribute
+   WHERE attribute.attrelid='composer_private.rd_develop_build_receipts_v2'::pg_catalog.regclass
+     AND attribute.attnum>0
+     AND NOT attribute.attisdropped;
+  IF columns=ARRAY['receipt_identity','build_attempt_identity','capsule_identity','artifact_identity','ordinal','canonical_bytes']::text[] THEN
+    IF pg_catalog.to_regclass('composer_private.rd_develop_artifact_build_receipt_uses_v2') IS NOT NULL THEN
+      RAISE EXCEPTION 'Composer build receipt lineage normalization is already partially materialized';
+    END IF;
+    CREATE TEMP TABLE rd_develop_build_receipt_uses_v2_legacy ON COMMIT DROP AS
+      SELECT artifact_identity,ordinal,receipt_identity
+        FROM composer_private.rd_develop_build_receipts_v2
+       ORDER BY artifact_identity,ordinal;
+    IF (SELECT count(*) FROM rd_develop_build_receipt_uses_v2_legacy)
+       <> (SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2) THEN
+      RAISE EXCEPTION 'Composer build receipt lineage normalization was not byte-preserving';
+    END IF;
+    ALTER TABLE composer_private.rd_develop_build_receipts_v2
+      DROP COLUMN artifact_identity,
+      DROP COLUMN ordinal;
+    SELECT min(constraint_fact.conname),count(*)
+      INTO receipt_unique_name,receipt_unique_count
+      FROM pg_catalog.pg_constraint constraint_fact
+     WHERE constraint_fact.conrelid='composer_private.rd_develop_build_receipts_v2'::pg_catalog.regclass
+       AND constraint_fact.contype='u'
+       AND constraint_fact.conkey=ARRAY[1]::smallint[];
+    IF receipt_unique_count<>1 THEN
+      RAISE EXCEPTION 'Composer legacy receipt identity uniqueness is unavailable';
+    END IF;
+    EXECUTE pg_catalog.format(
+      'ALTER TABLE composer_private.rd_develop_build_receipts_v2 DROP CONSTRAINT %I, ADD PRIMARY KEY (receipt_identity)',
+      receipt_unique_name
+    );
+    CREATE TABLE composer_private.rd_develop_artifact_build_receipt_uses_v2 (
+      artifact_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity),
+      ordinal INTEGER NOT NULL,
+      receipt_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_build_receipts_v2(receipt_identity),
+      PRIMARY KEY (artifact_identity,ordinal),
+      UNIQUE (artifact_identity,receipt_identity)
+    );
+    INSERT INTO composer_private.rd_develop_artifact_build_receipt_uses_v2
+      SELECT artifact_identity,ordinal,receipt_identity
+        FROM rd_develop_build_receipt_uses_v2_legacy
+       ORDER BY artifact_identity,ordinal;
+    IF (SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2)
+       <> (SELECT count(*) FROM rd_develop_build_receipt_uses_v2_legacy) THEN
+      RAISE EXCEPTION 'Composer build receipt lineage use migration was not byte-preserving';
+    END IF;
+  ELSIF columns<>ARRAY['receipt_identity','build_attempt_identity','capsule_identity','canonical_bytes']::text[] THEN
+    RAISE EXCEPTION 'unsupported rd_develop_build_receipts_v2 shape';
+  END IF;
+END
+$normalize_build_receipts$;
+CREATE TABLE IF NOT EXISTS composer_private.rd_develop_build_receipts_v2 (receipt_identity BYTEA PRIMARY KEY, build_attempt_identity BYTEA NOT NULL UNIQUE, capsule_identity BYTEA NOT NULL UNIQUE, canonical_bytes BYTEA NOT NULL);
+CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifact_build_receipt_uses_v2 (artifact_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), ordinal INTEGER NOT NULL, receipt_identity BYTEA NOT NULL REFERENCES composer_private.rd_develop_build_receipts_v2(receipt_identity), PRIMARY KEY (artifact_identity,ordinal), UNIQUE (artifact_identity,receipt_identity));
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_composer_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_host_receipts_v2 (artifact_identity BYTEA PRIMARY KEY REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_operations_v2 (request_identity TEXT PRIMARY KEY, request_digest BYTEA NOT NULL, research_request_identity BYTEA NOT NULL UNIQUE, intent_identity BYTEA NOT NULL UNIQUE, artifact_identity BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_artifacts_v2(artifact_identity), canonical_receipt_bytes BYTEA NOT NULL, response_bytes BYTEA NOT NULL);
@@ -1073,7 +1137,7 @@ DO $private_table_owners$
 DECLARE relation_name text;
 BEGIN
   FOREACH relation_name IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.%I OWNER TO replay_policy_catalog_owner', relation_name); END LOOP;
-  FOREACH relation_name IN ARRAY ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE composer_private.%I OWNER TO composer_owner', relation_name); END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_artifact_build_receipt_uses_v2','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE composer_private.%I OWNER TO composer_owner', relation_name); END LOOP;
 END
 $private_table_owners$;
 DO $catalog_composer_relation_acl_cutover$
@@ -1122,7 +1186,7 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='S'
   ) THEN RAISE EXCEPTION 'Catalog/Composer sequence manifest mismatch'; END IF;
-  SELECT count(*)=15 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+  SELECT count(*)=16 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
   WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='r';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer relation ACL family mismatch'; END IF;
   IF EXISTS (
@@ -1271,7 +1335,7 @@ CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(
 ) RETURNS boolean LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $composer_commit$DECLARE ordinal integer;
 BEGIN
-  IF SESSION_USER<>'rd_fact_writer' THEN RAISE EXCEPTION 'R&D fact writer required' USING ERRCODE='42501'; END IF;
+  IF SESSION_USER NOT IN ('rd_fact_writer','rd_owner') THEN RAISE EXCEPTION 'R&D Composer writer required' USING ERRCODE='42501'; END IF;
   IF cardinality(p_receipt_identities)<>cardinality(p_attempt_identities)
      OR cardinality(p_receipt_identities)<>cardinality(p_capsule_identities)
      OR cardinality(p_receipt_identities)<>cardinality(p_build_bytes) THEN RETURN false; END IF;
@@ -1290,7 +1354,7 @@ BEGIN
         JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
         LEFT JOIN composer_private.rd_develop_strategy_design_native_joins_v1 native_join ON native_join.request_identity=operation.request_identity
         LEFT JOIN LATERAL (SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_modules_v2 module WHERE module.artifact_identity=artifact.artifact_identity) modules ON true
-        LEFT JOIN LATERAL (SELECT array_agg(receipt.ordinal ORDER BY receipt.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt.ordinal) AS identities,array_agg(receipt.build_attempt_identity ORDER BY receipt.ordinal) AS attempts,array_agg(receipt.capsule_identity ORDER BY receipt.ordinal) AS capsules,array_agg(receipt.canonical_bytes ORDER BY receipt.ordinal) AS canonical_bytes FROM composer_private.rd_develop_build_receipts_v2 receipt WHERE receipt.artifact_identity=artifact.artifact_identity) builds ON true
+        LEFT JOIN LATERAL (SELECT array_agg(receipt_use.ordinal ORDER BY receipt_use.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt_use.ordinal) AS identities,array_agg(receipt.build_attempt_identity ORDER BY receipt_use.ordinal) AS attempts,array_agg(receipt.capsule_identity ORDER BY receipt_use.ordinal) AS capsules,array_agg(receipt.canonical_bytes ORDER BY receipt_use.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use JOIN composer_private.rd_develop_build_receipts_v2 receipt ON receipt.receipt_identity=receipt_use.receipt_identity WHERE receipt_use.artifact_identity=artifact.artifact_identity) builds ON true
        WHERE operation.request_identity=p_request_identity
          AND operation.request_digest=p_request_digest AND operation.research_request_identity=p_research_identity AND operation.intent_identity=p_intent_identity AND operation.artifact_identity=p_artifact_identity AND operation.canonical_receipt_bytes=p_operation_bytes AND operation.response_bytes=p_response_bytes
          AND artifact.plan_digest=p_plan_digest AND artifact.package_bytes=p_package_bytes
@@ -1308,7 +1372,11 @@ BEGIN
   INSERT INTO composer_private.rd_develop_plans_v2 VALUES (p_plan_digest,p_design_identity,p_plan_bytes);
   INSERT INTO composer_private.rd_develop_artifacts_v2 VALUES (p_artifact_identity,p_plan_digest,p_package_bytes);
   FOR ordinal IN SELECT generate_subscripts(p_module_bytes,1) LOOP INSERT INTO composer_private.rd_develop_artifact_modules_v2 VALUES (p_artifact_identity,ordinal-1,p_module_bytes[ordinal]); END LOOP;
-  FOR ordinal IN SELECT generate_subscripts(p_receipt_identities,1) LOOP INSERT INTO composer_private.rd_develop_build_receipts_v2 VALUES (p_receipt_identities[ordinal],p_attempt_identities[ordinal],p_capsule_identities[ordinal],p_artifact_identity,ordinal-1,p_build_bytes[ordinal]); END LOOP;
+  FOR ordinal IN SELECT generate_subscripts(p_receipt_identities,1) LOOP
+    INSERT INTO composer_private.rd_develop_build_receipts_v2 VALUES (p_receipt_identities[ordinal],p_attempt_identities[ordinal],p_capsule_identities[ordinal],p_build_bytes[ordinal]) ON CONFLICT (receipt_identity) DO NOTHING;
+    IF NOT EXISTS (SELECT 1 FROM composer_private.rd_develop_build_receipts_v2 receipt WHERE receipt.receipt_identity=p_receipt_identities[ordinal] AND receipt.build_attempt_identity=p_attempt_identities[ordinal] AND receipt.capsule_identity=p_capsule_identities[ordinal] AND receipt.canonical_bytes=p_build_bytes[ordinal]) THEN RETURN false; END IF;
+    INSERT INTO composer_private.rd_develop_artifact_build_receipt_uses_v2 VALUES (p_artifact_identity,ordinal-1,p_receipt_identities[ordinal]);
+  END LOOP;
   INSERT INTO composer_private.rd_develop_composer_receipts_v2 VALUES (p_artifact_identity,p_composer_bytes);
   INSERT INTO composer_private.rd_develop_host_receipts_v2 VALUES (p_artifact_identity,p_host_bytes);
   INSERT INTO composer_private.rd_develop_operations_v2 VALUES (p_request_identity,p_request_digest,p_research_identity,p_intent_identity,p_artifact_identity,p_operation_bytes,p_response_bytes);
@@ -1321,7 +1389,7 @@ BEGIN
 END$composer_commit$;
 ALTER FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) FROM PUBLIC, rd_owner, rd_fact_writer;
-GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer, rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(p_request_identity text)
 RETURNS TABLE (request_digest bytea, research_request_identity bytea, intent_identity bytea, artifact_identity bytea, operation_receipt_bytes bytea, response_bytes bytea, plan_digest bytea, artifact_package_bytes bytea, design_identity bytea, plan_bytes bytea, design_bytes bytea, module_ordinals integer[], module_bytes bytea[], build_ordinals integer[], build_receipt_identities bytea[], build_attempt_identities bytea[], capsule_identities bytea[], build_receipt_bytes bytea[], composer_receipt_bytes bytea, host_receipt_bytes bytea, outbox_bytes bytea)
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -1332,6 +1400,7 @@ SET search_path = pg_catalog, pg_temp AS $composer_read$BEGIN
     composer_private.rd_develop_artifacts_v2,
     composer_private.rd_develop_artifact_modules_v2,
     composer_private.rd_develop_build_receipts_v2,
+    composer_private.rd_develop_artifact_build_receipt_uses_v2,
     composer_private.rd_develop_composer_receipts_v2,
     composer_private.rd_develop_host_receipts_v2,
     composer_private.rd_develop_operations_v2,
@@ -1381,19 +1450,67 @@ SET search_path = pg_catalog, pg_temp AS $composer_read$BEGIN
        WHERE module.artifact_identity=artifact.artifact_identity
     ) modules ON TRUE
     LEFT JOIN LATERAL (
-      SELECT array_agg(receipt.ordinal ORDER BY receipt.ordinal) AS ordinals,
-             array_agg(receipt.receipt_identity ORDER BY receipt.ordinal) AS receipt_identities,
-             array_agg(receipt.build_attempt_identity ORDER BY receipt.ordinal) AS attempt_identities,
-             array_agg(receipt.capsule_identity ORDER BY receipt.ordinal) AS capsule_identities,
-             array_agg(receipt.canonical_bytes ORDER BY receipt.ordinal) AS canonical_bytes
-        FROM composer_private.rd_develop_build_receipts_v2 receipt
-       WHERE receipt.artifact_identity=artifact.artifact_identity
+      SELECT array_agg(receipt_use.ordinal ORDER BY receipt_use.ordinal) AS ordinals,
+             array_agg(receipt.receipt_identity ORDER BY receipt_use.ordinal) AS receipt_identities,
+             array_agg(receipt.build_attempt_identity ORDER BY receipt_use.ordinal) AS attempt_identities,
+             array_agg(receipt.capsule_identity ORDER BY receipt_use.ordinal) AS capsule_identities,
+             array_agg(receipt.canonical_bytes ORDER BY receipt_use.ordinal) AS canonical_bytes
+        FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use
+        JOIN composer_private.rd_develop_build_receipts_v2 receipt
+          ON receipt.receipt_identity=receipt_use.receipt_identity
+       WHERE receipt_use.artifact_identity=artifact.artifact_identity
     ) builds ON TRUE
    WHERE operation.request_identity=p_request_identity;
 END$composer_read$;
 ALTER FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) OWNER TO composer_owner;
 REVOKE ALL ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
+CREATE OR REPLACE FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(p_request_identity text)
+RETURNS TABLE (request_digest bytea, research_request_identity bytea, intent_identity bytea, artifact_identity bytea, operation_receipt_bytes bytea, response_bytes bytea, plan_digest bytea, artifact_package_bytes bytea, design_identity bytea, plan_bytes bytea, design_bytes bytea, module_ordinals integer[], module_bytes bytea[], build_ordinals integer[], build_receipt_identities bytea[], build_attempt_identities bytea[], capsule_identities bytea[], build_receipt_bytes bytea[], composer_receipt_bytes bytea, host_receipt_bytes bytea, outbox_bytes bytea)
+LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $composer_commit_cut$BEGIN
+  IF SESSION_USER<>'rd_owner' OR CURRENT_USER<>'composer_owner' THEN RAISE EXCEPTION 'R&D Owner required' USING ERRCODE='42501'; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||p_request_identity,0));
+  PERFORM operation.request_identity
+    FROM composer_private.rd_develop_operations_v2 operation
+   WHERE operation.request_identity=p_request_identity
+   FOR UPDATE;
+  IF NOT FOUND THEN RETURN; END IF;
+  PERFORM artifact.artifact_identity
+    FROM composer_private.rd_develop_operations_v2 operation
+    JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity
+    JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+    JOIN composer_private.rd_develop_composer_receipts_v2 composer ON composer.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_host_receipts_v2 host ON host.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_strategy_design_role_set_attestations_v1 role_set ON role_set.request_identity=operation.request_identity
+    JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
+   WHERE operation.request_identity=p_request_identity
+   FOR SHARE OF artifact,plan,design,composer,host,role_set,outbox;
+  PERFORM native_join.request_identity FROM composer_private.rd_develop_strategy_design_native_joins_v1 native_join WHERE native_join.request_identity=p_request_identity FOR SHARE;
+  PERFORM module.ordinal FROM composer_private.rd_develop_artifact_modules_v2 module JOIN composer_private.rd_develop_operations_v2 operation ON operation.artifact_identity=module.artifact_identity WHERE operation.request_identity=p_request_identity FOR SHARE OF module;
+  PERFORM receipt_use.ordinal FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use JOIN composer_private.rd_develop_operations_v2 operation ON operation.artifact_identity=receipt_use.artifact_identity WHERE operation.request_identity=p_request_identity FOR SHARE OF receipt_use;
+  PERFORM receipt.receipt_identity FROM composer_private.rd_develop_build_receipts_v2 receipt JOIN composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use ON receipt_use.receipt_identity=receipt.receipt_identity JOIN composer_private.rd_develop_operations_v2 operation ON operation.artifact_identity=receipt_use.artifact_identity WHERE operation.request_identity=p_request_identity FOR SHARE OF receipt;
+  RETURN QUERY
+  SELECT operation.request_digest,operation.research_request_identity,operation.intent_identity,operation.artifact_identity,operation.canonical_receipt_bytes,operation.response_bytes,
+         artifact.plan_digest,artifact.package_bytes,plan.design_identity,plan.canonical_bytes,design.canonical_bytes,
+         COALESCE(modules.ordinals,ARRAY[]::integer[]),COALESCE(modules.canonical_bytes,ARRAY[]::bytea[]),
+         COALESCE(builds.ordinals,ARRAY[]::integer[]),COALESCE(builds.receipt_identities,ARRAY[]::bytea[]),COALESCE(builds.attempt_identities,ARRAY[]::bytea[]),COALESCE(builds.capsule_identities,ARRAY[]::bytea[]),COALESCE(builds.canonical_bytes,ARRAY[]::bytea[]),
+         composer.canonical_bytes,host.canonical_bytes,outbox.canonical_bytes
+    FROM composer_private.rd_develop_operations_v2 operation
+    JOIN composer_private.rd_develop_artifacts_v2 artifact ON artifact.artifact_identity=operation.artifact_identity
+    JOIN composer_private.rd_develop_plans_v2 plan ON plan.plan_digest=artifact.plan_digest
+    JOIN composer_private.rd_develop_designs_v2 design ON design.design_identity=plan.design_identity
+    JOIN composer_private.rd_develop_composer_receipts_v2 composer ON composer.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_host_receipts_v2 host ON host.artifact_identity=artifact.artifact_identity
+    JOIN composer_private.rd_develop_outbox_v2 outbox ON outbox.request_identity=operation.request_identity
+    LEFT JOIN LATERAL (SELECT array_agg(module.ordinal ORDER BY module.ordinal) AS ordinals,array_agg(module.module_bytes ORDER BY module.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_modules_v2 module WHERE module.artifact_identity=artifact.artifact_identity) modules ON TRUE
+    LEFT JOIN LATERAL (SELECT array_agg(receipt_use.ordinal ORDER BY receipt_use.ordinal) AS ordinals,array_agg(receipt.receipt_identity ORDER BY receipt_use.ordinal) AS receipt_identities,array_agg(receipt.build_attempt_identity ORDER BY receipt_use.ordinal) AS attempt_identities,array_agg(receipt.capsule_identity ORDER BY receipt_use.ordinal) AS capsule_identities,array_agg(receipt.canonical_bytes ORDER BY receipt_use.ordinal) AS canonical_bytes FROM composer_private.rd_develop_artifact_build_receipt_uses_v2 receipt_use JOIN composer_private.rd_develop_build_receipts_v2 receipt ON receipt.receipt_identity=receipt_use.receipt_identity WHERE receipt_use.artifact_identity=artifact.artifact_identity) builds ON TRUE
+   WHERE operation.request_identity=p_request_identity;
+END$composer_commit_cut$;
+ALTER FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) OWNER TO composer_owner;
+REVOKE ALL ON FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) FROM PUBLIC, rd_owner, rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
 CREATE OR REPLACE FUNCTION composer_owner_api.lock_replay_composition_cut_v1(p_request_identity text)
 RETURNS bigint
 LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
@@ -1450,9 +1567,9 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), composer_owner_api.lock_accepted_develop_composer_v2(text) TO rd_owner;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
-GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer;
+GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_fact_writer, rd_owner;
 GRANT EXECUTE ON FUNCTION composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea), composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea) TO market_data_reader;
 GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner;
 DO $catalog_composer_readback$
@@ -1495,14 +1612,14 @@ BEGIN
     AND pg_catalog.has_schema_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('rd_fact_writer','composer_owner_api','USAGE')
     AND (SELECT count(*)=4 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
-    AND (SELECT count(*)=11 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
+    AND (SELECT count(*)=12 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
     AND (SELECT count(*)=30 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
-    AND (SELECT count(*)=46 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND (SELECT count(*)=47 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND object.relkind NOT IN ('r','i'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
-    AND (SELECT count(*)=5 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=6 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'),
@@ -1524,9 +1641,10 @@ BEGIN
 $catalog_audit_read$
     ) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace
       WHERE namespace.nspname='replay_policy_catalog_api' AND procedure.proname='read_replay_policy_catalog_audit_v2')
-    AND (SELECT count(*)=5 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=6 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_accepted_develop_composer_v2(text)'),
+      pg_catalog.to_regprocedure('composer_owner_api.lock_develop_composer_commit_cut_v2(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.lock_replay_composition_cut_v1(text)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_role_set_attestation_v1(text,integer,bytea,text,bytea,bytea,bytea)'),
       pg_catalog.to_regprocedure('composer_owner_api.resolve_strategy_design_native_join_v1(text,integer,bytea,text,bytea,bytea,bytea)')
@@ -1536,7 +1654,9 @@ $catalog_audit_read$
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
     AND pg_catalog.has_function_privilege('rd_owner','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
-    AND NOT pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea)','EXECUTE')
+    AND pg_catalog.has_function_privilege('rd_owner','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
+    AND NOT pg_catalog.has_function_privilege('rd_fact_writer','composer_owner_api.lock_develop_composer_commit_cut_v2(text)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
     AND NOT pg_catalog.has_function_privilege('rd_fact_writer','replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)','EXECUTE')
     AND pg_catalog.has_function_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)','EXECUTE')
@@ -1574,7 +1694,7 @@ BEGIN
     ('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','p','singleton'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_version'),
     ('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v2','p','command_identity'),
     ('composer_private','rd_develop_designs_v2','p','design_identity'),('composer_private','rd_develop_plans_v2','p','plan_digest'),('composer_private','rd_develop_plans_v2','u','design_identity'),('composer_private','rd_develop_artifacts_v2','p','artifact_identity'),('composer_private','rd_develop_artifacts_v2','u','plan_digest'),
-    ('composer_private','rd_develop_artifact_modules_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_build_receipts_v2','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v2','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v2','u','capsule_identity'),('composer_private','rd_develop_build_receipts_v2','u','artifact_identity,ordinal'),
+    ('composer_private','rd_develop_artifact_modules_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_build_receipts_v2','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v2','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v2','u','capsule_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','u','artifact_identity,receipt_identity'),
     ('composer_private','rd_develop_composer_receipts_v2','p','artifact_identity'),('composer_private','rd_develop_host_receipts_v2','p','artifact_identity'),('composer_private','rd_develop_operations_v2','p','request_identity'),('composer_private','rd_develop_operations_v2','u','research_request_identity'),('composer_private','rd_develop_operations_v2','u','intent_identity'),('composer_private','rd_develop_operations_v2','u','artifact_identity'),
     ('composer_private','rd_develop_strategy_design_role_set_attestations_v1','p','request_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','operation_receipt_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','artifact_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','canonical_plan_digest'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','attestation_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','attestation_digest'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','u','request_identity,composer_schema_version,operation_receipt_identity,artifact_locator,artifact_identity,canonical_plan_digest,design_digest'),
     ('composer_private','rd_develop_strategy_design_native_joins_v1','p','request_identity'),('composer_private','rd_develop_strategy_design_native_joins_v1','u','native_join_digest'),('composer_private','rd_develop_strategy_design_native_joins_v1','u','projection_receipt_digest'),('composer_private','rd_develop_outbox_v2','p','request_identity')
@@ -1588,7 +1708,7 @@ BEGIN
 
   WITH expected(source_schema,source_table,source_keys,target_schema,target_table,target_keys) AS (VALUES
     ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','predecessor_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),
-    ('composer_private','rd_develop_plans_v2','design_identity','composer_private','rd_develop_designs_v2','design_identity'),('composer_private','rd_develop_artifacts_v2','plan_digest','composer_private','rd_develop_plans_v2','plan_digest'),('composer_private','rd_develop_artifact_modules_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_build_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_composer_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_host_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_operations_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_strategy_design_native_joins_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_outbox_v2','request_identity','composer_private','rd_develop_operations_v2','request_identity')
+    ('composer_private','rd_develop_plans_v2','design_identity','composer_private','rd_develop_designs_v2','design_identity'),('composer_private','rd_develop_artifacts_v2','plan_digest','composer_private','rd_develop_plans_v2','plan_digest'),('composer_private','rd_develop_artifact_modules_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','receipt_identity','composer_private','rd_develop_build_receipts_v2','receipt_identity'),('composer_private','rd_develop_composer_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_host_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_operations_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_strategy_design_native_joins_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_outbox_v2','request_identity','composer_private','rd_develop_operations_v2','request_identity')
   ), actual AS (
     SELECT source_namespace.nspname,source_relation.relname,string_agg(source_attribute.attname,',' ORDER BY key_fact.ordinality),target_namespace.nspname,target_relation.relname,string_agg(target_attribute.attname,',' ORDER BY key_fact.ordinality)
     FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class source_relation ON source_relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace source_namespace ON source_namespace.oid=source_relation.relnamespace JOIN pg_catalog.pg_class target_relation ON target_relation.oid=constraint_fact.confrelid JOIN pg_catalog.pg_namespace target_namespace ON target_namespace.oid=target_relation.relnamespace
@@ -1601,7 +1721,7 @@ BEGIN
   INTO exact FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND constraint_fact.contype='c';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer CHECK manifest mismatch'; END IF;
 
-  SELECT count(*)=37 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
+  SELECT count(*)=38 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
   INTO exact FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private');
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer index manifest mismatch'; END IF;
   IF EXISTS (
