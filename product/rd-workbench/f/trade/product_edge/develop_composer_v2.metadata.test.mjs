@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { execFileSync } from "node:child_process"
+import { execFileSync, spawnSync } from "node:child_process"
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -32,6 +32,40 @@ test("sealed deployment payload accepts actual helper metadata without a worker 
       assert.deepEqual(payload.schema, metadata.schema)
       assert.equal(Object.hasOwn(payload, "tag"), Object.hasOwn(metadata, "tag"))
       assert.equal(payload.tag, metadata.tag)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test("deployed readback permits only Windmill empty-lock omission, never nonempty-lock drift", async () => {
+  const runner = await readFile(new URL("../../../../../scripts/ci/test-source-research-composer-sealed-acceptance.bash", import.meta.url), "utf8")
+  const program = runner.match(/import json\nimport sys\nsource_path, lock_path, create_path, readback_path, expected_path = sys.argv\[1:\][\s\S]*?(?=\nPY\n)/)?.[0]
+  assert.ok(program)
+  const directory = await mkdtemp(join(tmpdir(), "composer-script-readback-"))
+  try {
+    const path = "f/trade/product_edge/consumer_projection_v1"
+    const source = join(workbenchDir, `${path}.ts`)
+    const lock = join(directory, "lock")
+    const created = join(directory, "created.json")
+    const observed = join(directory, "readback.json")
+    const body = { path, language: "bun", content: await readFile(source, "utf8"), hash: "abc123" }
+    await writeFile(created, JSON.stringify("abc123"))
+    for (const [expectedLock, actualLock, accepted] of [
+      ["", undefined, true], ["", null, true], ["", "", true],
+      ["locked", "locked", true], ["locked", undefined, false],
+      ["locked", null, false], ["locked", "other", false], ["", "unexpected", false],
+    ]) {
+      await writeFile(lock, expectedLock)
+      await writeFile(observed, JSON.stringify({ ...body, lock: actualLock }))
+      const result = spawnSync("python3", ["-c", program, source, lock, created, observed, path], { encoding: "utf8" })
+      assert.equal(result.status, accepted ? 0 : 1, result.stderr)
+    }
+    await writeFile(lock, "")
+    for (const changed of [{ content: "different" }, { path: "other" }, { language: "python3" }, { hash: "different" }]) {
+      await writeFile(observed, JSON.stringify({ ...body, ...changed }))
+      const result = spawnSync("python3", ["-c", program, source, lock, created, observed, path], { encoding: "utf8" })
+      assert.equal(result.status, 1, "empty lock cannot excuse another identity mismatch")
     }
   } finally {
     await rm(directory, { recursive: true, force: true })

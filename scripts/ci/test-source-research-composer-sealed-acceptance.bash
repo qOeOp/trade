@@ -403,17 +403,9 @@ compose=("${docker_local[@]}" compose --project-directory "$package_dir"
 
 capture_shared_baseline "$baseline_containers" "$baseline_images" "$baseline_networks" "$baseline_volumes"
 baseline_captured=1
-builder_touched=1
-with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --node "$builder_node" \
-  --driver docker-container --driver-opt "image=$buildkit_image" > /dev/null
-with_deadline 1800 "${docker_local[@]}" buildx build --builder "$builder_name" --load --pull=false \
-  --no-cache --tag "$owner_image" --file "$dockerfile" "$repo_root"
 compose_touched=1
-if ! with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait \
-  postgres schema-materialize authority-custody-migrate authority-bootstrap rd-owner-api \
-  windmill-server windmill-worker; then
-  "${compose[@]}" logs --no-color rd-owner-api >&2 || true
-  die 'isolated acceptance topology did not become healthy'
+if ! with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait postgres windmill-server; then
+  die 'isolated Windmill deployment preflight did not become healthy'
 fi
 postgres_container=$(with_deadline 10 "${compose[@]}" ps -q postgres) ||
   die 'isolated PostgreSQL container identity is unavailable'
@@ -431,7 +423,7 @@ workspace_create_attempted=1
 api_json POST "$session_header" "$base_url/api/workspaces/create" "$run_dir/workspace.response" "$run_dir/workspace.json"
 api_json POST "$session_header" "$base_url/api/workspaces/exists" "$run_dir/workspace-created.response" "$workspace_exists_payload"
 jq -e '. == true' "$run_dir/workspace-created.response" > /dev/null
-expiration=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat().replace("+00:00","Z"))')
+expiration=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(minutes=60)).isoformat().replace("+00:00","Z"))')
 token_label="a2-sealed-$(random_hex | cut -c1-16)"
 jq -n --arg label "$token_label" --arg expiration "$expiration" --arg workspace "$workspace" \
   '{label:$label,expiration:$expiration,workspace_id:$workspace}' > "$run_dir/token.json"
@@ -479,13 +471,34 @@ try:
 except json.JSONDecodeError:
     create_hash = raw_create
 readback = json.load(open(readback_path, encoding="utf-8"))
-if (readback.get("path") != expected_path or readback.get("language") != "bun"
-        or readback.get("content") != source or readback.get("lock") != lock
-        or not readback.get("hash") or str(readback["hash"]) != str(create_hash)):
-    raise SystemExit("deployed Windmill script identity differs from repository bytes")
+expected = {"path": expected_path, "language": "bun", "content": source}
+mismatches = [field for field, value in expected.items() if readback.get(field) != value]
+# The pinned Windmill API omits an empty lock; nonempty locks remain byte-exact.
+if readback.get("lock") != lock and not (lock == "" and readback.get("lock") is None):
+    mismatches.append("lock")
+if not readback.get("hash") or str(readback["hash"]) != str(create_hash):
+    mismatches.append("hash")
+if mismatches:
+    detail = ""
+    if "lock" in mismatches:
+        detail = " (expected lock bytes=" + str(len(lock.encode())) + ", actual lock type=" + type(readback.get("lock")).__name__ + ", field present=" + str("lock" in readback) + ")"
+    raise SystemExit("deployed Windmill script identity differs for " + expected_path + ": " + ",".join(mismatches) + detail)
 PY
 }
 for script_path in "${dependency_script_paths[@]}" "${script_paths[@]}"; do deploy_script "$script_path"; done
+
+# Reject transport packaging mismatches before the expensive Owner image build.
+builder_touched=1
+with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --node "$builder_node" \
+  --driver docker-container --driver-opt "image=$buildkit_image" > /dev/null
+with_deadline 1800 "${docker_local[@]}" buildx build --builder "$builder_name" --load --pull=false \
+  --no-cache --tag "$owner_image" --file "$dockerfile" "$repo_root"
+if ! with_deadline 300 "${compose[@]}" up --detach --no-build --pull never --wait \
+  postgres schema-materialize authority-custody-migrate authority-bootstrap rd-owner-api \
+  windmill-server windmill-worker; then
+  "${compose[@]}" logs --no-color rd-owner-api >&2 || true
+  die 'isolated acceptance topology did not become healthy'
+fi
 
 run_deployed() {
   local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path payload
