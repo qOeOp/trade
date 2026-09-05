@@ -96,3 +96,42 @@ test("Run list browser contract accepts database-collated identity ties", () => 
 
   assert.equal(parseRunListBrowserEnvelopeV1(projected)?.runs.length, 2);
 });
+
+test("Run list keeps a cancelled-before-start dependency beside normal rows", () => {
+  const mixed = page();
+  mixed.runs.push({
+    ...structuredClone(mixed.runs[0]),
+    run_identity: "dashboard-run-v1-00000000-0000-4000-8000-000000000029",
+    state: "cancelled",
+    owner_outcome_state: "not_applicable",
+    transition_version: 2,
+    created_at: "2026-08-29T23:59:59.000Z",
+    updated_at: "2026-08-29T23:59:59.500Z",
+    started_at: null,
+    finished_at: "2026-08-29T23:59:59.500Z",
+    terminal_code: null,
+  });
+  const projected = projectRunListBrowserEnvelopeV1(mixed);
+  const parsed = parseRunListBrowserEnvelopeV1(projected);
+  assert.equal(parsed?.runs.length, 2);
+  assert.equal(parsed?.runs[1]?.state, "cancelled");
+  assert.equal(parsed?.runs[1]?.duration_ms, null);
+
+  const effectCancellation = structuredClone(projected);
+  effectCancellation.runs[1].channel = "DASHBOARD_DISPOSABLE_EXECUTION";
+  effectCancellation.runs[1].run_kind = "owner_effect";
+  effectCancellation.runs[1].operation_id = "artifact_build.formation_execute.v1";
+  assert.equal(parseRunListBrowserEnvelopeV1(effectCancellation), null);
+
+  const inventedDuration = structuredClone(projected);
+  inventedDuration.runs[1].duration_ms = 0;
+  assert.equal(parseRunListBrowserEnvelopeV1(inventedDuration), null);
+
+  const missingFinish = structuredClone(projected);
+  missingFinish.runs[1].finished_at = null;
+  assert.equal(parseRunListBrowserEnvelopeV1(missingFinish), null);
+
+  const succeededWithoutStart = structuredClone(projected);
+  succeededWithoutStart.runs[1].state = "succeeded";
+  assert.equal(parseRunListBrowserEnvelopeV1(succeededWithoutStart), null);
+});

@@ -109,12 +109,18 @@ export function parseRunListBrowserEnvelopeV1(value: unknown): RunListBrowserEnv
     const started = run.started_at === null ? null : Date.parse(run.started_at);
     const finished = run.finished_at === null ? null : Date.parse(run.finished_at);
     const terminal = ["succeeded", "failed", "cancelled", "unknown"].includes(run.state);
+    const cancelledBeforeStart = run.state === "cancelled" && started === null;
     if (created > observed || (started !== null && (started < created || started > observed))
-      || (finished !== null && (started === null || finished < started || finished > observed))
-      || (run.state === "queued") !== (started === null)
+      || (finished !== null && (finished < created
+        || (started !== null && finished < started) || finished > observed))
+      || (started === null && run.state !== "queued" && !cancelledBeforeStart)
+      || (run.state === "queued" && started !== null)
       || terminal !== (finished !== null)
-      || (started === null) !== (run.duration_ms === null)
-      || (finished !== null && run.duration_ms !== finished - (started as number))
+      || (cancelledBeforeStart && (run.channel !== "DASHBOARD_SHADOW_READ"
+        || run.run_kind !== "owner_read" || run.owner_outcome_state !== "not_applicable"
+        || run.duration_ms !== null || run.terminal_code !== null))
+      || (!cancelledBeforeStart && (started === null) !== (run.duration_ms === null))
+      || (finished !== null && started !== null && run.duration_ms !== finished - started)
       || (!terminal && run.terminal_code !== null)) return false;
     const prior = runs[index - 1];
     // PostgreSQL applies the database collation to the run_identity tie-breaker,
