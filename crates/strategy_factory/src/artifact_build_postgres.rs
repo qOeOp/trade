@@ -2602,7 +2602,9 @@ mod postgres_freshness_tests {
     #[ignore = "requires admitted OA/PE/R&D test database URLs"]
     async fn legacy_prepared_drain_is_atomic_idempotent_and_read_only() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
-        let _mutation = test_database.mutation();
+        let mutation = test_database.mutation();
+        #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+        let _ = mutation;
         let database_url = test_database
             .database_url(CanonicalOwnerTestRoleV1::RdOwner)
             .to_string();
@@ -2634,11 +2636,10 @@ mod postgres_freshness_tests {
         .unwrap();
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         {
-            let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
-                .expect("explicit Catalog admin test database URL");
-            let catalog_admin_pool = PgPool::connect(&catalog_admin_url).await.unwrap();
+            let catalog_admin_pool =
+                mutation.pool(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter);
             crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v1(
-                &catalog_admin_pool,
+                catalog_admin_pool,
             )
             .await
             .unwrap();
