@@ -2632,6 +2632,17 @@ mod postgres_freshness_tests {
         )
         .await
         .unwrap();
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        {
+            let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
+                .expect("explicit Catalog admin test database URL");
+            let catalog_admin_pool = PgPool::connect(&catalog_admin_url).await.unwrap();
+            crate::replay_policy_catalog_postgres_v2::ensure_authenticated_sealed_acceptance_fixture_v1(
+                &catalog_admin_pool,
+            )
+            .await
+            .unwrap();
+        }
         let intent_identity = research_owner
             .submit_v2(research_request(&research_identity, research_admission))
             .await
