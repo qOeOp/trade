@@ -117,6 +117,11 @@ mod robustness;
 mod schema_materialization;
 mod software_control;
 pub mod source_intake;
+#[allow(
+    dead_code,
+    reason = "the Source-to-Research-to-Composer root is reachable only from the pending sealed A2 assembly"
+)]
+mod source_research_composer_postgres_v2;
 pub mod status;
 pub mod strategy_design_v2;
 #[cfg(test)]

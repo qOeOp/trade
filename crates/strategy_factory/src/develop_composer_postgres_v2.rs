@@ -1632,7 +1632,9 @@ impl PostgresDevelopComposerStoreV2 {
         })
     }
 
-    async fn begin_read_transaction(&self) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
+    pub(crate) async fn begin_read_transaction(
+        &self,
+    ) -> Result<Transaction<'_, Postgres>, sqlx::Error> {
         let mut transaction = self.read_pool.begin().await?;
         verify_transaction_database(&mut transaction, &self.database_fingerprint).await?;
         Ok(transaction)
@@ -1678,6 +1680,21 @@ impl PostgresDevelopComposerStoreV2 {
             request_identity,
             "current Owner evidence is unavailable for public durable RESOLVE",
         ))
+    }
+
+    /// Reads only the immutable identities needed to re-establish final Owner evidence.
+    ///
+    /// The returned value contains no caller-supplied Research locator. A composition root must
+    /// match it against canonical Research Owner custody before calling durable `RESOLVE`.
+    pub(crate) async fn durable_evidence_locator(
+        &self,
+        request_identity: &str,
+    ) -> Result<Option<DevelopComposerDurableEvidenceLocatorV2>, sqlx::Error> {
+        load_record(self, request_identity).await.map(|record| {
+            record
+                .as_ref()
+                .map(DevelopComposerDurableEvidenceLocatorV2::from_record)
+        })
     }
 
     pub(crate) async fn resolve_with_evidence(
