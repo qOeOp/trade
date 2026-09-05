@@ -94,7 +94,7 @@ function validProviderInvocationClaimEnvelopeV1(
     "admission_identity", "attempt_identity", "claim_digest", "claim_identity",
     "committed_at_epoch_ms", "disposition", "invocation_admission_receipt_digest",
     "invocation_admission_receipt_identity", "next_legal_action", "request_identity",
-    "schema_version", "state", "state_digest", "state_updated_at_epoch_ms",
+    "schema_version", "state", "state_digest",
   ])
     && claim.schema_version === 1
     && claim.request_identity === buildRequestIdentity
@@ -107,8 +107,6 @@ function validProviderInvocationClaimEnvelopeV1(
     && nonEmpty(claim.state_digest)
     && Number.isSafeInteger(claim.committed_at_epoch_ms)
     && Number(claim.committed_at_epoch_ms) >= 0
-    && Number.isSafeInteger(claim.state_updated_at_epoch_ms)
-    && Number(claim.state_updated_at_epoch_ms) >= Number(claim.committed_at_epoch_ms)
     && ["CLAIMED_NEW", "ALREADY_CLAIMED"].includes(String(claim.disposition))
     && (claim.state !== "INVOCATION_STARTED" || claim.disposition === "ALREADY_CLAIMED")
 }
