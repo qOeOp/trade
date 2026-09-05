@@ -1,0 +1,46 @@
+{
+  "name": "@trade/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "start": "next start",
+    "build": "next build",
+    "run-store:migrate": "node scripts/migrate-run-store.mjs",
+    "test:postgres": "node --test tests/run-store.postgres.test.mjs",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "node --test tests/*.test.mjs",
+    "check": "npm run test && npm run typecheck && npm run build"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "1.2.4",
+    "@tanstack/react-table": "^9.2.4",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "framer-motion": "12.34.3",
+    "lucide-react": "0.562.0",
+    "motion": "12.34.3",
+    "motion-dom": "12.34.3",
+    "motion-utils": "12.29.2",
+    "next": "16.3.3",
+    "pg": "8.23.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-use-event-hook": "0.9.6",
+    "tailwind-merge": "3.4.0",
+    "tw-animate-css": "1.4.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.1.18",
+    "@types/node": "26.1.2",
+    "@types/pg": "8.23.1",
+    "@types/react": "19.2.8",
+    "@types/react-dom": "19.2.3",
+    "tailwindcss": "4.1.18",
+    "typescript": "5.9.3"
+  }
+}
