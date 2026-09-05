@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import ts from "typescript";
+import * as workerContract from "../lib/worker-browser-contract.ts";
 
 const root = new URL("../", import.meta.url);
 
@@ -56,8 +57,72 @@ test("Workers uses the shared Vibe, table, and Lucide-backed atoms", async () =>
     "DataWorkspaceTable", "DataTableSurface", "DetailInspector", "SplitBento",
   ]) assert.match(workers, new RegExp(shared));
   assert.match(workers, /from "\.\/ui\/iconography"/);
+  assert.match(workers, /encodeWorkerIdentitySegmentV1\(worker\.worker_identity\)/);
   assert.doesNotMatch(workers, /from "lucide-react"/);
   assert.doesNotMatch(workers, /#[0-9a-fA-F]{3,8}/);
+});
+
+test("Next worker page and API decode the same normalized identity and reject aliases before store reads", async () => {
+  const require = createRequire(import.meta.url);
+  const reads = [];
+  let requestedIdentity;
+  const load = (path) => {
+    if (path === "react/jsx-runtime") return require(path);
+    if (path.includes("worker-browser-contract")) return workerContract;
+    if (path.includes("dashboard-shell")) return { DashboardShell: () => null };
+    if (path === "next/navigation") return { notFound: () => { throw new Error("NOT_FOUND"); } };
+    if (path === "next/server") return { NextResponse: { json: (body, init) => Response.json(body, init) } };
+    if (path.includes("run-store")) return { configuredRunStoreV1: () => ({
+      assertSchema: async () => {},
+      readShadowWorker: async (identity) => {
+        reads.push(identity);
+        assert.equal(identity, requestedIdentity);
+        return {
+          observed_at: "2026-09-01T10:00:00.000Z",
+          worker: {
+            schema_version: 1, worker_identity: identity, operation_ids: ["source_intake.shadow_read.v1"],
+            worker_artifact_digest: `sha256:${"a".repeat(64)}`, lease_state: "available",
+            registered_at: "2026-09-01T09:00:00.000Z", last_heartbeat_at: "2026-09-01T09:59:50.000Z",
+            lease_expires_at: "2026-09-01T10:00:20.000Z", job_count: 0, active_job_count: 0,
+            last_run_identity: null, last_run_state: null, last_run_at: null,
+          },
+        };
+      },
+    }) };
+    throw new Error(`Unexpected dependency ${path}`);
+  };
+  const compile = async (path) => {
+    const exports = {};
+    const result = ts.transpileModule(await source(path), {
+      compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+    });
+    new Function("require", "exports", result.outputText)(load, exports);
+    return exports;
+  };
+  const page = await compile("app/operations/workers/[workerIdentity]/page.tsx");
+  const api = await compile("app/api/operations/workers/[workerIdentity]/route.ts");
+  for (const identity of [".", "..", "plain-worker", "group:worker/a"]) {
+    requestedIdentity = identity;
+    const segment = workerContract.encodeWorkerIdentitySegmentV1(identity);
+    const pageUrl = new URL(`/operations/workers/${segment}/`, "http://dashboard.test");
+    const params = { workerIdentity: decodeURIComponent(pageUrl.pathname.split("/")[3]) };
+    const element = await page.default({ params: Promise.resolve(params) });
+    assert.equal(element.props.workerIdentity, identity);
+    const response = await api.GET(new Request(`http://dashboard.test/api/operations/workers/${segment}/`), {
+      params: Promise.resolve(params),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(workerContract.parseWorkerDetailBrowserEnvelopeV1(await response.json(), identity)?.worker.worker_identity, identity);
+  }
+  const before = reads.length;
+  for (const segment of ["~dot.other", "~dotdotdot", "%2E", "%7Edot"]) {
+    const params = Promise.resolve({ workerIdentity: segment });
+    await assert.rejects(page.default({ params }), /NOT_FOUND/);
+    const response = await api.GET(new Request("http://dashboard.test"), { params });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).worker, null);
+  }
+  assert.equal(reads.length, before);
 });
 
 test("exact detail rendering is independent of list availability", async () => {

@@ -46,6 +46,20 @@ export function isWorkerIdentityV1(value: unknown): value is string {
   return typeof value === "string" && IDENTITY.test(value);
 }
 
+// "~" is outside the Owner identity alphabet, so these transport markers cannot collide.
+export function encodeWorkerIdentitySegmentV1(identity: string): string {
+  if (!isWorkerIdentityV1(identity)) throw new Error("WORKER_IDENTITY_INVALID");
+  return encodeURIComponent(identity === "." ? "~dot" : identity === ".." ? "~dotdot" : identity);
+}
+
+// Next supplies an already percent-decoded segment; never decode a second time.
+export function decodeWorkerIdentitySegmentV1(segment: string): string | null {
+  if (segment === "~dot") return ".";
+  if (segment === "~dotdot") return "..";
+  if (segment === "." || segment === "..") return null;
+  return isWorkerIdentityV1(segment) ? segment : null;
+}
+
 function object(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -139,9 +153,11 @@ export async function readWorkerBrowserResponsesV1(
     const response = await fetcher(url, { method: "GET", cache: "no-store" });
     return response.ok === true ? response.json() : null;
   };
+  const readDetail = async () => workerIdentity
+    ? read(`/api/operations/workers/${encodeWorkerIdentitySegmentV1(workerIdentity)}/`) : null;
   const [listResponse, detailResponse] = await Promise.allSettled([
     read("/api/operations/workers/"),
-    workerIdentity ? read(`/api/operations/workers/${encodeURIComponent(workerIdentity)}/`) : Promise.resolve(null),
+    readDetail(),
   ]);
   const observed_at = new Date().toISOString();
   const list: WorkerBrowserEnvelopeV1 = (listResponse.status === "fulfilled"

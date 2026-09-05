@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   readWorkerBrowserResponsesV1,
+  encodeWorkerIdentitySegmentV1,
   type WorkerBrowserEnvelopeV1,
   type WorkerDetailBrowserEnvelopeV1,
   type WorkerBrowserProjectionV1,
@@ -172,7 +173,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       minWidth: "250px",
       grow: 1.35,
       ignoreRowClick: true,
-      cell: (worker) => <a className="table-cell-stack" href={`/operations/workers/${encodeURIComponent(worker.worker_identity)}`}>
+      cell: (worker) => <a className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
         <b>{worker.worker_identity}</b><span>Registered {displayTime(worker.registered_at)}</span>
       </a>,
     },

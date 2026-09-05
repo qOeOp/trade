@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { configuredRunStoreV1 } from "@/lib/run-store";
-import { isWorkerIdentityV1 } from "@/lib/worker-browser-contract";
+import { decodeWorkerIdentitySegmentV1 } from "@/lib/worker-browser-contract";
 
 export const dynamic = "force-dynamic";
 
@@ -21,8 +21,9 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ workerIdentity: string }> },
 ) {
-  const { workerIdentity } = await params;
-  if (!isWorkerIdentityV1(workerIdentity)) return unavailable(workerIdentity, "WORKER_IDENTITY_INVALID", 400);
+  const { workerIdentity: segment } = await params;
+  const workerIdentity = decodeWorkerIdentitySegmentV1(segment);
+  if (workerIdentity === null) return unavailable(segment, "WORKER_IDENTITY_INVALID", 400);
   try {
     const store = configuredRunStoreV1();
     if (!store) return unavailable(workerIdentity, "RUN_STORE_CONFIGURATION_UNAVAILABLE", 503);

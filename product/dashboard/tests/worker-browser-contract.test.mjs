@@ -5,6 +5,8 @@ import {
   parseWorkerBrowserEnvelopeV1,
   parseWorkerDetailBrowserEnvelopeV1,
   readWorkerBrowserResponsesV1,
+  encodeWorkerIdentitySegmentV1,
+  decodeWorkerIdentitySegmentV1,
 } from "../lib/worker-browser-contract.ts";
 
 const observedAt = "2026-09-01T10:00:00.000Z";
@@ -41,6 +43,38 @@ test("worker envelope accepts exact lease, job and capability readback", () => {
   const parsed = parseWorkerBrowserEnvelopeV1(envelope());
   assert.equal(parsed?.workers[0].last_run_identity, runIdentity);
   assert.equal(parsed?.workers[0].active_job_count, 1);
+});
+
+test("worker transport survives URL dot normalization and preserves exact response binding", async () => {
+  for (const identity of [".", "..", "a-worker", ".worker", "..worker", "group:worker/a"]) {
+    const segment = encodeWorkerIdentitySegmentV1(identity);
+    const page = new URL(`/operations/workers/${segment}/`, "http://dashboard.test");
+    assert.equal(page.pathname, `/operations/workers/${segment}/`);
+    const pageIdentity = decodeWorkerIdentitySegmentV1(decodeURIComponent(page.pathname.split("/")[3]));
+    assert.equal(pageIdentity, identity);
+    const result = await readWorkerBrowserResponsesV1(async (url) => {
+      if (url === "/api/operations/workers/") return Response.json(envelope({ workers: [] }));
+      const request = new URL(url, "http://dashboard.test");
+      assert.equal(request.pathname, `/api/operations/workers/${segment}/`);
+      const decoded = decodeWorkerIdentitySegmentV1(decodeURIComponent(request.pathname.split("/")[4]));
+      assert.equal(decoded, identity);
+      return Response.json(detailEnvelope({
+        requested_worker_identity: decoded, worker: { ...worker, worker_identity: decoded },
+      }));
+    }, pageIdentity);
+    assert.equal(result.detail.availability, "available");
+    assert.equal(result.detail.worker.worker_identity, identity);
+    const mismatch = detailEnvelope({
+      requested_worker_identity: "other-worker", worker: { ...worker, worker_identity: "other-worker" },
+    });
+    assert.equal(parseWorkerDetailBrowserEnvelopeV1(mismatch, identity), null);
+  }
+  for (const alias of [".", "..", "~", "~dot.other", "~dotdotdot", "%2E", "%2E%2E", "%7Edot"]) {
+    assert.equal(decodeWorkerIdentitySegmentV1(alias), null);
+  }
+  for (const invalidIdentity of ["~dot", "~dotdot", "%2E", "%7Edot"]) {
+    assert.throws(() => encodeWorkerIdentitySegmentV1(invalidIdentity), /WORKER_IDENTITY_INVALID/);
+  }
 });
 
 test("worker identity uniqueness does not impose JavaScript ordering on database collation", () => {
