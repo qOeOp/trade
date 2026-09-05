@@ -36,24 +36,28 @@ export type SourceIntakeResearchOperationV1 = {
 
 const OWNER_URL = "http://rd-owner-api:8080"
 
-function validOperation(value: SourceIntakeResearchOperationV1): boolean {
+function validIdentity(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 256
+}
+
+function validOperation(value: SourceIntakeResearchOperationV1 | null | undefined): value is SourceIntakeResearchOperationV1 {
   const requestIdentity = value?.proposal?.request_identity
-  return typeof requestIdentity === "string"
-    && requestIdentity.length > 0
+  return validIdentity(requestIdentity)
     && value.proposal.channel === "WINDMILL_PRODUCT_EDGE"
-    && value.ancestry.request_identity === value.policy_query.request_identity
+    && value.ancestry?.request_identity === value.policy_query?.request_identity
 }
 
 async function runOwnerOperation(
   action: Action,
-  operation: SourceIntakeResearchOperationV1,
+  requestIdentity: string,
+  operation: SourceIntakeResearchOperationV1 | null | undefined,
 ) {
-  const requestIdentity = operation?.proposal?.request_identity ?? "unbound"
   const token = process.env.RD_OWNER_API_TOKEN
-  if (!token || !validOperation(operation)) return unknownResearchProjectionV1(requestIdentity)
+  if (!token) return unknownResearchProjectionV1(requestIdentity)
   const path = action === "RESOLVE"
     ? `/v1/source-intake-research/${encodeURIComponent(requestIdentity)}/resolve`
     : "/v1/source-intake-research"
+  const body = action === "RUN" ? JSON.stringify(operation) : undefined
   try {
     const response = await fetch(`${OWNER_URL}${path}`, {
       method: "POST",
@@ -61,7 +65,7 @@ async function runOwnerOperation(
         authorization: `Bearer ${token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify(operation),
+      ...(body === undefined ? {} : { body }),
       signal: AbortSignal.timeout(8_000),
     })
     if (response.status >= 500) return unknownResearchProjectionV1(requestIdentity)
@@ -73,10 +77,18 @@ async function runOwnerOperation(
 
 export async function main(
   action: Action,
-  operation: SourceIntakeResearchOperationV1,
+  request_identity: string,
+  operation?: SourceIntakeResearchOperationV1 | null,
 ) {
-  const requestIdentity = operation?.proposal?.request_identity ?? "unbound"
-  const raw = await runOwnerOperation(action, operation)
+  const requestIdentity = validIdentity(request_identity) ? request_identity : "unbound"
+  const validRun = action === "RUN"
+    && validOperation(operation)
+    && operation.proposal.request_identity === request_identity
+  const validResolve = action === "RESOLVE" && (operation === null || operation === undefined)
+  if (!validIdentity(request_identity) || (!validRun && !validResolve)) {
+    return unknownResearchProjectionV1(requestIdentity)
+  }
+  const raw = await runOwnerOperation(action, requestIdentity, operation)
   return await verifyResearchConsumerProjectionV1(
     await deriveResearchConsumerProjectionV1(raw, requestIdentity),
     requestIdentity,

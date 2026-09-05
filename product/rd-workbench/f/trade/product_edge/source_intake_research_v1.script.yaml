@@ -1,4 +1,4 @@
-summary: Run or resolve Source Intake ancestry into canonical Research custody
+summary: Run or identity-only resolve Source Intake ancestry into canonical Research custody
 description: >-
   Sends only an untrusted Research proposal, exact Source Intake ancestry
   references, and a current-policy query to the R&D Owner.
@@ -10,6 +10,7 @@ schema:
   additionalProperties: false
   order:
     - action
+    - request_identity
     - operation
   properties:
     action:
@@ -17,21 +18,43 @@ schema:
       enum:
         - RUN
         - RESOLVE
+    request_identity:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: Exact caller-owned identity used by RUN and same-identity RESOLVE.
     operation:
-      type: object
-      additionalProperties: false
-      properties:
-        proposal:
-          type: object
-        ancestry:
-          type: object
-        policy_query:
-          type: object
-      required:
-        - proposal
-        - ancestry
-        - policy_query
+      description: Typed Source Intake Research operation for RUN; null for RESOLVE.
+      oneOf:
+        - type: "null"
+        - type: object
+          additionalProperties: false
+          properties:
+            proposal:
+              type: object
+            ancestry:
+              type: object
+            policy_query:
+              type: object
+          required:
+            - proposal
+            - ancestry
+            - policy_query
   required:
     - action
+    - request_identity
     - operation
+  allOf:
+    - if:
+        properties:
+          action: {const: RUN}
+      then:
+        properties:
+          operation: {type: object}
+    - if:
+        properties:
+          action: {const: RESOLVE}
+      then:
+        properties:
+          operation: {type: "null"}
 tag: rd-product-edge

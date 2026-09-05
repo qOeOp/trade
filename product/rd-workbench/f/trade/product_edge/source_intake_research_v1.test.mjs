@@ -49,54 +49,67 @@ function withTransport(handler, run) {
   })
 }
 
-test("RUN sends only the typed untrusted proposal and locator operation", async () => {
+test("RUN binds the path identity and sends the complete typed operation", async () => {
   await withTransport(async (url, request) => {
     assert.equal(url, "http://rd-owner-api:8080/v1/source-intake-research")
     assert.deepEqual(JSON.parse(request.body), operation)
     return new Response(JSON.stringify(fixture), { status: 200 })
   }, async () => {
-    const result = await main("RUN", operation)
+    const result = await main("RUN", operation.proposal.request_identity, operation)
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
     assert.equal(result.request_identity, operation.proposal.request_identity)
   })
 })
 
-test("RESOLVE replays the exact same meaning at the same request identity", async () => {
+test("RESOLVE uses only the encoded same request identity and sends no body", async () => {
+  const identity = "source-research/request 1"
+  const response = { ...fixture, request_identity: identity }
+  let calls = 0
   await withTransport(async (url, request) => {
+    calls += 1
     assert.equal(
       url,
-      "http://rd-owner-api:8080/v1/source-intake-research/source-research-request-1/resolve",
+      "http://rd-owner-api:8080/v1/source-intake-research/source-research%2Frequest%201/resolve",
     )
-    assert.deepEqual(JSON.parse(request.body), operation)
-    return new Response(JSON.stringify(fixture), { status: 200 })
+    assert.equal(request.body, undefined)
+    return new Response(JSON.stringify(response), { status: 200 })
   }, async () => {
-    const result = await main("RESOLVE", operation)
+    const result = await main("RESOLVE", identity, null)
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
+    assert.equal(result.request_identity, identity)
     assert.deepEqual(result.consumer_projection, {
       schema_version: 1,
       operation: "research_goal.consumer_projection.v1",
       owner_operation: "research_goal.submit_or_resolve.v2",
       owner_schema: "sourced-research-goal-v2",
     })
+    assert.equal((await main("RESOLVE", identity)).request_identity, identity)
   })
+  assert.equal(calls, 2)
 })
 
 test("transport failure remains submitted-or-unknown with no positive custody", async () => {
   await withTransport(async () => { throw new Error("response lost") }, async () => {
-    const result = await main("RUN", operation)
+    const result = await main("RUN", operation.proposal.request_identity, operation)
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
     assert.equal(result.owner_receipt, null)
     assert.equal(result.research_view, null)
   })
 })
 
-test("cross-bound ancestry and policy locators fail before transport", async () => {
+test("cross-bound identities and RESOLVE body injection fail before transport", async () => {
   let invoked = false
   const mismatched = structuredClone(operation)
   mismatched.policy_query.request_identity = "other-source-request"
   await withTransport(async () => { invoked = true }, async () => {
-    const result = await main("RUN", mismatched)
+    const result = await main("RUN", operation.proposal.request_identity, mismatched)
     assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
+
+    const pathMismatch = await main("RUN", "other-research-request", operation)
+    assert.equal(pathMismatch.resolution, "SUBMITTED_OR_UNKNOWN")
+
+    const resolveWithBody = await main("RESOLVE", operation.proposal.request_identity, operation)
+    assert.equal(resolveWithBody.resolution, "SUBMITTED_OR_UNKNOWN")
   })
   assert.equal(invoked, false)
 })
