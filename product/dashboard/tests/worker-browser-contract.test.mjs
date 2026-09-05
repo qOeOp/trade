@@ -77,6 +77,76 @@ test("worker transport survives URL dot normalization and preserves exact respon
   }
 });
 
+test("lease states are closed primitive strings and malformed JSON stays endpoint-local", async () => {
+  for (const lease_state of ["available", "expired"]) {
+    const valid = { ...worker, lease_state,
+      lease_expires_at: lease_state === "expired" ? observedAt : worker.lease_expires_at };
+    assert.deepEqual(parseWorkerBrowserEnvelopeV1(envelope({ workers: [valid] }))?.workers, [valid]);
+    assert.deepEqual(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: valid }), worker.worker_identity)?.worker, valid);
+    for (const invalidState of [[lease_state], [], {}, { toString: null }, null, 0, 1, true, false, "unknown", ""]) {
+      const invalid = { ...valid, lease_state: invalidState };
+      assert.equal(parseWorkerBrowserEnvelopeV1(envelope({ workers: [invalid] })), null);
+      assert.equal(parseWorkerDetailBrowserEnvelopeV1(detailEnvelope({ worker: invalid }), worker.worker_identity), null);
+      for (const failedEndpoint of ["list", "detail"]) {
+        const result = await readWorkerBrowserResponsesV1(async (url) => {
+          const endpoint = url === "/api/operations/workers/" ? "list" : "detail";
+          const row = endpoint === failedEndpoint ? invalid : valid;
+          return Response.json(endpoint === "list" ? envelope({ workers: [row] }) : detailEnvelope({ worker: row }));
+        }, worker.worker_identity);
+        assert.equal(result[failedEndpoint].availability, "unavailable");
+        const other = failedEndpoint === "list" ? "detail" : "list";
+        assert.equal(result[other].availability, "available");
+        assert.deepEqual(other === "list" ? result.list.workers : [result.detail.worker], [valid]);
+      }
+    }
+  }
+});
+
+test("404 preserves only strict identity-bound missing detail, never positive or malformed data", async () => {
+  for (const identity of [worker.worker_identity, ".", "..", "group:worker/a"]) {
+    const missing = detailEnvelope({
+      requested_worker_identity: identity, availability: "unavailable",
+      unavailable_reason: "WORKER_NOT_FOUND", worker: null,
+    });
+    for (const listStatus of [200, 503]) {
+      const result = await readWorkerBrowserResponsesV1(async (url) =>
+        Response.json(url === "/api/operations/workers/" ? envelope() : missing, {
+          status: url === "/api/operations/workers/" ? listStatus : 404,
+        }), identity);
+      assert.deepEqual(result.detail, missing);
+      assert.equal(result.list.availability, listStatus === 200 ? "available" : "unavailable");
+    }
+    for (const body of [
+      detailEnvelope({ requested_worker_identity: identity, worker: { ...worker, worker_identity: identity } }),
+      { ...missing, requested_worker_identity: "different-worker" },
+      { ...missing, worker },
+      { ...missing, extra: true },
+      { ...missing, unavailable_reason: "WORKER_STORE_UNAVAILABLE" },
+      { ...missing, observed_at: null },
+      { ...missing, operation: "dashboard.shadow_workers.list.v1" },
+      { ...missing, schema_version: 2 },
+      { ...missing, availability: "available" },
+      null, [],
+    ]) {
+      const result = await readWorkerBrowserResponsesV1(async (url) =>
+        Response.json(url === "/api/operations/workers/" ? envelope() : body, {
+          status: url === "/api/operations/workers/" ? 200 : 404,
+        }), identity);
+      assert.equal(result.detail.unavailable_reason, "WORKER_DETAIL_RESPONSE_UNAVAILABLE");
+      assert.equal(result.detail.worker, null);
+      assert.deepEqual(result.list.workers, [worker]);
+    }
+    for (const status of [403, 500, 503]) {
+      const result = await readWorkerBrowserResponsesV1(async (url) =>
+        Response.json(url === "/api/operations/workers/" ? envelope() : missing, {
+          status: url === "/api/operations/workers/" ? 200 : status,
+        }), identity);
+      assert.equal(result.detail.unavailable_reason, "WORKER_DETAIL_RESPONSE_UNAVAILABLE");
+      assert.equal(result.list.availability, "available");
+    }
+  }
+});
+
 test("worker identity uniqueness does not impose JavaScript ordering on database collation", () => {
   const a = { ...worker, worker_identity: "a-worker" };
   const z = { ...worker, worker_identity: "Z-worker" };

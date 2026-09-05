@@ -90,7 +90,7 @@ function parseWorker(value: unknown, observedAt: string): WorkerBrowserProjectio
       && Number(operationOrder.get(receivedOperations[index - 1] as RegisteredOperationId))
         >= Number(operationOrder.get(id as RegisteredOperationId)))
     || typeof value.worker_artifact_digest !== "string" || !DIGEST.test(value.worker_artifact_digest)
-    || !["available", "expired"].includes(String(value.lease_state))
+    || (value.lease_state !== "available" && value.lease_state !== "expired")
     || !timestamp(value.registered_at) || !timestamp(value.last_heartbeat_at)
     || !timestamp(value.lease_expires_at) || Date.parse(value.registered_at) > Date.parse(value.last_heartbeat_at)
     || Date.parse(value.last_heartbeat_at) >= Date.parse(value.lease_expires_at)
@@ -149,25 +149,34 @@ export async function readWorkerBrowserResponsesV1(
   fetcher: (url: string, init: RequestInit) => Promise<Response>,
   workerIdentity: string | null,
 ) {
-  const read = async (url: string) => {
-    const response = await fetcher(url, { method: "GET", cache: "no-store" });
-    return response.ok === true ? response.json() : null;
+  const readList = async () => {
+    const response = await fetcher("/api/operations/workers/", { method: "GET", cache: "no-store" });
+    return response.ok === true ? parseWorkerBrowserEnvelopeV1(await response.json()) : null;
   };
-  const readDetail = async () => workerIdentity
-    ? read(`/api/operations/workers/${encodeWorkerIdentitySegmentV1(workerIdentity)}/`) : null;
+  const readDetail = async () => {
+    if (!workerIdentity) return null;
+    const response = await fetcher(`/api/operations/workers/${encodeWorkerIdentitySegmentV1(workerIdentity)}/`, {
+      method: "GET", cache: "no-store",
+    });
+    if (response.ok !== true && response.status !== 404) return null;
+    const detail = parseWorkerDetailBrowserEnvelopeV1(await response.json(), workerIdentity);
+    if (response.ok === true) return detail;
+    return detail?.availability === "unavailable" && detail.unavailable_reason === "WORKER_NOT_FOUND"
+      && detail.worker === null ? detail : null;
+  };
   const [listResponse, detailResponse] = await Promise.allSettled([
-    read("/api/operations/workers/"),
+    readList(),
     readDetail(),
   ]);
   const observed_at = new Date().toISOString();
   const list: WorkerBrowserEnvelopeV1 = (listResponse.status === "fulfilled"
-    ? parseWorkerBrowserEnvelopeV1(listResponse.value) : null) ?? {
+    ? listResponse.value : null) ?? {
     schema_version: 1, operation: "dashboard.shadow_workers.list.v1", availability: "unavailable",
     unavailable_reason: listResponse.status === "rejected" ? "WORKER_TRANSPORT_UNAVAILABLE" : "WORKER_RESPONSE_UNAVAILABLE",
     observed_at, workers: [],
   };
   const detail: WorkerDetailBrowserEnvelopeV1 | null = workerIdentity ? (
-    (detailResponse.status === "fulfilled" ? parseWorkerDetailBrowserEnvelopeV1(detailResponse.value, workerIdentity) : null) ?? {
+    (detailResponse.status === "fulfilled" ? detailResponse.value : null) ?? {
       schema_version: 1, operation: "dashboard.shadow_workers.detail.v1", availability: "unavailable",
       unavailable_reason: detailResponse.status === "rejected" ? "WORKER_DETAIL_TRANSPORT_UNAVAILABLE" : "WORKER_DETAIL_RESPONSE_UNAVAILABLE",
       observed_at, requested_worker_identity: workerIdentity, worker: null,
