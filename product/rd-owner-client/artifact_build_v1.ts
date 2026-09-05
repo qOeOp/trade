@@ -15,7 +15,6 @@ export type ArtifactBuildExecutionRuntimeV1 = {
   provider_model: string
   dispatcher: "WINDMILL" | "TRADE_DASHBOARD"
   fetcher: Fetcher
-  verified_s1_context?: VerifiedS1ConsumerContextV1
   observe_phase?: (phase: "OWNER_CLAIMED" | "INVOCATION_STARTED") => Promise<void>
 }
 
