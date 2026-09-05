@@ -16,6 +16,11 @@ sealed-source-intake-acceptance = [
   "vibe-strategy-factory/sealed-source-intake-acceptance",
   "vibe-strategy-factory/sealed-source-intake-research-acceptance",
 ]
+sealed-source-intake-composer-acceptance = [
+  "sealed-source-intake-acceptance",
+  "sealed-develop-composer-acceptance",
+  "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
+]
 sealed-develop-composer-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
 ]

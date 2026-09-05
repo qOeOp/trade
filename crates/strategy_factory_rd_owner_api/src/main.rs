@@ -55,13 +55,25 @@ use vibe_strategy_factory::{
 
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
-#[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+#[cfg(any(
+    not(feature = "sealed-develop-composer-acceptance"),
+    feature = "sealed-source-intake-composer-acceptance"
+))]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
+#[cfg(all(
+    feature = "sealed-develop-composer-acceptance",
+    any(test, not(feature = "sealed-source-intake-composer-acceptance"))
+))]
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2;
+#[cfg(all(
+    feature = "sealed-develop-composer-acceptance",
+    not(feature = "sealed-source-intake-composer-acceptance")
+))]
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
-    SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
-    submitted_or_unknown_response,
-};
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::source_research_composer_postgres_v2::SealedPostgresSourceResearchComposerV2;
 
 mod exploratory_replay;
 mod source_intake;
@@ -76,8 +88,13 @@ struct ApiState {
     request_proof_digest: String,
     allow_acceptance_faults: bool,
     _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
@@ -207,9 +224,20 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     let develop_composer = Arc::new(
         SealedDevelopComposerAcceptanceV2::connect_with_writer(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let develop_composer = Arc::new(
+        SealedPostgresSourceResearchComposerV2::connect(
             &database_url,
             &composer_writer_database_url,
         )
@@ -448,7 +476,10 @@ async fn run_develop_composer(
         )
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     {
         if develop_composer_body_injects_evidence(&body) {
             return composer_response(
@@ -462,6 +493,27 @@ async fn run_develop_composer(
             Err(_) => composer_response(
                 StatusCode::ACCEPTED,
                 submitted_or_unknown_response(SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2),
+            ),
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    {
+        let request: DevelopComposerRunRequestV2 = match serde_json::from_slice(&body) {
+            Ok(request) => request,
+            Err(_) => {
+                return composer_response(
+                    StatusCode::BAD_REQUEST,
+                    default_unavailable_response("unbound"),
+                );
+            }
+        };
+        let request_identity = request.request_identity.clone();
+        match state.develop_composer.run(&request).await {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::ACCEPTED,
+                submitted_or_unknown_response(&request_identity),
             ),
         }
     }
@@ -489,9 +541,30 @@ async fn resolve_develop_composer(
         )
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     {
         if develop_composer_body_injects_evidence(&body) {
+            return composer_response(
+                StatusCode::BAD_REQUEST,
+                default_unavailable_response(&request_identity),
+            );
+        }
+
+        match state.develop_composer.resolve(&request_identity).await {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::ACCEPTED,
+                submitted_or_unknown_response(&request_identity),
+            ),
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    {
+        if !body.is_empty() {
             return composer_response(
                 StatusCode::BAD_REQUEST,
                 default_unavailable_response(&request_identity),
@@ -527,7 +600,13 @@ fn composer_response(status: StatusCode, response: DevelopComposerOperationRespo
     (status, Json(response)).into_response()
 }
 
-#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+#[cfg(any(
+    test,
+    all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    )
+))]
 fn develop_composer_body_injects_evidence(body: &[u8]) -> bool {
     body.iter().any(|byte| !byte.is_ascii_whitespace())
 }
@@ -1989,9 +2068,21 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(all(
+                feature = "sealed-develop-composer-acceptance",
+                not(feature = "sealed-source-intake-composer-acceptance")
+            ))]
             develop_composer: Arc::new(
                 SealedDevelopComposerAcceptanceV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            develop_composer: Arc::new(
+                SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
                 )
                 .await

@@ -9,7 +9,7 @@
 
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Transaction};
-use vibe_common::clock::Clock;
+use vibe_common::{clock::Clock, live::clock::LiveClock};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
@@ -28,7 +28,7 @@ use crate::{
     strategy_plan_v2::VerifiedStrategyInputBindingsV2,
 };
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::{
     develop_plugin_build_v2::{
         DevelopPluginBuildTerminalKindV2, UntrustedDevelopPluginCapsuleV2,
@@ -38,10 +38,7 @@ use crate::{
     strategy_plan_v2::{StrategyDesignPreparationV2, prepare_strategy_design_v2},
 };
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_common::live::clock::LiveClock;
-
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_data::owner::pit_snapshot::sealed_acceptance::{
     SealedAcceptanceStrategyInputUniverseFrame, issue_source_intake_composer_universe_frame,
 };
@@ -75,10 +72,10 @@ pub(crate) trait SourceResearchComposerBindingOwnerV2: Send + Sync {
 /// facts nor a receipt/locator/clock substitute. The enclosing Composer preflight still treats the
 /// public binding requests as untrusted proposals and proves that the fixed Owner frame binds the
 /// canonically reread Research custody and prepared Design.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 struct SealedSourceResearchComposerBindingOwnerV2;
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[async_trait::async_trait]
 impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindingOwnerV2 {
     async fn lock_for_run(
@@ -122,13 +119,13 @@ impl SourceResearchComposerBindingOwnerV2 for SealedSourceResearchComposerBindin
     }
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn sealed_a2_market_authority()
 -> Result<SealedAcceptanceStrategyInputUniverseFrame, DevelopComposerTerminalV2> {
     issue_source_intake_composer_universe_frame().map_err(|_| market_data_unavailable())
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn verify_sealed_a2_market_authority(
     authority: &SealedAcceptanceStrategyInputUniverseFrame,
     research_request_identity: BindingDigest,
@@ -145,7 +142,7 @@ fn verify_sealed_a2_market_authority(
     Ok(())
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 fn market_data_unavailable() -> DevelopComposerTerminalV2 {
     DevelopComposerTerminalV2::unavailable(
         "market_data_binding",
@@ -155,10 +152,10 @@ fn market_data_unavailable() -> DevelopComposerTerminalV2 {
 
 /// Fixed A0 adapter for the A2 composition. It accepts only the manifest and capsule already
 /// carried by the fixed Composer corpus and delegates to the sole sealed-corpus verifier.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 struct SealedSourceResearchComposerA0BuildV2;
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
     fn build(
         &mut self,
@@ -181,22 +178,19 @@ impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
 
 /// One fixed A2 composition root. The binding Owner is injected by trusted assembly code, not by
 /// the request or a runtime provider selector.
-pub(crate) struct PostgresSourceResearchComposerV2<B, C> {
+pub(crate) struct PostgresSourceResearchComposerV2<B> {
     store: PostgresDevelopComposerStoreV2,
     binding_owner: B,
-    clock: C,
 }
 
-impl<B, C> PostgresSourceResearchComposerV2<B, C>
+impl<B> PostgresSourceResearchComposerV2<B>
 where
     B: SourceResearchComposerBindingOwnerV2,
-    C: Clock,
 {
     pub(crate) async fn connect(
         rd_owner_database_url: &str,
         rd_fact_writer_database_url: &str,
         binding_owner: B,
-        clock: C,
     ) -> Result<Self, sqlx::Error> {
         Ok(Self {
             store: PostgresDevelopComposerStoreV2::connect(
@@ -205,7 +199,6 @@ where
             )
             .await?,
             binding_owner,
-            clock,
         })
     }
 
@@ -215,7 +208,7 @@ where
         builder: &mut impl DevelopComposerA0BuildPortV2,
         request: &DevelopComposerRunRequestV2,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let read_cut_epoch_ms = self.clock.timestamp_ms();
+        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let mut owner_transaction = self.store.begin_read_transaction().await?;
         let locked = self
             .lock_run_evidence(&mut owner_transaction, request, read_cut_epoch_ms)
@@ -234,7 +227,7 @@ where
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        let read_cut_epoch_ms = self.clock.timestamp_ms();
+        let read_cut_epoch_ms = current_read_cut_epoch_ms();
         let Some(locator) = self
             .store
             .durable_evidence_locator(request_identity)
@@ -319,18 +312,18 @@ where
 }
 
 /// Fixed A2 assembly: sealed Market Data Owner, sealed A0 builder, and an internally selected
-/// monotonic realtime clock.
+/// process-wide monotonic realtime clock.
 ///
 /// Database endpoints remain infrastructure inputs. There is deliberately no provider selector,
 /// Market fact/receipt/locator argument, A0 builder argument, or clock argument.
-#[cfg(feature = "sealed-develop-composer-acceptance")]
-pub(crate) struct SealedPostgresSourceResearchComposerV2 {
-    inner: PostgresSourceResearchComposerV2<SealedSourceResearchComposerBindingOwnerV2, LiveClock>,
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub struct SealedPostgresSourceResearchComposerV2 {
+    inner: PostgresSourceResearchComposerV2<SealedSourceResearchComposerBindingOwnerV2>,
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 impl SealedPostgresSourceResearchComposerV2 {
-    pub(crate) async fn connect(
+    pub async fn connect(
         rd_owner_database_url: &str,
         rd_fact_writer_database_url: &str,
     ) -> Result<Self, sqlx::Error> {
@@ -339,13 +332,12 @@ impl SealedPostgresSourceResearchComposerV2 {
                 rd_owner_database_url,
                 rd_fact_writer_database_url,
                 SealedSourceResearchComposerBindingOwnerV2,
-                LiveClock::default(),
             )
             .await?,
         })
     }
 
-    pub(crate) async fn run(
+    pub async fn run(
         &self,
         request: &DevelopComposerRunRequestV2,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
@@ -354,12 +346,16 @@ impl SealedPostgresSourceResearchComposerV2 {
             .await
     }
 
-    pub(crate) async fn resolve(
+    pub async fn resolve(
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
         self.inner.resolve(request_identity).await
     }
+}
+
+fn current_read_cut_epoch_ms() -> u64 {
+    LiveClock::default().timestamp_ms()
 }
 
 #[derive(Clone)]
@@ -447,7 +443,7 @@ fn research_unavailable() -> DevelopComposerTerminalV2 {
     )
 }
 
-#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+#[cfg(all(test, feature = "sealed-source-intake-composer-acceptance"))]
 mod tests {
     use super::*;
 
