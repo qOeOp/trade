@@ -11,6 +11,23 @@ const request = {
   identity_mode: "EXACT",
 }
 
+const dashboardUnavailable = {
+  schema_version: 1,
+  resolution: "UNAVAILABLE",
+  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
+  effect_boundary_crossed: false,
+  build_request_identity: null,
+  attempt_identity: null,
+  owner_receipt: null,
+  research_view: null,
+  artifact_review: null,
+  artifact_review_actions: null,
+  trial_family_resolution: null,
+  artifact_trial_family: null,
+  next_legal_action: null,
+  provider_invocation: null,
+}
+
 const unknown = {
   schema_version: 1,
   resolution: "SUBMITTED_OR_UNKNOWN",
@@ -48,7 +65,7 @@ for (const dashboardRequest of [
     }))
 
     assert.equal(fetchCalls, 0)
-    assert.deepEqual(result, unknown)
+    assert.deepEqual(result, dashboardUnavailable)
   })
 }
 

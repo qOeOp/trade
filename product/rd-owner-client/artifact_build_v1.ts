@@ -26,6 +26,23 @@ export type ArtifactBuildExecutionRequestV1 = {
   identity_mode: IdentityMode
 }
 
+export type DashboardArtifactBuildUnavailableV1 = {
+  schema_version: 1
+  resolution: "UNAVAILABLE"
+  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED"
+  effect_boundary_crossed: false
+  build_request_identity: null
+  attempt_identity: null
+  owner_receipt: null
+  research_view: null
+  artifact_review: null
+  artifact_review_actions: null
+  trial_family_resolution: null
+  artifact_trial_family: null
+  next_legal_action: null
+  provider_invocation: null
+}
+
 import {
   deriveArtifactConsumerProjectionV1,
   deriveResearchConsumerProjectionV1,
@@ -372,6 +389,25 @@ function unknown(
     artifact_trial_family: null,
     next_legal_action: next,
     provider_invocation: invocation ?? null,
+  }
+}
+
+function dashboardUnavailable(): DashboardArtifactBuildUnavailableV1 {
+  return {
+    schema_version: 1,
+    resolution: "UNAVAILABLE",
+    unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
+    effect_boundary_crossed: false,
+    build_request_identity: null,
+    attempt_identity: null,
+    owner_receipt: null,
+    research_view: null,
+    artifact_review: null,
+    artifact_review_actions: null,
+    trial_family_resolution: null,
+    artifact_trial_family: null,
+    next_legal_action: null,
+    provider_invocation: null,
   }
 }
 
@@ -821,7 +857,7 @@ export async function executeArtifactBuildV1(
     identity_mode,
   } = request
   if (runtime.dispatcher === "TRADE_DASHBOARD") {
-    return unknown(build_request_identity, attempt_identity)
+    return dashboardUnavailable()
   }
   let effectiveBuildRequestIdentity = build_request_identity
   let effectiveAttemptIdentity = attempt_identity
