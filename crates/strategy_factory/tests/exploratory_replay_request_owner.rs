@@ -136,6 +136,50 @@ async fn restore_sealed_exploratory_replay_fixture(
         .expect("sealed exploratory Replay fixture restored");
 }
 
+async fn create_duplicate_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    request_identity: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.create_duplicate_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(request_identity)
+        .execute(topology_admin_pool)
+        .await
+        .expect("duplicate internal Replay fixture created");
+}
+
+async fn remove_duplicate_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    request_identity: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.remove_duplicate_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(request_identity)
+        .execute(topology_admin_pool)
+        .await
+        .expect("duplicate internal Replay fixture removed");
+}
+
 #[tokio::test]
 #[ignore = "requires the canonical disposable five-role PostgreSQL route with legacy Replay custody"]
 async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back() {
@@ -450,33 +494,11 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         26
     );
 
-    sqlx::query(
-        "CREATE TABLE public.rd_exploratory_replay_request_custody_v1
-         (LIKE public.rd_sealed_exploratory_replay_requests_v1 INCLUDING ALL)",
+    create_duplicate_exploratory_replay_fixture(
+        &fixture.database,
+        &fixture.proposal.request_identity,
     )
-    .execute(rd_pool)
-    .await
-    .expect("duplicate internal Replay candidate");
-    sqlx::query(
-        "INSERT INTO public.rd_exploratory_replay_request_custody_v1
-         SELECT * FROM public.rd_sealed_exploratory_replay_requests_v1
-          WHERE request_identity=$1",
-    )
-    .bind(&fixture.proposal.request_identity)
-    .execute(rd_pool)
-    .await
-    .expect("duplicate internal Replay row");
-    sqlx::query("ALTER TABLE public.rd_exploratory_replay_request_custody_v1 OWNER TO rd_owner")
-        .execute(rd_pool)
-        .await
-        .expect("duplicate internal Replay owner");
-    sqlx::query(
-        "GRANT SELECT,UPDATE ON TABLE public.rd_exploratory_replay_request_custody_v1
-         TO surprise_replay_grantee",
-    )
-    .execute(rd_pool)
-    .await
-    .expect("duplicate internal Replay ACL sentinel");
+    .await;
 
     let duplicate_before = [
         replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
@@ -498,10 +520,11 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     ];
     assert_eq!(duplicate_after, duplicate_before);
 
-    sqlx::query("DROP TABLE public.rd_exploratory_replay_request_custody_v1")
-        .execute(rd_pool)
-        .await
-        .expect("remove duplicate internal Replay test candidate");
+    remove_duplicate_exploratory_replay_fixture(
+        &fixture.database,
+        &fixture.proposal.request_identity,
+    )
+    .await;
 }
 
 #[tokio::test]
