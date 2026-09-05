@@ -3,16 +3,18 @@ use sqlx::Row;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 use vibe_data::owner::source_binding::BindingDigest;
 use vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2;
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use vibe_strategy_factory::{
     develop_composer_operation_v2::DevelopComposerOperationDispositionV2,
+    develop_composer_sealed_acceptance_v2::SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2,
+};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::{
     develop_composer_postgres_v2::{
         DevelopComposerSealedReadErrorV2, DevelopComposerSealedReadLocatorV2,
         DevelopComposerSealedReadPortV2, SealedDevelopComposerAcceptanceReadPortV2,
     },
-    develop_composer_sealed_acceptance_v2::{
-        SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
-    },
+    develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -328,7 +330,7 @@ async fn sealed_run_and_restarted_resolve_return_the_same_public_receipt() {
     assert_eq!(resolved, run);
 }
 
-#[cfg(feature = "sealed-develop-composer-acceptance")]
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 #[tokio::test]
 #[ignore = "requires an admitted disposable RD_OWNER_TEST_DATABASE_URL and local Rust toolchain"]
 async fn postgres_every_transaction_write_boundary_fault_leaves_zero_positive_rows() {
