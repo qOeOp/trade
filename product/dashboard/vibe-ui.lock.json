@@ -1,0 +1,30 @@
+{
+  "schema": "trade-dashboard-vibe-ui-source-v1",
+  "repository": "https://github.com/qOeOp/vibe-trading.git",
+  "revision": "4a6d66fb77fc144c2a013417c703db2caf401641",
+  "tree": "984c7d684dba72a6af78dc3e6cf50191bc3622ea",
+  "components": {
+    "panelFrame": {
+      "path": "apps/web/src/components/shared/panel/panel-frame.tsx",
+      "blob": "1edd874fc09b174107c4b301adadfe82f1321687"
+    },
+    "panelFrameHeader": {
+      "path": "apps/web/src/components/shared/panel/panel-frame-header.tsx",
+      "blob": "083cf4ac656767e9c0570f1801007398b01a194b"
+    },
+    "panelFrameBody": {
+      "path": "apps/web/src/components/shared/panel/panel-frame-body.tsx",
+      "blob": "56ff8e0f845fb2a4cd5094b878c64a6b816cb740"
+    },
+    "animateIn": {
+      "path": "apps/web/src/components/animation/animate-in.tsx",
+      "blob": "d3503e5d76ccdc7f3cd911608040cc9d320dcc01"
+    }
+  },
+  "adaptation": {
+    "colors": "Claude semantic CSS variables only",
+    "icons": "Lucide only",
+    "geometry": "Source frame/header/body hierarchy retained",
+    "compatibility": "Existing static-body consumers remain source-compatible while scroll and flex modes are opt-in"
+  }
+}
