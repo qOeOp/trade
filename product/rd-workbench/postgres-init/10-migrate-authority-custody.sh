@@ -1476,6 +1476,16 @@ BEGIN
   IF octet_length(p_native_join_bytes)>0 THEN
     INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (p_request_identity,p_native_join_digest,p_projection_receipt_digest,p_joined_cut_digest,p_schedule_dependency_set_digest,p_native_join_bytes);
     IF fail_after='AfterNativeJoin' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  ELSIF fail_after='AfterNativeJoin' THEN
+    INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (
+      p_request_identity,
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.receipt.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.projection.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.cut.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.schedule.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.rollback-only.v1','UTF8')
+    );
+    RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after;
   END IF;
   INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
   IF fail_after='AfterOutbox' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;

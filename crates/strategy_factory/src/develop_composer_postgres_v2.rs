@@ -258,6 +258,16 @@ BEGIN
   IF octet_length(p_native_join_bytes)>0 THEN
     INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (p_request_identity,p_native_join_digest,p_projection_receipt_digest,p_joined_cut_digest,p_schedule_dependency_set_digest,p_native_join_bytes);
     IF fail_after='AfterNativeJoin' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
+  ELSIF fail_after='AfterNativeJoin' THEN
+    INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1 VALUES (
+      p_request_identity,
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.receipt.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.projection.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.cut.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.sha256(pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.schedule.v1:'||p_request_identity,'UTF8')),
+      pg_catalog.convert_to('rd.develop.composer.acceptance.native-join.rollback-only.v1','UTF8')
+    );
+    RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after;
   END IF;
   INSERT INTO composer_private.rd_develop_outbox_v2 VALUES (p_request_identity,p_outbox_bytes);
   IF fail_after='AfterOutbox' THEN RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after; END IF;
@@ -3182,6 +3192,20 @@ mod tests {
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     #[test]
     fn acceptance_write_boundaries_are_closed_and_in_persistence_order() {
+        let migration = include_str!(
+            "../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+        );
+        let installed_source = migration
+            .split_once("SET search_path = pg_catalog, pg_temp AS $composer_acceptance_commit$")
+            .expect("installed Composer acceptance commit source")
+            .1
+            .split_once("$composer_acceptance_commit$;")
+            .expect("bounded installed Composer acceptance commit source")
+            .0;
+        assert_eq!(
+            installed_source,
+            super::ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2
+        );
         assert_eq!(
             super::COMMIT_FUNCTION_V2.split_once('(').unwrap().1,
             super::ACCEPTANCE_COMMIT_FUNCTION_V2
@@ -3191,7 +3215,7 @@ mod tests {
         );
         assert_eq!(
             sha256_hex(super::ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2),
-            "f4f0d3342ba5b537d716fd142245127e637eedb93f88a75a092b540d2702482c"
+            "f5c0f1ba53d2225b40d8242a555b462fc947db250c990388fac1aee8b11d76e2"
         );
         assert_eq!(
             super::DevelopComposerAcceptanceWriteBoundaryV2::ALL.map(|value| value.as_str()),
@@ -3224,5 +3248,20 @@ mod tests {
                 super::ACCEPTANCE_COMMIT_QUERY_V2
             );
         }
+        let rollback_only = super::ACCEPTANCE_COMMIT_FUNCTION_SOURCE_V2
+            .split_once("ELSIF fail_after='AfterNativeJoin' THEN")
+            .expect("rollback-only native-join branch")
+            .1
+            .split_once("END IF;")
+            .expect("bounded rollback-only native-join branch")
+            .0;
+        let insert = rollback_only
+            .find("INSERT INTO composer_private.rd_develop_strategy_design_native_joins_v1")
+            .expect("rollback-only native-join insertion");
+        let unconditional_raise = rollback_only
+            .find("RAISE EXCEPTION 'Sealed Composer acceptance fault after %',fail_after;")
+            .expect("unconditional rollback-only native-join raise");
+        assert!(insert < unconditional_raise);
+        assert!(rollback_only.contains("rollback-only.v1"));
     }
 }

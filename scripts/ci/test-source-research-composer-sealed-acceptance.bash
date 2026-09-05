@@ -45,12 +45,7 @@ compile_time_tamper_selectors=(
 	CapsuleRustcRelease CapsuleRustcCommit CapsuleTarget CapsuleBuildCommand CapsuleSourceFilePath
 	CapsuleSourceFileBytes CapsuleSourceFileSymlinkTarget
 )
-# No isolated admin helper currently restores exact stored bytes and trigger state. These cases are
-# therefore named but deliberately not mutated by this runner.
-stored_db_tamper_needs_attention=(
-	ResearchReceipt Design Plan Artifact ArtifactModule IntrinsicBuildReceipt BuildUse
-	ComposerReceipt HostReceipt Operation RoleSetAttestation NativeJoin Outbox
-)
+stored_tamper_case_count=34
 
 script_paths=(
 	f/trade/product_edge/source_intake_v1
@@ -94,6 +89,7 @@ static_check() {
 	grep -Fq 'sealed-source-intake-composer-acceptance' \
 		"$repo_root/crates/strategy_factory_rd_owner_api/Cargo.toml"
 	grep -Fq -- '--features sealed-source-intake-composer-acceptance' "$dockerfile"
+	grep -Fq -- '--bin source-research-composer-stored-tamper-probe' "$dockerfile"
 	grep -Fq 'COPY product/rd-workbench/postgres-init/10-migrate-authority-custody.sh' "$dockerfile"
 	grep -Fq 'RD_FACT_WRITER_DATABASE_URL:' "$overlay_compose"
 	grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL:' "$overlay_compose"
@@ -102,7 +98,15 @@ static_check() {
 	grep -Fq 'POSTGRES_HOST_AUTH_METHOD: trust' "$overlay_compose"
 	grep -Fq '/v2/develop-composer/request-projections?research_request_locator=' "$runner_file"
 	grep -Fq 'rd_develop_artifact_build_receipt_uses_v2' "$runner_file"
-	grep -Fq 'x-rd-acceptance-delay-after-commit-ms' "$runner_file"
+	grep -Fq 'jobs/run/p/' "$runner_file"
+	grep -Fq 'asynchronous Windmill RUN commit was not authoritatively observed' "$runner_file"
+	grep -Fq 'read-only projections executed A0' "$runner_file"
+	grep -Fq 'two distinct Artifacts did not execute A0 exactly twice' "$runner_file"
+	grep -Fq 'stored-row tamper probe executed A0' "$runner_file"
+	grep -Fq 'profiles: ["stored-tamper-probe"]' "$overlay_compose"
+	grep -Fq 'SEALED_POSTGRES_ADMIN_DATABASE_URL:' "$overlay_compose"
+	grep -Fq 'SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN:' "$overlay_compose"
+	grep -Fq 'stored_tamper_cases=' "$runner_file"
 	grep -Fq 'run_deployed source RUN' "$runner_file"
 	grep -Fq '.resolution=="RETRIEVED" and .receipt.terminal=="RETRIEVED"' "$runner_file"
 	grep -Fq 'run_deployed research RUN' "$runner_file"
@@ -126,6 +130,9 @@ static_check() {
 	yq -e '.services.postgres.environment.POSTGRES_INITDB_ARGS == "--auth-host=trust"' "$overlay_compose" >/dev/null
 	yq -e '.services.postgres.environment.POSTGRES_HOST_AUTH_METHOD == "trust"' "$overlay_compose" >/dev/null
 	yq -e '.services."rd-owner-api".environment.RD_OWNER_ENABLE_ACCEPTANCE_FAULTS == "1"' "$overlay_compose" >/dev/null
+	yq -e '.services."stored-tamper-probe".profiles | (length == 1 and .[0] == "stored-tamper-probe")' "$overlay_compose" >/dev/null
+	yq -e '.services."stored-tamper-probe".environment.SEALED_POSTGRES_ADMIN_DATABASE_URL != null' "$overlay_compose" >/dev/null
+	yq -e '.services."rd-owner-api".environment | has("SEALED_POSTGRES_ADMIN_DATABASE_URL") | not' "$overlay_compose" >/dev/null
 }
 
 if [[ ${1:-} == --static-only ]]; then
@@ -135,7 +142,7 @@ if [[ ${1:-} == --static-only ]]; then
 fi
 [[ $# -eq 0 ]] || die 'usage: test-source-research-composer-sealed-acceptance.bash [--static-only]'
 
-for command_name in bash cmp docker jq python3 shasum sort yq; do require_command "$command_name"; done
+for command_name in bash cmp docker id jq python3 shasum sort yq; do require_command "$command_name"; done
 static_check
 
 docker_context=desktop-linux
@@ -184,6 +191,7 @@ postgres_container=
 base_url=http://windmill-server:8000
 env_file="$run_dir/compose.env"
 bootstrap_config="$run_dir/product-edge-bootstrap.json"
+stored_tamper_input="$run_dir/stored-tamper-input.json"
 session_header="$run_dir/session.header"
 token_header="$run_dir/token.header"
 workspace_create_attempted=0
@@ -375,7 +383,11 @@ SEALED_OPERATOR_AUTHORIZATION_DATABASE_URL=postgresql://operator_authorization_w
 SEALED_QUALIFICATION_OWNER_DATABASE_URL=postgresql://qualification_writer:$qualification_password@postgres:5432/rd_owner
 SEALED_PRODUCT_EDGE_DATABASE_URL=postgresql://product_edge_owner:$edge_password@postgres:5432/rd_owner
 SEALED_WINDMILL_DATABASE_URL=postgresql://postgres:$postgres_password@postgres:5432/$windmill_database
+SEALED_POSTGRES_ADMIN_DATABASE_URL=postgresql://postgres:$postgres_password@postgres:5432/rd_owner
 SEALED_RD_OWNER_API_TOKEN=$owner_token
+SEALED_STORED_TAMPER_INPUT=$stored_tamper_input
+SEALED_STORED_TAMPER_UID=$(id -u)
+SEALED_STORED_TAMPER_GID=$(id -g)
 SEALED_BOOTSTRAP_CONFIG=$bootstrap_config
 SEALED_ISSUER_IDENTITY=$issuer_identity
 SEALED_ISSUER_KEY_VERSION=$issuer_key_version
@@ -704,6 +716,7 @@ oversized_locator=$(python3 -c 'print("x" * 257)')
 owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$oversized_locator" "$run_dir/oversized-query.response" 400
 [[ $(composer_census) == "$source_research_successor_before" ]] || die 'locator/full-DTO negatives left partial Composer custody'
 
+a0_before_projection=$(a0_execution_count)
 for stem in one two; do
 	case $stem in one) locator=$research_request_one ;; two) locator=$research_request_two ;; esac
 	owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$locator" "$run_dir/$stem-projection.json" 200
@@ -713,12 +726,14 @@ for stem in one two; do
       and (.request_identity|type=="string" and length>0)
     ' "$run_dir/$stem-projection.json" >/dev/null || die "$stem request projection was not exact"
 done
+[[ $(a0_execution_count) -eq $a0_before_projection ]] || die 'read-only projections executed A0'
 composer_request_one=$(jq -er '.request_identity' "$run_dir/one-projection.json")
 composer_request_two=$(jq -er '.request_identity' "$run_dir/two-projection.json")
 [[ $composer_request_one != "$composer_request_two" ]] || die 'distinct Research custodies derived one Composer identity'
 
 # Run the persistence-boundary matrix while every Composer relation is still empty, so
 # AfterEachNewIntrinsicBuildReceipt is necessarily reached rather than normalized to an existing row.
+a0_after_fail_boundary=$a0_before_projection
 for selector in "${fail_after_selectors[@]}"; do
 	stem="fail-${selector}"
 	source="sealed-source-${selector}-$(random_hex | cut -c1-8)"
@@ -735,18 +750,23 @@ for selector in "${fail_after_selectors[@]}"; do
 		"$run_dir/$stem-resolve.response" "$request" operation
 	[[ $(composer_census) == "$before" ]] || die "$selector did not roll back the exact Composer census vector"
 	[[ $(composer_count "$request") == 0 ]] || die "$selector left a Composer successor"
+	a0_after_fail_boundary=$((a0_after_fail_boundary + 1))
+	[[ $(a0_execution_count) -eq $a0_after_fail_boundary ]] || die "$selector did not execute A0 exactly once"
 done
 
 # Concurrent exact RUNs join one terminal. A caller has no changed-meaning field; full DTO injection above is rejected.
+a0_before_shared_build=$(a0_execution_count)
 run_deployed composer RUN "$research_request_one" /dev/null "$run_dir/composer-one-a.json" & first_pid=$!
 run_deployed composer RUN "$research_request_one" /dev/null "$run_dir/composer-one-b.json" & second_pid=$!
 wait "$first_pid"; wait "$second_pid"
 cmp -s "$run_dir/composer-one-a.json" "$run_dir/composer-one-b.json" || die 'concurrent exact Composer RUN did not join'
 jq -e '.disposition=="SUCCESS" and .receipt_identity and .artifact' "$run_dir/composer-one-a.json" >/dev/null ||
 	die 'first Composer RUN did not produce canonical success'
+[[ $(a0_execution_count) -eq $((a0_before_shared_build + 1)) ]] || die 'concurrent same-request RUNs did not execute A0 exactly once'
 run_deployed composer RUN "$research_request_two" /dev/null "$run_dir/composer-two.json"
 jq -e '.disposition=="SUCCESS" and .receipt_identity and .artifact' "$run_dir/composer-two.json" >/dev/null ||
 	die 'second Composer RUN did not produce canonical success'
+[[ $(a0_execution_count) -eq $((a0_before_shared_build + 2)) ]] || die 'two distinct Artifacts did not execute A0 exactly twice'
 
 [[ $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_artifacts_v2;') == 2 ]] || die 'two Research custodies did not create two Artifacts'
 [[ $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2;') == 1 ]] || die 'shared sealed corpus did not normalize to one intrinsic build fact'
@@ -755,6 +775,7 @@ jq -e '.disposition=="SUCCESS" and .receipt_identity and .artifact' "$run_dir/co
 	die 'build-use relation did not preserve two-Artifacts/one-build custody'
 
 # Every compile-time selector fails closed on both RUN and RESOLVE without creating a successor.
+a0_before_compile_time_tamper=$(a0_execution_count)
 for selector in "${compile_time_tamper_selectors[@]}"; do
 	stem="tamper-${selector}"
 	source="sealed-source-tamper-$(random_hex | cut -c1-12)"
@@ -773,41 +794,32 @@ for selector in "${compile_time_tamper_selectors[@]}"; do
 		"$run_dir/$stem-resolve.response" "$composer_request_one" acceptance_tamper "$run_dir/$stem-resolve.json"
 	[[ $(composer_census) == "$before" ]] || die "$selector tamper changed the exact Composer census vector"
 	[[ $(composer_count "$request") == 0 ]] || die "$selector tamper left a Composer successor"
+	[[ $(a0_execution_count) -eq $a0_before_compile_time_tamper ]] || die "$selector tamper executed or admitted A0"
 done
 
-# A fresh third chain loses only its first successful Composer response. RESOLVE and replay recover
+# A fresh third chain is submitted asynchronously through Product Edge. The runner deliberately
+# never consumes the RUN result; DB readback observes commit before Windmill RESOLVE/replay recover
 # byte-identical canonical custody, and the process-local A0 counter advances exactly once.
 source_request_three="sealed-source-c-$(random_hex | cut -c1-12)"
 research_request_three="sealed-source-intake-composer-research-v2-c-$(random_hex | cut -c1-8)"
 form_research "$source_request_three" "$research_request_three" three
 owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$research_request_three" "$run_dir/three-projection.json" 200
 composer_request_three=$(jq -er '.request_identity' "$run_dir/three-projection.json")
-printf '%s\n' "{\"research_request_locator\":\"$research_request_three\"}" >"$run_dir/loss-request.json"
+jq -n --arg locator "$research_request_three" '{action:"RUN",research_request_locator:$locator}' >"$run_dir/loss-request.json"
 a0_before_loss=$(a0_execution_count)
-set +e
-python3 - "$owner_header" "$run_dir/loss-request.json" <<'PY' |
-import pathlib
-import sys
-print('silent')
-print('show-error')
-print('connect-timeout = 2')
-print('max-time = 2')
-print('request = "POST"')
-print('url = "http://rd-owner-api:8080/v2/develop-composer/runs"')
-print('header = "' + pathlib.Path(sys.argv[1]).read_text().strip() + '"')
-print('header = "Content-Type: application/json"')
-print('header = "x-rd-acceptance-delay-after-commit-ms: 10000"')
-print('data-binary = "' + pathlib.Path(sys.argv[2]).read_text().strip().replace('"', '\\"') + '"')
-PY
-	with_deadline 5 "${compose[@]}" exec -T windmill-server curl --config - >"$run_dir/lost.response" 2>/dev/null
-loss_status=$?
-set -e
-[[ $loss_status -ne 0 ]] || die 'response-loss probe unexpectedly received a response'
-owner_call POST "/v2/develop-composer/runs/$composer_request_three/resolve" "$run_dir/loss-resolve.json" 200
-owner_call POST /v2/develop-composer/runs "$run_dir/loss-replay.json" 200 "$run_dir/loss-request.json"
-cmp -s "$run_dir/loss-resolve.json" "$run_dir/loss-replay.json" || die 'response-loss RESOLVE/replay changed canonical Composer receipt bytes'
+api_json POST "$token_header" "$base_url/api/w/$workspace/jobs/run/p/${script_paths[2]}" \
+	"$run_dir/loss-submit-receipt.json" "$run_dir/loss-request.json"
+loss_commit_observed=0
+for _ in $(seq 1 300); do
+	if [[ $(composer_count "$composer_request_three") == 1 ]]; then loss_commit_observed=1; break; fi
+	sleep 0.2
+done
+[[ $loss_commit_observed -eq 1 ]] || die 'asynchronous Windmill RUN commit was not authoritatively observed'
+run_deployed composer RESOLVE "$research_request_three" /dev/null "$run_dir/loss-resolve.json"
+run_deployed composer RUN "$research_request_three" /dev/null "$run_dir/loss-replay.json"
+cmp -s "$run_dir/loss-resolve.json" "$run_dir/loss-replay.json" || die 'Windmill response-loss RESOLVE/replay changed canonical Composer receipt bytes'
 a0_after_loss=$(a0_execution_count)
-[[ $((a0_after_loss - a0_before_loss)) -eq 1 ]] || die 'fresh response-loss chain did not execute A0 exactly once'
+[[ $((a0_after_loss - a0_before_loss)) -eq 1 ]] || die 'fresh asynchronous Windmill response-loss chain did not execute A0 exactly once'
 
 composer_census_after_run=$(composer_census)
 with_deadline 90 "${compose[@]}" restart rd-owner-api windmill-server windmill-worker >/dev/null
@@ -820,6 +832,8 @@ for _ in $(seq 1 120); do
 	sleep 1
 done
 [[ $restart_ready -eq 1 ]] || die 'restart health did not recover'
+a0_after_restart=$(a0_execution_count)
+[[ $a0_after_restart -eq 0 ]] || die 'restarted A0 process census did not reset to zero'
 for stem in one two three; do
 	case $stem in
 		one) source=$source_request_one; research=$research_request_one; expected="$run_dir/composer-one-a.json" ;;
@@ -846,8 +860,25 @@ for stem in one two three; do
 	cmp -s "$expected" "$run_dir/$stem-composer-replay-after-restart.json" || die "$stem restart replay changed Composer receipt bytes"
 done
 [[ $(composer_census) == "$composer_census_after_run" ]] || die 'restart replay changed exact Composer custody vector'
+[[ $(a0_execution_count) -eq $a0_after_restart ]] || die 'restart RESOLVE/replay executed A0'
 
-printf 'needs_attention: stored DB tamper cases unavailable without safe exact-byte restore helper: %s\n' \
-	"$(IFS=,; printf '%s' "${stored_db_tamper_needs_attention[*]}")"
+jq -n --arg one "$research_request_one" --arg two "$research_request_two" \
+	'{schema_version:1,research_request_locators:[$one,$two]}' >"$stored_tamper_input"
+chmod 0600 "$stored_tamper_input"
+stored_tamper_output="$run_dir/stored-tamper.output"
+a0_before_stored_tamper=$(a0_execution_count)
+with_deadline 900 "${compose[@]}" run --rm --no-deps -T stored-tamper-probe >"$stored_tamper_output" ||
+	die 'stored-custody tamper probe failed'
+[[ $(wc -l <"$stored_tamper_output" | tr -d ' ') == 1 ]] || die 'stored-custody probe emitted unbounded stdout'
+if [[ $(<"$stored_tamper_output") =~ ^stored_tamper_cases=([0-9]+)[[:space:]]owner_unavailable=([0-9]+)[[:space:]]owner_submitted_or_unknown=([0-9]+)[[:space:]]restored=([0-9]+)[[:space:]]baseline_matches=([0-9]+)$ ]]; then
+	[[ ${BASH_REMATCH[1]} -eq $stored_tamper_case_count ]] || die 'stored-custody probe case count differed'
+	[[ $((BASH_REMATCH[2] + BASH_REMATCH[3])) -eq $((stored_tamper_case_count * 2)) ]] || die 'stored-custody probe Owner call count differed'
+	[[ ${BASH_REMATCH[4]} -eq $stored_tamper_case_count ]] || die 'stored-custody probe restore count differed'
+	[[ ${BASH_REMATCH[5]} -eq $((stored_tamper_case_count * 4)) ]] || die 'stored-custody probe baseline count differed'
+else
+	die 'stored-custody probe aggregate was malformed'
+fi
+[[ $(a0_execution_count) -eq $a0_before_stored_tamper ]] || die 'stored-row tamper probe executed A0'
+rm -f -- "$stored_tamper_input" "$stored_tamper_output"
 
-printf '%s\n' 'Source -> Research -> Composer executable matrix passed; named stored DB tamper remains needs_attention; cleanup/readback follows'
+printf '%s\n' 'Source -> Research -> Composer executable matrix passed including stored-custody tamper; cleanup/readback follows'

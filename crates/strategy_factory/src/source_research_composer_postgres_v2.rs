@@ -81,7 +81,7 @@ pub const SOURCE_RESEARCH_COMPOSER_PROVIDER_IDENTITY_V2: &str =
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 static SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2: AtomicU64 = AtomicU64::new(0);
 
-/// Returns the process-local number of fixed A0 builder invocations for the isolated A2 runner.
+/// Returns the process-local number of successful fixed A0 executions for the isolated A2 runner.
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub fn sealed_source_research_composer_a0_execution_count_v2() -> u64 {
     SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2.load(Ordering::SeqCst)
@@ -985,9 +985,8 @@ impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
         manifest: &PluginManifestV2,
         capsule: &UntrustedDevelopPluginCapsuleV2,
     ) -> Result<VerifiedDevelopPluginBuildReadV2, DevelopComposerTerminalV2> {
-        SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2.fetch_add(1, Ordering::SeqCst);
-        source_research_composer_sealed_corpus_verified_build_v2(manifest, capsule).map_err(
-            |terminal| DevelopComposerTerminalV2 {
+        let verified = source_research_composer_sealed_corpus_verified_build_v2(manifest, capsule)
+            .map_err(|terminal| DevelopComposerTerminalV2 {
                 kind: if terminal.kind == DevelopPluginBuildTerminalKindV2::Conflict {
                     crate::develop_composer_v2::DevelopComposerTerminalKindV2::Conflict
                 } else {
@@ -995,8 +994,9 @@ impl DevelopComposerA0BuildPortV2 for SealedSourceResearchComposerA0BuildV2 {
                 },
                 coordinate: terminal.coordinate,
                 reason: terminal.reason,
-            },
-        )
+            })?;
+        SEALED_SOURCE_RESEARCH_COMPOSER_A0_EXECUTIONS_V2.fetch_add(1, Ordering::SeqCst);
+        Ok(verified)
     }
 }
 
@@ -1935,7 +1935,7 @@ mod tests {
     }
 
     #[test]
-    fn fixed_a2_a0_builder_counts_each_actual_invocation_once() {
+    fn fixed_a2_a0_builder_counts_each_successful_execution_once() {
         let _guard = A0_COUNTER_TEST_LOCK.lock().expect("A0 counter test lock");
         let request = sealed_source_research_composer_request_v2();
         let before = sealed_source_research_composer_a0_execution_count_v2();
@@ -1948,6 +1948,19 @@ mod tests {
         assert_eq!(
             sealed_source_research_composer_a0_execution_count_v2(),
             before + 1
+        );
+
+        let mut invalid_capsule = request.plugin_source_capsules[0].clone();
+        invalid_capsule.files[0].bytes.push(b' ');
+        assert!(
+            SealedSourceResearchComposerA0BuildV2
+                .build(&request.design.plugins[0], &invalid_capsule)
+                .is_err()
+        );
+        assert_eq!(
+            sealed_source_research_composer_a0_execution_count_v2(),
+            before + 1,
+            "rejected A0 evidence must not increment the successful execution census"
         );
     }
 

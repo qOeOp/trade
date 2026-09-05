@@ -81,3 +81,10 @@ name = "strategy-factory-rd-build-sandbox"
 path = "src/bin/strategy_factory_rd_build_sandbox.rs"
 doc = false
 test = false
+
+[[bin]]
+name = "source-research-composer-stored-tamper-probe"
+path = "src/bin/source_research_composer_stored_tamper_probe.rs"
+required-features = ["sealed-source-intake-composer-acceptance"]
+doc = false
+test = false

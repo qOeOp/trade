@@ -22,3 +22,29 @@ services:
       RD_FACT_WRITER_DATABASE_URL: ${SEALED_RD_FACT_WRITER_DATABASE_URL:?set SEALED_RD_FACT_WRITER_DATABASE_URL}
       MARKET_DATA_OWNER_DATABASE_URL: ${SEALED_MARKET_DATA_OWNER_DATABASE_URL:?set SEALED_MARKET_DATA_OWNER_DATABASE_URL}
       MARKET_DATA_RD_ROLE_SET_DATABASE_URL: ${SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
+
+  stored-tamper-probe:
+    profiles: ["stored-tamper-probe"]
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    user: ${SEALED_STORED_TAMPER_UID:?set SEALED_STORED_TAMPER_UID}:${SEALED_STORED_TAMPER_GID:?set SEALED_STORED_TAMPER_GID}
+    entrypoint: ["/usr/local/bin/source-research-composer-stored-tamper-probe"]
+    environment:
+      SEALED_POSTGRES_ADMIN_DATABASE_URL: ${SEALED_POSTGRES_ADMIN_DATABASE_URL:?set SEALED_POSTGRES_ADMIN_DATABASE_URL}
+      SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${SEALED_STORED_TAMPER_INPUT:?set SEALED_STORED_TAMPER_INPUT}
+        target: /run/source-research-composer-stored-tamper/input.json
+        read_only: true
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL
