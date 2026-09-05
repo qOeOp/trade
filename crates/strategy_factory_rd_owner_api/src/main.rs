@@ -641,7 +641,15 @@ async fn run_develop_composer(
             .run(&request.research_request_locator)
             .await
         {
-            Ok(response) => composer_operation_response(response),
+            Ok(response) => {
+                let delay_after_commit =
+                    response.disposition == DevelopComposerOperationDispositionV2::Success;
+                let response = composer_operation_response(response);
+                if delay_after_commit {
+                    maybe_delay(&state, &headers).await;
+                }
+                response
+            }
             Err(_) => composer_response(
                 StatusCode::SERVICE_UNAVAILABLE,
                 default_unavailable_response(&request.research_request_locator),

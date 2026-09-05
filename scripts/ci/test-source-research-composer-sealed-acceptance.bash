@@ -15,6 +15,43 @@ buildkit_image='docker.io/moby/buildkit:v0.26.2@sha256:de10faf919fc71ba4eb1dd7bd
 research_request_one='sealed-source-intake-composer-research-v2-a'
 research_request_two='sealed-source-intake-composer-research-v2-b'
 
+composer_relations=(
+	rd_develop_designs_v2
+	rd_develop_plans_v2
+	rd_develop_artifacts_v2
+	rd_develop_artifact_modules_v2
+	rd_develop_build_receipts_v2
+	rd_develop_artifact_build_receipt_uses_v2
+	rd_develop_composer_receipts_v2
+	rd_develop_host_receipts_v2
+	rd_develop_operations_v2
+	rd_develop_strategy_design_role_set_attestations_v1
+	rd_develop_strategy_design_native_joins_v1
+	rd_develop_outbox_v2
+)
+fail_after_selectors=(
+	AfterDesign AfterPlan AfterArtifact AfterEachModule
+	AfterEachNewIntrinsicBuildReceipt AfterEachBuildUse AfterComposerReceipt
+	AfterHostReceipt AfterOperation AfterRoleSetAttestation AfterNativeJoin AfterOutbox
+)
+compile_time_tamper_selectors=(
+	BindingResearchRequestIdentity BindingStrategyDesignIdentity BindingInputRoleIdentity
+	BindingScopeSelectionIdentity BindingFieldSemantic BindingChannel BindingTimeframe
+	BindingUnit BindingScale BindingPitRequestIdentity BindingPitRequestDigest
+	BindingSnapshotIdentity BindingSnapshotFactDigest BindingObservationBatchDigest
+	BindingSourceBindingIdentity BindingSourceFrontierDigest BindingCorrectionFrontierDigest
+	BindingInstrumentMasterDigest BindingUniverseSelectionDigest BindingMarketSemanticsIdentity
+	BindingDecisionCut CapsuleSchemaVersion CapsuleManifestSemanticIdentity CapsuleLanguage
+	CapsuleRustcRelease CapsuleRustcCommit CapsuleTarget CapsuleBuildCommand CapsuleSourceFilePath
+	CapsuleSourceFileBytes CapsuleSourceFileSymlinkTarget
+)
+# No isolated admin helper currently restores exact stored bytes and trigger state. These cases are
+# therefore named but deliberately not mutated by this runner.
+stored_db_tamper_needs_attention=(
+	ResearchReceipt Design Plan Artifact ArtifactModule IntrinsicBuildReceipt BuildUse
+	ComposerReceipt HostReceipt Operation RoleSetAttestation NativeJoin Outbox
+)
+
 script_paths=(
 	f/trade/product_edge/source_intake_v1
 	f/trade/product_edge/source_intake_research_v1
@@ -51,6 +88,9 @@ with_deadline() {
 
 static_check() {
 	bash -n "$runner_file"
+	[[ ${#composer_relations[@]} -eq 12 ]]
+	[[ ${#fail_after_selectors[@]} -eq 12 ]]
+	[[ ${#compile_time_tamper_selectors[@]} -eq 31 ]]
 	grep -Fq 'sealed-source-intake-composer-acceptance' \
 		"$repo_root/crates/strategy_factory_rd_owner_api/Cargo.toml"
 	grep -Fq -- '--features sealed-source-intake-composer-acceptance' "$dockerfile"
@@ -95,7 +135,7 @@ if [[ ${1:-} == --static-only ]]; then
 fi
 [[ $# -eq 0 ]] || die 'usage: test-source-research-composer-sealed-acceptance.bash [--static-only]'
 
-for command_name in bash cmp docker jq python3 yq; do require_command "$command_name"; done
+for command_name in bash cmp docker jq python3 shasum sort yq; do require_command "$command_name"; done
 static_check
 
 docker_context=desktop-linux
@@ -105,6 +145,32 @@ for image in "$windmill_image" "$postgres_image" "$rust_image" "$buildkit_image"
 	with_deadline 15 "${docker_local[@]}" image inspect "$image" >/dev/null 2>&1 ||
 		die "required local image is absent: $image"
 done
+
+capture_shared_baseline() {
+	with_deadline 30 "${docker_local[@]}" ps -a \
+		--format '{{.ID}}\t{{.Names}}\t{{.Label "com.docker.compose.project"}}' | sort >"$1"
+	with_deadline 30 "${docker_local[@]}" image ls --no-trunc \
+		--format '{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.Digest}}' | sort >"$2"
+	with_deadline 30 "${docker_local[@]}" network ls \
+		--format '{{.ID}}\t{{.Name}}\t{{.Driver}}\t{{.Label "com.docker.compose.project"}}' | sort >"$3"
+	with_deadline 30 "${docker_local[@]}" volume ls \
+		--format '{{.Name}}\t{{.Driver}}\t{{.Label "com.docker.compose.project"}}' | sort >"$4"
+}
+
+project_residue_absent() {
+	local project_name=${project:-} image_ref=${owner_image:-} residue
+	[[ -n $project_name ]] || return 0
+	residue=$(with_deadline 30 "${docker_local[@]}" ps -aq --filter "label=com.docker.compose.project=$project_name") || return 1
+	[[ -z $residue ]] || return 1
+	residue=$(with_deadline 30 "${docker_local[@]}" volume ls -q --filter "label=com.docker.compose.project=$project_name") || return 1
+	[[ -z $residue ]] || return 1
+	residue=$(with_deadline 30 "${docker_local[@]}" network ls -q --filter "label=com.docker.compose.project=$project_name") || return 1
+	[[ -z $residue ]] || return 1
+	if [[ -n $image_ref ]]; then
+		residue=$(with_deadline 30 "${docker_local[@]}" image ls -q --filter "reference=$image_ref") || return 1
+		[[ -z $residue ]] || return 1
+	fi
+}
 
 run_dir=$(mktemp -d "${TMPDIR:-/tmp}/source-research-composer-sealed.XXXXXX")
 project="src-sealed-$(random_hex | cut -c1-16)"
@@ -120,12 +186,21 @@ env_file="$run_dir/compose.env"
 bootstrap_config="$run_dir/product-edge-bootstrap.json"
 session_header="$run_dir/session.header"
 token_header="$run_dir/token.header"
-workspace_created=0
-token_created=0
-token_prefix=
+workspace_create_attempted=0
+token_create_attempted=0
 compose_touched=0
 builder_touched=0
 cleanup_failed=0
+baseline_captured=0
+workspace_exists_payload="$run_dir/workspace-exists.json"
+baseline_containers="$run_dir/baseline-containers"
+baseline_images="$run_dir/baseline-images"
+baseline_networks="$run_dir/baseline-networks"
+baseline_volumes="$run_dir/baseline-volumes"
+post_containers="$run_dir/post-containers"
+post_images="$run_dir/post-images"
+post_networks="$run_dir/post-networks"
+post_volumes="$run_dir/post-volumes"
 
 api_json() {
 	local method=$1 header_file=$2 url=$3 output=$4 payload=${5:-}
@@ -182,32 +257,74 @@ PY
 }
 
 cleanup() {
-	local original_status=$? residue
+	local original_status=$? owner_image_ids workspace_exists cleanup_token_prefixes cleanup_token_prefix
 	trap - EXIT HUP INT TERM
-	set +e
-	if [[ $token_created -eq 1 && -n $token_prefix ]]; then
-		api_json DELETE "$session_header" "$base_url/api/users/tokens/delete/$token_prefix" /dev/null || cleanup_failed=1
+	set +e +u
+	cleanup_failed=${cleanup_failed:-0}
+	if [[ ${token_create_attempted:-0} -eq 1 && -n ${token_label:-} ]]; then
+		if api_json GET "${session_header:-}" "${base_url:-}/api/users/tokens/list?exclude_ephemeral=false" "${run_dir:-}/tokens-before-delete.json"; then
+			cleanup_token_prefixes=$(jq -er --arg label "$token_label" \
+				'[.[]|select(.label==$label)|.token_prefix]|if length<=1 then join("\n") else error("duplicate acceptance token label") end' \
+				"${run_dir:-}/tokens-before-delete.json") || cleanup_failed=1
+			while IFS= read -r cleanup_token_prefix; do
+				[[ -z $cleanup_token_prefix ]] || api_json DELETE "${session_header:-}" \
+					"${base_url:-}/api/users/tokens/delete/$cleanup_token_prefix" /dev/null || cleanup_failed=1
+			done <<<"$cleanup_token_prefixes"
+		else
+			cleanup_failed=1
+		fi
+		if api_json GET "${session_header:-}" "${base_url:-}/api/users/tokens/list?exclude_ephemeral=false" "${run_dir:-}/tokens-after-delete.json"; then
+			jq -e --arg label "$token_label" 'all(.[]; .label != $label)' \
+				"${run_dir:-}/tokens-after-delete.json" >/dev/null || cleanup_failed=1
+		else
+			cleanup_failed=1
+		fi
 	fi
-	if [[ $workspace_created -eq 1 ]]; then
-		api_json DELETE "$session_header" "$base_url/api/workspaces/delete/$workspace" /dev/null || cleanup_failed=1
+	if [[ ${workspace_create_attempted:-0} -eq 1 && -n ${workspace:-} ]]; then
+		if api_json POST "${session_header:-}" "${base_url:-}/api/workspaces/exists" \
+			"${run_dir:-}/workspace-before-delete.response" "${workspace_exists_payload:-}"; then
+			workspace_exists=$(jq -er 'if . == true then "true" elif . == false then "false" else error("invalid workspace existence") end' \
+				"${run_dir:-}/workspace-before-delete.response") || cleanup_failed=1
+			if [[ $workspace_exists == true ]]; then
+				api_json DELETE "${session_header:-}" "${base_url:-}/api/workspaces/delete/$workspace" /dev/null || cleanup_failed=1
+			fi
+		else
+			cleanup_failed=1
+		fi
+		if api_json POST "${session_header:-}" "${base_url:-}/api/workspaces/exists" \
+			"${run_dir:-}/workspace-absent.response" "${workspace_exists_payload:-}"; then
+			jq -e '. == false' "${run_dir:-}/workspace-absent.response" >/dev/null || cleanup_failed=1
+		else
+			cleanup_failed=1
+		fi
 	fi
-	if [[ $compose_touched -eq 1 ]]; then
+	if [[ ${compose_touched:-0} -eq 1 ]]; then
 		with_deadline 90 "${compose[@]}" down --volumes --remove-orphans --timeout 20 >/dev/null 2>&1 || cleanup_failed=1
 	fi
-	if [[ $builder_touched -eq 1 ]]; then
+	if [[ ${builder_touched:-0} -eq 1 && -n ${builder_name:-} ]]; then
 		with_deadline 90 "${docker_local[@]}" buildx rm --force "$builder_name" >/dev/null 2>&1 || cleanup_failed=1
 	fi
-	"${docker_local[@]}" container rm --force "$builder_container" >/dev/null 2>&1 || true
-	"${docker_local[@]}" volume rm "$builder_state_volume" >/dev/null 2>&1 || true
-	"${docker_local[@]}" image rm "$owner_image" >/dev/null 2>&1 || true
-	residue=$(with_deadline 30 "${docker_local[@]}" ps -aq --filter "label=com.docker.compose.project=$project") || cleanup_failed=1
-	[[ -z $residue ]] || cleanup_failed=1
-	residue=$(with_deadline 30 "${docker_local[@]}" volume ls -q --filter "label=com.docker.compose.project=$project") || cleanup_failed=1
-	[[ -z $residue ]] || cleanup_failed=1
-	residue=$(with_deadline 30 "${docker_local[@]}" network ls -q --filter "label=com.docker.compose.project=$project") || cleanup_failed=1
-	[[ -z $residue ]] || cleanup_failed=1
-	"${docker_local[@]}" image inspect "$owner_image" >/dev/null 2>&1 && cleanup_failed=1
-	rm -rf -- "$run_dir" || cleanup_failed=1
+	[[ -z ${builder_container:-} ]] || "${docker_local[@]}" container rm --force "$builder_container" >/dev/null 2>&1 || true
+	[[ -z ${builder_state_volume:-} ]] || "${docker_local[@]}" volume rm "$builder_state_volume" >/dev/null 2>&1 || true
+	if [[ -n ${owner_image:-} ]]; then
+		owner_image_ids=$(with_deadline 30 "${docker_local[@]}" image ls -q --filter "reference=$owner_image") || cleanup_failed=1
+		[[ -z $owner_image_ids ]] || "${docker_local[@]}" image rm "$owner_image" >/dev/null 2>&1 || cleanup_failed=1
+	fi
+	project_residue_absent || cleanup_failed=1
+	if [[ ${baseline_captured:-0} -eq 1 ]]; then
+		if capture_shared_baseline "$post_containers" "$post_images" "$post_networks" "$post_volumes"; then
+			cmp -s "$baseline_containers" "$post_containers" || cleanup_failed=1
+			cmp -s "$baseline_images" "$post_images" || cleanup_failed=1
+			cmp -s "$baseline_networks" "$post_networks" || cleanup_failed=1
+			cmp -s "$baseline_volumes" "$post_volumes" || cleanup_failed=1
+		else
+			cleanup_failed=1
+		fi
+	fi
+	if [[ -n ${run_dir:-} ]]; then
+		rm -rf -- "$run_dir" || cleanup_failed=1
+		[[ ! -e $run_dir && ! -L $run_dir ]] || cleanup_failed=1
+	fi
 	[[ $original_status -eq 0 && $cleanup_failed -eq 0 ]] || exit 1
 	printf '%s\n' 'Source -> Research -> Composer cleanup/readback passed'
 }
@@ -271,6 +388,8 @@ EOF
 compose=("${docker_local[@]}" compose --project-directory "$package_dir"
 	--file "$base_compose" --file "$overlay_compose" --env-file "$env_file" --project-name "$project")
 
+capture_shared_baseline "$baseline_containers" "$baseline_images" "$baseline_networks" "$baseline_volumes"
+baseline_captured=1
 builder_touched=1
 with_deadline 60 "${docker_local[@]}" buildx create --name "$builder_name" --node "$builder_node" \
 	--driver docker-container --driver-opt "image=$buildkit_image" >/dev/null
@@ -292,17 +411,22 @@ printf '%s\n' '{"email":"admin@windmill.dev","password":"changeme"}' >"$run_dir/
 api_json POST /dev/null "$base_url/api/auth/login" "$run_dir/login.response" "$run_dir/login.json"
 write_auth_header "$run_dir/login.response" "$session_header"
 jq -n --arg id "$workspace" '{id:$id,name:$id}' >"$run_dir/workspace.json"
+jq -n --arg id "$workspace" '{id:$id}' >"$workspace_exists_payload"
+api_json POST "$session_header" "$base_url/api/workspaces/exists" "$run_dir/workspace-preexisting.response" "$workspace_exists_payload"
+jq -e '. == false' "$run_dir/workspace-preexisting.response" >/dev/null
+workspace_create_attempted=1
 api_json POST "$session_header" "$base_url/api/workspaces/create" "$run_dir/workspace.response" "$run_dir/workspace.json"
-workspace_created=1
+api_json POST "$session_header" "$base_url/api/workspaces/exists" "$run_dir/workspace-created.response" "$workspace_exists_payload"
+jq -e '. == true' "$run_dir/workspace-created.response" >/dev/null
 expiration=$(python3 -c 'from datetime import datetime,timedelta,timezone; print((datetime.now(timezone.utc)+timedelta(minutes=15)).isoformat().replace("+00:00","Z"))')
 token_label="a2-sealed-$(random_hex | cut -c1-16)"
 jq -n --arg label "$token_label" --arg expiration "$expiration" --arg workspace "$workspace" \
 	'{label:$label,expiration:$expiration,workspace_id:$workspace}' >"$run_dir/token.json"
+token_create_attempted=1
 api_json POST "$session_header" "$base_url/api/users/tokens/create" "$run_dir/token.response" "$run_dir/token.json"
 write_auth_header "$run_dir/token.response" "$token_header"
-token_created=1
 api_json GET "$session_header" "$base_url/api/users/tokens/list?exclude_ephemeral=false" "$run_dir/tokens.json"
-token_prefix=$(jq -er --arg label "$token_label" '[.[]|select(.label==$label)]|if length==1 then .[0].token_prefix else error("token readback mismatch") end' "$run_dir/tokens.json")
+jq -e --arg label "$token_label" '[.[]|select(.label==$label)]|length==1' "$run_dir/tokens.json" >/dev/null
 
 deploy_script() {
 	local name=$1 source="$package_dir/$1.ts" metadata="$package_dir/$1.script.yaml"
@@ -349,7 +473,12 @@ PY
 for script_path in "${dependency_script_paths[@]}" "${script_paths[@]}"; do deploy_script "$script_path"; done
 
 run_deployed() {
-	local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path
+	local stage=$1 action=$2 request_identity=$3 operation=$4 output=$5 path payload
+	if [[ $output == /dev/null ]]; then
+		payload="$run_dir/${stage}-${action}-$(random_hex | cut -c1-16).payload.json"
+	else
+		payload="$output.payload.json"
+	fi
 	case $stage in
 	source) path=${script_paths[0]} ;;
 	research) path=${script_paths[1]} ;;
@@ -359,26 +488,26 @@ run_deployed() {
 	case "$stage:$action" in
 	source:RUN)
 		jq -n --arg action "$action" --arg request "$request_identity" \
-			'{action:$action,request_identity:$request,normalized_doi:"10.5555/sealed-success",interpretation:{bounded_explanation:"A2 sealed fixture",plausible_alternatives:["alternative-a","alternative-b"],differentiating_prediction:"fixed DOI resolves",falsifier:"Owner receipt mismatch"}}' >"$run_dir/job.json"
+			'{action:$action,request_identity:$request,normalized_doi:"10.5555/sealed-success",interpretation:{bounded_explanation:"A2 sealed fixture",plausible_alternatives:["alternative-a","alternative-b"],differentiating_prediction:"fixed DOI resolves",falsifier:"Owner receipt mismatch"}}' >"$payload"
 		;;
 	source:RESOLVE)
-		jq -n --arg action "$action" --arg request "$request_identity" '{action:$action,request_identity:$request}' >"$run_dir/job.json"
+		jq -n --arg action "$action" --arg request "$request_identity" '{action:$action,request_identity:$request}' >"$payload"
 		;;
 	research:RUN)
-		jq -n --arg action "$action" --arg request "$request_identity" --slurpfile operation "$operation" '{action:$action,request_identity:$request,operation:$operation[0]}' >"$run_dir/job.json"
+		jq -n --arg action "$action" --arg request "$request_identity" --slurpfile operation "$operation" '{action:$action,request_identity:$request,operation:$operation[0]}' >"$payload"
 		;;
 	research:RESOLVE)
-		jq -n --arg action "$action" --arg request "$request_identity" '{action:$action,request_identity:$request,operation:null}' >"$run_dir/job.json"
+		jq -n --arg action "$action" --arg request "$request_identity" '{action:$action,request_identity:$request}' >"$payload"
 		;;
 	composer:RUN)
-		jq -n --arg action "$action" --arg locator "$request_identity" '{action:$action,research_request_locator:$locator}' >"$run_dir/job.json"
+		jq -n --arg action "$action" --arg locator "$request_identity" '{action:$action,research_request_locator:$locator}' >"$payload"
 		;;
 	composer:RESOLVE)
-		jq -n --arg action "$action" --arg locator "$request_identity" '{action:$action,research_request_locator:$locator}' >"$run_dir/job.json"
+		jq -n --arg action "$action" --arg locator "$request_identity" '{action:$action,research_request_locator:$locator}' >"$payload"
 		;;
 	*) return 2 ;;
 	esac
-	api_json POST "$token_header" "$base_url/api/w/$workspace/jobs/run_wait_result/p/$path" "$output" "$run_dir/job.json"
+	api_json POST "$token_header" "$base_url/api/w/$workspace/jobs/run_wait_result/p/$path" "$output" "$payload"
 }
 
 db_scalar() {
@@ -416,8 +545,27 @@ SQL
 composer_count() {
 	db_scalar "SELECT count(*) FROM composer_private.rd_develop_operations_v2 WHERE request_identity='$1';"
 }
-composer_total_count() {
-	db_scalar "SELECT (SELECT count(*) FROM composer_private.rd_develop_designs_v2)+(SELECT count(*) FROM composer_private.rd_develop_plans_v2)+(SELECT count(*) FROM composer_private.rd_develop_artifacts_v2)+(SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2)+(SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2)+(SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2)+(SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2)+(SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2)+(SELECT count(*) FROM composer_private.rd_develop_operations_v2)+(SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1)+(SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1)+(SELECT count(*) FROM composer_private.rd_develop_outbox_v2);"
+composer_census() {
+	db_scalar "SELECT jsonb_build_object(
+		'rd_develop_designs_v2',(SELECT count(*) FROM composer_private.rd_develop_designs_v2),
+		'rd_develop_plans_v2',(SELECT count(*) FROM composer_private.rd_develop_plans_v2),
+		'rd_develop_artifacts_v2',(SELECT count(*) FROM composer_private.rd_develop_artifacts_v2),
+		'rd_develop_artifact_modules_v2',(SELECT count(*) FROM composer_private.rd_develop_artifact_modules_v2),
+		'rd_develop_build_receipts_v2',(SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2),
+		'rd_develop_artifact_build_receipt_uses_v2',(SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2),
+		'rd_develop_composer_receipts_v2',(SELECT count(*) FROM composer_private.rd_develop_composer_receipts_v2),
+		'rd_develop_host_receipts_v2',(SELECT count(*) FROM composer_private.rd_develop_host_receipts_v2),
+		'rd_develop_operations_v2',(SELECT count(*) FROM composer_private.rd_develop_operations_v2),
+		'rd_develop_strategy_design_role_set_attestations_v1',(SELECT count(*) FROM composer_private.rd_develop_strategy_design_role_set_attestations_v1),
+		'rd_develop_strategy_design_native_joins_v1',(SELECT count(*) FROM composer_private.rd_develop_strategy_design_native_joins_v1),
+		'rd_develop_outbox_v2',(SELECT count(*) FROM composer_private.rd_develop_outbox_v2))::text;"
+}
+assert_zero_composer_census() {
+	local census=$1 relation
+	for relation in "${composer_relations[@]}"; do
+		jq -e --arg relation "$relation" '.[$relation] == 0' <<<"$census" >/dev/null ||
+			die "Composer custody was not empty at $relation"
+	done
 }
 
 owner_header="$run_dir/owner.header"
@@ -452,6 +600,33 @@ PY
 	sed '$d' "$raw" >"$output"
 }
 
+owner_call_empty_unavailable() {
+	local method=$1 path=$2 output=$3 payload=${4:-}
+	owner_call "$method" "$path" "$output" 503 "$payload"
+	[[ ! -s $output ]] || die "Owner $method $path returned an unexpected fault body"
+}
+
+owner_call_unavailable() {
+	local method=$1 path=$2 output=$3 request_identity=$4 coordinate_class=$5 payload=${6:-}
+	owner_call "$method" "$path" "$output" 503 "$payload"
+	jq -e --arg request "$request_identity" --arg coordinate_class "$coordinate_class" '
+		([keys[]]|sort)==(["artifact","coordinate","disposition","reason","receipt_identity","request_identity","schema_version"]|sort)
+		and .schema_version==2 and .request_identity==$request
+		and .disposition=="UNAVAILABLE" and .receipt_identity==null and .artifact==null
+		and (.reason|type=="string" and length>0)
+		and (if $coordinate_class=="operation" then .coordinate=="operation"
+			elif $coordinate_class=="acceptance_tamper" then .coordinate=="acceptance_tamper"
+			elif $coordinate_class=="binding" then (.coordinate=="binding_requests" or .coordinate=="market_data_binding")
+			elif $coordinate_class=="capsule" then (.coordinate=="plugin_source_capsules.order" or (.coordinate|startswith("capsule.")))
+			else false end)
+	' "$output" >/dev/null || die "Owner $method $path returned the wrong UNAVAILABLE coordinate class"
+}
+
+a0_execution_count() {
+	owner_call GET /_sealed-acceptance/v1/develop-composer/a0-executions "$run_dir/a0-count.json" 200
+	jq -er '.a0_executions' "$run_dir/a0-count.json"
+}
+
 form_research() {
 	local source_request=$1 research_request=$2 stem=$3
 	run_deployed source RUN "$source_request" /dev/null "$run_dir/$stem-source.json"
@@ -481,19 +656,39 @@ else
 	dump_db_waits >&2 || true
 	die "PostgreSQL scalar transport failed before Composer census (status=$connection_status)"
 fi
-if composer_total_before=$(composer_total_count); then
+if composer_census_before=$(composer_census); then
 	:
 else
 	scalar_status=$?
 	dump_db_waits >&2 || true
 	die "Composer custody census failed (status=$scalar_status)"
 fi
-[[ $composer_total_before == 0 ]] ||
-	die "Composer custody was not empty before the first operation (observed=$composer_total_before)"
+assert_zero_composer_census "$composer_census_before"
 source_request_one="sealed-source-a-$(random_hex | cut -c1-12)"
 source_request_two="sealed-source-b-$(random_hex | cut -c1-12)"
 form_research "$source_request_one" "$research_request_one" one
 form_research "$source_request_two" "$research_request_two" two
+
+# Source and Research replay their exact meaning and resolve without an Owner request body.
+source_research_successor_before=$(composer_census)
+run_deployed source RUN "$source_request_one" /dev/null "$run_dir/one-source-replay.json"
+cmp -s "$run_dir/one-source.json" "$run_dir/one-source-replay.json" || die 'same-meaning Source replay changed canonical receipt'
+run_deployed source RESOLVE "$source_request_one" /dev/null "$run_dir/one-source-resolve-before-composer.json"
+cmp -s "$run_dir/one-source.json" "$run_dir/one-source-resolve-before-composer.json" || die 'bodyless Source RESOLVE changed canonical receipt'
+run_deployed research RUN "$research_request_one" "$run_dir/one-research-operation.json" "$run_dir/one-research-replay.json"
+jq -S 'del(.research_view.projection_at_epoch_ms)' "$run_dir/one-research.json" >"$run_dir/one-research.canonical.json"
+jq -S 'del(.research_view.projection_at_epoch_ms)' "$run_dir/one-research-replay.json" >"$run_dir/one-research-replay.canonical.json"
+cmp -s "$run_dir/one-research.canonical.json" "$run_dir/one-research-replay.canonical.json" || die 'same-meaning Research replay changed canonical custody'
+run_deployed research RESOLVE "$research_request_one" /dev/null "$run_dir/one-research-resolve-before-composer.json"
+jq -S 'del(.research_view.projection_at_epoch_ms)' "$run_dir/one-research-resolve-before-composer.json" >"$run_dir/one-research-resolve-before-composer.canonical.json"
+cmp -s "$run_dir/one-research.canonical.json" "$run_dir/one-research-resolve-before-composer.canonical.json" || die 'bodyless Research RESOLVE changed canonical custody'
+
+jq -n --arg request "$source_request_one" \
+	'{request_identity:$request,channel:"WINDMILL_PRODUCT_EDGE",normalized_doi:"10.5555/sealed-changed",interpretation:{bounded_explanation:"A2 sealed fixture",plausible_alternatives:["alternative-a","alternative-b"],differentiating_prediction:"fixed DOI resolves",falsifier:"Owner receipt mismatch"}}' >"$run_dir/source-changed-meaning.json"
+owner_call POST /v1/source-intakes "$run_dir/source-changed-meaning.response" 409 "$run_dir/source-changed-meaning.json"
+jq '.proposal.goal.hypothesis += " Changed meaning."' "$run_dir/one-research-operation.json" >"$run_dir/research-changed-meaning.json"
+owner_call POST /v1/source-intake-research "$run_dir/research-changed-meaning.response" 409 "$run_dir/research-changed-meaning.json"
+[[ $(composer_census) == "$source_research_successor_before" ]] || die 'Source/Research conflict changed successor census'
 
 # Locator-only API rejects the entire former caller-authored DTO surface.
 jq -n --arg locator "$research_request_one" '{research_request_locator:$locator,request_identity:"injected",design:{},binding_requests:[],plugin_source_capsules:[]}' >"$run_dir/full-dto.json"
@@ -507,7 +702,7 @@ owner_call GET '/v2/develop-composer/request-projections?research_request_locato
 owner_call GET '/v2/develop-composer/request-projections?research_request_locator=missing-research-custody' "$run_dir/missing-query.response" 503
 oversized_locator=$(python3 -c 'print("x" * 257)')
 owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$oversized_locator" "$run_dir/oversized-query.response" 400
-[[ $(composer_total_count) == 0 ]] || die 'locator/full-DTO negatives left partial Composer custody'
+[[ $(composer_census) == "$source_research_successor_before" ]] || die 'locator/full-DTO negatives left partial Composer custody'
 
 for stem in one two; do
 	case $stem in one) locator=$research_request_one ;; two) locator=$research_request_two ;; esac
@@ -521,6 +716,26 @@ done
 composer_request_one=$(jq -er '.request_identity' "$run_dir/one-projection.json")
 composer_request_two=$(jq -er '.request_identity' "$run_dir/two-projection.json")
 [[ $composer_request_one != "$composer_request_two" ]] || die 'distinct Research custodies derived one Composer identity'
+
+# Run the persistence-boundary matrix while every Composer relation is still empty, so
+# AfterEachNewIntrinsicBuildReceipt is necessarily reached rather than normalized to an existing row.
+for selector in "${fail_after_selectors[@]}"; do
+	stem="fail-${selector}"
+	source="sealed-source-${selector}-$(random_hex | cut -c1-8)"
+	research="sealed-research-${selector}-$(random_hex | cut -c1-8)"
+	form_research "$source" "$research" "$stem"
+	owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$research" "$run_dir/$stem-projection.json" 200
+	request=$(jq -er '.request_identity' "$run_dir/$stem-projection.json")
+	jq -n --arg locator "$research" --arg selector "$selector" \
+		'{research_request_locator:$locator,control:{kind:"FailAfter",selector:$selector}}' >"$run_dir/$stem-run.json"
+	before=$(composer_census)
+	owner_call_empty_unavailable POST /_sealed-acceptance/v1/develop-composer/runs \
+		"$run_dir/$stem-run.response" "$run_dir/$stem-run.json"
+	owner_call_unavailable POST "/v2/develop-composer/runs/$request/resolve" \
+		"$run_dir/$stem-resolve.response" "$request" operation
+	[[ $(composer_census) == "$before" ]] || die "$selector did not roll back the exact Composer census vector"
+	[[ $(composer_count "$request") == 0 ]] || die "$selector left a Composer successor"
+done
 
 # Concurrent exact RUNs join one terminal. A caller has no changed-meaning field; full DTO injection above is rejected.
 run_deployed composer RUN "$research_request_one" /dev/null "$run_dir/composer-one-a.json" & first_pid=$!
@@ -539,8 +754,36 @@ jq -e '.disposition=="SUCCESS" and .receipt_identity and .artifact' "$run_dir/co
 [[ $(db_scalar 'SELECT count(DISTINCT artifact_identity)=2 AND count(DISTINCT receipt_identity)=1 FROM composer_private.rd_develop_artifact_build_receipt_uses_v2;') == t ]] ||
 	die 'build-use relation did not preserve two-Artifacts/one-build custody'
 
-# Existing acceptance-only after-commit delay induces response loss without adding a new fault API.
-printf '%s\n' "{\"research_request_locator\":\"$research_request_two\"}" >"$run_dir/loss-request.json"
+# Every compile-time selector fails closed on both RUN and RESOLVE without creating a successor.
+for selector in "${compile_time_tamper_selectors[@]}"; do
+	stem="tamper-${selector}"
+	source="sealed-source-tamper-$(random_hex | cut -c1-12)"
+	research="sealed-research-tamper-$(random_hex | cut -c1-12)"
+	form_research "$source" "$research" "$stem"
+	owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$research" "$run_dir/$stem-projection.json" 200
+	request=$(jq -er '.request_identity' "$run_dir/$stem-projection.json")
+	jq -n --arg locator "$research" --arg selector "$selector" \
+		'{research_request_locator:$locator,control:{kind:"Tamper",selector:$selector}}' >"$run_dir/$stem-run.json"
+	jq -n --arg selector "$selector" '{tamper:$selector}' >"$run_dir/$stem-resolve.json"
+	before=$(composer_census)
+	case $selector in Binding*) coordinate_class=binding ;; Capsule*) coordinate_class=capsule ;; *) die "unclassified tamper selector $selector" ;; esac
+	owner_call_unavailable POST /_sealed-acceptance/v1/develop-composer/runs \
+		"$run_dir/$stem-run.response" "$request" "$coordinate_class" "$run_dir/$stem-run.json"
+	owner_call_unavailable POST "/_sealed-acceptance/v1/develop-composer/runs/$composer_request_one/resolve" \
+		"$run_dir/$stem-resolve.response" "$composer_request_one" acceptance_tamper "$run_dir/$stem-resolve.json"
+	[[ $(composer_census) == "$before" ]] || die "$selector tamper changed the exact Composer census vector"
+	[[ $(composer_count "$request") == 0 ]] || die "$selector tamper left a Composer successor"
+done
+
+# A fresh third chain loses only its first successful Composer response. RESOLVE and replay recover
+# byte-identical canonical custody, and the process-local A0 counter advances exactly once.
+source_request_three="sealed-source-c-$(random_hex | cut -c1-12)"
+research_request_three="sealed-source-intake-composer-research-v2-c-$(random_hex | cut -c1-8)"
+form_research "$source_request_three" "$research_request_three" three
+owner_call GET "/v2/develop-composer/request-projections?research_request_locator=$research_request_three" "$run_dir/three-projection.json" 200
+composer_request_three=$(jq -er '.request_identity' "$run_dir/three-projection.json")
+printf '%s\n' "{\"research_request_locator\":\"$research_request_three\"}" >"$run_dir/loss-request.json"
+a0_before_loss=$(a0_execution_count)
 set +e
 python3 - "$owner_header" "$run_dir/loss-request.json" <<'PY' |
 import pathlib
@@ -560,10 +803,13 @@ PY
 loss_status=$?
 set -e
 [[ $loss_status -ne 0 ]] || die 'response-loss probe unexpectedly received a response'
-owner_call POST "/v2/develop-composer/runs/$composer_request_two/resolve" "$run_dir/loss-resolve.json" 200
-cmp -s "$run_dir/composer-two.json" "$run_dir/loss-resolve.json" || die 'response-loss RESOLVE changed canonical Composer receipt'
+owner_call POST "/v2/develop-composer/runs/$composer_request_three/resolve" "$run_dir/loss-resolve.json" 200
+owner_call POST /v2/develop-composer/runs "$run_dir/loss-replay.json" 200 "$run_dir/loss-request.json"
+cmp -s "$run_dir/loss-resolve.json" "$run_dir/loss-replay.json" || die 'response-loss RESOLVE/replay changed canonical Composer receipt bytes'
+a0_after_loss=$(a0_execution_count)
+[[ $((a0_after_loss - a0_before_loss)) -eq 1 ]] || die 'fresh response-loss chain did not execute A0 exactly once'
 
-composer_total_after_run=$(composer_total_count)
+composer_census_after_run=$(composer_census)
 with_deadline 90 "${compose[@]}" restart rd-owner-api windmill-server windmill-worker >/dev/null
 restart_ready=0
 for _ in $(seq 1 120); do
@@ -574,10 +820,11 @@ for _ in $(seq 1 120); do
 	sleep 1
 done
 [[ $restart_ready -eq 1 ]] || die 'restart health did not recover'
-for stem in one two; do
+for stem in one two three; do
 	case $stem in
 		one) source=$source_request_one; research=$research_request_one; expected="$run_dir/composer-one-a.json" ;;
 		two) source=$source_request_two; research=$research_request_two; expected="$run_dir/composer-two.json" ;;
+		three) source=$source_request_three; research=$research_request_three; expected="$run_dir/loss-resolve.json" ;;
 	esac
 	run_deployed source RESOLVE "$source" /dev/null "$run_dir/$stem-source-resolve.json"
 	run_deployed research RESOLVE "$research" /dev/null "$run_dir/$stem-research-resolve.json"
@@ -588,8 +835,19 @@ for stem in one two; do
 	cmp -s "$run_dir/$stem-research.canonical.json" "$run_dir/$stem-research-resolve.canonical.json" || die "$stem Research RESOLVE changed canonical custody"
 	cmp -s "$expected" "$run_dir/$stem-composer-resolve.json" || die "$stem Composer RESOLVE changed canonical receipt"
 done
-[[ $(composer_total_count) == "$composer_total_after_run" ]] || die 'restart RESOLVE changed Composer custody'
-[[ $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_artifacts_v2;') == 2 && $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2;') == 1 && $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2;') == 2 ]] ||
-	die 'restart did not preserve two-Artifacts/two-uses/one-build normalization'
+[[ $(composer_census) == "$composer_census_after_run" ]] || die 'restart RESOLVE/replay changed exact Composer custody vector'
+[[ $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_artifacts_v2;') == 3 && $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_build_receipts_v2;') == 1 && $(db_scalar 'SELECT count(*) FROM composer_private.rd_develop_artifact_build_receipt_uses_v2;') == 3 ]] ||
+	die 'restart did not preserve three-Artifacts/three-uses/one-build normalization'
 
-printf '%s\n' 'Source -> Research -> Composer sealed acceptance passed; cleanup/readback follows'
+for stem in one two three; do
+	case $stem in one) research=$research_request_one ;; two) research=$research_request_two ;; three) research=$research_request_three ;; esac
+	run_deployed composer RUN "$research" /dev/null "$run_dir/$stem-composer-replay-after-restart.json"
+	case $stem in one) expected="$run_dir/composer-one-a.json" ;; two) expected="$run_dir/composer-two.json" ;; three) expected="$run_dir/loss-resolve.json" ;; esac
+	cmp -s "$expected" "$run_dir/$stem-composer-replay-after-restart.json" || die "$stem restart replay changed Composer receipt bytes"
+done
+[[ $(composer_census) == "$composer_census_after_run" ]] || die 'restart replay changed exact Composer custody vector'
+
+printf 'needs_attention: stored DB tamper cases unavailable without safe exact-byte restore helper: %s\n' \
+	"$(IFS=,; printf '%s' "${stored_db_tamper_needs_attention[*]}")"
+
+printf '%s\n' 'Source -> Research -> Composer executable matrix passed; named stored DB tamper remains needs_attention; cleanup/readback follows'
