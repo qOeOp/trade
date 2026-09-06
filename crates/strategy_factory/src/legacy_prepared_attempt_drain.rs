@@ -114,7 +114,7 @@ struct DrainOutboxPayloadV1 {
     provider_disposition: String,
 }
 
-pub(crate) async fn migrate(
+pub(crate) async fn materialize(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ArtifactBuildError> {
     sqlx::query("CREATE TABLE IF NOT EXISTS rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
@@ -136,12 +136,78 @@ pub(crate) async fn migrate(
             .await
             .map_err(|e| storage(&e))?;
     }
-    let owner: String = sqlx::query_scalar("SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class WHERE oid='rd_legacy_prepared_attempt_drain_receipts_v1'::pg_catalog.regclass")
-        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
-    let leaked: bool = sqlx::query_scalar("SELECT pg_catalog.has_table_privilege('public','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('product_edge_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('operator_authorization_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('qualification_writer','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR pg_catalog.has_table_privilege('backtest_owner','rd_legacy_prepared_attempt_drain_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")
-        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
+    verify(transaction).await
+}
 
-    if owner != "rd_owner" || leaked {
+pub(crate) async fn verify(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ArtifactBuildError> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+            AND relation.relkind='r'
+            AND relation.relpersistence='p'
+            AND NOT relation.relrowsecurity
+            AND NOT relation.relforcerowsecurity
+            AND relation.reloptions IS NULL
+            AND relation.reltablespace=0
+            AND ARRAY(
+              SELECT attribute.attname || ':' || pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) || ':' || attribute.attnotnull::text
+                FROM pg_catalog.pg_attribute attribute
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+               ORDER BY attribute.attnum
+            )=ARRAY[
+              'receipt_identity:text:true',
+              'receipt_digest:text:true',
+              'build_request_identity:text:true',
+              'attempt_identity:text:true',
+              'receipt_json:jsonb:true',
+              'committed_at_epoch_ms:bigint:true'
+            ]::text[]
+            AND (SELECT count(*)=3 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=relation.oid AND constraint_entry.contype IN ('p','u'))
+            AND (SELECT count(*)=3 FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid=relation.oid AND index_entry.indisunique)
+            AND NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.pg_attribute attribute
+               WHERE attribute.attrelid=relation.oid
+                 AND attribute.attnum>0
+                 AND NOT attribute.attisdropped
+                 AND attribute.attacl IS NOT NULL
+            )
+            AND NOT pg_catalog.has_table_privilege('public',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('product_edge_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('operator_authorization_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('operator_authorization_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('qualification_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('qualification_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND NOT pg_catalog.has_table_privilege('backtest_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            AND pg_catalog.pg_get_userbyid(function_entry.proowner)='rd_owner'
+            AND NOT function_entry.prosecdef
+            AND function_entry.provolatile='v'
+            AND function_entry.proparallel='u'
+            AND function_entry.proconfig IS NULL
+            AND function_entry.pronargs=0
+            AND function_entry.prorettype='pg_catalog.trigger'::pg_catalog.regtype
+            AND NOT pg_catalog.has_function_privilege('public',function_entry.oid,'EXECUTE')
+            AND trigger_entry.tgenabled='O'
+            AND NOT trigger_entry.tgisinternal
+            AND trigger_entry.tgtype=27
+            AND trigger_entry.tgfoid=function_entry.oid
+            AND (SELECT count(*)=1 FROM pg_catalog.pg_trigger trigger_count WHERE trigger_count.tgrelid=relation.oid AND NOT trigger_count.tgisinternal)
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_trigger trigger_entry
+             ON trigger_entry.tgrelid=relation.oid
+            AND trigger_entry.tgname='rd_legacy_prepared_attempt_drain_immutable_v1'
+           JOIN pg_catalog.pg_proc function_entry
+             ON function_entry.oid=pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')
+          WHERE relation.oid=pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1')",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    if !exact {
         return Err(unavailable("legacy PREPARED drain receipt ACL mismatch"));
     }
     Ok(())

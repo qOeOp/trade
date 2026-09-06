@@ -294,6 +294,20 @@ struct FamilyFrozenOutboxV1 {
     membership_receipt_identity: String,
     census_frontier_identity: String,
     census_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_execution_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ReplayPolicyCatalogBindingV2 {
+    catalog_record_id: String,
+    catalog_version: u64,
+    policy_grammar_parser_id: String,
+    policy_grammar_parser_digest: [u8; 32],
+    policy_canonical_bytes: Vec<u8>,
+    policy_digest: [u8; 32],
+    catalog_record_digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -981,6 +995,7 @@ mod tests {
             membership_receipt_identity: "membership-receipt-v2".into(),
             census_frontier_identity: proposal.census_frontier_identity.clone(),
             census_frontier_digest: sha('8'),
+            replay_execution_policy_v2: None,
         };
         let family_digest =
             canonical_digest("rd.owner-outbox.payload.v1", &family_payload).unwrap();
