@@ -125,8 +125,9 @@ Windmill replacement.
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
-`Refresh` action. The body contains one horizontal table toolbar with exactly one `All` filter capsule at the left
-and search at the right. The table has four plain, left-aligned columns in this order: `Research request`, `State`,
+`Refresh` action. The body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
+control at the left and search at the right; `Verified` is always the default. The verified table has four plain,
+left-aligned columns in this order: `Research request`, `State`,
 `Intent`, and `Updated`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, row action, or backend-only field. The table header remains
 sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, and partial states preserve the same
@@ -139,7 +140,11 @@ with PostgreSQL `C` collation for the bounded ASCII identity, and exposes the sa
 passes the existing complete Research custody verifier, including its stored request, receipt, frozen intent,
 Research view, authority lineage, independence basis, protected-feedback projection, and TrialFamily custody.
 Legacy or quarantined request schemas are omitted and make the cut explicitly partial. A malformed or changed
-candidate fails the entire read unavailable; it is never treated as an empty successful page.
+candidate fails the entire read unavailable; it is never treated as an empty successful page. The secondary
+candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated Owner port opens only
+`default_transaction_read_only=on` sessions and reads one bounded repeatable-read transaction. It returns at most
+200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
+meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
@@ -148,7 +153,8 @@ payloads, ancestry, and storage fields remain withheld. Unknown wire keys, contr
 duplicate identities, future or malformed time, invalid completeness/count, oversized response, transport failure,
 or missing configuration all fail closed to `unavailable`.
 
-`Refresh`, local search/sort/pagination, and `Load older` are the only actions. There is no detail link in this
+`Refresh`, switching the local directory view, local search/sort/pagination, and `Load older` are the only actions.
+There is no detail link in this
 slice, and it cannot Submit or Resolve a Research request, create a successor, build or run an Artifact, invoke a
 provider, mutate Windmill, write business state, or authorize trading. The broader selected-request detail and
 action panels in the route registry remain future blueprint content.
@@ -157,8 +163,10 @@ action panels in the route registry remain future blueprint content.
 
 `ArtifactDirectory` is the exact `P` surface for `/rd/artifacts`. The route uses one full-width `PanelFrame` and
 does not reserve an empty detail column. Its frame header contains the eyebrow, title, one-line purpose, then one
-`Refresh` action. Its body contains one horizontal table toolbar with exactly one `All` filter capsule at the left
-and search at the right. The table has four plain, left-aligned columns in this order: `Artifact`, `Strategy intent`,
+`Refresh` action. Its body contains one horizontal table toolbar with a `Verified / Custody candidates` segmented
+control at the left and search at the right; `Verified` is always the default. Candidate mode adds one inline
+`Attempts / Bindings` kind rail in the same row. The verified table has four plain, left-aligned columns in this
+order: `Artifact`, `Strategy intent`,
 `Verification`, and `Created`. Column headings have no decorative icons and there is no View/column-chooser button,
 registered/visible count, multi-level filter popover, or backend-only field. Opening the Artifact identity navigates
 to the exact read-only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
@@ -175,10 +183,13 @@ attempt, Artifact, and strategy-intent identities, committed time, build target,
 security state. Nonterminal or non-success attempts are withheld and make the page explicitly partial. Any malformed
 custody, database/verification error, unknown wire key, contradictory completeness/count, invalid identity/time,
 oversized response, or transport/configuration failure makes the affected read unavailable; it never becomes an
-empty successful page. The UI says only that unverified candidates were withheld and does not expose their count or
-raw storage fields.
+empty successful page. The candidate view uses the same authenticated GET `/v1/historical-custodies` and read-only
+Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-binding identities, their custody times,
+and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
+No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
 
-`Refresh`, local search/sort/pagination, `Load older`, and opening one exact Artifact are the only actions. This
+`Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, and opening one
+exact verified Artifact are the only actions. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
 Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
 unchanged until a separate real Owner-backed preview contract is admitted.

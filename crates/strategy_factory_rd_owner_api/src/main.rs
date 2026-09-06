@@ -46,6 +46,8 @@ use vibe_strategy_factory::{
         identity_conflict_result_v2, rejected_result, unresolved_result, unresolved_result_v2,
     },
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
+    rd_historical_custody::{HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1},
+    rd_historical_custody_postgres::PostgresHistoricalCustodyOwnerV1,
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
 };
 
@@ -71,6 +73,7 @@ struct ApiState {
     artifact_source_owner: Arc<dyn ArtifactSourceOwnerPort>,
     artifact_directory_owner: Arc<dyn ArtifactDirectoryOwnerPort>,
     research_directory_owner: Arc<dyn ResearchDirectoryOwnerPort>,
+    historical_custody_owner: Arc<dyn HistoricalCustodyOwnerPortV1>,
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
@@ -210,6 +213,8 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?,
     );
+    let historical_custody_owner =
+        Arc::new(PostgresHistoricalCustodyOwnerV1::connect_read_only(&database_url).await?);
     #[cfg(feature = "sealed-develop-composer-acceptance")]
     let develop_composer =
         Arc::new(SealedDevelopComposerAcceptanceV2::connect(&composer_writer_database_url).await?);
@@ -222,6 +227,7 @@ async fn main() -> anyhow::Result<()> {
         artifact_source_owner: artifact_owner.clone(),
         artifact_directory_owner: artifact_owner,
         research_directory_owner: owner.clone(),
+        historical_custody_owner,
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
@@ -248,6 +254,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
+        .route("/v1/historical-custodies", get(read_historical_custodies))
         .route(
             "/v1/research-goals/{request_identity}/resolve",
             post(resolve),
@@ -1224,6 +1231,23 @@ async fn read_research_directory(
     }
 }
 
+async fn read_historical_custodies(State(state): State<ApiState>, headers: HeaderMap) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    match state
+        .historical_custody_owner
+        .read_historical_custodies()
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(HistoricalCustodyErrorV1::Storage(_)) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 fn valid_directory_identity(value: &str) -> bool {
     (16..=128).contains(&value.len())
         && value
@@ -2003,6 +2027,13 @@ mod tests {
             .await
             .unwrap(),
         );
+        let historical_custody_owner = Arc::new(
+            PostgresHistoricalCustodyOwnerV1::connect_read_only(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
         let state = ApiState {
             product_edge,
             owner: owner.clone(),
@@ -2010,6 +2041,7 @@ mod tests {
             artifact_source_owner: artifact_owner.clone(),
             artifact_directory_owner: artifact_owner,
             research_directory_owner: owner.clone(),
+            historical_custody_owner,
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,
@@ -2107,6 +2139,45 @@ mod tests {
             StatusCode::OK,
             "artifact preparation failed: rejection_code={prepared_rejection_code}, body={prepared_json}"
         );
+
+        let custody_response =
+            read_historical_custodies(State(state.clone()), headers.clone()).await;
+        assert_eq!(custody_response.status(), StatusCode::OK);
+        let custody_json = response_json(custody_response).await;
+        assert_eq!(
+            custody_json["operation"],
+            "rd.historical_custody_quarantine.read.v1"
+        );
+        let research_candidates = custody_json["research"].as_array().unwrap();
+        let research_candidate = research_candidates
+            .iter()
+            .find(|candidate| {
+                candidate["request_identity"].as_str() == Some(research_request_identity.as_str())
+            })
+            .unwrap_or_else(|| {
+                panic!("canonical Research custody candidate missing: {custody_json}")
+            });
+        assert_eq!(
+            research_candidate["projection_state"],
+            "POINT_READ_REQUIRED"
+        );
+        assert!(research_candidate.get("resolution").is_none());
+        assert!(research_candidate.get("disposition").is_none());
+        let attempt_candidates = custody_json["artifact_attempts"].as_array().unwrap();
+        let attempt_candidate = attempt_candidates
+            .iter()
+            .find(|candidate| {
+                candidate["build_request_identity"].as_str()
+                    == Some(build_request_identity.as_str())
+                    && candidate["attempt_identity"].as_str() == Some(attempt_identity.as_str())
+            })
+            .unwrap_or_else(|| {
+                panic!("canonical Artifact custody candidate missing: {custody_json}")
+            });
+        assert_eq!(attempt_candidate["projection_state"], "POINT_READ_REQUIRED");
+        assert!(attempt_candidate.get("resolution").is_none());
+        assert!(attempt_candidate.get("disposition").is_none());
+
         let claimed =
             claim_provider_invocation(State(state.clone()), headers.clone(), build_body).await;
         assert_eq!(claimed.status(), StatusCode::OK);

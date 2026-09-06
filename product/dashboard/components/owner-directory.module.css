@@ -37,8 +37,20 @@
   gap: 5px;
 }
 
+.filterGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 @media (max-width: 760px) {
   .tableSurface {
     min-height: 480px;
+  }
+
+  .filterGroup {
+    overflow-x: auto;
+    scrollbar-width: none;
   }
 }
