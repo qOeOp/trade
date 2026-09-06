@@ -40,6 +40,17 @@ test("calendar colors resolve from the current shared theme instead of undefined
 
 test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
+  const sourceFiles = await Promise.all([
+    "calendar-header.tsx",
+    "today-button.tsx",
+    "date-navigator.tsx",
+    "filter.tsx",
+    "view-tabs.tsx",
+    "operation-select.tsx",
+    "settings.tsx",
+  ].map((name) => readFile(new URL(`../components/ui/schedule-calendar/header/${name}`, import.meta.url), "utf8")));
+  const source = sourceFiles.join("\n");
+  const sourceLock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
   for (const marker of [
     "todayCard",
     "monthHeading(date)",
@@ -52,9 +63,22 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
     "Calendar settings",
     "compactCalendar",
     "refreshAction",
-  ]) assert.ok(component.includes(marker), `missing source calendar marker: ${marker}`);
-  assert.doesNotMatch(component, /Add Event|UserSelect|CALENDAR_ITEMS_MOCK/u);
+  ]) assert.ok(source.includes(marker), `missing source calendar marker: ${marker}`);
+  assert.match(component, /<CalendarHeader/);
+  assert.equal(sourceLock.components.calendarHeader.blob, "2357cf00f668de103b346a15a02918fbfc9f25c8");
+  assert.equal(sourceLock.components.calendarViewTabs.blob, "b7ea515cc3670441e739c6fcf7ae2f7ba93776af");
+  assert.doesNotMatch(`${component}\n${source}`, /Add Event|CALENDAR_ITEMS_MOCK/u);
   assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
+});
+
+test("unavailable schedule data preserves the source calendar frame without invented events", async () => {
+  const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../components/ui/schedule-calendar.module.css", import.meta.url), "utf8");
+  assert.match(component, /error \? <div className=\{styles\.unavailableCalendar\}/);
+  assert.match(component, /<ScheduleCalendar schedules=\{\[\]\}/);
+  assert.match(component, /data-availability="unavailable"/);
+  assert.match(css, /\.unavailableCalendar \.calendar \{ opacity:/);
+  assert.match(css, /\.availabilityNotice \{/);
 });
 
 function dayGroups(rows, date) {
