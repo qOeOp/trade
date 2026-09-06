@@ -128,6 +128,48 @@ Artifact 已由 `ProgramHostV2` 动态接纳；这只证明 crate-local 合约�
 custody、跨进程重启恢复、provider/API/Windmill composition 和已部署 Owner readiness 仍不可用，不能从内存
 join 推断。
 
+**TARGET - 规范 Research-to-Composer custody：** public operation 只接收规范 Research request locator。在一笔
+R&D transaction 上，Owner-internal exact commit-cut capability 取得 request/aggregate row lock，规范重读
+current Research custody，并在任何写入前派生 request、Design、全部 Research/Intent/Design digest、binding、
+source capsule、provider、Operator Authorization frontier 与 final cut。已认证 GET request projection 只是
+只读 recovery metadata；POST 独立派生，不能接收 projection 回灌。同一 transaction 要么持久化全部正向
+Composer fact，要么零写入。sealed A0 Build Receipt 是一项 intrinsic content-addressed fact，而每个 Artifact
+拥有独立且规范排序的 use relation。因此两份不同 Research custody 可以产生两个 Artifact 与两条 use row，
+共享一份 build fact 而不合并其 lineage。intrinsic relation 是
+`rd_develop_build_receipts_v2(receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes)`；
+`rd_develop_artifact_build_receipt_uses_v2(artifact_identity, ordinal, receipt_identity)` 拥有 ordered reference。
+只有准确 legacy embedded-receipt schema 允许一次 byte-preserving normalization；partial、mismatched、
+ambiguous 或其他 shape 均 fail closed。在隔离 Windmill golden chain、
+locator/full-DTO negative、dual-custody sharing、concurrency/conflict、fault atomicity、response loss、restart
+readback 与准确 cleanup baseline 全部通过前，该能力保持 `TARGET`。
+
+**CURRENT/PARTIAL - authenticated Strategy Design role-set readback：** 固定 R&D Owner adapter 可用一个
+准确的已接纳 Composer request locator 解析既有持久 Design/Plan/Composer custody，并返回 additive
+`StrategyDesignRoleSetReceiptV1`。它重复 schema/reserved、准确 request 与 operation receipt、Research request
+与 Intent、Design identity/digest、canonical-Design 与 Plan digest、Artifact identity，按派生 role identity
+严格排序并携带完整 semantic coordinate 的全部 role，以及按派生 join identity 严格排序、同时保留声明 role
+顺序、alignment、trigger 与最大 staleness 的全部 join。其 SHA-256 domain 为
+`rd.strategy-design-role-set.receipt.v1\0`；hash 只保护 integrity，authority 来自固定且已准入的 R&D resolver。
+**CURRENT/PARTIAL：** 固定 R&D API 在 Market Data binding issuance 前解析该准确 readback；caller 不能提供
+receipt、role、count 或 resolver。同一 Market transaction 签发并存储未改变的 Replay V2 facts；准确 binding
+locator recovery 返回 byte-identical binding 与 Replay payload。**TARGET：** admitted deployment 与隔离
+PostgreSQL acceptance。**NOT_ADMITTED：** 该 projection 不是第二个 Design store，不把
+Design/role/join authority 转给 Market Data，也不声称 default deployment、Replay composition、Dashboard、
+production write、runtime、Backtest result 或 trading authority。
+
+该 receipt canonical binary codec 已固定且不依赖 JSON。整数均为 unsigned big-endian；digest 是原始 32
+bytes；string 是 UTF-8 byte length `u32BE` 后接这些 bytes；list 是 item count `u32BE` 后接各 item。bytes
+准确顺序为：receipt schema `u16BE`、reserved-zero `u16BE`；Composer locator schema `u16BE`、request identity
+string、operation-receipt digest、artifact-locator string、Artifact digest、Plan digest、Design digest；再次编码
+operation-receipt、Research-request、Intent、Design-identity、Design、canonical-Design、Plan、Artifact digest；
+role count，随后每个 role 的 identity digest、semantic-id、fact-class、instrument、scope、field-semantic-id、
+channel、timeframe、unit string、scale `u8`、value-type string；join count，随后每个 join 的 identity digest、
+semantic-id string、ordered-role count、每个有序 role 的 semantic-id string 与 identity digest、alignment 与
+trigger string、maximum staleness `u64BE`。不得有 trailing bytes。`receipt_digest` 是以上 domain 后紧接这些
+准确 bytes 的 SHA-256；canonical bytes 与 digest 自身都不编码进 canonical bytes。准确 locator recovery 从
+既有 Composer custody 重新 projection，并且必须返回 byte-identical canonical bytes 与 digest。caller 自建
+的 bytes 或 hash 即使 self-consistent 仍不可信，不能进入固定 resolver path。
+
 **CURRENT/PARTIAL - 本地 bounded-plugin build producer：** 对准确一个当前 `PluginManifestV2`，R&D 只接纳
 固定 `rust.no_std.fixed-abi-source.v2` 语言中一份有内容上限的 `src/lib.rs`，拒绝其他路径、symlink、文件、
 dependency、build script、toolchain、target 或 command。它物化两个相互独立的私有临时 Cargo project；
@@ -310,14 +352,20 @@ policy 与 cross-binding，绝不把 Catalog 重读为 authority。Catalog rerea
 admissibility；后续 Catalog version、revocation、deletion、unavailability 或 tamper 不能替换 policy，也不能
 使已形成 family 失效。
 
-后续 Replay Policy V2 composition 在 R&D、Composer 与 Market Data 路径上共用一个已准入 R&D PostgreSQL
-transaction domain。只有 R&D-owned composition resolver/A1 持有该 transaction capability，并把它传给
-每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确 transaction
-上执行自己的 lock、规范回读、校验与 sealing。Owner 或 composition resolver 都不能为 composition 打开另
-一个 pool、connection 或 transaction，不能读取其他
-Owner 的 raw table、重建 sealed evidence 或转移 fact authority。Composer 或 Market Data evidence 不可用、
-过期、不匹配、跨 cut 或 wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入
-前失败。随后 R&D 在同一 transaction 上原子提交形成的 fact、receipt 与 R&D outbox。
+后续 Replay Policy V2 composition 使用一个 R&D-owned A1 orchestration，跨两个边界明确的 Owner
+transaction。read-only `market_data_reader` transaction 先取得准确 Composer request 的 shared cut lock，
+通过 Owner-owned sealed function lock 并规范回读完整 Composer aggregate，完成校验，并保持开启直到 Market
+terminal decision。只有此后，固定 `market_data_owner` login principal 才可打开一个 SERIALIZABLE
+transaction，证明两条连接到达同一 live primary、database、postmaster incarnation 与 advisory lock manager，
+取得同一个 shared Composer cut lock 作为 database-level handoff，并执行全部 Market Data lock、规范回读、
+校验、seal 与 positive write。Composer writer 在每次 mutation 前都使用匹配的 exclusive cut lock，因此任一
+存续 shared lock 都会阻止 Composer 漂移，直至 Market transaction commit 或 rollback。任何 Owner 或 A1 都
+不得读取另一 Owner 的 raw table、重建 sealed evidence、转移 fact authority、获得另一 Owner 的 raw access，
+或声称 shared XID、MVCC snapshot 或 cross-Owner atomic commit。`market_data_owner` 仅对自己的 private Market
+Data relation 保留 raw authority。任何 unavailable、stale、mismatched、cross-cut、wrong-owner 或
+wrong-database evidence、lock-manager proof 失败，或 family-sealed policy cross-binding 无效，都必须在第一笔
+positive Market write 前失败。Binding、Replay fact、receipt、outbox 与 issuance response bytes 只在 Market
+Data Owner transaction 内原子提交；Composer evidence 在 guarded window 中保持稳定，但此前已经独立提交。
 
 disposable Catalog fixture 仅用于测试。隔离的 `SEALED_ACCEPTANCE` harness 可以通过私有 administration
 port 在其 fresh PostgreSQL instance 中创建并显式推进一个固定的内容寻址 policy head。fixture、

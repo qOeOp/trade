@@ -133,6 +133,7 @@ impl AdmittedProgramEventV2 {
         ))
     }
 
+    #[cfg(test)]
     pub(crate) fn issue_for_plan_test(
         plan: &StrategyPlanV2,
         envelope: LifecycleEnvelopeV1,
@@ -214,6 +215,7 @@ impl AdmittedProgramEventV2 {
         }
     }
 
+    #[cfg(test)]
     pub(crate) const fn admitted_identity(&self) -> BindingDigest {
         self.identity
     }
@@ -1181,6 +1183,28 @@ impl ProgramHostV2 {
         }
         let fresh = Self::new(plan, artifact)?;
         fresh.decode_checkpoint(bytes)
+    }
+
+    pub(crate) fn restore_checkpoint(
+        &self,
+        checkpoint: &ProgramCheckpointBundleV2,
+    ) -> Result<Self, ProgramHostV2Error> {
+        Self::restore(self.plan.clone(), self.artifact.clone(), checkpoint)
+    }
+
+    pub(crate) fn admit_backtest_lifecycle_event(
+        &self,
+        envelope: LifecycleEnvelopeV1,
+    ) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+        admit_backtest_lifecycle_event_v2(&self.plan, envelope)
+    }
+
+    pub(crate) fn input_role_scale(&self, semantic_id: &str) -> Option<u8> {
+        self.plan
+            .input_roles()
+            .iter()
+            .find(|role| role.semantic_id == semantic_id)
+            .map(|role| role.scale)
     }
 
     /// Admits and applies one Market Data Owner-sealed BAR or EVENT frame.
@@ -2910,6 +2934,7 @@ fn domain_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
+#[cfg(test)]
 fn test_event_receipt_digest(
     envelope: LifecycleEnvelopeV1,
     binding_receipt_digest: BindingDigest,
@@ -2926,6 +2951,7 @@ fn test_event_receipt_digest(
     domain_digest(b"strategy.program-host.test-event-receipt.v2\0", &bytes)
 }
 
+#[cfg(test)]
 fn test_trigger_digest(envelope: LifecycleEnvelopeV1) -> BindingDigest {
     domain_digest(
         b"strategy.program-host.test-trigger-receipt.v2\0",

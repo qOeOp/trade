@@ -54,6 +54,527 @@ Provide canonical, time-correct market, reference, and instrument facts to every
 - **Instrument Master** - own effective-dated instrument identities, venue mappings, contract terms, sessions,
   time zones, lifecycle and corporate-action facts; it does not choose a run universe.
 
+## Calendar and Time Zone native Owner contracts
+
+### Durable R0 observation-evidence foundation
+
+**CURRENT:** `ReferenceFactR0RecordV1` is the one durable R0 observation-evidence aggregate used by
+standalone native reference authorities. R0 is not a business fact, coordinate selector, or second clock. Its
+private PostgreSQL resolver accepts only an untrusted request and exact locator
+`{request_identity, request_meaning_digest}`. It canonical-decodes the exact PIT Snapshot and Source Binding
+locators, resolves and byte-matches their native Owner custody, resolves the complete co-committed PIT observation
+batch and exact historical Shared Time head, and only then creates a record. No head, latest, history scan,
+caller-carried authenticated input, or structurally valid locator can produce positive R0 custody.
+
+The record cross-binds the exact PIT request identity/digest, snapshot identity/fact digest and verified PIT
+outbox digest; complete observation-batch digest; Source Binding identity/fact digest/outbox digest, lineage root
+and version; exact source and correction frontier stream/cut-identity bytes, sequence and digest; exact clock/epoch bytes,
+monotonic sequence, wall observation, decision cut, exclusive valid-through, head identity/digest, restart
+continuity, uncertainty and skew; replay/effective bounds; provider-available, retrieval,
+correction-publication and Owner-observation coordinates; optional predecessor; and stable correlation. Every
+repeated time and frontier field byte-matches the exact PIT observation batch, Source Binding locator, PIT time
+evidence and resolved Shared Time head. R0 preserves the PIT Owner's existing outbox digest; it does not mint a
+digest over locator bytes or reinterpret the older shared helper's SHA-256/little-endian identities.
+
+All R0 version-1 integers are big-endian, optional tags are exactly `0x00`/`0x01`, reserved is `u16BE = 0`, and
+identities are BLAKE3-256 over the listed NUL-terminated domain plus exact canonical bytes.
+
+- Request-meaning domain `vibe.market-data.reference-fact-r0-request.v1\0`; bytes are schema, reserved, canonical
+  PIT and Source Binding locator bytes as `u32BE length || bytes`, replay start/exclusive end, effective-from,
+  optional effective-until, the four observation coordinates, decision cut, optional predecessor and stable
+  correlation. Request identity is the separate idempotency key.
+- Record domain `vibe.market-data.reference-fact-r0-record.v1\0`; bytes are schema, reserved, request
+  identity/meaning, the exact PIT, observation, Source Binding, frontier and Shared Time fields above in that order,
+  followed by replay/effective bounds, the four observation coordinates, decision cut, optional predecessor and
+  stable correlation. Variable clock, epoch and frontier stream/cut identities are `u32BE length || bytes`.
+- Cut domain `vibe.market-data.reference-fact-r0-cut.v1\0`; bytes are schema, reserved, request identity/meaning,
+  exact member count `u32BE = 1`, record identity/digest, and gap count `u32BE = 0`. No inferred empty or
+  multi-record cut is positive.
+- Receipt domain `vibe.market-data.reference-fact-r0-receipt.v1\0`; bytes are schema, reserved, request
+  identity/meaning, cut identity/digest, store-generation identity, positive append sequence and stable
+  correlation. Outbox identity equals receipt identity and payload equals exact receipt bytes.
+- Readback domain `vibe.market-data.reference-fact-r0-readback.v1\0`; bytes are schema, reserved, record
+  identity/length/bytes, cut identity/length/bytes, receipt identity/length/bytes and outbox identity.
+
+One transaction stores record, one-record complete cut, generation/append state, receipt and outbox in private
+tables. Exact identity/meaning replay re-decodes, rehashes and cross-validates every row and returns byte-identical
+move-only readback. Changed meaning, missing/tampered locator, partial row, scalar/frontier splice, canonical drift
+or response-loss retry mismatch appends nothing. **NOT_ADMITTED:** R0 grants no provider authenticity, default or
+production database write, deployment, runtime, Dashboard or trading authority.
+
+### ReferenceFactCatalogV1 business-value authority
+
+**TARGET:** `ReferenceFactCatalogV1` is the single Market Data Owner catalog for Calendar, Time Zone and Session
+business values. It is a different authority axis from R0: the catalog owns the typed value, business scope,
+business-effective half-open interval, revision, correction lineage and direct predecessor; R0 owns only the exact
+PIT/Source/Shared-Time observation evidence used when resolving that value. An R0 replay/effective bound never
+widens, truncates or creates a catalog business interval.
+
+The closed value tags are `1 CALENDAR`, `2 TIME_ZONE` and `3 SESSION`. Calendar entries bind one exact civil-day
+open/closed value. Time Zone entries bind one exact time-zone/ruleset/UTC-offset value and the UTC interval on
+which that offset is constant. Session entries bind one exact trading day, contiguous interval ordinal and local
+open/close boundaries with explicit fold resolution; they never store authoritative UTC endpoints. Session alone
+recomputes those endpoints from the exact Time Zone cut and requires coverage of both open and close instants.
+
+Only an admitted bootstrap/admin source may append an immutable catalog entry. Runtime receives an untrusted exact
+entry locator and can only resolve and byte-verify it; caller-carried typed proposals, latest/head selection and
+structurally valid bytes do not mint positive custody. The entry binds exact Source Binding identity/fact/lineage
+and source/correction frontiers. Native Calendar, Time Zone and Session facts repeat the resolved catalog identity
+and preserve independent R0 observation coordinates. Missing entry, changed meaning, source splice, predecessor
+branch, non-canonical ordering, interval overlap/gap or a Session boundary outside Time Zone coverage writes zero
+native facts, cuts, receipts and outbox rows.
+
+Catalog key and entry identities are BLAKE3-256 over respectively
+`vibe.market-data.reference-fact-catalog-key.v1\0` and
+`vibe.market-data.reference-fact-catalog-entry.v1\0` plus canonical big-endian bytes. The key binds closed kind,
+business scope, positive revision, source lineage root and the complete typed value. The stable catalog-head scope is
+exactly the stable business-scope identity plus that source lineage root; neither revision nor typed value may select
+a different head. Business-scope identity is BLAKE3-256 over
+`vibe.market-data.reference-fact-business-scope.v1\0` plus schema `u16BE = 1`, reserved zero `u16BE`, closed kind
+`u8`, and exactly one native key: Calendar identity `u32BE length || bytes` plus civil day `i32BE`; Time Zone
+identity `u32BE length || bytes` plus ruleset identity `[u8; 32]`; or Session identity `u32BE length || bytes`,
+trading day `i32BE` and interval ordinal `u32BE`. The entry additionally binds command identity, optional catalog
+predecessor, positive correction sequence, business-effective interval, exact Source provenance, administrator
+admission identity and stable correlation, in that order after the complete catalog-key bytes; it does not repeat
+the typed value already bound by that key. A catalog predecessor is always the prior catalog
+entry identity in that same head scope, never a native fact identity. Genesis has correction sequence `1` and no
+catalog predecessor; every later entry has the immediately prior catalog entry and sequence increased by exactly
+one. A Time Zone successor either corrects the same constant-offset regime and retains byte-identical effective
+bounds, or describes the immediately adjacent regime whose lower bound equals the predecessor's upper bound.
+Calendar and Session successors correct one stable native key and therefore retain byte-identical effective bounds.
+Exact stored bytes are decoded, rehashed and matched before use. **NOT_ADMITTED:** isolated acceptance catalog
+data does not prove vendor authenticity and grants
+no default/production database, deployment, provider, Dashboard, runtime or trading effect.
+
+### Shared native boundary and custody
+
+**CURRENT:** Replay V2 has typed Calendar and Time Zone values, while PIT and Instrument Master still carry
+calendar, time-zone or ruleset identities without native Calendar/Time Zone readback. Shared Time authenticates
+when Market Data observed a fact; it never supplies a calendar day, open disposition, time-zone rule or UTC offset.
+
+**TARGET:** Calendar and Time Zone are independent Market Data native authorities. Their fixed consumers are PIT,
+which preserves the direct native cut identity/digest; Instrument Master, which binds native cut identities/digests
+rather than strings; Replay V2, which receives deterministic projections; and later BAR resolution. Session is the
+sole join of exact Calendar and Time Zone cuts. Neither native authority depends on Session or copies the other's
+facts. An untrusted private proposal cannot reinterpret an existing Replay V2 value or mint positive custody.
+
+Each Calendar, Time Zone and Session authority accepts only an untrusted exact catalog-entry locator for catalog
+selection and re-resolves the exact stored `ReferenceFactCatalogV1` entry inside the caller's Owner transaction,
+together with the exact admitted Source Binding. Latest/current-head lookup is verification of the resolved entry's
+lineage position only and is never selection. The native typed business value is derived from and byte-matched to
+that catalog entry; a caller proposal cannot supply or override it. One verified `ReferenceFactCoordinatesV1` is
+observation evidence only and never business-value or lineage authority.
+
+Every native fact has its own lineage root, positive native correction sequence, optional native predecessor and
+current native head. The native lineage root is exactly the catalog scope identity, and that scope identifies one
+native fact key: `(calendar identity, civil day)`, `(time-zone identity, ruleset identity)`, or `(session identity,
+trading day, interval ordinal)`. It is neither derived from nor compared with Source Binding lineage coordinates.
+The native predecessor is always the immediately prior fact identity for the same native fact key and domain,
+never a catalog entry identity. Catalog and native correction sequences correspond one-to-one. At
+genesis both sequences are `1` and neither predecessor is present. For every correction with sequence greater than
+`1`, both predecessors are required, the native fact's catalog entry names the catalog predecessor, and the prior
+native fact must bind that exact catalog predecessor; catalog entry and native fact hashes remain distinct even for
+the same revision. A missing predecessor, branch, cycle, sequence gap or regression, cross-source splice, effective
+overlap/gap, incomplete requested coverage, clock mismatch or expired observation fails before any write. Positive
+facts, complete cuts, receipts and move-only readbacks have no public constructor/deserializer. Public callers
+receive only an untrusted sealed locator; the resolver is crate-sealed.
+
+Version-1 integers are big-endian, optional tags are exactly `0x00`/`0x01`, booleans are `0x00`/`0x01`, and
+identities/digests are 32 bytes. Every artifact identity is BLAKE3-256 over its listed NUL-terminated domain plus
+exact bytes. For each authority, receipt bytes are schema `u16BE = 1`, reserved `u16BE = 0`, request identity,
+request-meaning digest, cut identity/digest, store-generation identity, positive append sequence `u64BE`, stable
+correlation. Receipt identity is therefore generation-bound and hashes its receipt domain plus those exact bytes.
+Outbox identity is exactly that receipt identity; it has no separate domain or hash, and its payload is the exact
+receipt bytes. Readback bytes are schema, reserved, positive fact count `u32BE`, each fact identity,
+`u32BE` length and exact bytes in cut order, then cut identity/length/bytes, receipt identity/length/bytes and
+outbox identity. Unknown tags, zero required identities, duplicate or non-canonical order, malformed lengths and
+trailing bytes are unsupported.
+
+One caller-owned transaction appends immutable fact/head rows, the complete cut, receipt, outbox and generation/
+append state. Exact identity/meaning replay rejoins and re-verifies the entire stored aggregate; changed meaning
+conflicts. Partial custody, canonical/scalar drift or dependency splice is untrusted. Response loss is recovered by
+the exact sealed locator and returns byte-identical readback without another append. Tables and schema grant no
+runtime access; `PUBLIC` has no privilege; only the fixed non-grantable Owner/writer and exact non-grantable reader
+`EXECUTE` manifests are admitted. Every validation, ACL or recovery failure writes zero rows.
+
+**NOT_ADMITTED:** these contracts do not claim implementation, migration, store admission, registered product
+composition, provider authenticity, production/default writes, deployment, Dashboard work, runtime or trading.
+
+### Calendar V1: complete day/open authority
+
+`CalendarFactV1` value is exact calendar identity `u32BE length || bytes`, signed UTC civil-day ordinal `i32BE`
+from `1970-01-01`, and `is_open` `u8`. Fact domain is `vibe.market-data.calendar-fact.v1\0`; after schema and
+reserved its bytes are that complete catalog-derived value, exact catalog entry identity `[u8; 32]`, native lineage
+root, native correction sequence `u64BE`, optional native predecessor, effective-from and optional effective-until
+`i128BE`, provider-available, retrieval, correction-publication and Owner-observation `i128BE`, decision cut
+`u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/`u64BE` version, and
+source/correction frontier digests.
+
+Request-meaning domain is `vibe.market-data.calendar-request.v1\0`; bytes are schema, reserved, closed consumer tag
+(`1 PIT`, `2 INSTRUMENT_MASTER`, `3 REPLAY_V2`, `4 BAR`), calendar identity, inclusive first and exclusive last
+day `i32BE`, Owner-observation, decision cut, Source Binding and R0 locator bytes as `u32BE length || bytes`, and
+stable correlation. Cut domain is `vibe.market-data.calendar-cut.v1\0`; bytes are schema, reserved, request
+identity/meaning, consumer tag, calendar identity, day bounds, Owner-observation, decision cut, R0 cut identity/
+digest, expected-day count `u32BE`, then exactly one day-sorted fact identity/digest for every requested civil day,
+followed by gap count and sorted missing day ordinals. Positive means zero gaps, no duplicate day and complete
+open/closed disposition; an empty range is invalid. Receipt and readback domains respectively replace
+`calendar-cut` with `calendar-receipt` and `calendar-readback`, both version `v1\0`; the outbox identity equals the
+receipt identity under the shared native rule and has no domain.
+
+### Time Zone V1: complete UTC-offset transition authority
+
+`TimeZoneFactV1` value is exact time-zone identity and ruleset identity (`u32BE length || bytes`, then `[u8; 32]`)
+plus signed UTC offset seconds `i32BE`. Its half-open effective interval is the UTC interval on which that offset is
+constant. A ruleset transition is an immutable successor; the adjacent before/after intervals determine the local
+fold when offset decreases and gap when it increases, so neither condition is guessed or normalized away.
+
+Fact domain is `vibe.market-data.time-zone-fact.v1\0`; bytes are schema, reserved, that complete catalog-derived
+value, exact catalog entry identity `[u8; 32]`, native lineage root, native correction sequence, optional native
+predecessor, then the effective and observation fields and exact R0/Source Binding/frontier tail defined for
+Calendar, in the same order. Request-meaning domain is
+`vibe.market-data.time-zone-request.v1\0`; bytes are schema, reserved, consumer tag, time-zone identity, ruleset
+identity, replay-window start and exclusive end `i128BE`, Owner-observation, decision cut, length-prefixed Source
+Binding and R0 locator bytes, and stable correlation. Cut domain is `vibe.market-data.time-zone-cut.v1\0`; bytes
+are schema, reserved, request identity/meaning, consumer tag, time-zone/ruleset identities, window bounds,
+Owner-observation, decision cut, R0 cut identity/digest, transition count `u32BE`, interval-start-sorted fact
+identity/digest entries, then gap count and sorted half-open gap bounds. Positive coverage starts at or before the
+window start, ends at or after its end, and has exactly adjacent intervals with one offset for every instant,
+including folds and gaps. Receipt and readback domains are respectively
+`vibe.market-data.time-zone-receipt.v1\0` and `vibe.market-data.time-zone-readback.v1\0`; the outbox identity equals
+the receipt identity under the shared native rule and has no domain.
+
+### Session V1: sole native Calendar and Time Zone join
+
+**CURRENT:** Replay V2 has typed Session values and BAR V1 has its existing structural bytes, but neither is a
+native Session join or authority. **TARGET:** Session is the sole native join of exact positive independent
+`CalendarCutV1` and `TimeZoneCutV1` in one Market Data transaction, together with admitted Source Binding, exact
+Instrument Master reference tuple and
+verified Shared Time observation. Its only raw resolver consumer is `MARKET_DATA_OWNER_V1`; internal PIT, Replay
+and additive BAR composition may consume it, while Backtest and Strategy Factory receive sealed projections only.
+Caller strings, UTC endpoints, a nearest transition or a private proposal never mint a session fact. Gap local
+time has no positive fact and is never shifted. **NOT_ADMITTED:** no Session implementation, native store,
+registered composition, product reachability, production write, deployment, runtime or trading is claimed.
+
+`SessionFactV1` binds stable non-empty session identity, trading day as signed `i32BE` days since `1970-01-01` in
+the proleptic Gregorian calendar, and contiguous interval ordinal `u32BE` starting at zero. Each local boundary is
+local day `i32BE`, nanoseconds-of-day `u64BE < 86_400_000_000_000`, and resolution tag `u8`: `1 EXACT`,
+`2 EARLIER_INSTANT` or `3 LATER_INSTANT`. A unique local time requires `EXACT`; a fold requires the authenticated
+earlier/later choice and recomputation against the exact Time Zone transition. Leap-second spelling and every gap
+boundary are unsupported. The fact repeats recomputed UTC open/close `i128BE`, requires `open < close`, and binds
+exact Calendar fact/cut identities/digests, Time Zone open- and close-boundary fact identities/digests plus cut
+identity/digest, Instrument Master reference tuple, Source Binding identity/lineage, source/correction frontiers,
+correction identity and complete R0 observation coordinates. The catalog-derived typed business value byte-matches
+the exact entry; every derived UTC and dependency scalar is recomputed from the joined native facts.
+
+Fact domain is `vibe.market-data.session-fact.v1\0`; bytes are schema `u16BE = 1`, reserved, session identity
+`u32BE length || bytes`, trading day, interval ordinal, local-open tuple and local-close tuple as the complete
+catalog-derived typed business value, then exact catalog entry identity `[u8; 32]`, native lineage root, recomputed
+UTC open, UTC close, Calendar fact identity/digest and cut identity/digest, Time Zone open fact identity/digest,
+close fact identity/digest and cut identity/digest, Instrument Master readback/fact/cut digests, optional native
+predecessor, native correction sequence `u64BE`, provider-available, retrieval, correction-publication and
+Owner-observation `i128BE`,
+decision cut `u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/`u64BE`
+version, source frontier, correction frontier and correction identity. A correction is an immutable current-head
+direct successor for the exact `(session identity, trading day, interval ordinal)` native key.
+
+Request-meaning domain is `vibe.market-data.session-request.v1\0`; bytes are schema, reserved, fixed raw consumer
+tag `1 MARKET_DATA_OWNER_V1`, session identity, inclusive first/exclusive last trading day, exact Calendar and Time
+Zone cut locators, Instrument Master reference locator, Source Binding and R0 locators as length-prefixed bytes,
+Owner-observation, decision cut and stable correlation. Cut domain is `vibe.market-data.session-cut.v1\0`; bytes
+are schema, reserved, request identity/meaning, consumer tag, session/day scope, Calendar and Time Zone cut
+identities/digests, Instrument Master reference tuple, Owner-observation, decision cut, R0 cut identity/digest,
+day count `u32BE`, then every day in order with its open/closed tag, interval count and interval-ordinal/fact-
+identity/fact-digest entries, followed by gap count and missing-day ordinals. Open days contain the full contiguous
+ordinal set from zero; closed days have an explicit zero-member census. An all-closed window may therefore have a
+positive explicit empty-fact cut. Duplicate key, ordinal gap, overlapping UTC interval, missing requested day or
+an interval gap inside the declared open schedule yields no positive cut.
+
+Receipt and readback domains are `vibe.market-data.session-receipt.v1\0` and
+`vibe.market-data.session-readback.v1\0`; the outbox identity equals the receipt identity, has no domain, and uses
+the shared native write-once, sealed rejoin/recovery, ACL and zero-write rules. Replay V2 preserves its existing Session bytes and BAR
+V1 preserves its existing bytes: native Session adoption requires additive dependency/aggregate fields and an
+additive BAR successor contract, never reinterpretation of stored Replay V2 or BAR V1 custody.
+
+## Market Semantics Owner contract
+
+### Status, boundary and fixed consumers
+
+**CURRENT:** the Market Data architecture owns Market Semantics Compatibility, and `ReplayMarketFactsV2`
+already has the closed typed Market Semantics value described below. Source Binding still carries free-form
+normalization and meaning strings only as untrusted source claims; a Source Binding admission, string equality or
+digest carried by PIT or Instrument Master does not by itself authenticate typed Market Semantics.
+
+**CURRENT:** Market Data has one standalone `MarketSemanticsFactV1` authority foundation. Its first fixed consumer is the
+Strategy Input Binding Registry; `ReplayMarketFactsV2` later consumes the same Owner readback as a deterministic
+projection. An untrusted proposal may carry only its request identity and meaning, stable correlation, claimed
+typed value, claimed predecessor and dependency locators. It cannot supply a positive fact, coordinate, cut,
+canonical bytes, digest or receipt. Market Data privately resolves an admitted native Source Binding readback,
+the exact native PIT Snapshot and Instrument Master readbacks, and the exact Owner-authenticated
+`ReferenceFactR0ReadbackV1`. It then resolves a Market Data-owned closed registry entry that maps those
+exact dependency identities to the typed semantic value. Free-form Source Binding strings, adapter labels,
+provider fields, caller mappings and naming similarity never select or authenticate a registry entry.
+
+The positive resolver accepts only the untrusted proposal. It canonical-decodes the exact PIT, Source Binding,
+Instrument Master and R0 locators, resolves all four Owner readbacks in its caller transaction, derives the closed
+registry key, and resolves exactly one immutable registry record by that key. The registry-key domain is
+`vibe.market-data.market-semantics-registry-key.v1\0`; bytes are schema, reserved, compatibility-scope identity,
+R0 record identity/digest and cut identity/digest, PIT snapshot identity/fact digest, Source Binding identity/fact
+digest/lineage root/`u64BE` version, Instrument Master readback/fact/cut digests, source frontier and correction
+frontier. Registry-record domain is `vibe.market-data.market-semantics-registry-record.v1\0`; bytes are schema,
+reserved, key identity, `u32BE` key length plus exact key bytes, the five typed value fields, and correction
+identity. Key identity is the private table primary key and record identity is the BLAKE3 digest of exact record
+bytes. Zero, many, missing, canonical drift, dependency splice, or value mismatch is unavailable/untrusted; no
+name, value, scope, latest or history lookup is admitted. A test-only seal is not a production positive path.
+
+**NOT_ADMITTED:** this contract does not claim provider ingestion or authenticity, default or production database migration/write, Strategy Input Registry or
+Replay V2 product composition, deployment, runtime execution, Dashboard work or trading authority. A fixture,
+caller-carried identity, structurally valid bytes or existing Replay V2 fact is not standalone Owner readback.
+
+### Typed fact, time and correction topology
+
+The closed version-1 value is exactly: non-zero normalization identity `[u8; 32]`; price adjustment `u16BE` with
+`1 RAW`, `2 SPLIT_ADJUSTED` or `3 TOTAL_RETURN_ADJUSTED`; timestamp basis `u16BE` with `1 EVENT_EFFECTIVE`,
+`2 INTERVAL_OPEN` or `3 INTERVAL_CLOSE`; non-zero price-unit identity `[u8; 32]`; and non-zero size-unit identity
+`[u8; 32]`. Zero and every unlisted tag are unsupported. Unit identities name Owner-registry meanings; they are
+not unit strings, currency defaults, scale guesses or Instrument Master increment fields.
+
+Each immutable fact binds one Owner-registry compatibility-scope identity, an optional exact predecessor, one
+half-open effective interval `[effective_from, effective_until)`, provider-available, retrieval,
+correction-publication and Owner-observation coordinates, and a positive decision cut. It also binds the exact R0
+coordinate identity/digest and the exact admitted PIT Snapshot, Source Binding and Instrument Master
+identities/digests, Source Binding lineage, source and correction frontiers and correction identity. All repeated
+coordinate scalars must byte-match the resolved `ReferenceFactR0ReadbackV1`; the standalone authority creates no
+second clock or coordinate authority. Effective containment and observation availability are independent
+predicates. Every availability coordinate must be observable under the same authenticated clock and decision cut.
+
+A correction is an immutable direct successor in the same compatibility scope. It names the current predecessor,
+advances authenticated correction/observation evidence and may retain the corrected effective interval; it never
+rewrites or makes its predecessor unavailable at an earlier cut. Different effective regimes cannot overlap.
+Missing predecessors, branches, cycles, ambiguous overlap, regressed coordinates/frontiers or a later correction
+selected at an earlier observation cut produce no positive fact or cut.
+
+### Canonical codec, complete cut and custody
+
+Every version-1 integer is big-endian. Optional absence/presence is exactly `0x00`/`0x01`; every identity/digest is
+32 bytes; reserved is `u16BE = 0`; malformed length, zero required identity, alternate tag, duplicate, non-canonical
+order or trailing byte is unsupported. Identities are BLAKE3-256 over the listed NUL-terminated domain followed by
+the exact canonical bytes.
+
+- Request-meaning domain `vibe.market-data.market-semantics-request.v1\0`; bytes are, in order: schema
+  `u16BE = 1`, reserved, consumer tag, compatibility-scope identity, optional predecessor, the five typed value
+  fields in fact order, effective-from, optional effective-until, Owner-observation, decision cut, then the PIT
+  Snapshot, Source Binding, Instrument Master and R0 untrusted locator bytes, each as `u32BE length || bytes`, and
+  stable correlation. Request identity is the separate idempotency key and is not part of request meaning.
+- Fact domain `vibe.market-data.market-semantics-fact.v1\0`; bytes are, in order: schema `u16BE = 1`, reserved,
+  compatibility-scope identity, optional predecessor, normalization identity, price-adjustment tag,
+  timestamp-basis tag, price-unit identity, size-unit identity, effective-from `i128BE`, optional effective-until,
+  provider-available `i128BE`, retrieval `i128BE`, correction-publication `i128BE`, Owner-observation `i128BE`,
+  decision cut `u64BE`, R0 coordinate identity and digest, PIT Snapshot identity and fact digest, Source Binding
+  identity, fact digest, lineage root and `u64BE` lineage version, Instrument Master readback, fact and cut digests,
+  source frontier, correction frontier and correction identity.
+- Cut domain `vibe.market-data.market-semantics-cut.v1\0`; bytes are schema, reserved, request identity, request
+  meaning digest, closed consumer tag (`1 STRATEGY_INPUT_BINDING_REGISTRY_V1`, `2 REPLAY_MARKET_FACTS_V2`),
+  compatibility-scope identity, effective instant `i128BE`, Owner-observation `i128BE`, decision cut `u64BE`, R0
+  cut identity and digest, expected-member count `u32BE`, strictly scope-sorted entries of scope identity plus fact
+  identity/digest, then gap count `u32BE` and strictly sorted gap-scope identities. A positive cut has the complete
+  expected manifest and zero gaps; an explicit empty manifest is not an inferred success.
+- Receipt domain `vibe.market-data.market-semantics-receipt.v1\0`; bytes are schema, reserved, request identity,
+  request meaning digest, consumer tag, cut identity/digest, store-generation identity, positive append sequence
+  `u64BE` and stable correlation. Receipt identity is the generation-bound BLAKE3-256 over that domain and exact
+  receipt bytes. Outbox identity is exactly the receipt identity, has no separate domain or hash, and its payload is
+  the exact receipt bytes.
+- Readback domain `vibe.market-data.market-semantics-readback.v1\0`; bytes are schema, reserved, positive fact count
+  `u32BE`, each fact identity followed by `u32BE` byte length and exact fact bytes in cut order, then cut identity,
+  length and bytes, receipt identity, length and bytes, and outbox identity. Positive fact, cut, receipt and
+  move-only readback have no public constructor or deserializer; the resolver is crate-sealed.
+
+One Owner transaction appends immutable facts/heads, the complete cut, receipt, outbox and store
+generation/append state. Exact request identity plus exact meaning is idempotent. Changed meaning conflicts;
+partial rows, scalar/canonical drift, a dependency splice or digest mismatch make custody untrusted. Response loss
+never authorizes another append: recovery accepts only the exact identity/meaning locator, re-verifies the complete
+stored aggregate and returns byte-identical move-only readback.
+
+The existing `ReplayReferenceFactValueV2::MarketSemantics` is the deterministic projection of the five typed value
+fields from a verified standalone readback. Replay V2 keeps its own aggregate fact/cut identities and repeats its
+time, scope, source and correction projection only after byte-equality checks against that readback. It neither
+replaces the standalone fact nor becomes a second Market Semantics authority.
+
+## Correction Policy private Replay projection
+
+**CURRENT:** Source Binding owns correction lineage/frontiers and Replay V2 has the typed `CorrectionPolicy`
+value. **TARGET:** Market Data deterministically derives that value for Replay from exact admitted Source Binding
+lineage plus verified `ReferenceFactCoordinatesV1`; there is no standalone Correction Policy receipt, outbox,
+state, locator or resolver. **NOT_ADMITTED:** caller strings, a generic policy label, a frontier digest alone or
+Replay storage cannot mint policy authority, and this projection claims no implementation, provider authenticity,
+production write, deployment or trading authority.
+
+The private version-1 value is exact non-empty correction-stream identity, positive `u64BE` sequence and
+`successor_only = 0x01`; false and every alternate tag are unsupported. It additionally binds exact Source Binding
+identity/fact/lineage, correction-frontier digest identity, one half-open effective interval between distinct
+frontier changes, and the first admitted version's provider-available, retrieval, correction-publication,
+Owner-observation, decision cut, clock and R0 coordinate identity/digest. The first lineage version establishes
+availability and remains open even when its R0 record used a bounded replay/evidence interval; only a distinct
+successor frontier closes the correction regime. Later versions carrying the byte-identical source, stream,
+sequence, successor-only value and
+frontier are coalesced into the same interval and cannot move availability earlier. The next distinct frontier
+closes the prior interval and must be a direct, sequence-advancing successor. Gap, regression, branch, cross-source
+splice, changed stream without a new lineage, or clock/coordinate mismatch yields no projection.
+
+The deterministic private projection domain is `vibe.market-data.correction-policy-projection.v1\0`. Canonical
+bytes are schema `u16BE = 1`, reserved, stream `u32BE length || bytes`, sequence, successor-only tag, Source Binding
+identity/fact digest/lineage root/`u64BE` version, correction-frontier digest, effective-from and optional
+effective-until `i128BE`, the four availability/observation coordinates `i128BE`, decision cut `u64BE`, clock-head
+identity/digest and R0 coordinate identity/digest. Replay V2 projects only stream, sequence and successor-only into
+its existing typed value and repeats time/source/correction fields only after exact equality; its aggregate custody
+does not create a second policy authority.
+
+## Corporate Action native Instrument Master sub-authority
+
+### Status, inputs and typed actions
+
+**CURRENT:** Instrument Master owns corporate-action terms/frontiers and Replay V2 has closed Split,
+CashDividend, SymbolChange, Expiry and Roll variants, but no standalone native Corporate Action readback exists.
+**TARGET:** Instrument Master is the sole writer of `CorporateActionFactV1`; fixed consumers are Replay V2 and
+Backtest. Issuance resolves, in one Owner transaction, exact positive Instrument Master cut/facts, admitted Source
+Binding, PIT Snapshot, shared-clock observation, correction frontier and `ReferenceFactCoordinatesV1`. None may be
+replaced by a caller digest, symbol, latest row or Replay fact. **NOT_ADMITTED:** this contract claims no
+implementation, provider ingestion/authenticity, production/default migration/write, product composition,
+deployment, runtime, Dashboard or trading authority.
+
+Every fact binds a non-zero action identity, exact canonical instrument bytes and one closed term:
+
+- `1 SPLIT`: positive numerator and denominator `u64BE`. Direction is fixed: post-action quantity equals
+  pre-action quantity multiplied by numerator/denominator, and post-action price equals pre-action price multiplied
+  by denominator/numerator; reversal or an implicit vendor convention is unsupported.
+- `2 CASH_DIVIDEND`: signed `i128BE` mantissa, `u8` decimal scale and non-empty canonical currency identity.
+- `3 SYMBOL_CHANGE`: non-empty successor canonical instrument; the predecessor instrument remains historical.
+- `4 EXPIRY`: no payload.
+- `5 ROLL`: non-empty successor canonical instrument; it records the reference transition and grants no order.
+
+The fact also binds optional direct predecessor, one half-open effective interval, four availability/observation
+coordinates, decision cut, R0 coordinate identity/digest, exact Instrument Master readback/fact/cut digests, PIT
+Snapshot identity/fact digest, Source Binding identity/fact/lineage/version, source and correction frontiers and
+correction identity. Corrections are immutable current-head successors in the same action/instrument lineage and
+cannot rewrite earlier observability. Missing predecessor, branch, cycle, sequence/frontier regression, action or
+instrument splice, invalid ratio/currency/successor, effective ambiguity or clock mismatch fails before writing.
+
+### Canonical complete census and custody
+
+Fact domain is `vibe.market-data.corporate-action-fact.v1\0`. Bytes are schema `u16BE = 1`, reserved, action
+identity, instrument `u32BE length || bytes`, term tag and payload in the order above, optional predecessor,
+effective-from and optional effective-until `i128BE`, provider-available, retrieval, correction-publication and
+Owner-observation `i128BE`, decision cut `u64BE`, R0 coordinate identity/digest, Instrument Master readback/fact/
+cut digests, PIT Snapshot identity/fact digest, Source Binding identity/fact digest/lineage root/`u64BE` version,
+source frontier, correction frontier and correction identity.
+
+Request-meaning domain is `vibe.market-data.corporate-action-request.v1\0`; bytes are schema, reserved, closed
+consumer tag (`1 REPLAY_V2`, `2 BACKTEST`), inclusive/exclusive replay-window bounds `i128BE`, positive instrument
+count `u32BE`, strictly sorted length-prefixed canonical instruments, Owner-observation, decision cut,
+length-prefixed Instrument Master, PIT, Source Binding and R0 locator bytes, and stable correlation. Cut domain is
+`vibe.market-data.corporate-action-cut.v1\0`; bytes are schema, reserved, request identity/meaning, consumer tag,
+window bounds, Owner-observation, decision cut, R0 cut identity/digest, Instrument Master and PIT cut digests,
+instrument count, then each sorted instrument followed by action count and action-identity/fact-digest entries
+sorted by effective start and action identity, then gap count and sorted gap instruments. Every requested
+instrument appears exactly once. Zero actions is the canonical `u32BE = 0` census for that instrument, not a
+missing row or `NO_ACTIONS`; a positive cut has zero gaps.
+
+Receipt and readback domains are `vibe.market-data.corporate-action-receipt.v1\0` and
+`vibe.market-data.corporate-action-readback.v1\0`; the outbox identity equals the receipt identity and has no
+domain. Their exact layout, write-once caller-transaction custody, sealed resolution, rejoin, response-loss recovery, ACL and zero-write
+failure rules are the shared native rules above. Replay V2 projects one fact one-to-one into its existing action
+identity, instrument and term variant and repeats time/source/correction only after exact equality. Backtest
+preserves the same native fact and cut identities/digests; neither consumer can normalize or synthesize terms.
+
+## Replay Market Facts V2 foundation
+
+**CURRENT / PARTIAL:** Market Data defines the additive, dependency-neutral `ReplayMarketFactsV2`
+contract and canonical codec. One complete cut contains typed, content-addressed calendar-day,
+session-interval, time-zone ruleset, Market Semantics, successor-only correction-policy,
+corporate-action and historical-membership facts. Every fact binds its half-open effective interval,
+provider-available, retrieval, correction-publication and Owner-observation coordinates, decision cut,
+Source identity and correction identity. Corporate actions carry their actual split, cash-dividend,
+symbol-change, expiry or roll terms. Historical membership carries the exact selection, member,
+instrument and inclusion disposition. A complete corporate-action or membership cut may contain zero
+members, but that empty census is an explicit content-addressed cut over an exact scope and decision
+cut; a string such as `NO_ACTIONS` is never equivalent.
+
+The V2 frontier references the existing PIT Snapshot, Source Binding, Instrument Master cut, Universe
+Selection, normalized observation census, V1 joined-cut receipt and V2 sample projection only by each
+producer's exact identity and digest. It does not copy or reinterpret their canonical bytes and does
+not create a second authority. The public request accepts only one untrusted PIT locator and a half-open
+replay event-time interval. Facts, dependency references, censuses, canonical bytes and aggregate
+digests enter only through Market Data-private authority. The resulting receipt and readback have no
+public constructor or deserializer; the read port is crate-sealed. Verification recomputes every fact,
+cut, frontier, aggregate and receipt encoding, then byte-compares all duplicated scalar projections so
+canonical-byte, scalar-only and cross-splice drift fail closed.
+
+**CURRENT/PARTIAL, W0/U/C custody seams:** the canonical DTOs/codecs, private issuance authority and sealed
+readbacks are implemented. The Replay storage leaf also has candidate-private PostgreSQL schema and caller-transaction storage that
+mechanically persists an already verified readback, rejects identity/meaning conflicts and corruption, and exposes
+only the negative half of resolution; stored bytes cannot mint a positive readback. U adds caller-transaction
+historical-membership and native Universe Selection custody. C adds caller-transaction custody for the complete
+observation census and its exact, unchanged V1 joined-cut receipt. These leaves do not open or commit their own
+pool, are not registered as a positive product composition, and do not turn an opaque dependency locator into
+Owner authority.
+
+**CURRENT/PARTIAL, W3 positive composition binding:** Market Data defines the additive sealed
+`ReplayCompositionBindingV1` record, receipt and exact receipt-payload outbox plus one untrusted content-addressed
+locator. Its canonical identity cross-binds the exact PIT request/snapshot and replay window, one authenticated
+`StrategyDesignV2` identity, the sorted complete typed-role set, every durable-registry declaration and binding,
+the complete observation census, the unchanged V1 joined cut, the V4 JOINED_CUT sample projection, and exact native
+PIT, Source Binding, Universe Selection, Instrument Master and Market Semantics locators. W3 never accepts V2 or V3
+in place of V4 JOINED_CUT. The additive
+`UntrustedReplayMarketFactsCompositionRequestV1` contains only the existing Replay V2 request and that exact
+binding locator. Positive issuance starts at that locator, authenticates and byte-verifies the complete binding,
+requires every native and role/binding projection to match exactly, then reuses the existing Replay V2 issuer and
+its unchanged canonical bytes, readback and seven-kind frontier. Replay storage meaning is additionally scoped by
+the binding identity. Existing unbound rows remain negative-only: they are never backfilled, inferred, selected as
+latest or discovered by a full scan.
+
+**TARGET, durable R&D attestation seam:** the positive R&D Develop Composer transaction canonically persists one
+immutable complete `StrategyDesignRoleSetReceiptV1` attestation together with the Composer aggregate, receipt and
+outbox. It binds the
+exact Research request, Composer aggregate and `StrategyDesignV2`, canonically ordered typed roles, every semantic
+coordinate and complete role coverage. Its content-addressed exact locator is known before send. Replay Policy V2
+composition is coordinated by the R&D-owned A1 across two Owner-isolated transactions. The fixed
+`market_data_reader` opens a read-only transaction, acquires the Composer request's shared writer-key cut lock, calls
+only the Composer Owner's locator-only `SECURITY DEFINER` lock/read functions, validates the complete canonical
+evidence, and holds the transaction through the Market terminal decision. The Market Data Owner then opens one
+SERIALIZABLE transaction, proves both connections share the same live primary, database, postmaster incarnation and
+advisory lock manager, and the fixed `market_data_owner` login principal acquires the same shared Composer cut lock
+before any Market lock or write. That principal retains raw authority only over its own `market_data_private`
+relations and receives no raw Composer or R&D access. The Composer
+writer must hold the matching exclusive lock before every mutation; therefore reader loss cannot reopen a mutation
+window while the Market transaction retains the handoff lock. Neither principal receives the other Owner's raw-table
+`SELECT` or DML, role membership, generic query surface, public positive constructor/deserializer, receipt/readback
+input, bearer token, cryptographic-key authority, latest/history/full scan or cross-Owner parser. This boundary
+guarantees stable Composer evidence during the guarded window and atomic Market writes; it does not claim a shared
+XID, MVCC snapshot or cross-Owner atomic commit.
+
+W3 issuance accepts only that untrusted R&D attestation locator plus exact Market dependency locators. Market Data
+validates the recovered attestation internally, then independently re-resolves every durable registry declaration, the
+complete observation census, unchanged V1 joined cut, V4 BAR JOINED_CUT sample projection, R0 and standalone Market Semantics record,
+and requires the Market Semantics cut to name the exact recovered R0 cut. It never consumes `StrategyPlanV2` and has no
+dependency on Strategy Factory. Binding record, receipt and receipt-payload outbox are persisted atomically with the
+unchanged Replay V2 fact, receipt and outbox rows. Exact binding-locator recovery decodes, rehashes and cross-checks both
+custody aggregates and returns their byte-identical payloads. Exact attestation-locator recovery after response loss
+rejoins the pre-existing R&D attestation without append. No public boundary accepts a resolver, authoritative receipt or
+readback, role list, count or token, and no caller representation can mint a positive role set.
+
+**NOT_ADMITTED:** this target does not establish the R&D persistence/read function, its database ACL, registered W3
+composition, disposable PostgreSQL Owner readback, deployment, production write, runtime or trading authority.
+
+**TARGET:** admitted deployment and the isolated
+disposable PostgreSQL acceptance must then prove exact replay, response-loss recovery, successor-only correction,
+and the move-only Strategy Factory and Backtest consumer path.
+
+**NOT_ADMITTED:** the implemented storage, custody and fixed API composition are not an admitted store,
+isolated PostgreSQL acceptance, provider ingestion or authenticity proof, default product composition,
+Strategy Factory or Backtest consumer, runtime execution, production write, deployment or trading authority. They
+do not make the existing exactly-two-member Universe receipt a general Universe Selection Record, do not replace
+the V1 joined-cut codec with a V2 codec, and do not permit Source Binding rule strings or a generic
+`version = "v2"` label to stand in for a canonical fact cut.
+
 ## Instrument Master Owner contract
 
 ### Status and fixed consumer
@@ -314,6 +835,36 @@ splice; and caller `InstrumentSet` scope produce no positive
 selection or frame. This is a current Owner-local binding contract only; it does not claim compiler,
 shared-kernel, ProgramHost, Backtest, Paper, Live, or production maturity.
 
+**TARGET, durable Strategy Input Binding Registry:** Market Data owns write-once, validated binding declarations
+keyed by the exact PIT request, `StrategyDesignV2` and typed input role. R&D and Strategy Factory may supply only
+Owner-authenticated Design/role intent; they never supply or select members, frames or a binding digest. In one
+Market Data Owner transaction, registration resolves the native PIT Snapshot, Universe Selection, Source Binding,
+Instrument Master and Market Semantics authorities, derives and stores the declaration and digest, regenerates the
+existing V1 bindings and frames, and then runs the existing V1 complete-census and joined-cut authorities unchanged.
+Missing registry registration or any request/Design/role, membership, frame, lineage, semantics or digest mismatch
+produces no declaration, census, joined cut or replay input. This registry is the prerequisite for positive Replay
+V2 composition and for real Owner-driven Strategy Factory and Backtest consumption; it is not a provider registry,
+deployment registry or caller-authored data path.
+
+**CURRENT/PARTIAL, authenticated role-set foundation:** the dependency-neutral exact Composer locator and
+`StrategyDesignRoleSetReceiptV1` DTO are available, and the production positive-registration seam requires an
+authenticated complete role set before it accepts the unchanged V1 request. It verifies the requested Design,
+Research request, derived role identity and every semantic coordinate, plus exact complete role coverage. The
+observation-census seam likewise verifies that the unchanged V1 join claim exactly repeats one authenticated join
+before complete-census/latest-not-after selection. Existing V1 request, binding and receipt bytes and exact legacy
+recovery stay unchanged. **TARGET:** W3 admits only the R&D-owned, same-Composer-transaction durable attestation through
+its exact-locator DB-ACL read function and makes that seam the only reachable positive path; Market Data then
+independently resolves its registry, census, join, V4 sample, R0 and Market Semantics authorities before atomic binding
+issuance. **NOT_ADMITTED:** caller-proposed Design/role/join fields, receipt/readback/token, receipt hash,
+latest/history/full scans, raw R&D table parsing or Market Data storage do not authenticate Design meaning; Market Data
+does not depend on Strategy Factory, own or reinterpret Strategy Design roles or joins, and this foundation claims no
+registered W3 resolver or production write.
+
+Market Data consumes, but does not define or reinterpret, the explicit big-endian R&D canonical binary codec
+specified in the R&D Owner contract. Its JSON representation is not canonical receipt material. Registration
+must receive byte-identical exact-locator recovery through the fixed R&D adapter; independently recomputed,
+reordered or mutated bytes remain caller evidence even when their integrity hash is self-consistent.
+
 **SEALED_ACCEPTANCE only:** enabling the non-default compile-time Cargo feature
 `sealed-strategy-input-acceptance` exposes one zero-argument fixture adapter for the fixed AAPL/MSFT,
 OPEN/CLOSE corpus. The adapter drives the crate-private Source Binding admission and PIT
@@ -398,7 +949,8 @@ projection and exact locator readback are `CURRENT / PARTIAL` at the structural 
 They do not establish production startup or product consumption. BAR uses only the separate V3 FRAME projection described below; its durable Owner
 custody and its sealed exact historical resolver core are CURRENT/PARTIAL, while production startup and product
 resolution remain TARGET/UNAVAILABLE. It
-never widens or reinterprets V2.
+never widens or reinterprets V2. Additive V4 FRAME/JOINED_CUT with BAR lifecycle is TARGET/NOT_ADMITTED and never
+widens or reinterprets V2 or V3.
 
 `TimeframeSpecV1` has one fixed canonical codec, in this order: schema `u16LE = 1`, reserved-zero `u16LE`, kind
 `u8`, positive step `u32LE`, unit `u8`, anchor identity `[u8; 32]`, calendar identity `[u8; 32]`, session identity
@@ -635,6 +1187,39 @@ Factory production startup, product composition, ProgramHost, Backtest, composit
 consumption remain `TARGET / UNAVAILABLE`; required production startup returns no resolver while its external
 admission adapters are unavailable. A stored V3 row or structural V3 bytes alone produces no consumer authority or
 mutation.
+
+**TARGET / NOT_ADMITTED, additive BAR native join:** `StrategyInputSampleProjectionV4` has exactly the closed
+projection kinds `FRAME` and `JOINED_CUT` and the closed lifecycle `BAR`. It neither replaces nor changes any V1
+receipt, V2 EVENT projection, or V3 BAR FRAME projection; all existing canonical bytes, domains, identities,
+semantics, persistence and resolvers remain byte-for-byte unchanged. For FRAME, V4 binds the exact Owner-resolved V3
+BAR FRAME source and its complete schedule dependencies. For JOINED_CUT, its subject is the exact digest of the
+unchanged valid V1 joined-cut receipt. The canonical V4 receipt bytes include the exact schedule-dependency-set digest
+before the role-sorted component set, so the domain-separated V4 receipt identity necessarily binds both. The
+schedule-dependency set exhaustively and canonically binds each component role to its exact BAR schedule cut/receipt
+and timeframe dependency; missing, extra, duplicate or reordered entries are unsupported.
+
+Every V4 component must be strictly equal to its corresponding exact-locator V3 BAR FRAME component across the full
+role, static binding, frame evidence, trigger, value, timeframe projection, sample identity, native sample receipt,
+308-byte coordinate, schedule cut and schedule receipt fields. Recomputing an equivalent-looking component,
+substituting a digest, parsing a timeframe label, or mixing components from another frame, slot, batch, joined cut or
+schedule set creates no V4 receipt. The first admitted-shape corpus contains exactly six roles: `1m OPEN`, `1m HIGH`,
+`1m LOW`, `1m CLOSE`, `1h CLOSE`, and exchange-session `1d CLOSE`. `1m CLOSE` is the trigger; all four `1m` roles must
+share the exact complete schedule slot and observation batch. `1h CLOSE` and `1d CLOSE` are selected only as complete
+latest-closed samples not after that trigger under their respective schedules. The `1d` role must bind an
+`EXCHANGE_SESSION_BAR` day and can never be a UTC day or unanchored 24-hour interval.
+
+One Market Data Owner transaction must lock and re-resolve the exact V1 joined-cut receipt, every V3 FRAME projection,
+sample/timeframe fact and schedule cut/receipt; validate the complete schedule-dependency set and all strict component
+equalities; then atomically store the V4 receipt, exact-locator readback and outbox. The locator is the exact V4 receipt
+identity and is known before send. Byte-identical replay or response-loss recovery resolves that locator and returns
+the same historical bytes with zero append. The exact-locator resolver reads no latest/head/history scan and promotes
+a move-only positive readback only after complete revalidation in one fixed snapshot. Private tables grant `PUBLIC`
+no privilege; only fixed non-grantable Owner/writer roles may mutate them, and the fixed non-grantable W3 reader may
+receive only `EXECUTE` on the resolver, never raw `SELECT` or DML. Any locator, ACL, canonical-byte, V1-subject,
+schedule-set, component, custody, response-loss or admission failure writes zero V4 receipt, readback, outbox or W3
+binding. W3 consumes only this V4 JOINED_CUT locator/readback. This contract claims no implementation, migration,
+registered product composition, production startup/write, ProgramHost, Backtest, deployment, runtime or trading
+authority.
 
 An accepted correction is an immutable successor with both an exact series predecessor and correction
 predecessor. It creates a new `SampleFactV1`, `SampleReceiptV1`, `sample_identity`, and coordinate and advances the

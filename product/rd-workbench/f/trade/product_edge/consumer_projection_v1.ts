@@ -165,7 +165,7 @@ async function validFeedback(value: unknown, basis: Json): Promise<boolean> {
   const validFrontier = value.resolution === "GENESIS_EMPTY"
     ? value.source_frontier_identity === null && value.source_frontier_digest === null && value.source_sequence === 0
       && value.source_cut === "qualification-protected-feedback-cut-v1-0"
-    : value.resolution === "FRONTIER" && value.source_sequence > 0 && text(value.source_frontier_identity)
+    : value.resolution === "FRONTIER" && text(value.source_frontier_identity)
       && sha256Digest(value.source_frontier_digest)
   if (value.basis_identity !== basis.basis_identity || value.basis_digest !== basis.basis_digest
     || value.principal !== basis.principal
@@ -209,12 +209,44 @@ async function validFeedback(value: unknown, basis: Json): Promise<boolean> {
     )
 }
 
+const replayParserDigestV2 = [
+  115, 95, 189, 134, 43, 39, 33, 97, 136, 227, 16, 45, 162, 186, 0, 134,
+  81, 189, 82, 202, 128, 188, 148, 64, 57, 245, 220, 142, 112, 185, 12, 185,
+]
+
+function bytes(value: unknown, length?: number): value is number[] {
+  return Array.isArray(value) && (length === undefined || value.length === length)
+    && value.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)
+}
+
+function validReplayPolicyBindingV2(value: unknown): value is Json {
+  return object(value) && exactKeys(value, [
+    "catalog_record_id", "catalog_version", "policy_grammar_parser_id",
+    "policy_grammar_parser_digest", "policy_canonical_bytes", "policy_digest",
+    "catalog_record_digest",
+  ]) && typeof value.catalog_record_id === "string" && value.catalog_record_id.length > 0
+    && value.catalog_record_id.length <= 256 && /^[\x00-\x7f]+$/.test(value.catalog_record_id)
+    && value.catalog_record_id.trim() === value.catalog_record_id && integer(value.catalog_version)
+    && value.catalog_version > 0
+    && value.policy_grammar_parser_id === "rd.replay-execution-policy.fixed-record-le.v2"
+    && JSON.stringify(value.policy_grammar_parser_digest) === JSON.stringify(replayParserDigestV2)
+    && bytes(value.policy_canonical_bytes) && value.policy_canonical_bytes.length > 0
+    && value.policy_canonical_bytes.length <= 16384
+    && bytes(value.policy_grammar_parser_digest, 32) && bytes(value.policy_digest, 32)
+    && bytes(value.catalog_record_digest, 32)
+}
+
 function validPolicy(value: unknown, basis?: Json, feedback?: Json): value is Json {
-  if (!object(value) || !exactKeys(value, [
+  const keys = [
     "trial_budget", "stop_rule", "pit_rule_identity", "cost_model_identity", "slippage_model_identity",
     "capacity_model_identity", "semantic_predecessor_frontier", "protected_feedback_frontier",
     "independence_disposition", "independence_basis_identity", "frozen_falsifier_binding",
-  ]) || !integer(value.trial_budget) || Number(value.trial_budget) === 0
+  ]
+  if (!object(value) || !exactKeys(value,
+    "replay_execution_policy_v2" in value ? [...keys, "replay_execution_policy_v2"] : keys)
+    || ("replay_execution_policy_v2" in value
+      && !validReplayPolicyBindingV2(value.replay_execution_policy_v2))
+    || !integer(value.trial_budget) || Number(value.trial_budget) === 0
     || ![value.stop_rule, value.pit_rule_identity, value.cost_model_identity, value.slippage_model_identity,
       value.capacity_model_identity, value.protected_feedback_frontier, value.independence_basis_identity,
       value.frozen_falsifier_binding].every(text)
@@ -243,22 +275,37 @@ function validTrialFamily(
   const member = value.initial_intent_member
   const membership = value.membership_receipt
   const census = value.census_frontier
+  const rootReceiptKeys = [
+    "schema_version", "receipt_identity", "trial_family_identity", "intent_identity", "root_digest", "committed_at_epoch_ms",
+  ]
+  const censusKeys = [
+    "schema_version", "frontier_identity", "trial_family_identity", "root_digest", "member_digests",
+    "consumed_trial_budget", "frontier_digest",
+  ]
   if (!version(root) || !exactKeys(root, [
     "schema_version", "trial_family_identity", "policy", "policy_digest", "root_digest", "created_at_epoch_ms",
-  ]) || !version(rootReceipt) || !exactKeys(rootReceipt, [
-    "schema_version", "receipt_identity", "trial_family_identity", "intent_identity", "root_digest", "committed_at_epoch_ms",
-  ]) || !version(member) || !exactKeys(member, [
+  ]) || !version(rootReceipt) || !exactKeys(rootReceipt,
+    "replay_execution_policy_v2" in rootReceipt
+      ? [...rootReceiptKeys, "replay_execution_policy_v2"] : rootReceiptKeys)
+  || !version(member) || !exactKeys(member, [
     "schema_version", "member_identity", "trial_family_identity", "member_kind", "fact_identity",
     "fact_digest", "ordinal", "member_digest",
   ]) || !version(membership) || !exactKeys(membership, [
     "schema_version", "receipt_identity", "trial_family_identity", "member_identity", "member_digest",
     "committed_at_epoch_ms",
-  ]) || !version(census) || !exactKeys(census, [
-    "schema_version", "frontier_identity", "trial_family_identity", "root_digest", "member_digests",
-    "consumed_trial_budget", "frontier_digest",
-  ])) return false
-  const policyValid = validPolicy(root.policy, basis, feedback)
-  return policyValid && text(root.trial_family_identity) && text(root.policy_digest) && text(root.root_digest)
+  ]) || !version(census) || !exactKeys(census,
+    "replay_execution_policy_v2" in census
+      ? [...censusKeys, "replay_execution_policy_v2"] : censusKeys)) return false
+  if (!validPolicy(root.policy, basis, feedback)) return false
+  const replayPolicy = root.policy.replay_execution_policy_v2
+  const replayBindingsValid = replayPolicy === undefined
+    ? rootReceipt.replay_execution_policy_v2 === undefined
+      && census.replay_execution_policy_v2 === undefined
+    : validReplayPolicyBindingV2(replayPolicy)
+      && sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)
+      && sameReplayPolicyBindingV2(census.replay_execution_policy_v2, replayPolicy)
+  return replayBindingsValid
+    && text(root.trial_family_identity) && text(root.policy_digest) && text(root.root_digest)
     && epoch(root.created_at_epoch_ms) && text(rootReceipt.receipt_identity)
     && rootReceipt.trial_family_identity === root.trial_family_identity
     && rootReceipt.intent_identity === intentIdentity && rootReceipt.root_digest === root.root_digest
@@ -288,55 +335,74 @@ function rawEnvelope(value: unknown, keys: string[], expectedStamp: ReturnType<t
   return raw
 }
 
+type ResearchFailedPredicate =
+  | "ENVELOPE_SCHEMA_REQUEST" | "RESOLUTION" | "RECEIPT" | "REJECTED_NO_WRITE_CONSISTENCY"
+  | "VIEW_SHAPE_PHASE" | "VIEW_IDENTITY" | "VIEW_SOURCE_CUT" | "VIEW_PROJECTION_TIME"
+  | "VIEW_VALIDITY_WINDOW" | "VIEW_NEXT_ACTION" | "VIEW_OBSERVED_TIME" | "VIEW_PRINCIPAL" | "VIEW_SCOPE"
+  | "BASIS" | "FEEDBACK" | "FAMILY_RESOLUTION" | "FAMILY_STRUCTURE_BINDING"
+  | "BASIS_COMMIT_TIME" | "FEEDBACK_COMMIT_TIME" | "FEEDBACK_PROJECTION_TIME"
+  | "RECEIPT_FEEDBACK_VALIDITY" | "VIEW_FEEDBACK_VALIDITY" | "FAMILY_CREATION_TIME"
+  | "REPLAY_SHAPE" | "PARSER_MODELS" | "POLICY_DIGEST" | "CATALOG_DIGEST"
+  | "FAMILY_MEMBER_BINDING" | "FAMILY_POLICY_DIGEST" | "FAMILY_IDENTITY" | "FAMILY_ROOT_DIGEST"
+  | "FAMILY_ROOT_RECEIPT" | "FAMILY_ROOT_REPLAY_COPY" | "FAMILY_MEMBER_IDENTITY" | "FAMILY_MEMBER_DIGEST"
+  | "FAMILY_MEMBERSHIP_RECEIPT" | "FAMILY_FRONTIER_REPLAY_COPY" | "FAMILY_FRONTIER_IDENTITY" | "FAMILY_FRONTIER_DIGEST"
+
 export async function deriveResearchConsumerProjectionV1(value: unknown, requestIdentity: string) {
   const unknown = unknownResearchProjectionV1(requestIdentity)
+  const fail = (first_failed_predicate: ResearchFailedPredicate) => {
+    try {
+      console.log(JSON.stringify({ event: "source_intake_research_projection_diagnostic_v1", first_failed_predicate }))
+    } catch { /* Diagnostics must not change projection semantics. */ }
+    return unknown
+  }
   const raw = rawEnvelope(value, researchOwnerKeys, researchStamp)
-  if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return unknown
+  if (!raw || raw.schema_version !== 2 || raw.request_identity !== requestIdentity) return fail("ENVELOPE_SCHEMA_REQUEST")
   if (raw.resolution === "REJECTED_NO_WRITE") {
-    if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)
-      || raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
+    if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return fail("RECEIPT")
+    if (raw.research_view !== null || raw.independence_basis !== null || raw.protected_feedback !== null
       || raw.trial_family_resolution !== "UNAVAILABLE" || raw.trial_family !== null
-      || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return unknown
+      || raw.next_legal_action !== "CORRECT_INPUT_AND_CREATE_SUCCESSOR_REQUEST") return fail("REJECTED_NO_WRITE_CONSISTENCY")
     return { ...unknown, resolution: raw.resolution, owner_receipt: raw.owner_receipt,
       next_legal_action: raw.next_legal_action }
   }
-  if (raw.resolution !== "ACCEPTED"
-    || !await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return unknown
+  if (raw.resolution !== "ACCEPTED") return fail("RESOLUTION")
+  if (!await validResearchReceipt(raw.owner_receipt, requestIdentity, raw.resolution)) return fail("RECEIPT")
   const intent = raw.owner_receipt.resulting_research_intent_identity
   const basisValid = await validBasis(raw.independence_basis, requestIdentity)
   const feedbackValid = basisValid && await validFeedback(raw.protected_feedback, raw.independence_basis)
   const researchSuffix = await sha256Text(`v2:${requestIdentity}:${raw.owner_receipt.semantic_digest}`)
   const stale = raw.research_view?.availability === "STALE"
-  if (!validResearchView(raw.research_view, requestIdentity, intent, "INTENT_FROZEN", true)
-    || raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)
-    || raw.research_view.source_cut !== `rd-source-cut-v2-${researchSuffix}`
-    || (stale
+  if (!validResearchView(raw.research_view, requestIdentity, intent, "INTENT_FROZEN", true)) return fail("VIEW_SHAPE_PHASE")
+  if (raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)) return fail("VIEW_IDENTITY")
+  if (raw.research_view.source_cut !== `rd-source-cut-v2-${researchSuffix}`) return fail("VIEW_SOURCE_CUT")
+  if (stale
       ? raw.research_view.projection_at_epoch_ms < raw.owner_receipt.committed_at_epoch_ms
-      : raw.research_view.projection_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms)
-    || raw.research_view.valid_through_epoch_ms !== Math.min(
+      : raw.research_view.projection_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_PROJECTION_TIME")
+  if (raw.research_view.valid_through_epoch_ms !== Math.min(
       raw.owner_receipt.committed_at_epoch_ms + 600_000,
       raw.protected_feedback?.valid_through_epoch_ms,
-    )
-    || (stale
+    )) return fail("VIEW_VALIDITY_WINDOW")
+  if (stale
       ? raw.research_view.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
         || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
       : raw.research_view.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION"
-        || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION")
-    || raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
-    || raw.research_view.trusted_principal !== raw.independence_basis?.principal
-    || JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)
-    || !basisValid || !feedbackValid
-    || raw.trial_family_resolution !== "AVAILABLE"
-    || !validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
-      raw.independence_basis, raw.protected_feedback)) return unknown
-  if (raw.independence_basis.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms
-    || raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms
-    || raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms
-    || raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms
-    || !await canonicalTrialFamilyV1(
-      raw.trial_family, intent, raw.owner_receipt.semantic_digest,
+        || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION") return fail("VIEW_NEXT_ACTION")
+  if (raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_OBSERVED_TIME")
+  if (raw.research_view.trusted_principal !== raw.independence_basis?.principal) return fail("VIEW_PRINCIPAL")
+  if (JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)) return fail("VIEW_SCOPE")
+  if (!basisValid) return fail("BASIS")
+  if (!feedbackValid) return fail("FEEDBACK")
+  if (raw.trial_family_resolution !== "AVAILABLE") return fail("FAMILY_RESOLUTION")
+  if (!validTrialFamily(raw.trial_family, intent, raw.owner_receipt.semantic_digest,
+      raw.independence_basis, raw.protected_feedback)) return fail("FAMILY_STRUCTURE_BINDING")
+  if (raw.independence_basis.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("BASIS_COMMIT_TIME")
+  if (raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_COMMIT_TIME")
+  if (raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_PROJECTION_TIME")
+  if (raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms) return fail("RECEIPT_FEEDBACK_VALIDITY")
+  if (raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms) return fail("VIEW_FEEDBACK_VALIDITY")
+  if (raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("FAMILY_CREATION_TIME")
+  if (!await canonicalTrialFamilyV1(
+      raw.trial_family, intent, raw.owner_receipt.semantic_digest, fail,
     )) return unknown
   return {
     schema_version: 2, consumer_projection: researchStamp, resolution: "ACCEPTED",
@@ -744,8 +810,29 @@ function canonicalResearchSourceV1(source: Json): Json {
   }
 }
 
-function canonicalTrialFamilyPolicyV1(policy: Json): Json {
+function orderedReplayPolicyBindingV2(value: Json): Json {
   return {
+    catalog_record_id: value.catalog_record_id,
+    catalog_version: value.catalog_version,
+    policy_grammar_parser_id: value.policy_grammar_parser_id,
+    policy_grammar_parser_digest: value.policy_grammar_parser_digest,
+    policy_canonical_bytes: value.policy_canonical_bytes,
+    policy_digest: value.policy_digest,
+    catalog_record_digest: value.catalog_record_digest,
+  }
+}
+
+function sameReplayPolicyBindingV2(left: unknown, right: unknown): boolean {
+  if (left === undefined || right === undefined) {
+    return left === undefined && right === undefined
+  }
+  return validReplayPolicyBindingV2(left) && validReplayPolicyBindingV2(right)
+    && JSON.stringify(orderedReplayPolicyBindingV2(left))
+      === JSON.stringify(orderedReplayPolicyBindingV2(right))
+}
+
+function canonicalTrialFamilyPolicyV1(policy: Json): Json {
+  const canonical = {
     trial_budget: policy.trial_budget,
     stop_rule: policy.stop_rule,
     pit_rule_identity: policy.pit_rule_identity,
@@ -757,6 +844,10 @@ function canonicalTrialFamilyPolicyV1(policy: Json): Json {
     independence_disposition: policy.independence_disposition,
     independence_basis_identity: policy.independence_basis_identity,
     frozen_falsifier_binding: policy.frozen_falsifier_binding,
+  }
+  return policy.replay_execution_policy_v2 === undefined ? canonical : {
+    ...canonical,
+    replay_execution_policy_v2: orderedReplayPolicyBindingV2(policy.replay_execution_policy_v2),
   }
 }
 
@@ -786,6 +877,109 @@ async function canonicalResearchViewIdentityV2(view: Json): Promise<string> {
 async function sha256Text(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value))
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+function concatenateBytes(parts: Uint8Array[]): Uint8Array {
+  const output = new Uint8Array(parts.reduce((size, part) => size + part.length, 0))
+  let offset = 0
+  for (const part of parts) { output.set(part, offset); offset += part.length }
+  return output
+}
+
+function littleEndianLength(value: number): Uint8Array {
+  const bytes = new Uint8Array(4)
+  new DataView(bytes.buffer).setUint32(0, value, true)
+  return bytes
+}
+
+function littleEndianU64(value: number): Uint8Array {
+  const bytes = new Uint8Array(8)
+  new DataView(bytes.buffer).setBigUint64(0, BigInt(value), true)
+  return bytes
+}
+
+function lengthPrefixed(value: Uint8Array): Uint8Array {
+  return concatenateBytes([littleEndianLength(value.length), value])
+}
+
+async function sha256Array(value: Uint8Array): Promise<number[]> {
+  const owned = new Uint8Array(value)
+  return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", owned.buffer)))
+}
+
+// Exact fixed-record grammar from ReplayExecutionPolicyV2::parse_canonical.
+function replayPolicyModelIdentitiesV2(input: number[]): string[] | null {
+  if (input.length > 16384) return null
+  const data = Uint8Array.from(input)
+  const view = new DataView(data.buffer)
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+  let offset = 0
+  const take = (length: number) => {
+    if (length > data.length - offset) throw new Error("truncated policy")
+    const start = offset
+    offset += length
+    return start
+  }
+  const readText = (digest = false) => {
+    const length = view.getUint32(take(4), true)
+    if (length > 16384) throw new Error("policy text exceeds bound")
+    const start = take(length)
+    const value = decoder.decode(data.subarray(start, start + length))
+    // Rust str::trim uses Unicode White_Space (unlike JavaScript trim's BOM handling).
+    if (digest ? length !== 71 || !/^(sha256|blake3):[0-9a-f]{64}$/.test(value)
+      : length === 0 || length > 256 || /^\p{White_Space}|\p{White_Space}$/u.test(value)) {
+      throw new Error("invalid policy component")
+    }
+    return value
+  }
+  try {
+    if (view.getUint32(take(4), true) !== 0x32455052
+      || view.getUint16(take(2), true) !== 2 || view.getUint16(take(2), true) !== 17) return null
+    const models: string[] = []
+    for (let tag = 1; tag <= 17; tag++) {
+      const kind = tag === 8 ? 2 : tag === 9 ? 3 : tag >= 15 ? 4 : 1
+      if (data[take(1)] !== tag || data[take(1)] !== kind) return null
+      if (kind === 2) take(8)
+      else if (kind === 3) {
+        const start = view.getBigUint64(take(8), true)
+        if (start >= view.getBigUint64(take(8), true)) return null
+      } else {
+        const identity = readText()
+        readText(kind === 4)
+        if (tag >= 3 && tag <= 5) models.push(identity)
+      }
+    }
+    return offset === data.length ? models : null
+  } catch { return null }
+}
+
+async function canonicalReplayPolicyBindingV2(
+  value: Json, policy: Json, onFailure?: (predicate: ResearchFailedPredicate) => void,
+): Promise<boolean> {
+  const fail = (predicate: ResearchFailedPredicate) => { onFailure?.(predicate); return false }
+  if (!validReplayPolicyBindingV2(value)) return fail("REPLAY_SHAPE")
+  const models = replayPolicyModelIdentitiesV2(value.policy_canonical_bytes)
+  if (!models || models[0] !== policy.cost_model_identity
+    || models[1] !== policy.slippage_model_identity || models[2] !== policy.capacity_model_identity) return fail("PARSER_MODELS")
+  const encoder = new TextEncoder()
+  const canonicalPolicy = Uint8Array.from(value.policy_canonical_bytes)
+  const policyDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-execution-policy.v2\0"), canonicalPolicy,
+  ]))
+  if (JSON.stringify(policyDigest) !== JSON.stringify(value.policy_digest)) return fail("POLICY_DIGEST")
+  const record = concatenateBytes([
+    lengthPrefixed(encoder.encode(value.catalog_record_id)),
+    littleEndianU64(value.catalog_version),
+    lengthPrefixed(encoder.encode(value.policy_grammar_parser_id)),
+    Uint8Array.from(value.policy_grammar_parser_digest),
+    lengthPrefixed(canonicalPolicy),
+    Uint8Array.from(policyDigest),
+  ])
+  const recordDigest = await sha256Array(concatenateBytes([
+    encoder.encode("rd.replay-policy-catalog-record.v2\0"), record,
+  ]))
+  if (JSON.stringify(recordDigest) !== JSON.stringify(value.catalog_record_digest)) return fail("CATALOG_DIGEST")
+  return true
 }
 
 function frameBytes(value: Uint8Array): Uint8Array {
@@ -844,7 +1038,9 @@ async function canonicalTrialFamilyV1(
   family: Json,
   intentIdentity: string,
   intentDigest: string,
+  onFailure?: (predicate: ResearchFailedPredicate) => void,
 ): Promise<{ familyIdentity: string; frontierIdentity: string; frontierDigest: string } | null> {
+  const fail = (predicate: ResearchFailedPredicate) => { onFailure?.(predicate); return null }
   const root = family.root
   const rootReceipt = family.root_receipt
   const member = family.initial_intent_member
@@ -853,8 +1049,10 @@ async function canonicalTrialFamilyV1(
   if (!ownerIdentity(intentIdentity) || member.fact_identity !== intentIdentity
     || member.fact_digest !== intentDigest || ![member.fact_digest, intentDigest].every(
     (digest) => typeof digest === "string" && /^sha256:[0-9a-f]{64}$/.test(digest),
-  )) return null
+  )) return fail("FAMILY_MEMBER_BINDING")
   const policy = canonicalTrialFamilyPolicyV1(root.policy)
+  const replayPolicy = policy.replay_execution_policy_v2
+  if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy, onFailure)) return null
   const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,
@@ -883,16 +1081,21 @@ async function canonicalTrialFamilyV1(
     root_digest: rootDigest,
     member_digests: [memberDigest],
     consumed_trial_budget: 1,
+    ...(replayPolicy === undefined ? {} : { replay_execution_policy_v2: replayPolicy }),
   })
   const frontierIdentity = canonicalIdentity("rd-trial-family-frontier-v1", frontierDigest)
-  const valid = root.policy_digest === policyDigest
-    && root.trial_family_identity === familyIdentity && root.root_digest === rootDigest
-    && rootReceipt.receipt_identity === canonicalIdentity("rd-trial-family-root-receipt-v1", rootDigest)
-    && member.member_identity === canonicalIdentity("rd-trial-family-member-v1", memberDigest)
-    && member.member_digest === memberDigest
-    && membership.receipt_identity === canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)
-    && frontier.frontier_identity === frontierIdentity && frontier.frontier_digest === frontierDigest
-  return valid ? { familyIdentity, frontierIdentity, frontierDigest } : null
+  if (root.policy_digest !== policyDigest) return fail("FAMILY_POLICY_DIGEST")
+  if (root.trial_family_identity !== familyIdentity) return fail("FAMILY_IDENTITY")
+  if (root.root_digest !== rootDigest) return fail("FAMILY_ROOT_DIGEST")
+  if (rootReceipt.receipt_identity !== canonicalIdentity("rd-trial-family-root-receipt-v1", rootDigest)) return fail("FAMILY_ROOT_RECEIPT")
+  if (!sameReplayPolicyBindingV2(rootReceipt.replay_execution_policy_v2, replayPolicy)) return fail("FAMILY_ROOT_REPLAY_COPY")
+  if (member.member_identity !== canonicalIdentity("rd-trial-family-member-v1", memberDigest)) return fail("FAMILY_MEMBER_IDENTITY")
+  if (member.member_digest !== memberDigest) return fail("FAMILY_MEMBER_DIGEST")
+  if (membership.receipt_identity !== canonicalIdentity("rd-trial-family-membership-receipt-v1", memberDigest)) return fail("FAMILY_MEMBERSHIP_RECEIPT")
+  if (!sameReplayPolicyBindingV2(frontier.replay_execution_policy_v2, replayPolicy)) return fail("FAMILY_FRONTIER_REPLAY_COPY")
+  if (frontier.frontier_identity !== frontierIdentity) return fail("FAMILY_FRONTIER_IDENTITY")
+  if (frontier.frontier_digest !== frontierDigest) return fail("FAMILY_FRONTIER_DIGEST")
+  return { familyIdentity, frontierIdentity, frontierDigest }
 }
 
 async function canonicalArtifactFamilyV1(value: Json, receipt: Json): Promise<boolean> {

@@ -46,6 +46,523 @@
 - **Instrument Master** - 拥有按生效时间版本化的标的身份 场所映射 合约条款 session time zone
   lifecycle 与 corporate-action 事实，不选择本轮运行标的。
 
+## Calendar 与 Time Zone 原生 Owner 契约
+
+### 持久 R0 observation-evidence foundation
+
+**CURRENT：** `ReferenceFactR0RecordV1` 是独立原生 reference authority 共用的唯一持久 R0
+observation-evidence aggregate。R0 不是 business fact、coordinate selector 或第二 clock。其私有 PostgreSQL
+resolver 只接收不受信 request 与准确 locator `{request_identity, request_meaning_digest}`。它规范解码准确
+PIT Snapshot 与 Source Binding locator，解析并逐字节匹配其原生 Owner custody，解析完整共提交 PIT
+observation batch 与准确历史 Shared Time head，随后才创建 record。Head、latest、history scan、caller 携带的
+authenticated input 或仅结构有效的 locator 都不能产生 positive R0 custody。
+
+Record 交叉绑定准确 PIT request identity/digest、snapshot identity/fact digest 与经验证 PIT outbox digest；
+完整 observation-batch digest；Source Binding identity/fact digest/outbox digest、lineage root/version；准确
+source/correction frontier stream/cut-identity bytes、sequence/digest；准确 clock/epoch bytes、monotonic sequence、wall
+observation、decision cut、排他的 valid-through、head identity/digest、restart continuity、uncertainty/skew；
+replay/effective bound；provider-available、retrieval、correction-publication 与 Owner-observation coordinate；
+可选 predecessor；以及 stable correlation。每个重复 time/frontier field 都与准确 PIT observation batch、
+Source Binding locator、PIT time evidence 与解析所得 Shared Time head 逐字节匹配。R0 保留 PIT Owner 既有
+outbox digest；它不会对 locator bytes 铸造 digest，也不重新解释旧 shared helper 的 SHA-256/little-endian
+identity。
+
+R0 version 1 的所有整数均为 big-endian，可选 tag 准确为 `0x00`/`0x01`，reserved 为 `u16BE = 0`；identity
+是下列 NUL-terminated domain 加准确 canonical bytes 的 BLAKE3-256。
+
+- Request-meaning domain 为 `vibe.market-data.reference-fact-r0-request.v1\0`；bytes 为 schema、reserved、
+  以 `u32BE length || bytes` 编码的规范 PIT 与 Source Binding locator、replay start/exclusive end、
+  effective-from、可选 effective-until、四个 observation coordinate、decision cut、可选 predecessor 与
+  stable correlation。Request identity 是独立 idempotency key。
+- Record domain 为 `vibe.market-data.reference-fact-r0-record.v1\0`；bytes 为 schema、reserved、request
+  identity/meaning、按上述顺序排列的准确 PIT、observation、Source Binding、frontier 与 Shared Time field，
+  随后为 replay/effective bound、四个 observation coordinate、decision cut、可选 predecessor 与 stable
+  correlation。可变 clock、epoch 与 frontier stream/cut identity 使用 `u32BE length || bytes`。
+- Cut domain 为 `vibe.market-data.reference-fact-r0-cut.v1\0`；bytes 为 schema、reserved、request
+  identity/meaning、准确 member count `u32BE = 1`、record identity/digest，以及 gap count `u32BE = 0`。
+  推断 empty 或 multi-record cut 均非 positive。
+- Receipt domain 为 `vibe.market-data.reference-fact-r0-receipt.v1\0`；bytes 为 schema、reserved、request
+  identity/meaning、cut identity/digest、store-generation identity、正 append sequence 与 stable correlation。
+  Outbox identity 等于 receipt identity，payload 等于准确 receipt bytes。
+- Readback domain 为 `vibe.market-data.reference-fact-r0-readback.v1\0`；bytes 为 schema、reserved、record
+  identity/length/bytes、cut identity/length/bytes、receipt identity/length/bytes 与 outbox identity。
+
+一个 transaction 在私有 table 中存储 record、单 record 完整 cut、generation/append state、receipt 与
+outbox。准确 identity/meaning replay 重新解码、重新 hash 并交叉验证每一 row，返回逐字节相同的 move-only
+readback。Meaning 改变、locator 缺失/篡改、partial row、scalar/frontier splice、canonical drift 或
+response-loss retry mismatch 均不 append。**NOT_ADMITTED：** R0 不授予 provider authenticity、default 或
+production database write、deployment、runtime、Dashboard 或 trading authority。
+
+### ReferenceFactCatalogV1 业务值权威
+
+**TARGET：** `ReferenceFactCatalogV1` 是 Calendar、Time Zone 与 Session 业务值的唯一 Market Data Owner
+catalog。它与 R0 属于不同权威轴：catalog 拥有 typed value、business scope、业务生效半开区间、revision、
+correction lineage 与 direct predecessor；R0 只拥有解析该值时使用的准确 PIT/Source/Shared-Time observation
+evidence。R0 的 replay/effective bound 绝不能扩大、截断或创建 catalog 业务区间。
+
+闭合 value tag 为 `1 CALENDAR`、`2 TIME_ZONE` 与 `3 SESSION`。Calendar entry 绑定一个准确 civil-day 的
+open/closed 值；Time Zone entry 绑定一个准确 time-zone/ruleset/UTC-offset 值及 offset 保持不变的 UTC
+区间；Session entry 绑定一个准确 trading day、连续 interval ordinal 与带显式 fold resolution 的 local
+open/close boundary，绝不存储权威 UTC endpoint。只有 Session 能依据准确 Time Zone cut 重算 endpoint，
+并且必须证明 open 与 close 两个 instant 都被覆盖。
+
+只有已准入 bootstrap/admin source 可以 append immutable catalog entry。Runtime 只接收不受信的准确 entry
+locator，并且只能解析及逐字节验证；caller 携带的 typed proposal、latest/head 选择或仅结构有效的 bytes
+都不能铸造 positive custody。Entry 绑定准确 Source Binding identity/fact/lineage 与 source/correction
+frontier。原生 Calendar、Time Zone 与 Session fact 重复已解析 catalog identity，并保留独立 R0
+observation coordinate。Entry 缺失、meaning 改变、source splice、predecessor branch、非规范顺序、区间
+overlap/gap，或 Session boundary 位于 Time Zone coverage 外，都必须写入零 native fact、cut、receipt 与
+outbox row。
+
+Catalog key 与 entry identity 分别是
+`vibe.market-data.reference-fact-catalog-key.v1\0` 与
+`vibe.market-data.reference-fact-catalog-entry.v1\0` 加规范 big-endian bytes 的 BLAKE3-256。Key 绑定闭合
+kind、business scope、正 revision、source lineage root 与完整 typed value。Stable catalog-head scope 准确由
+stable business-scope identity 加该 source lineage root 构成；revision 与 typed value 都不得选择另一个 head。
+Business-scope identity 是 `vibe.market-data.reference-fact-business-scope.v1\0` 加 schema `u16BE = 1`、
+reserved zero `u16BE`、闭合 kind `u8` 与准确一个 native key 的规范 bytes 的 BLAKE3-256：Calendar identity
+`u32BE length || bytes` 加 civil day `i32BE`；Time Zone identity `u32BE length || bytes` 加 ruleset identity
+`[u8; 32]`；或 Session identity `u32BE length || bytes`、trading day `i32BE` 与 interval ordinal `u32BE`。
+Entry 在完整 catalog-key bytes 之后另外依次绑定 command identity、可选 catalog predecessor、正 correction
+sequence、业务生效区间、准确 Source provenance、administrator admission identity 与 stable correlation；
+它不重复已经由该 key 绑定的 typed value。
+Catalog predecessor 始终是同一 head scope 内的前一 catalog entry identity，绝不是 native fact identity。
+Genesis 的 correction sequence 为 `1` 且没有 catalog predecessor；每个后继 entry 都绑定紧邻的前一 catalog
+entry，且 sequence 准确加一。Time Zone 后继要么修正同一个恒定 offset regime 并保留 byte-identical
+effective bounds，要么描述紧邻 regime，且其 lower bound 必须等于 predecessor 的 upper bound。Calendar
+与 Session 后继修正同一个 stable native key，因此保留 byte-identical effective bounds。使用前必须解码、
+重新 hash 并匹配准确 stored bytes。
+**NOT_ADMITTED：** 隔离验收 catalog 数据不证明 vendor authenticity，也不授予 default/production database、
+deployment、provider、Dashboard、runtime 或 trading effect。
+
+### 共享原生边界与 custody
+
+**CURRENT：** Replay V2 已有 typed Calendar 与 Time Zone value，而 PIT 与 Instrument Master 仍只携带
+calendar、time-zone 或 ruleset identity，不携带原生 Calendar/Time Zone readback。Shared Time 只认证
+Market Data 何时观察到 fact；绝不提供 calendar day、open disposition、time-zone rule 或 UTC offset。
+
+**TARGET：** Calendar 与 Time Zone 是相互独立的 Market Data 原生权威。其固定消费者是：直接保留原生
+cut identity/digest 的 PIT；绑定原生 cut identity/digest 而非字符串的 Instrument Master；接收确定性
+projection 的 Replay V2；以及后续 BAR resolution。Session 是准确 Calendar 与 Time Zone cut 的唯一 join。
+两个原生权威互不依赖 Session，也不复制对方 fact。不受信 private proposal 不得重新解释既有 Replay V2
+value 或铸造 positive custody。
+
+Calendar、Time Zone 与 Session 各权威都只接受一个不受信的准确 catalog-entry locator 来选择 catalog，
+并在 caller 的 Owner transaction 中重新解析准确 stored `ReferenceFactCatalogV1` entry，同时解析准确已准入
+Source Binding。Latest/current-head lookup 只验证已解析 entry 的 lineage position，绝不参与选择。Native
+typed business value 从该 catalog entry 派生并与之逐字节匹配；caller proposal 不能提供或覆盖该值。一个
+已验证 `ReferenceFactCoordinatesV1` 只作为 observation evidence，绝不是 business-value 或 lineage authority。
+
+每条 native fact 拥有自身 lineage root、正 native correction sequence、可选 native predecessor 与 current
+native head。Native lineage root 准确等于 catalog scope identity；该 scope 只标识一个 native fact key：
+`(calendar identity, civil day)`、`(time-zone identity, ruleset identity)` 或 `(session identity,
+trading day, interval ordinal)`。它既不从 Source Binding lineage coordinate 派生，也不与其比较。Native predecessor
+始终是同一 native fact key 与 domain 的紧邻前一 fact identity，绝不是
+catalog entry identity。Catalog 与 native correction sequence 一一对应。Genesis 时两个 sequence 均为 `1`
+且两个 predecessor 都不存在。每个 sequence 大于 `1` 的 correction 必须同时具备两个 predecessor，native
+fact 的 catalog entry 必须指明 catalog predecessor，并且前一 native fact 必须绑定该准确 catalog
+predecessor；即使属于同一 revision，catalog entry hash 与 native fact hash 仍然不同。Predecessor 缺失、
+branch、cycle、sequence gap 或 regression、cross-source splice、effective overlap/gap、请求 coverage 不完整、
+clock mismatch 或 observation 过期，都在任何 write 前失败。Positive fact、完整 cut、receipt 与 move-only
+readback 没有 public constructor/deserializer。公共 caller 只能取得不受信 sealed locator；resolver 由
+crate sealed。
+
+Version 1 整数均为 big-endian，可选 tag 准确为 `0x00`/`0x01`，boolean 为 `0x00`/`0x01`，identity/digest
+均为 32 bytes。每个 artifact identity 都是 listed NUL-terminated domain 加准确 bytes 的 BLAKE3-256。
+每个权威的 receipt bytes 均为 schema `u16BE = 1`、reserved `u16BE = 0`、request identity、
+request-meaning digest、cut identity/digest、store-generation identity、正 append sequence `u64BE`、stable
+correlation。Receipt identity 因此绑定 generation，并对其 receipt domain 加上述准确 bytes 做 hash。
+Outbox identity 与该 receipt identity 完全相同；它没有独立 domain 或 hash，payload 是准确 receipt bytes。
+Readback bytes 为 schema、reserved、正 fact count `u32BE`、按 cut 顺序的
+每条 fact identity、`u32BE` length 与准确 bytes，随后是 cut identity/length/bytes、receipt
+identity/length/bytes 与 outbox identity。Unknown tag、零 required identity、duplicate 或非规范顺序、
+malformed length 与 trailing byte 均不受支持。
+
+一个 caller-owned transaction 原子 append 不可变 fact/head row、完整 cut、receipt、outbox 与
+generation/append state。准确 identity/meaning replay 会 rejoin 并重新验证完整 stored aggregate；meaning
+变化产生 conflict。Partial custody、canonical/scalar drift 或 dependency splice 使 custody 不可信。
+Response loss 通过准确 sealed locator 恢复，并在不再次 append 的情况下返回逐字节相同 readback。Table
+与 schema 不向 runtime 授权；`PUBLIC` 无任何 privilege；只接纳固定、non-grantable 的 Owner/writer 与
+准确 non-grantable reader `EXECUTE` manifest。任何 validation、ACL 或 recovery failure 均写入零 row。
+
+**NOT_ADMITTED：** 这些契约不声称 implementation、migration、store admission、已注册 product
+composition、provider authenticity、production/default write、deployment、Dashboard 工作、runtime 或
+trading。
+
+### Calendar V1：完整 day/open 权威
+
+`CalendarFactV1` value 是准确 calendar identity `u32BE length || bytes`、从 `1970-01-01` 起算的 signed
+UTC civil-day ordinal `i32BE`，以及 `is_open` `u8`。Fact domain 为
+`vibe.market-data.calendar-fact.v1\0`；schema 与 reserved 之后的 bytes 是上述从 catalog 派生的完整 value、
+准确 catalog entry identity `[u8; 32]`、native lineage root、native correction sequence `u64BE`、可选 native
+predecessor、effective-from 与可选 effective-until `i128BE`、provider-available、retrieval、
+correction-publication 与 Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、
+Source Binding identity/fact digest/lineage root/`u64BE` version，以及 source/correction frontier digest。
+
+Request-meaning domain 为 `vibe.market-data.calendar-request.v1\0`；bytes 是 schema、reserved、closed
+consumer tag（`1 PIT`、`2 INSTRUMENT_MASTER`、`3 REPLAY_V2`、`4 BAR`）、calendar identity、inclusive
+first 与 exclusive last day `i32BE`、Owner-observation、decision cut、各自按
+`u32BE length || bytes` 编码的 Source Binding 与 R0 locator bytes，以及 stable correlation。Cut domain 为
+`vibe.market-data.calendar-cut.v1\0`；bytes 是 schema、reserved、request identity/meaning、consumer tag、
+calendar identity、day bound、Owner-observation、decision cut、R0 cut identity/digest、expected-day count
+`u32BE`，随后是请求中每个 civil day 准确一项、按 day 排序的 fact identity/digest，再随后是 gap count
+与排序后的 missing day ordinal。Positive 表示 gap 为零、day 不重复且 open/closed disposition 完整；空
+range 无效。Receipt 与 readback domain 分别把 `calendar-cut` 替换为 `calendar-receipt` 与
+`calendar-readback`，版本均为 `v1\0`；outbox identity 按共享原生规则等于 receipt identity，且没有 domain。
+
+### Time Zone V1：完整 UTC-offset transition 权威
+
+`TimeZoneFactV1` value 是准确 time-zone identity 与 ruleset identity（`u32BE length || bytes`，随后
+`[u8; 32]`），再加 signed UTC offset seconds `i32BE`。其半开 effective interval 是该 offset 保持不变的
+UTC interval。Ruleset transition 是不可变 successor；相邻 before/after interval 在 offset 减小时确定
+local fold，在 offset 增大时确定 gap，因此两种情形都不得被猜测或 normalize away。
+
+Fact domain 为 `vibe.market-data.time-zone-fact.v1\0`；bytes 是 schema、reserved、上述从 catalog 派生的
+完整 value、准确 catalog entry identity `[u8; 32]`、native lineage root、native correction sequence、可选
+native predecessor，随后是按相同顺序排列的 Calendar 所定义 effective、observation 与准确 R0/Source
+Binding/frontier tail。Request-meaning domain 为
+`vibe.market-data.time-zone-request.v1\0`；bytes 是 schema、reserved、consumer tag、time-zone identity、
+ruleset identity、replay-window start 与 exclusive end `i128BE`、Owner-observation、decision cut、
+length-prefixed Source Binding 与 R0 locator bytes，以及 stable correlation。Cut domain 为
+`vibe.market-data.time-zone-cut.v1\0`；bytes 是 schema、reserved、request identity/meaning、consumer tag、
+time-zone/ruleset identity、window bound、Owner-observation、decision cut、R0 cut identity/digest、transition
+count `u32BE`、按 interval start 排序的 fact identity/digest entry，随后是 gap count 与排序的半开 gap
+bound。Positive coverage 在 window start 或更早开始、在 window end 或更晚结束，并以准确相邻 interval
+覆盖每个 instant 且每个 instant 只有一个 offset，包括 fold 与 gap。Receipt 与 readback domain
+分别为 `vibe.market-data.time-zone-receipt.v1\0` 与 `vibe.market-data.time-zone-readback.v1\0`；outbox identity
+按共享原生规则等于 receipt identity，且没有 domain。
+
+### Session V1：唯一原生 Calendar 与 Time Zone join
+
+**CURRENT：** Replay V2 已有 typed Session value，BAR V1 已有既存 structural bytes，但两者都不是原生
+Session join 或权威。**TARGET：** Session 是准确 positive 且相互独立的 `CalendarCutV1` 与
+`TimeZoneCutV1` 在一个 Market Data transaction 中的唯一原生 join；同一 transaction 还解析已准入
+Source Binding、准确 Instrument Master
+reference tuple 与已验证 Shared Time observation。其唯一 raw resolver consumer 是
+`MARKET_DATA_OWNER_V1`；内部 PIT、Replay 与 additive BAR composition 可以消费它，而 Backtest 与
+Strategy Factory 只能接收 sealed projection。Caller 字符串、UTC endpoint、nearest transition 或 private
+proposal 都不能铸造 session fact。Gap local time 没有 positive fact，且绝不 shift。
+**NOT_ADMITTED：** 本契约不声称 Session implementation、native store、已注册 composition、product
+reachability、production write、deployment、runtime 或 trading。
+
+`SessionFactV1` 绑定非空 stable session identity、从 `1970-01-01` 起算且采用 proleptic Gregorian
+calendar 的 signed `i32BE` trading day，以及从零开始连续的 interval ordinal `u32BE`。每个 local boundary
+是 local day `i32BE`、nanoseconds-of-day `u64BE < 86_400_000_000_000`，以及 resolution tag `u8`：
+`1 EXACT`、`2 EARLIER_INSTANT` 或 `3 LATER_INSTANT`。唯一 local time 要求 `EXACT`；fold 要求经认证的
+earlier/later choice，并依据准确 Time Zone transition 重新计算。Leap-second spelling 与每个 gap boundary
+均不受支持。Fact 重复 recomputed UTC open/close `i128BE`，要求 `open < close`，并绑定准确 Calendar
+fact/cut identity/digest、Time Zone open/close boundary fact identity/digest 加 cut identity/digest、Instrument
+Master reference tuple、Source Binding identity/lineage、source/correction frontier、correction identity 与完整
+R0 observation coordinate。从 catalog 派生的 typed business value 与准确 entry 逐字节匹配；每个派生 UTC
+与 dependency scalar 都从 join 的原生 fact 重新计算。
+
+Fact domain 为 `vibe.market-data.session-fact.v1\0`；bytes 是 schema `u16BE = 1`、reserved、session
+identity `u32BE length || bytes`、trading day、interval ordinal、local-open tuple 与 local-close tuple，作为从
+catalog 派生的完整 typed business value；随后是准确 catalog entry identity `[u8; 32]`、native lineage root、
+重算 UTC open、UTC close、Calendar fact identity/digest 与 cut identity/digest、Time Zone open fact
+identity/digest、close fact identity/digest 与 cut identity/digest、Instrument Master readback/fact/cut digest、
+可选 native predecessor、native correction sequence `u64BE`、provider-available、retrieval、
+correction-publication 与 Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、
+Source Binding identity/fact
+digest/lineage root/`u64BE` version、source frontier、correction frontier 与 correction identity。Correction
+是准确 `(session identity, trading day, interval ordinal)` native key 的不可变 current-head direct successor。
+
+Request-meaning domain 为 `vibe.market-data.session-request.v1\0`；bytes 是 schema、reserved、固定 raw
+consumer tag `1 MARKET_DATA_OWNER_V1`、session identity、inclusive first/exclusive last trading day、准确
+Calendar 与 Time Zone cut locator、Instrument Master reference locator、按 length-prefixed bytes 编码的
+Source Binding 与 R0 locator、Owner-observation、decision cut 与 stable correlation。Cut domain 为
+`vibe.market-data.session-cut.v1\0`；bytes 是 schema、reserved、request identity/meaning、consumer tag、
+session/day scope、Calendar 与 Time Zone cut identity/digest、Instrument Master reference tuple、
+Owner-observation、decision cut、R0 cut identity/digest、day count `u32BE`，随后是每个顺序 day 及其
+open/closed tag、interval count 与 interval-ordinal/fact-identity/fact-digest entry，再随后是 gap count 与
+missing-day ordinal。Open day 包含从零开始的完整连续 ordinal set；closed day 具有显式 zero-member
+census。因此 all-closed window 可以有 positive explicit empty-fact cut。Duplicate key、ordinal gap、UTC
+interval overlap、requested day 缺失，或 declared open schedule 内存在 interval gap，都不产生 positive
+cut。
+
+Receipt 与 readback domain 为 `vibe.market-data.session-receipt.v1\0` 与
+`vibe.market-data.session-readback.v1\0`；outbox identity 等于 receipt identity、没有 domain，并采用
+共享原生 write-once、sealed rejoin/recovery、ACL 与 zero-write rule。Replay V2 保留其既有 Session bytes，BAR V1
+保留其既有 bytes；采用原生 Session 需要 additive dependency/aggregate field 与 additive BAR successor
+contract，绝不重新解释 stored Replay V2 或 BAR V1 custody。
+
+## Market Semantics Owner 契约
+
+### 状态、边界与固定消费者
+
+**CURRENT：** Market Data 架构拥有 Market Semantics Compatibility；`ReplayMarketFactsV2` 已具备下文所述
+closed typed Market Semantics value。Source Binding 仍只把 free-form normalization 与 meaning 字符串作为
+不受信 source claim 携带；Source Binding admission、字符串相等，或 PIT/Instrument Master 携带的 digest
+本身都不能认证 typed Market Semantics。
+
+**CURRENT：** Market Data 已有一个独立 `MarketSemanticsFactV1` 权威 foundation。其首个固定消费者是 Strategy Input
+Binding Registry；`ReplayMarketFactsV2` 随后把同一个 Owner readback 作为确定性 projection 消费。不受信
+proposal 只能携带 request identity/meaning、stable correlation、声称的 typed value、声称的 predecessor
+与 dependency locator；不得提供 positive fact、coordinate、cut、canonical bytes、digest 或 receipt。
+Market Data 私下解析已准入的原生 Source Binding readback、准确原生 PIT Snapshot 与 Instrument Master
+readback，以及准确且经 Owner 认证的 `ReferenceFactR0ReadbackV1`；随后解析由 Market Data
+拥有的 closed registry entry，该 entry 把这些准确 dependency identity 映射到 typed semantic value。
+Free-form Source Binding 字符串、adapter label、provider field、caller mapping 与名称相似性绝不选择或
+认证 registry entry。
+
+Positive resolver 只接收不受信 proposal。它规范解码准确 PIT、Source Binding、Instrument Master 与 R0
+locator，在 caller transaction 中解析四份 Owner readback，派生 closed registry key，并仅按该 key 解析一条
+immutable registry record。Registry-key domain 为
+`vibe.market-data.market-semantics-registry-key.v1\0`；bytes 为 schema、reserved、compatibility-scope
+identity、R0 record identity/digest 与 cut identity/digest、PIT snapshot identity/fact digest、Source Binding
+identity/fact digest/lineage root/`u64BE` version、Instrument Master readback/fact/cut digest、source frontier
+与 correction frontier。Registry-record domain 为
+`vibe.market-data.market-semantics-registry-record.v1\0`；bytes 为 schema、reserved、key identity、`u32BE`
+key length 加准确 key bytes、五个 typed value field，以及 correction identity。Key identity 是私有 table
+primary key，record identity 是准确 record bytes 的 BLAKE3 digest。Zero、many、missing、canonical drift、
+dependency splice 或 value mismatch 均 unavailable/untrusted；不准按 name、value、scope、latest 或 history
+lookup。Test-only seal 不是 production positive path。
+
+**NOT_ADMITTED：** 本契约不声称 provider ingestion/authenticity、default 或 production database migration/write、Strategy Input Registry 或 Replay V2 产品 composition、
+deployment、runtime execution、Dashboard 工作或 trading authority。Fixture、caller-carried identity、
+结构有效的 bytes 或既有 Replay V2 fact 都不是独立 Owner readback。
+
+### 有类型事实、时间与修正拓扑
+
+Version 1 的 closed value 准确包含：非零 normalization identity `[u8; 32]`；price adjustment `u16BE`，
+其值为 `1 RAW`、`2 SPLIT_ADJUSTED` 或 `3 TOTAL_RETURN_ADJUSTED`；timestamp basis `u16BE`，其值为
+`1 EVENT_EFFECTIVE`、`2 INTERVAL_OPEN` 或 `3 INTERVAL_CLOSE`；非零 price-unit identity `[u8; 32]`；
+以及非零 size-unit identity `[u8; 32]`。零值与所有未列出 tag 均不受支持。Unit identity 命名
+Owner-registry meaning，而不是 unit 字符串、currency default、scale 猜测或 Instrument Master increment
+field。
+
+每条不可变 fact 绑定一个 Owner-registry compatibility-scope identity、可选的准确 predecessor、一个半开
+effective interval `[effective_from, effective_until)`、provider-available、retrieval、
+correction-publication 与 Owner-observation coordinate，以及正 decision cut。它还绑定准确 R0 coordinate
+identity/digest、准确已准入 PIT Snapshot、Source Binding 与 Instrument Master identity/digest、Source
+Binding lineage、source/correction frontier 与 correction identity。所有重复 coordinate scalar 必须与解析
+所得 `ReferenceFactR0ReadbackV1` 逐字节一致；该独立权威不创建第二 clock 或 coordinate authority。
+Effective containment 与 observation availability 是相互独立的 predicate。每个 availability coordinate
+都必须在同一 authenticated clock 与 decision cut 下可观察。
+
+Correction 是同一 compatibility scope 内的不可变 direct successor。它指向 current predecessor，推进经
+认证的 correction/observation evidence，并可保留被修正的 effective interval；绝不重写 predecessor，也
+不会让 predecessor 在更早 cut 上失效。不同 effective regime 不得重叠。Predecessor 缺失、branch、cycle、
+ambiguous overlap、coordinate/frontier 回退，或在更早 observation cut 选择更晚 correction，都不产生
+positive fact 或 cut。
+
+### 规范 codec、完整 cut 与 custody
+
+Version 1 的每个整数均为 big-endian。可选 absence/presence 准确为 `0x00`/`0x01`；每个 identity/digest
+均为 32 bytes；reserved 为 `u16BE = 0`；malformed length、零 required identity、alternate tag、duplicate、
+非规范顺序或 trailing byte 均不受支持。Identity 是在下列 NUL-terminated domain 后拼接准确 canonical
+bytes 所得的 BLAKE3-256。
+
+- Request-meaning domain 为 `vibe.market-data.market-semantics-request.v1\0`；bytes 顺序为：schema
+  `u16BE = 1`、reserved、consumer tag、compatibility-scope identity、可选 predecessor、按 fact 顺序排列的
+  五个 typed value field、effective-from、可选 effective-until、Owner-observation、decision cut，随后是 PIT
+  Snapshot、Source Binding、Instrument Master 与 R0 的不受信 locator bytes；每项均为
+  `u32BE length || bytes`；最后是 stable correlation。Request identity 是独立 idempotency key，不属于
+  request meaning。
+- Fact domain 为 `vibe.market-data.market-semantics-fact.v1\0`；bytes 顺序为：schema `u16BE = 1`、
+  reserved、compatibility-scope identity、可选 predecessor、normalization identity、price-adjustment tag、
+  timestamp-basis tag、price-unit identity、size-unit identity、effective-from `i128BE`、可选
+  effective-until、provider-available `i128BE`、retrieval `i128BE`、correction-publication `i128BE`、
+  Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity 与 digest、PIT Snapshot identity
+  与 fact digest、Source Binding identity、fact digest、lineage root 与 `u64BE` lineage version、Instrument
+  Master readback/fact/cut digest、source frontier、correction frontier 与 correction identity。
+- Cut domain 为 `vibe.market-data.market-semantics-cut.v1\0`；bytes 为 schema、reserved、request identity、
+  request meaning digest、closed consumer tag（`1 STRATEGY_INPUT_BINDING_REGISTRY_V1`、
+  `2 REPLAY_MARKET_FACTS_V2`）、compatibility-scope identity、effective instant `i128BE`、Owner-observation
+  `i128BE`、decision cut `u64BE`、R0 cut identity 与 digest、expected-member count `u32BE`、按 scope 严格
+  排序且由 scope identity 加 fact identity/digest 组成的 entry，随后是 gap count `u32BE` 与严格排序的
+  gap-scope identity。Positive cut 具备完整 expected manifest 且 gap 为零；显式空 manifest 不是推断的
+  success。
+- Receipt domain 为 `vibe.market-data.market-semantics-receipt.v1\0`；bytes 为 schema、reserved、request
+  identity、request meaning digest、consumer tag、cut identity/digest、store-generation identity、正 append
+  sequence `u64BE` 与 stable correlation。Receipt identity 是该 domain 加准确 receipt bytes 所得且绑定
+  generation 的 BLAKE3-256。Outbox identity 与 receipt identity 完全相同，没有独立 domain 或 hash，且其
+  payload 是准确 receipt bytes。
+- Readback domain 为 `vibe.market-data.market-semantics-readback.v1\0`；bytes 为 schema、reserved、正 fact
+  count `u32BE`、按 cut 顺序排列的每条 fact identity 及其 `u32BE` byte length 与准确 fact bytes，随后是
+  cut identity、length 与 bytes，receipt identity、length 与 bytes，以及 outbox identity。Positive fact、
+  cut、receipt 与 move-only readback 没有 public constructor 或 deserializer；resolver 由 crate sealed。
+
+一个 Owner transaction 原子 append 不可变 fact/head、完整 cut、receipt、outbox 与 store
+generation/append state。准确 request identity 加准确 meaning 是 idempotent；meaning 变化产生 conflict；
+partial row、scalar/canonical drift、dependency splice 或 digest mismatch 使 custody 不可信。Response loss
+绝不授权再次 append：recovery 只接受准确 identity/meaning locator，重新验证完整 stored aggregate，并返回
+逐字节相同的 move-only readback。
+
+既有 `ReplayReferenceFactValueV2::MarketSemantics` 是从已验证独立 readback 的五个 typed value field
+得到的确定性 projection。Replay V2 保留自己的 aggregate fact/cut identity，并且只有在其 time、scope、
+source 与 correction projection 与该 readback 逐字节相等后才重复这些 projection。它既不替换独立 fact，
+也不会成为第二个 Market Semantics authority。
+
+## Correction Policy 私有 Replay projection
+
+**CURRENT：** Source Binding 拥有 correction lineage/frontier，Replay V2 已有 typed `CorrectionPolicy`
+value。**TARGET：** Market Data 从准确已准入 Source Binding lineage 加已验证
+`ReferenceFactCoordinatesV1` 为 Replay 确定性派生该 value；不存在独立 Correction Policy receipt、
+outbox、state、locator 或 resolver。**NOT_ADMITTED：** caller 字符串、通用 policy label、单独 frontier
+digest 或 Replay storage 都不能铸造 policy authority；该 projection 也不声称 implementation、provider
+authenticity、production write、deployment 或 trading authority。
+
+私有 version-1 value 是准确非空 correction-stream identity、正 `u64BE` sequence 与
+`successor_only = 0x01`；false 与所有 alternate tag 均不受支持。它还绑定准确 Source Binding
+identity/fact/lineage、correction-frontier digest identity、不同 frontier change 之间的一个半开 effective
+interval，以及第一个已准入 version 的 provider-available、retrieval、correction-publication、
+Owner-observation、decision cut、clock 和 R0 coordinate identity/digest。第一个 lineage version 建立
+availability；即使其 R0 record 使用有限 replay/evidence interval，该 correction regime 仍保持开放，只有
+不同 successor frontier 才能关闭它。随后携带逐字节相同 source、stream、sequence、successor-only value
+与 frontier 的 version
+被 coalesce 到同一 interval，且不能把 availability 提前。下一个不同 frontier 关闭前一个 interval，且
+必须是 direct、sequence-advancing successor。Gap、regression、branch、cross-source splice、stream 改变却
+无新 lineage，或 clock/coordinate mismatch，都不产生 projection。
+
+确定性私有 projection domain 为 `vibe.market-data.correction-policy-projection.v1\0`。Canonical bytes 是
+schema `u16BE = 1`、reserved、stream `u32BE length || bytes`、sequence、successor-only tag、Source
+Binding identity/fact digest/lineage root/`u64BE` version、correction-frontier digest、effective-from 与可选
+effective-until `i128BE`、四个 availability/observation coordinate `i128BE`、decision cut `u64BE`、
+clock-head identity/digest 与 R0 coordinate identity/digest。Replay V2 只把 stream、sequence 与
+successor-only 投影到既有 typed value，并且仅在 time/source/correction field 准确相等后重复这些 field；
+其 aggregate custody 不创建第二 policy authority。
+
+## Corporate Action 原生 Instrument Master 子权威
+
+### 状态、输入与 typed action
+
+**CURRENT：** Instrument Master 拥有 corporate-action term/frontier，Replay V2 已有 closed Split、
+CashDividend、SymbolChange、Expiry 与 Roll variant，但尚无独立原生 Corporate Action readback。
+**TARGET：** Instrument Master 是 `CorporateActionFactV1` 的唯一 writer；固定消费者是 Replay V2 与
+Backtest。签发在一个 Owner transaction 中解析准确 positive Instrument Master cut/fact、已准入 Source
+Binding、PIT Snapshot、shared-clock observation、correction frontier 与 `ReferenceFactCoordinatesV1`。
+Caller digest、symbol、latest row 或 Replay fact 均不得替换它们。**NOT_ADMITTED：** 本契约不声称
+implementation、provider ingestion/authenticity、production/default migration/write、product composition、
+deployment、runtime、Dashboard 或 trading authority。
+
+每条 fact 绑定一个非零 action identity、准确 canonical instrument bytes 与一个 closed term：
+
+- `1 SPLIT`：正 numerator 与 denominator `u64BE`。方向固定为 post-action quantity 等于 pre-action
+  quantity 乘 numerator/denominator，post-action price 等于 pre-action price 乘 denominator/numerator；
+  reversal 或隐式 vendor convention 不受支持。
+- `2 CASH_DIVIDEND`：signed `i128BE` mantissa、`u8` decimal scale 与非空 canonical currency identity。
+- `3 SYMBOL_CHANGE`：非空 successor canonical instrument；predecessor instrument 保留为历史事实。
+- `4 EXPIRY`：无 payload。
+- `5 ROLL`：非空 successor canonical instrument；只记录 reference transition，不授予 order。
+
+Fact 还绑定可选 direct predecessor、一个半开 effective interval、四个 availability/observation
+coordinate、decision cut、R0 coordinate identity/digest、准确 Instrument Master readback/fact/cut digest、
+PIT Snapshot identity/fact digest、Source Binding identity/fact/lineage/version、source/correction frontier 与
+correction identity。Correction 是同一 action/instrument lineage 内不可变 current-head successor，不能重写
+更早 observability。Predecessor 缺失、branch、cycle、sequence/frontier regression、action 或 instrument
+splice、无效 ratio/currency/successor、effective ambiguity 或 clock mismatch，都在 write 前失败。
+
+### 规范完整 census 与 custody
+
+Fact domain 为 `vibe.market-data.corporate-action-fact.v1\0`。Bytes 是 schema `u16BE = 1`、reserved、
+action identity、instrument `u32BE length || bytes`、上述顺序的 term tag 与 payload、可选 predecessor、
+effective-from 与可选 effective-until `i128BE`、provider-available、retrieval、correction-publication 与
+Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、Instrument Master
+readback/fact/cut digest、PIT Snapshot identity/fact digest、Source Binding identity/fact digest/lineage root/
+`u64BE` version、source frontier、correction frontier 与 correction identity。
+
+Request-meaning domain 为 `vibe.market-data.corporate-action-request.v1\0`；bytes 是 schema、reserved、
+closed consumer tag（`1 REPLAY_V2`、`2 BACKTEST`）、inclusive/exclusive replay-window bound `i128BE`、正
+instrument count `u32BE`、严格排序的 length-prefixed canonical instrument、Owner-observation、decision
+cut、length-prefixed Instrument Master、PIT、Source Binding 与 R0 locator bytes，以及 stable correlation。
+Cut domain 为 `vibe.market-data.corporate-action-cut.v1\0`；bytes 是 schema、reserved、request
+identity/meaning、consumer tag、window bound、Owner-observation、decision cut、R0 cut identity/digest、
+Instrument Master 与 PIT cut digest、instrument count，随后是每个排序 instrument 及 action count 和按
+effective start 与 action identity 排序的 action-identity/fact-digest entry，再随后是 gap count 与排序的
+gap instrument。每个 requested instrument 准确出现一次。零 action 是该 instrument 的 canonical
+`u32BE = 0` census，而不是 missing row 或 `NO_ACTIONS`；positive cut 的 gap 为零。
+
+Receipt 与 readback domain 为 `vibe.market-data.corporate-action-receipt.v1\0` 与
+`vibe.market-data.corporate-action-readback.v1\0`；outbox identity 等于 receipt identity，且没有 domain。
+其准确 layout、write-once caller-transaction custody、sealed resolution、rejoin、response-loss recovery、ACL
+与 zero-write failure rule 采用上述共享原生规则。
+Replay V2 把一条 fact 一对一 projection 成既有 action identity、instrument 与 term variant，并且只在
+time/source/correction 准确相等后重复这些 field。Backtest 保留相同原生 fact 与 cut identity/digest；
+两个 consumer 都不得 normalize 或 synthesize term。
+
+## Replay Market Facts V2 基础
+
+**CURRENT / PARTIAL：** Market Data 定义了 additive、dependency-neutral 的
+`ReplayMarketFactsV2` contract 与规范 codec。一个完整 cut 包含有类型且内容寻址的 calendar-day、
+session-interval、time-zone ruleset、Market Semantics、successor-only correction-policy、
+corporate-action 与 historical-membership 事实。每条事实绑定半开 effective interval、
+provider-available、retrieval、correction-publication、Owner-observation、decision cut、Source identity
+与 correction identity。Corporate action 携带实际 split、cash-dividend、symbol-change、expiry 或 roll
+条款；historical membership 携带准确 selection、member、instrument 与 inclusion disposition。
+Corporate-action 或 membership cut 可以完整地包含零个 member，但该空 census 必须是绑定准确 scope
+与 decision cut 的显式内容寻址 cut；`NO_ACTIONS` 等字符串绝不等价。
+
+V2 frontier 仅通过各 producer 的准确 identity 与 digest 引用既有 PIT Snapshot、Source Binding、
+Instrument Master cut、Universe Selection、normalized observation census、V1 joined-cut receipt 与 V2
+sample projection；不复制或重新解释其规范 bytes，也不创建第二权威。公共 request 只接受一个不受信
+PIT locator 与半开 replay event-time interval。事实、dependency reference、census、规范 bytes 与
+aggregate digest 只能通过 Market Data-private authority 进入。所得 receipt 与 readback 没有 public
+constructor 或 deserializer，read port 由 crate sealed。校验会重新编码每条 fact、cut、frontier、
+aggregate 与 receipt，并逐字节比较全部重复 scalar projection；canonical-byte、scalar-only 或
+cross-splice 漂移都 fail closed。
+
+**CURRENT/PARTIAL，W0/U/C custody seam：** 规范 DTO/codec、私有签发权威与 sealed readback 已实现。
+Replay storage leaf 还具备 candidate-private PostgreSQL schema 与 caller-transaction storage；它只机械持久化已经验证的
+readback，拒绝 identity/meaning conflict 与 corruption，并且只暴露负向 resolution，stored bytes 不能铸造
+positive readback。U 增加 caller-transaction historical-membership 与原生 Universe Selection custody。C
+增加完整 observation census 及其准确、未改变 V1 joined-cut receipt 的 caller-transaction custody。这些 leaf
+不会自行打开或提交 pool，尚未注册为 positive product composition，也不会把 opaque dependency locator
+提升为 Owner authority。
+
+**CURRENT/PARTIAL，W3 positive composition binding：** Market Data 定义 additive sealed
+`ReplayCompositionBindingV1` record、receipt、准确 receipt-payload outbox，以及一个不受信的内容寻址 locator。
+其 canonical identity 交叉绑定准确 PIT request/snapshot 与 replay window、一个经过认证的
+`StrategyDesignV2` identity、排序且完整的 typed-role set、durable registry 的每条 declaration 与 binding、
+完整 observation census、未改变的 V1 joined cut、V4 JOINED_CUT sample projection，以及准确原生 PIT、Source
+Binding、Universe Selection、Instrument Master 与 Market Semantics locator。W3 绝不接受 V2 或 V3 代替 V4
+JOINED_CUT。Additive
+`UntrustedReplayMarketFactsCompositionRequestV1` 只包含既有 Replay V2 request 与该准确 binding locator。
+Positive issuance 从该 locator 开始，认证并逐字节验证完整 binding，要求每个 native 与 role/binding
+projection 准确一致，随后复用既有 Replay V2 issuer 及其未改变的 canonical bytes、readback 与七种类
+frontier。Replay storage meaning 还由 binding identity 约束。既有 unbound row 仍仅可产生负向结果：绝不
+backfill、infer、按 latest 选择或通过 full scan 发现。
+
+**TARGET，持久 R&D attestation seam：** positive R&D Develop Composer transaction 将一份不可变、完整的
+`StrategyDesignRoleSetReceiptV1` attestation 与 Composer aggregate、receipt 及 outbox 一起规范持久化。它绑定
+准确 Research request、Composer aggregate 与
+`StrategyDesignV2`、按规范顺序排列的 typed role、每个 semantic coordinate 与完整 role coverage。其内容寻址
+准确 locator 在发送前已知。Replay Policy V2 composition 由 R&D-owned A1 跨两个 Owner-isolated transaction
+协调。固定 `market_data_reader` 打开一个 read-only transaction，取得 Composer request 的 shared writer-key cut
+lock，只调用 Composer Owner 按 locator 读取的 `SECURITY DEFINER` lock/read function，校验完整 canonical
+evidence，并保持该 transaction 直到 Market terminal decision。随后 Market Data Owner 打开一个 SERIALIZABLE
+transaction，证明两条连接共享同一 live primary、database、postmaster incarnation 与 advisory lock manager；固定
+`market_data_owner` login principal 在任何 Market lock 或 write 前取得同一个 shared Composer cut lock。该
+principal 只对自己的 `market_data_private` relation 保留 raw authority，不获得 Composer 或 R&D raw access。
+Composer writer 在每次 mutation 前都必须持有匹配的 exclusive lock；因此 reader 丢失时，只要 Market
+transaction 仍持有 handoff lock，就不能重新打开 mutation window。两个 principal 都不获得另一 Owner 的
+raw-table `SELECT` 或 DML、role membership、generic query surface、public positive constructor/deserializer、
+receipt/readback input、bearer token、cryptographic-key authority、latest/history/full scan 或 cross-Owner parser。
+该边界保证 guarded window 内 Composer evidence 稳定以及 Market write 原子性；它不声称 shared XID、MVCC
+snapshot 或 cross-Owner atomic commit。
+
+W3 issuance 只接受该不受信 R&D attestation locator 与准确 Market dependency locator。Market Data 在内部校验
+恢复的 attestation，随后独立重新解析每条持久 registry declaration、完整 observation census、未改变的 V1
+joined cut、V4 BAR JOINED_CUT sample projection、R0 与独立 Market Semantics record，并要求 Market Semantics cut 指向准确恢复
+的 R0 cut。它不消费 `StrategyPlanV2`，也不依赖 Strategy Factory。Binding record、receipt 与 receipt-payload
+outbox 与未改变的 Replay V2 fact、receipt、outbox row 原子持久化；按准确 binding locator 的 recovery 会
+decode、rehash、cross-check 两套 custody aggregate，并返回逐字节相同的 payload。response loss 后按准确
+attestation locator recovery 会 join 既有 R&D attestation 而不 append。公共边界不接受 resolver、authoritative
+receipt/readback、role list、count 或 token，且任何 caller representation 都不能铸造 positive role set。
+
+**NOT_ADMITTED：** 该 target 不证明 R&D persistence/read function、其 database ACL、registered W3 composition、
+disposable PostgreSQL Owner readback、deployment、production write、runtime 或 trading authority。
+
+**TARGET：** admitted deployment 与隔离 disposable PostgreSQL acceptance 必须证明准确 replay、
+response-loss recovery、successor-only
+correction，以及 move-only Strategy Factory 与 Backtest consumer 路径。
+
+**NOT_ADMITTED：** 已实现 storage、custody 与固定 API composition 不是 admitted store、隔离 PostgreSQL
+acceptance、provider ingestion/authenticity proof、default product composition、Strategy Factory
+或 Backtest consumer、runtime execution、production write、deployment 或 trading authority。它们不会把
+既有准确二成员 Universe receipt 当作通用 Universe Selection Record，不会以 V2 codec 替换 V1 joined-cut
+codec，也不允许 Source Binding rule string 或通用 `version = "v2"` 标签冒充规范 fact cut。
+
 ## Instrument Master Owner 契约
 
 ### 状态与固定消费者
@@ -296,6 +813,35 @@ selection/master/semantics/lineage 任一拼接，
 以及 caller `InstrumentSet` scope 都不产生 positive selection 或 frame。该状态仅表示当前 Owner-local
 binding contract，不声称 compiler、shared kernel、ProgramHost、Backtest、Paper、Live 或生产成熟度。
 
+**TARGET，durable Strategy Input Binding Registry：** Market Data 拥有 write-once、validated binding
+declaration；每份 declaration 以准确 PIT request、`StrategyDesignV2` 与 typed input role 为 key。R&D 与
+Strategy Factory 只能提供 Owner-authenticated Design/role intent，绝不提供或选择 member、frame 或 binding
+digest。在一个 Market Data Owner transaction 中，registration 通过原生 authority 解析 PIT Snapshot、
+Universe Selection、Source Binding、Instrument Master 与 Market Semantics，派生并存储 declaration/digest，
+重新生成既有 V1 binding 与 frame，再原样运行既有 V1 complete-census 与 joined-cut authority。registry
+registration 缺失，或 request/Design/role、membership、frame、lineage、semantics、digest 任一不匹配时，都不
+生成 declaration、census、joined cut 或 replay input。该 registry 是 Replay V2 positive composition 与真实
+Owner-driven Strategy Factory/Backtest consumption 的前置条件；它不是 provider registry、deployment registry
+或 caller-authored data path。
+
+**CURRENT/PARTIAL，authenticated role-set foundation：** dependency-neutral 的准确 Composer locator 与
+`StrategyDesignRoleSetReceiptV1` DTO 已存在；production positive-registration seam 在接受未改变的 V1 request
+前必须取得 authenticated complete role set。它校验请求的 Design、Research request、派生 role identity、每项
+semantic coordinate 及准确完整的 role coverage。observation-census seam 同样要求未改变的 V1 join claim 在
+complete-census/latest-not-after selection 前准确重复一个 authenticated join。既有 V1 request、binding、
+receipt bytes 与准确 legacy recovery 均保持不变。**TARGET：** W3 只通过 R&D-owned、same-Composer-transaction
+durable attestation 的准确 locator DB-ACL read function 接纳该 attestation，并让这条 seam 成为唯一可达的
+positive path；Market Data 随后独立解析自身 registry、census、join、V4 sample、R0 与 Market Semantics authority，
+再原子签发 binding。**NOT_ADMITTED：** caller-proposed Design/role/join 字段、receipt/readback/token、receipt
+hash、latest/history/full scan、raw R&D table parsing 或 Market Data storage 都不能认证 Design meaning；Market
+Data 不依赖 Strategy Factory，不拥有也不重新解释 Strategy Design role/join，且该 foundation 不声称 registered
+W3 resolver 或 production write。
+
+Market Data 只消费、但不定义也不重新解释 R&D Owner contract 中明确规定的 big-endian canonical binary
+codec；其 JSON 表示不是 canonical receipt material。registration 必须通过固定 R&D adapter 取得
+byte-identical 准确 locator recovery；独立重算、重排或修改的 bytes 即使 integrity hash self-consistent，
+仍然只是 caller evidence。
+
 **仅限 SEALED_ACCEPTANCE：** 非默认编译期 Cargo feature
 `sealed-strategy-input-acceptance` 只暴露一个零参数 fixture adapter，语料固定为 AAPL/MSFT 与
 OPEN/CLOSE。adapter 先经过 crate-private Source Binding admission 和 PIT
@@ -376,7 +922,8 @@ event/value/frame 与 joined-cut receipt 仍是准确 evidence input。V2 JOINED
 readback 在下述结构 Owner-custody seam 达到 `CURRENT / PARTIAL`；它们不证明 production startup 或产品消费。
 BAR 只能使用下述独立 V3 FRAME projection；其 durable Owner custody 是 CURRENT/PARTIAL，而
 其 sealed exact historical resolver core 是 CURRENT/PARTIAL，而 production startup 与产品 resolution 仍为
-TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。
+TARGET/UNAVAILABLE。它绝不扩大或重新解释 V2。新增 V4 FRAME/JOINED_CUT 与 BAR lifecycle 是
+TARGET/NOT_ADMITTED，且绝不扩大或重新解释 V2 或 V3。
 
 `TimeframeSpecV1` 只有一种 fixed canonical codec，字段顺序是：schema `u16LE = 1`、reserved-zero `u16LE`、
 kind `u8`、正 step `u32LE`、unit `u8`、anchor identity `[u8; 32]`、calendar identity `[u8; 32]`、session
@@ -603,6 +1150,37 @@ resolver 不能选择 kind/lifecycle、执行 latest lookup、解析 V2 BAR 或 
 Strategy Factory production startup、产品 composition、ProgramHost、Backtest、composite、Windmill 与其他
 所有产品消费保持 `TARGET / UNAVAILABLE`；当 external admission adapter 不可用时，required production startup
 不得返回 resolver。stored V3 row 或结构 V3 bytes 本身不产生 consumer 权威或 mutation。
+
+**TARGET / NOT_ADMITTED，additive BAR native join：** `StrategyInputSampleProjectionV4` 的 projection
+kind 闭集准确为 `FRAME` 与 `JOINED_CUT`，lifecycle 闭集为 `BAR`。它既不替换也不改变任何 V1 receipt、V2
+EVENT projection 或 V3 BAR FRAME projection；所有既有 canonical bytes、domain、identity、semantics、
+persistence 与 resolver 均保持逐字节不变。对于 FRAME，V4 绑定准确 Owner-resolved V3 BAR FRAME source 及其
+完整 schedule dependency。对于 JOINED_CUT，其 subject 是未改变且有效的 V1 joined-cut receipt 的准确 digest。
+canonical V4 receipt bytes 在按 role 排序的 component set 之前包含准确 schedule-dependency-set digest，因此
+domain-separated V4 receipt identity 必然同时绑定两者。schedule-dependency set 以穷尽、规范的方式把每个
+component role 绑定到准确 BAR schedule cut/receipt 与 timeframe dependency；缺失、多余、重复或乱序 entry
+均 unsupported。
+
+每个 V4 component 在完整 role、static binding、frame evidence、trigger、value、timeframe projection、sample
+identity、native sample receipt、308-byte coordinate、schedule cut 与 schedule receipt field 上，都必须严格等于
+其对应的 exact-locator V3 BAR FRAME component。重新计算外观等价的 component、替换 digest、解析 timeframe
+label，或混入其他 frame、slot、batch、joined cut 或 schedule set 的 component，都不生成 V4 receipt。首个
+admitted-shape corpus 准确包含六个 role：`1m OPEN`、`1m HIGH`、`1m LOW`、`1m CLOSE`、`1h CLOSE` 与
+exchange-session `1d CLOSE`。`1m CLOSE` 是 trigger；四个 `1m` role 必须共享准确完整 schedule slot 与
+observation batch。`1h CLOSE` 与 `1d CLOSE` 只能选择在各自 schedule 下不晚于该 trigger 的完整 latest-closed
+sample。`1d` role 必须绑定 `EXCHANGE_SESSION_BAR` day，绝不能是 UTC day 或无 anchor 的 24-hour interval。
+
+一个 Market Data Owner transaction 必须 lock 并重新解析准确 V1 joined-cut receipt、每个 V3 FRAME projection、
+sample/timeframe fact 与 schedule cut/receipt；校验完整 schedule-dependency set 和全部 strict component
+equality；随后原子存储 V4 receipt、准确 locator readback 与 outbox。locator 是准确 V4 receipt identity，且在
+发送前已知。逐字节相同 replay 或 response-loss recovery 解析该 locator，以零 append 返回相同 historical
+bytes。exact-locator resolver 不读取 latest/head，也不执行 history scan；只有在一个 fixed snapshot 中完整
+重新校验后，才能 promote move-only positive readback。private table 不授予 `PUBLIC` 任何 privilege；只有
+固定 non-grantable Owner/writer role 能够 mutation，固定 non-grantable W3 reader 只能获得 resolver 的
+`EXECUTE`，绝无 raw `SELECT` 或 DML。locator、ACL、canonical-byte、V1-subject、schedule-set、component、
+custody、response-loss 或 admission 任一失败时，V4 receipt、readback、outbox 与 W3 binding 均零写入。W3
+只消费该 V4 JOINED_CUT locator/readback。该合同不声称 implementation、migration、registered product
+composition、production startup/write、ProgramHost、Backtest、deployment、runtime 或 trading authority。
 
 已接纳 correction 是 immutable successor，同时具有准确 series predecessor 与 correction predecessor。
 它创建新的 `SampleFactV1`、`SampleReceiptV1`、`sample_identity` 与 coordinate，并让 sample clock 准确推进

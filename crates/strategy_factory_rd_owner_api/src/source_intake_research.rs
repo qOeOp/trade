@@ -13,6 +13,8 @@ use vibe_product_edge::{
     ProductEdgeAdmissionLocatorV1, ProductEdgeAdmissionRequestV1, ProductEdgeError,
     ProductEdgePostgresOwnerV1,
 };
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::product_edge::ResearchGoalOwnerPortV2;
 use vibe_strategy_factory::{
     product_edge::{
         ProductEdgeChannel, RESEARCH_GOAL_OPERATION_V2, RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1,
@@ -88,40 +90,85 @@ async fn resolve(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let (request_identity, operation) =
-        match parse_operation(&state, &headers, Some(&request_identity), &body) {
-            Ok(parsed) => parsed,
-            Err(response) => return *response,
-        };
-    let admission = match state
-        .product_edge
-        .resolve_admission(&request_identity, &state.request_proof_digest)
-        .await
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
     {
-        Ok(Some(admission)) => admission,
-        Ok(None) => {
-            return (
+        if !super::authorized(&headers, &state.token_digest) {
+            return super::rejection_v2(
+                StatusCode::FORBIDDEN,
+                "UNAUTHORIZED_PRODUCT_EDGE",
+                &request_identity,
+            );
+        }
+
+        if !body.is_empty() {
+            return super::rejection_v2(
+                StatusCode::BAD_REQUEST,
+                "MALFORMED_TYPED_REQUEST",
+                &request_identity,
+            );
+        }
+        let admission = match state
+            .product_edge
+            .resolve_admission(&request_identity, &state.request_proof_digest)
+            .await
+        {
+            Ok(Some(admission)) => admission,
+            Ok(None) => {
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(unresolved_result_v2(&request_identity)),
+                )
+                    .into_response();
+            }
+            Err(e) => return product_edge_error(&e, &request_identity),
+        };
+        return match state
+            .owner
+            .resolve_v2(&request_identity, admission.locator())
+            .await
+        {
+            Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+            Err(e) => source_research_owner_error(&e, &request_identity),
+        };
+    }
+
+    #[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+    {
+        let (request_identity, operation) =
+            match parse_operation(&state, &headers, Some(&request_identity), &body) {
+                Ok(parsed) => parsed,
+                Err(response) => return *response,
+            };
+        let admission = match state
+            .product_edge
+            .resolve_admission(&request_identity, &state.request_proof_digest)
+            .await
+        {
+            Ok(Some(admission)) => admission,
+            Ok(None) => {
+                return (
+                    StatusCode::ACCEPTED,
+                    Json(unresolved_result_v2(&request_identity)),
+                )
+                    .into_response();
+            }
+            Err(e) => return product_edge_error(&e, &request_identity),
+        };
+        let proposal = admitted_proposal(operation.proposal, admission.locator().clone());
+
+        match state
+            .owner
+            .resolve_source_intake_research_v1(proposal, operation.ancestry, operation.policy_query)
+            .await
+        {
+            Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
+            Ok(None) => (
                 StatusCode::ACCEPTED,
                 Json(unresolved_result_v2(&request_identity)),
             )
-                .into_response();
+                .into_response(),
+            Err(e) => source_research_owner_error(&e, &request_identity),
         }
-        Err(e) => return product_edge_error(&e, &request_identity),
-    };
-    let proposal = admitted_proposal(operation.proposal, admission.locator().clone());
-
-    match state
-        .owner
-        .resolve_source_intake_research_v1(proposal, operation.ancestry, operation.policy_query)
-        .await
-    {
-        Ok(Some(result)) => (StatusCode::OK, Json(result)).into_response(),
-        Ok(None) => (
-            StatusCode::ACCEPTED,
-            Json(unresolved_result_v2(&request_identity)),
-        )
-            .into_response(),
-        Err(e) => source_research_owner_error(&e, &request_identity),
     }
 }
 
@@ -381,6 +428,37 @@ mod tests {
         assert!(!resolve.contains("submit_source_intake_research_v1("));
         assert!(resolve.contains("resolve_admission("));
         assert!(resolve.contains("resolve_source_intake_research_v1("));
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn composite_resolve_is_identity_only_and_uses_canonical_owner_reread() {
+        let source = include_str!("source_intake_research.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("production module precedes tests");
+        let resolve = production
+            .split("async fn resolve(")
+            .nth(1)
+            .expect("resolve entrypoint exists")
+            .split("async fn execute")
+            .next()
+            .expect("RUN entrypoint follows resolve");
+        let composite = resolve
+            .split("sealed-source-intake-composer-acceptance")
+            .nth(1)
+            .expect("composite resolve branch exists")
+            .split("#[cfg(not")
+            .next()
+            .expect("composite branch ends before legacy branch");
+
+        assert!(composite.contains("body.is_empty()"));
+        assert!(composite.contains("resolve_admission("));
+        assert!(composite.contains("resolve_v2("));
+        assert!(!composite.contains("parse_operation("));
+        assert!(!composite.contains("submit_source_intake_research_v1("));
+        assert!(!composite.contains("resolve_source_intake_research_v1("));
     }
 
     #[rstest]

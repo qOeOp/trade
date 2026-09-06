@@ -10,12 +10,14 @@ use url::Url;
 
 const EXPECTED_DATABASE_ENV: &str = "VIBE_POSTGRES_TEST_DATABASE_NAME";
 const EXPECTED_MARKER_ENV: &str = "VIBE_POSTGRES_TEST_INSTANCE_MARKER";
-const PRODUCTION_DATABASE_URL_ENVS: [&str; 5] = [
+const PRODUCTION_DATABASE_URL_ENVS: [&str; 7] = [
     "RD_OWNER_DATABASE_URL",
     "WINDMILL_DATABASE_URL",
     "PRODUCT_EDGE_DATABASE_URL",
     "OPERATOR_AUTHORIZATION_DATABASE_URL",
     "BACKTEST_DATABASE_URL",
+    "MARKET_DATA_OWNER_DATABASE_URL",
+    "REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL",
 ];
 const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "postgres",
@@ -26,7 +28,7 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 6] = [
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 9] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -34,6 +36,15 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 6] = [
     ("PRODUCT_EDGE_TEST_DATABASE_URL", "product_edge_owner"),
     ("RD_OWNER_TEST_DATABASE_URL", "rd_owner"),
     ("RD_FACT_WRITER_TEST_DATABASE_URL", "rd_fact_writer"),
+    (
+        "REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL",
+        "replay_policy_catalog_admin_writer",
+    ),
+    ("MARKET_DATA_OWNER_TEST_DATABASE_URL", "market_data_owner"),
+    (
+        "MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL",
+        "market_data_reader",
+    ),
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
 ];
@@ -147,6 +158,9 @@ pub enum CanonicalOwnerTestRoleV1 {
     ProductEdgeOwner,
     RdOwner,
     RdFactWriter,
+    ReplayPolicyCatalogAdminWriter,
+    MarketDataOwner,
+    MarketDataReader,
     QualificationWriter,
     BacktestOwner,
 }
@@ -158,16 +172,19 @@ impl CanonicalOwnerTestRoleV1 {
             Self::ProductEdgeOwner => 1,
             Self::RdOwner => 2,
             Self::RdFactWriter => 3,
-            Self::QualificationWriter => 4,
-            Self::BacktestOwner => 5,
+            Self::ReplayPolicyCatalogAdminWriter => 4,
+            Self::MarketDataOwner => 5,
+            Self::MarketDataReader => 6,
+            Self::QualificationWriter => 7,
+            Self::BacktestOwner => 8,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 6],
-    pools: [PgPool; 6],
+    database_urls: [String; 9],
+    pools: [PgPool; 9],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
@@ -696,6 +713,19 @@ mod tests {
             expected_database: "vibe_test_7".to_string(),
             expected_marker: "marker-7".to_string(),
         }
+    }
+
+    #[rstest]
+    fn canonical_catalog_admin_binding_is_fixed_and_production_checked() {
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS
+                [CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter.index()],
+            (
+                "REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL",
+                "replay_policy_catalog_admin_writer",
+            )
+        );
+        assert!(PRODUCTION_DATABASE_URL_ENVS.contains(&"REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL"));
     }
 
     #[rstest]

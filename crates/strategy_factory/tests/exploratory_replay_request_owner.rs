@@ -1,11 +1,10 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use ed25519_dalek::{Signer, SigningKey};
 use rstest::rstest;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::PgPool;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixListener,
@@ -26,14 +25,12 @@ use vibe_product_edge::{
     ProductEdgeInvocationClaimRequestV1, ProductEdgePostgresOwnerV1,
 };
 use vibe_strategy_factory::{
-    ReplayPolicyCatalogBindingV2,
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
         ArtifactBuildDisposition, ArtifactBuildOwnerPort, ArtifactBuildRequestV1,
         ArtifactBuildResolution, GeneratedDirectionV1, GeneratedSignalV1, GeneratedStrategyLogicV1,
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
-    ensure_authenticated_replay_policy_catalog_genesis_v1,
     exploratory_replay::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V1, EXPLORATORY_REPLAY_MUTATION_EFFECT_V2,
         EXPLORATORY_REPLAY_OPERATION_V1, EXPLORATORY_REPLAY_OPERATION_V2,
@@ -50,9 +47,11 @@ use vibe_strategy_factory::{
         SourcedResearchGoalV2, TrialFamilyProposalV1,
     },
     product_edge_postgres::PostgresResearchGoalOwnerV1,
-    replay_execution_policy_v2::ReplayExecutionPolicyV2,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -66,7 +65,7 @@ struct TestFamilyFrozenOutboxV1 {
     census_frontier_identity: String,
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    replay_execution_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
+    replay_execution_policy_v2: Option<vibe_strategy_factory::ReplayPolicyCatalogBindingV2>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -91,6 +90,94 @@ struct ReplayFixture {
     proposal: ExploratoryReplayRequestProposalV1,
     proposal_v2: ExploratoryReplayRequestProposalV2,
     valid_through_epoch_ms: u64,
+}
+
+async fn rename_sealed_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    target_relation_name: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(target_relation_name)
+        .execute(topology_admin_pool)
+        .await
+        .expect("sealed exploratory Replay fixture renamed");
+}
+
+async fn restore_sealed_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    source_relation_name: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.restore_sealed_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(source_relation_name)
+        .execute(topology_admin_pool)
+        .await
+        .expect("sealed exploratory Replay fixture restored");
+}
+
+async fn create_duplicate_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    request_identity: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.create_duplicate_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(request_identity)
+        .execute(topology_admin_pool)
+        .await
+        .expect("duplicate internal Replay fixture created");
+}
+
+async fn remove_duplicate_exploratory_replay_fixture(
+    database: &CanonicalOwnerPostgresTestDatabaseV1,
+    request_identity: &str,
+) {
+    let topology_admin_pool = database.owner_topology_admin_pool();
+    let marker_identity: String = sqlx::query_scalar(
+        "SELECT marker_identity
+          FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database()
+            AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_admin_pool)
+    .await
+    .expect("exact topology admin fixture marker");
+    sqlx::query("SELECT vibe_test_admin.remove_duplicate_exploratory_replay_fixture_v1($1,$2)")
+        .bind(marker_identity)
+        .bind(request_identity)
+        .execute(topology_admin_pool)
+        .await
+        .expect("duplicate internal Replay fixture removed");
 }
 
 #[tokio::test]
@@ -316,11 +403,55 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .await
         .expect("current Replay V2 request committed");
 
-    let locked_v1 = fixture
-        .owner
+    rename_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_request_custody_v1",
+    )
+    .await;
+    let renamed_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed internal Replay custody oid");
+    PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
+    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_request_custody_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed internal Replay custody oid after runtime rejection");
+    assert_eq!(source_oid_after_failed_connect, renamed_oid);
+    restore_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_request_custody_v1",
+    )
+    .await;
+    let restored_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("restored sealed Replay custody oid");
+    assert_eq!(restored_oid, renamed_oid);
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect("renamed internal Replay custody migrated");
+
+    let locked_v1 = restarted
         .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
         .await
-        .expect("migrated Replay V1 request locked");
+        .expect("pre-migration Replay V1 request locked");
     assert_eq!(
         locked_v1
             .readback()
@@ -338,11 +469,10 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         locked_v1_json.pointer("/readback/receipt"),
         committed_v1_json.pointer("/receipt")
     );
-    let locked_v2 = fixture
-        .owner
+    let locked_v2 = restarted
         .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
         .await
-        .expect("migrated Replay V2 request locked");
+        .expect("pre-migration Replay V2 request locked");
     let expected = ReplayRequestV2::try_from(fixture.proposal_v2.request.clone()).unwrap();
     let locked_v2_readback = locked_v2.readback().expect("sealed V2 readback");
     assert_eq!(locked_v2_readback.request(), &expected,);
@@ -351,8 +481,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         request_identity: sealed_v2.locator().request_identity.clone(),
         meaning_digest: sealed_v2.locator().meaning_digest.clone(),
     };
-    let resolved_v2 = fixture
-        .owner
+    let resolved_v2 = restarted
         .resolve_exploratory_replay_request_v2(&selector)
         .await
         .expect("pre-migration Replay V2 request resolved");
@@ -379,11 +508,43 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
         .unwrap(),
         26
     );
+
+    create_duplicate_exploratory_replay_fixture(
+        &fixture.database,
+        &fixture.proposal.request_identity,
+    )
+    .await;
+
+    let duplicate_before = [
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+    ];
+    assert!(
+        PostgresResearchGoalOwnerV1::connect_with_backtest(
+            &fixture.rd_url,
+            &fixture.qualification_url,
+            &fixture.backtest_url,
+        )
+        .await
+        .is_err(),
+        "duplicate internal and sealed Replay candidates must fail closed"
+    );
+    let duplicate_after = [
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Internal).await,
+        replay_candidate_fingerprint(rd_pool, ReplayCandidateTable::Sealed).await,
+    ];
+    assert_eq!(duplicate_after, duplicate_before);
+
+    remove_duplicate_exploratory_replay_fixture(
+        &fixture.database,
+        &fixture.proposal.request_identity,
+    )
+    .await;
 }
 
 #[tokio::test]
 #[ignore = "requires the canonical disposable Origin-current PostgreSQL route"]
-async fn origin_current_replay_table_preserves_exact_v1_v2_read_continuity() {
+async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() {
     let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
     let mutation = fixture.database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
@@ -398,6 +559,50 @@ async fn origin_current_replay_table_preserves_exact_v1_v2_read_continuity() {
         .await
         .expect("Origin-current Replay V2 request committed");
 
+    rename_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_requests_v1",
+    )
+    .await;
+    let renamed_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed Origin-current Replay custody oid");
+    PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect_err("runtime connect must fail closed while canonical Replay custody is absent");
+    let source_oid_after_failed_connect: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("renamed Origin-current Replay custody oid after runtime rejection");
+    assert_eq!(source_oid_after_failed_connect, renamed_oid);
+    restore_sealed_exploratory_replay_fixture(
+        &fixture.database,
+        "rd_exploratory_replay_requests_v1",
+    )
+    .await;
+    let restored_oid: i64 = sqlx::query_scalar(
+        "SELECT 'public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass::oid::bigint",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .expect("restored Origin-current Replay custody oid");
+    assert_eq!(restored_oid, renamed_oid);
+    let restarted = PostgresResearchGoalOwnerV1::connect_with_backtest(
+        &fixture.rd_url,
+        &fixture.qualification_url,
+        &fixture.backtest_url,
+    )
+    .await
+    .expect("Origin current Replay custody migrated");
     let names_are_exact: bool = sqlx::query_scalar(
         "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_requests_v1') IS NULL
             AND pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
@@ -435,8 +640,7 @@ async fn origin_current_replay_table_preserves_exact_v1_v2_read_continuity() {
     .expect("Origin current sealed Replay ACL");
     assert!(sealed_is_owner_private);
 
-    let locked_v1 = fixture
-        .owner
+    let locked_v1 = restarted
         .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
         .await
         .expect("Origin-current Replay V1 request locked");
@@ -451,8 +655,7 @@ async fn origin_current_replay_table_preserves_exact_v1_v2_read_continuity() {
         committed_v1_json.pointer("/receipt")
     );
 
-    let locked_v2 = fixture
-        .owner
+    let locked_v2 = restarted
         .lock_exploratory_replay_request_for_backtest_v2(sealed_v2.locator())
         .await
         .expect("Origin-current Replay V2 request locked");
@@ -463,8 +666,7 @@ async fn origin_current_replay_table_preserves_exact_v1_v2_read_continuity() {
         sealed_v2.canonical_request_bytes()
     );
 
-    let resolved_v2 = fixture
-        .owner
+    let resolved_v2 = restarted
         .resolve_exploratory_replay_request_v2(&ExploratoryReplayRecoverySelectorV2 {
             request_identity: sealed_v2.locator().request_identity.clone(),
             meaning_digest: sealed_v2.locator().meaning_digest.clone(),
@@ -1808,6 +2010,17 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
         .await
         .expect("canonical disposable topology");
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let catalog_admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
+            .expect("explicit Catalog admin test database URL");
+        let catalog_admin_pool = PgPool::connect(&catalog_admin_url)
+            .await
+            .expect("Catalog admin test connection");
+        ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+            .await
+            .expect("signed sealed-acceptance Replay Policy Catalog genesis");
+    }
     let rd_url = database
         .database_url(CanonicalOwnerTestRoleV1::RdOwner)
         .to_string();
@@ -1834,7 +2047,6 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     )
     .await
     .expect("R&D Owner");
-    bootstrap_replay_policy_catalog_for_fixture().await;
 
     let research = edge
         .admit_research(research_request(&format!("research-{suffix}")))
@@ -2064,98 +2276,88 @@ async fn prepare_replay_fixture(validity_ms: u64) -> ReplayFixture {
     }
 }
 
-async fn bootstrap_replay_policy_catalog_for_fixture() {
-    const VERIFIER_IDENTITY: &str = "rd-replay-fixture-verifier-v1";
-    const BOOTSTRAP_DOMAIN: &[u8] = b"rd.replay-policy-catalog-bootstrap-request.v1\0";
+#[derive(Clone, Copy)]
+enum ReplayCandidateTable {
+    Internal,
+    Sealed,
+}
 
-    let policy = ReplayExecutionPolicyV2 {
-        runtime_kernel: policy_versioned("runtime-kernel-v1"),
-        simulator: policy_versioned("simulator-v1"),
-        cost: policy_versioned("cost-model-v1"),
-        slippage: policy_versioned("slippage-model-v1"),
-        capacity: policy_versioned("capacity-model-v1"),
-        runner_operational_profile: policy_versioned("runner-v1"),
-        diagnostic_policy: policy_versioned("diagnostic-v1"),
-        deterministic_seed: 1,
-        window: ReplayWindowV2 {
-            start_event_ns: 1,
-            end_event_ns_exclusive: 2,
-        },
-        calendar: policy_versioned("calendar-v1"),
-        session: policy_versioned("session-v1"),
-        time_zone: policy_versioned("timezone-v1"),
-        correction_rule: policy_versioned("correction-v1"),
-        market_semantics: policy_versioned("semantics-v1"),
-        replay_configuration: policy_content("configuration-v1"),
-        corporate_action_cut: policy_content("corporate-actions-v1"),
-        historical_membership_cut: policy_content("membership-v1"),
+async fn replay_candidate_fingerprint(pool: &PgPool, table: ReplayCandidateTable) -> String {
+    let (relation_name, rows_sql) = match table {
+        ReplayCandidateTable::Internal => (
+            "public.rd_exploratory_replay_request_custody_v1",
+            "SELECT COALESCE(
+               pg_catalog.jsonb_agg(pg_catalog.to_jsonb(candidate) ORDER BY request_identity),
+               '[]'::pg_catalog.jsonb
+             )::text
+               FROM public.rd_exploratory_replay_request_custody_v1 candidate",
+        ),
+        ReplayCandidateTable::Sealed => (
+            "public.rd_sealed_exploratory_replay_requests_v1",
+            "SELECT COALESCE(
+               pg_catalog.jsonb_agg(pg_catalog.to_jsonb(candidate) ORDER BY request_identity),
+               '[]'::pg_catalog.jsonb
+             )::text
+               FROM public.rd_sealed_exploratory_replay_requests_v1 candidate",
+        ),
     };
-    let policy_bytes = policy.canonical_bytes().unwrap();
-    let signing_key = SigningKey::from_bytes(&[23_u8; 32]);
-    let mut canonical = BOOTSTRAP_DOMAIN.to_vec();
-
-    for field in [
-        1_u16.to_le_bytes().as_slice(),
-        b"rd-replay-fixture-bootstrap-v1".as_slice(),
-        b"rd-replay-fixture-administrator-v1".as_slice(),
-        VERIFIER_IDENTITY.as_bytes(),
-        b"rd-replay-fixture-policy-v1".as_slice(),
-        policy_bytes.as_slice(),
-        b"rd-replay-fixture-create-v1".as_slice(),
-        b"rd-replay-fixture-advance-v1".as_slice(),
-        1_u64.to_le_bytes().as_slice(),
-    ] {
-        canonical.extend_from_slice(&u32::try_from(field.len()).unwrap().to_le_bytes());
-        canonical.extend_from_slice(field);
-    }
-    let sealed_request = serde_json::to_vec(&serde_json::json!({
-        "schema_version": 1,
-        "bootstrap_identity": "rd-replay-fixture-bootstrap-v1",
-        "administrator_identity": "rd-replay-fixture-administrator-v1",
-        "verifier_identity": VERIFIER_IDENTITY,
-        "catalog_record_id": "rd-replay-fixture-policy-v1",
-        "policy_canonical_bytes_base64": BASE64.encode(&policy_bytes),
-        "create_command_identity": "rd-replay-fixture-create-v1",
-        "advance_command_identity": "rd-replay-fixture-advance-v1",
-        "now_epoch_ms": 1,
-        "signature_base64": BASE64.encode(signing_key.sign(&canonical).to_bytes()),
-    }))
-    .unwrap();
-    let verifier_key = signing_key
-        .verifying_key()
-        .as_bytes()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>();
-    let admin_url = std::env::var("REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL")
-        .expect("Catalog admin fixture URL");
-    let admin_pool = PgPoolOptions::new()
-        .max_connections(1)
-        .connect(&admin_url)
+    let rows: String = sqlx::query_scalar(rows_sql)
+        .fetch_one(pool)
         .await
-        .expect("Catalog admin fixture pool");
-    ensure_authenticated_replay_policy_catalog_genesis_v1(
-        &admin_pool,
-        &sealed_request,
-        VERIFIER_IDENTITY,
-        &verifier_key,
+        .expect("Replay candidate rows fingerprint");
+    let catalog: String = sqlx::query_scalar(
+        "SELECT pg_catalog.jsonb_build_object(
+           'relation_name',relation.relname,
+           'relation_kind',relation.relkind,
+           'persistence',relation.relpersistence,
+           'replica_identity',relation.relreplident,
+           'relation_options',relation.reloptions,
+           'owner',owner.rolname,
+           'acl',COALESCE(relation.relacl::text,'<NULL>'),
+           'comment',pg_catalog.obj_description(relation.oid,'pg_class'),
+           'columns',ARRAY(
+             SELECT pg_catalog.jsonb_build_object(
+               'number',attribute.attnum,
+               'name',attribute.attname,
+               'type',pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),
+               'not_null',attribute.attnotnull,
+               'identity',attribute.attidentity,
+               'generated',attribute.attgenerated,
+               'acl',COALESCE(attribute.attacl::text,'<NULL>'),
+               'default',pg_catalog.pg_get_expr(default_entry.adbin,default_entry.adrelid)
+             )
+               FROM pg_catalog.pg_attribute attribute
+               LEFT JOIN pg_catalog.pg_attrdef default_entry
+                 ON default_entry.adrelid=attribute.attrelid
+                AND default_entry.adnum=attribute.attnum
+              WHERE attribute.attrelid=relation.oid
+                AND attribute.attnum>0
+                AND NOT attribute.attisdropped
+              ORDER BY attribute.attnum
+           ),
+           'constraints',ARRAY(
+             SELECT constraint_entry.conname || ':' ||
+                    pg_catalog.pg_get_constraintdef(constraint_entry.oid,true)
+               FROM pg_catalog.pg_constraint constraint_entry
+              WHERE constraint_entry.conrelid=relation.oid
+              ORDER BY constraint_entry.conname
+           ),
+           'indexes',ARRAY(
+             SELECT pg_catalog.pg_get_indexdef(index_entry.indexrelid)
+               FROM pg_catalog.pg_index index_entry
+              WHERE index_entry.indrelid=relation.oid
+              ORDER BY index_entry.indexrelid::pg_catalog.regclass::text
+           )
+         )::text
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_roles owner ON owner.oid=relation.relowner
+          WHERE relation.oid=pg_catalog.to_regclass($1)",
     )
+    .bind(relation_name)
+    .fetch_one(pool)
     .await
-    .expect("authenticated Replay Policy Catalog fixture");
-}
-
-fn policy_versioned(identity: &str) -> VersionedIdentityV2 {
-    VersionedIdentityV2 {
-        identity: opaque(identity),
-        version: opaque("v1"),
-    }
-}
-
-fn policy_content(identity: &str) -> ContentIdentityV2 {
-    ContentIdentityV2 {
-        identity: opaque(identity),
-        digest: digest_v2(&format!("sha256:{}", "d".repeat(64))),
-    }
+    .expect("Replay candidate catalog fingerprint");
+    format!("{catalog}\n{rows}")
 }
 
 async fn request_counts(pool: &PgPool, identity: &str) -> [i64; 2] {

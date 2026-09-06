@@ -72,6 +72,7 @@ pyo3-stub-gen = { workspace = true, optional = true }
 
 [dev-dependencies]
 vibe-serialization = { workspace = true, features = ["arrow"] }
+vibe-testkit = { workspace = true, features = ["postgres"] }
 
 criterion = { workspace = true }
 ed25519-dalek = { workspace = true }

@@ -24,6 +24,16 @@ startup never reacquires the schema lease or authors Catalog state: missing pre-
 absent, mismatched, unauthenticated, or unresolved bootstrap readback fails closed. Reads never create custody;
 cutover preserves existing OIDs, rows and bytes.
 
+The TARGET Composer product entry carries only a canonical Research request locator. R&D uses one transaction and
+an Owner-internal exact request/aggregate commit-cut lock to reread canonical Research custody and derive the entire
+request, Design, digest, binding, provider, Operator Authorization frontier and final-cut lineage. A read-only GET
+projection may expose the pre-send request identity for response-loss recovery, but POST never accepts those fields
+back. The sealed A0 Build Receipt is normalized as one intrinsic content-addressed build fact; a separate ordered
+use relation binds each Artifact to it, so two Research-derived Artifacts may share one build corpus without sharing
+their Research or Artifact custody. Exact legacy bytes admit one one-time normalization; every other schema shape
+fails closed. This remains `TARGET`, not deployed or production maturity, until the isolated Windmill golden chain
+and its dual-custody, locator-negative, transaction-fault, concurrency, restart, and cleanup gates pass.
+
 Qualification projections form one append-only, acyclic principal/scope chain. If the latest projection for an exact verified Independence Basis becomes stale after Qualification commit or response loss, only Qualification Owner under the same principal/scope lock may append a successor that binds the exact basis ref/digest, predecessor projection ref/digest, unchanged canonical source sequence/cut/frontier, Owner clock epoch, new half-open validity, receipt and outbox, then atomically advance the head. A current projection joins byte-identically; callers and R&D cannot renew it. Historical R&D terminal custody continues to bind and expose its exact consumed projection, while a new S1 write requires the canonical latest projection to be current at the final locked cut.
 
 R&D's Develop capability returns one content-addressed Strategy Artifact and Build Receipt, then its Research capability freezes one Exploratory Replay Request binding that exact artifact, data scope, replay configuration, and model identities before the separate Backtest service accepts it. Exploratory facts return only to R&D and can create a successor Intent. R&D maintains the append-only TrialFamily Census Frontier and alone commits Iteration Decision. A terminal stop ends there with no Selection. Only a `READY_FOR_SELECTION` decision may produce the selected-only `SELECTED_FOR_QUALIFICATION` disposition and submit the Qualification Candidate.
@@ -148,6 +158,29 @@ The compiler has one fail-closed pipeline:
    string mapping, aliases, naming similarity or arrival order.
 1. **Lowering** produces one canonical `StrategyPlanV2` and one content-addressed `StrategyArtifactV2` package for
    `ProgramHostV2`. The same inputs must produce byte-identical plan, Artifact and binding digests.
+
+**TARGET / NOT_ADMITTED, Market W3 durable role-set attestation:** the R&D Owner must persist one immutable, complete
+Strategy Design role-set attestation in the same positive Develop Composer transaction as the Composer aggregate,
+receipt and outbox. The attestation binds the exact
+Research request, Composer aggregate and `StrategyDesignV2`, every canonically ordered typed role and semantic
+coordinate, complete role coverage, and its content-addressed exact locator. Its only cross-Owner surface is an
+exact-locator R&D read function protected by database ACL; there is no public constructor, deserializer, bearer token,
+cryptographic-key authority, latest/history scan or raw-table access. Because the locator is known before send, response
+loss is recovered by resolving that same locator and byte-validating the same committed attestation, never by minting a
+replacement.
+
+Market Data positive Replay composition accepts only that untrusted attestation locator and the exact native dependency
+locators. Market Data validates the R&D attestation internally, but independently re-resolves its own durable binding
+registry, complete observation census, joined cut, sample projection, R0 and Market Semantics facts before atomically
+issuing `ReplayCompositionBindingV1`. A caller-supplied receipt, readback, role set, count, authoritative token or
+`StrategyPlanV2` is never positive evidence. Market Data neither parses R&D raw tables nor depends on Strategy Factory,
+and R&D cannot select or reinterpret any Market fact. Missing, partial, stale, reordered, digest-mismatched or
+cross-spliced evidence yields zero binding, Replay V2 fact, receipt or outbox writes. This preserves the sole forward
+shape above and creates neither a new Owner nor a second canonicalization authority.
+
+This target claims no implementation, admitted store, deployed composition, production write, runtime or trading
+authority until disposable PostgreSQL Owner readback and the final consumer path prove the positive, rejection and
+response-loss cases.
 
 ### TARGET - ARC Complex D Bounded Feature Program V1
 
@@ -417,6 +450,24 @@ bytes and, for the same role/binding, the same coordinate bytes.
 readback shape for EVENT components, and Native Replay preparation consumes it only together with the exact V1
 joined-cut receipt and the complete Plan binding set. This does not make the future BFP coordinate port executable
 and does not establish a Native Replay run, production startup, durable product composition, or Backtest closure.
+
+**TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
+`StrategyInputSampleProjectionV4` is the only projection that may compose BAR components across a complete
+native join. It has closed `FRAME|JOINED_CUT` projection kinds and the closed `BAR` lifecycle; V2 EVENT/FRAME/
+JOINED_CUT and V3 BAR/FRAME bytes, identities, semantics and resolvers remain unchanged. A V4 JOINED_CUT uses the
+exact unchanged V1 joined-cut receipt digest as its subject. Its receipt identity also covers the exact canonical
+schedule-dependency-set digest, and every V4 component must equal the corresponding Owner-resolved V3 BAR FRAME
+component in every role, binding, frame, timeframe, sample, coordinate and schedule dependency field. No caller,
+Composer or consumer may recanonicalize, narrow or substitute either set.
+
+The first corpus is exactly six roles: one-minute OPEN, HIGH, LOW and CLOSE; one-hour CLOSE; and exchange-session
+one-day CLOSE. One-minute CLOSE is the trigger. All four one-minute roles must resolve the same complete schedule
+slot and observation batch. The one-hour and one-day components are the complete latest-closed samples not after
+that trigger under their Owner schedules; the one-day component is an exchange-session day and never a UTC-day or
+24-hour substitution. W3 may consume only the exact-locator V4 JOINED_CUT readback, never V2 or V3 as the joined
+composition. Missing, partial, future, stale, duplicate, cross-batch, cross-slot, schedule-set, V1-subject or strict
+component-equality failure rejects before Composer, Plan, Artifact, Host, Backtest or lifecycle mutation. This
+target grants no production, deployment, runtime or trading authority.
 
 Market Data resolves the exact historical timeframe-projection receipt for the sealed static binding and selects
 and seals the coordinate from its verified census. R&D, Strategy Factory, the Host caller, Backtest, and the plugin cannot

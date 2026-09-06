@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 const REQUEST_SCHEMA_V2: u16 = 2;
+const RESULT_SCHEMA_V2: u16 = 2;
 
 /// A validated but non-authoritative identity value carried by an untrusted request.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -468,6 +469,354 @@ pub enum ReplayTerminalV2 {
     InvalidReplayEvidence,
 }
 
+/// Exhaustive comparison outcome for one requested Replay V2 component.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ReconciliationStatusV2 {
+    Exact,
+    Missing,
+    Mismatched,
+}
+
+/// Forgeable wire representation of one component's actual-consumption evidence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ConsumedComponentObservationDtoV2 {
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub component: ObservationComponentV2,
+    pub locator: ComponentObservationLocatorV2,
+    pub observed_meaning_identity: OpaqueIdentityV2,
+    pub observed_meaning_digest: CanonicalDigestV2,
+}
+
+/// Forgeable wire representation of one requested-to-consumed comparison.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReconciliationAtomDtoV2 {
+    pub component: ObservationComponentV2,
+    pub requested_meaning_identity: OpaqueIdentityV2,
+    pub requested_meaning_digest: CanonicalDigestV2,
+    pub observed_meaning_identity: Option<OpaqueIdentityV2>,
+    pub observed_meaning_digest: Option<CanonicalDigestV2>,
+    pub observation_locator: Option<ComponentObservationLocatorV2>,
+    pub status: ReconciliationStatusV2,
+}
+
+/// Forgeable wire representation of one diagnostic category and its evidence cut.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DiagnosticEvidenceDtoV2 {
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub category: DiagnosticCategoryV2,
+    pub decisive_evidence: ComponentObservationLocatorV2,
+}
+
+/// Strict dependency-neutral wire vocabulary for a Replay V2 result.
+///
+/// This DTO is forgeable transport data. Successful validation proves only internal wire
+/// consistency; it never creates or substitutes Backtest Owner authority.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplayResultDtoV2 {
+    pub schema_version: u16,
+    pub result_identity: OpaqueIdentityV2,
+    pub result_digest: CanonicalDigestV2,
+    pub request_identity: OpaqueIdentityV2,
+    pub request_meaning_digest: CanonicalDigestV2,
+    pub namespace: ReplayNamespaceV2,
+    pub replay_authority: ReplayAuthorityClaimV2,
+    pub attempt_identity: OpaqueIdentityV2,
+    pub terminal: ReplayTerminalV2,
+    pub reconciliation: Vec<ReconciliationAtomDtoV2>,
+    pub semantic_trace: Option<ConsumedComponentObservationDtoV2>,
+    pub diagnostic_census: Vec<DiagnosticEvidenceDtoV2>,
+}
+
+impl ReplayResultDtoV2 {
+    /// Decodes only the one canonical JSON representation accepted by this vocabulary.
+    ///
+    /// # Errors
+    ///
+    /// Rejects malformed, unknown, duplicate, noncanonical, or internally inconsistent data.
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, ReplayContractErrorV2> {
+        let value: Self = serde_json::from_slice(bytes)
+            .map_err(|e| ReplayContractErrorV2::InvalidResultEncoding(e.to_string()))?;
+        value.validate()?;
+        if value.encode_unchecked()? != bytes {
+            return Err(ReplayContractErrorV2::NonCanonicalResultEncoding);
+        }
+        Ok(value)
+    }
+
+    /// Validates all finite censuses, bindings, status shapes, and the content digest.
+    ///
+    /// Validation does not attest that Backtest produced or stored this DTO.
+    ///
+    /// # Errors
+    ///
+    /// Rejects any structural, binding, census, reconciliation, or digest mismatch.
+    pub fn validate(&self) -> Result<(), ReplayContractErrorV2> {
+        if self.schema_version != RESULT_SCHEMA_V2 {
+            return Err(ReplayContractErrorV2::UnsupportedSchema {
+                expected: RESULT_SCHEMA_V2,
+                actual: self.schema_version,
+            });
+        }
+
+        if self.namespace != self.replay_authority.namespace() {
+            return Err(ReplayContractErrorV2::ResultNamespaceMismatch);
+        }
+
+        self.validate_reconciliation()?;
+        self.validate_semantic_trace()?;
+        self.validate_diagnostics()?;
+
+        let expected_digest = self.compute_result_digest()?;
+        if self.result_digest != expected_digest {
+            return Err(ReplayContractErrorV2::ResultDigestMismatch);
+        }
+        let expected_identity = format!(
+            "backtest-replay-result-v2-{}",
+            expected_digest
+                .as_str()
+                .strip_prefix("blake3:")
+                .ok_or(ReplayContractErrorV2::ResultDigestMismatch)?
+        );
+
+        if self.result_identity.as_str() != expected_identity {
+            return Err(ReplayContractErrorV2::ResultIdentityMismatch);
+        }
+        Ok(())
+    }
+
+    /// Returns canonical JSON bytes after strict validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when validation or encoding fails.
+    pub fn to_canonical_bytes(&self) -> Result<Vec<u8>, ReplayContractErrorV2> {
+        self.validate()?;
+        self.encode_unchecked()
+    }
+
+    /// Validates this forgeable result against the exact caller-provided request.
+    ///
+    /// A match proves correlation only. It does not prove that either value came from an Owner.
+    ///
+    /// # Errors
+    ///
+    /// Rejects request identity, meaning, namespace, authority, or component-meaning mismatches.
+    pub fn validate_against_request(
+        &self,
+        request: &ReplayRequestV2,
+    ) -> Result<(), ReplayContractErrorV2> {
+        self.validate()?;
+        let request_digest = request.meaning_digest()?;
+        if self.request_identity != *request.request_identity()
+            || self.request_meaning_digest != request_digest
+        {
+            return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
+        }
+
+        if self.namespace != request.namespace()
+            || self.replay_authority != request.as_dto().replay_authority
+        {
+            return Err(ReplayContractErrorV2::ResultNamespaceMismatch);
+        }
+
+        for (atom, (component, identity, digest)) in self
+            .reconciliation
+            .iter()
+            .zip(requested_component_meanings(request)?)
+        {
+            if atom.component != component
+                || atom.requested_meaning_identity != identity
+                || atom.requested_meaning_digest != digest
+            {
+                return Err(ReplayContractErrorV2::RequestedMeaningMismatch(component));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_reconciliation(&self) -> Result<(), ReplayContractErrorV2> {
+        if self.reconciliation.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
+            return Err(ReplayContractErrorV2::IncompleteResultReconciliation);
+        }
+
+        for (atom, expected_component) in self
+            .reconciliation
+            .iter()
+            .zip(ObservationComponentV2::REQUESTED_MEANING)
+        {
+            if atom.component != expected_component {
+                return Err(ReplayContractErrorV2::NonCanonicalResultReconciliation);
+            }
+            let observed = (
+                atom.observed_meaning_identity.as_ref(),
+                atom.observed_meaning_digest.as_ref(),
+                atom.observation_locator.as_ref(),
+            );
+
+            match (atom.status, observed) {
+                (ReconciliationStatusV2::Missing, (None, None, None)) => {}
+                (ReconciliationStatusV2::Exact, (Some(identity), Some(digest), Some(locator)))
+                    if identity == &atom.requested_meaning_identity
+                        && digest == &atom.requested_meaning_digest
+                        && locator.component == atom.component => {}
+                (
+                    ReconciliationStatusV2::Mismatched,
+                    (Some(identity), Some(digest), Some(locator)),
+                ) if (identity != &atom.requested_meaning_identity
+                    || digest != &atom.requested_meaning_digest)
+                    && locator.component == atom.component => {}
+                _ => {
+                    return Err(ReplayContractErrorV2::InvalidReconciliationAtom(
+                        atom.component,
+                    ));
+                }
+            }
+        }
+
+        for component in [
+            ObservationComponentV2::FrozenResearchIntent,
+            ObservationComponentV2::TrialFamily,
+            ObservationComponentV2::TrialFamilyCensusFrontier,
+            ObservationComponentV2::ReplayAuthority,
+        ] {
+            let atom = self
+                .reconciliation
+                .iter()
+                .find(|atom| atom.component == component)
+                .ok_or(ReplayContractErrorV2::IncompleteResultReconciliation)?;
+            if atom.status != ReconciliationStatusV2::Exact {
+                return Err(ReplayContractErrorV2::ResultAuthorityMismatch(component));
+            }
+        }
+
+        if self.terminal == ReplayTerminalV2::TerminalResult
+            && self
+                .reconciliation
+                .iter()
+                .any(|atom| atom.status != ReconciliationStatusV2::Exact)
+        {
+            return Err(ReplayContractErrorV2::TerminalConsumptionMismatch);
+        }
+        Ok(())
+    }
+
+    fn validate_semantic_trace(&self) -> Result<(), ReplayContractErrorV2> {
+        if self.terminal == ReplayTerminalV2::TerminalResult && self.semantic_trace.is_none() {
+            return Err(ReplayContractErrorV2::MissingSemanticTrace);
+        }
+        let Some(trace) = &self.semantic_trace else {
+            return Ok(());
+        };
+
+        if trace.request_identity != self.request_identity
+            || trace.request_meaning_digest != self.request_meaning_digest
+        {
+            return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
+        }
+
+        if trace.attempt_identity != self.attempt_identity {
+            return Err(ReplayContractErrorV2::ResultAttemptBindingMismatch);
+        }
+
+        if trace.component != ObservationComponentV2::SemanticTrace
+            || trace.locator.component != ObservationComponentV2::SemanticTrace
+        {
+            return Err(ReplayContractErrorV2::InvalidSemanticTrace);
+        }
+        Ok(())
+    }
+
+    fn validate_diagnostics(&self) -> Result<(), ReplayContractErrorV2> {
+        if self.terminal == ReplayTerminalV2::InProgressOrUnknown {
+            return if self.diagnostic_census.is_empty() {
+                Ok(())
+            } else {
+                Err(ReplayContractErrorV2::NonTerminalDiagnosticCensus)
+            };
+        }
+
+        if self.diagnostic_census.is_empty() {
+            return Err(ReplayContractErrorV2::EmptyDiagnosticCensus);
+        }
+        let mut previous = None;
+
+        for diagnostic in &self.diagnostic_census {
+            if diagnostic.request_identity != self.request_identity
+                || diagnostic.request_meaning_digest != self.request_meaning_digest
+            {
+                return Err(ReplayContractErrorV2::ResultRequestBindingMismatch);
+            }
+
+            if diagnostic.attempt_identity != self.attempt_identity {
+                return Err(ReplayContractErrorV2::ResultAttemptBindingMismatch);
+            }
+
+            if previous.is_some_and(|category| category >= diagnostic.category) {
+                return Err(ReplayContractErrorV2::NonCanonicalDiagnosticCensus);
+            }
+            previous = Some(diagnostic.category);
+        }
+        let singleton_only = self.diagnostic_census.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.category,
+                DiagnosticCategoryV2::NoExecutionDefect | DiagnosticCategoryV2::UnresolvedFailure
+            )
+        });
+
+        if singleton_only && self.diagnostic_census.len() != 1 {
+            return Err(ReplayContractErrorV2::IncompatibleDiagnosticCensus);
+        }
+        Ok(())
+    }
+
+    fn compute_result_digest(&self) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+        #[derive(Serialize)]
+        struct ResultDigestPreimageV2<'a> {
+            schema_version: u16,
+            request_identity: &'a OpaqueIdentityV2,
+            request_meaning_digest: &'a CanonicalDigestV2,
+            namespace: ReplayNamespaceV2,
+            replay_authority: &'a ReplayAuthorityClaimV2,
+            attempt_identity: &'a OpaqueIdentityV2,
+            terminal: ReplayTerminalV2,
+            reconciliation: &'a [ReconciliationAtomDtoV2],
+            semantic_trace: Option<&'a ConsumedComponentObservationDtoV2>,
+            diagnostic_census: &'a [DiagnosticEvidenceDtoV2],
+        }
+
+        let preimage = ResultDigestPreimageV2 {
+            schema_version: self.schema_version,
+            request_identity: &self.request_identity,
+            request_meaning_digest: &self.request_meaning_digest,
+            namespace: self.namespace,
+            replay_authority: &self.replay_authority,
+            attempt_identity: &self.attempt_identity,
+            terminal: self.terminal,
+            reconciliation: &self.reconciliation,
+            semantic_trace: self.semantic_trace.as_ref(),
+            diagnostic_census: &self.diagnostic_census,
+        };
+        let bytes = serde_json::to_vec(&preimage).map_err(|e| encoding_error(&e))?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"vibe.backtest.replay-result.v2\0");
+        hasher.update(&bytes);
+        CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
+    }
+
+    fn encode_unchecked(&self) -> Result<Vec<u8>, ReplayContractErrorV2> {
+        serde_json::to_vec(self).map_err(|e| encoding_error(&e))
+    }
+}
+
 /// Typed failures at the untrusted Replay V2 contract boundary.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ReplayContractErrorV2 {
@@ -481,6 +830,44 @@ pub enum ReplayContractErrorV2 {
     InvalidReplayWindow,
     #[error("Replay V2 canonical encoding unavailable: {0}")]
     CanonicalEncodingUnavailable(String),
+    #[error("Replay V2 result encoding is invalid: {0}")]
+    InvalidResultEncoding(String),
+    #[error("Replay V2 result bytes are not canonical JSON")]
+    NonCanonicalResultEncoding,
+    #[error("Replay V2 result namespace and authority claim disagree")]
+    ResultNamespaceMismatch,
+    #[error("Replay V2 result reconciliation is incomplete")]
+    IncompleteResultReconciliation,
+    #[error("Replay V2 result reconciliation is duplicated or not in canonical order")]
+    NonCanonicalResultReconciliation,
+    #[error("Replay V2 reconciliation atom has an invalid status shape: {0:?}")]
+    InvalidReconciliationAtom(ObservationComponentV2),
+    #[error("Replay V2 result authority component is not exact: {0:?}")]
+    ResultAuthorityMismatch(ObservationComponentV2),
+    #[error("Replay V2 terminal result has missing or mismatched consumption")]
+    TerminalConsumptionMismatch,
+    #[error("Replay V2 terminal result has no semantic trace")]
+    MissingSemanticTrace,
+    #[error("Replay V2 semantic trace is invalid")]
+    InvalidSemanticTrace,
+    #[error("Replay V2 result belongs to a different request")]
+    ResultRequestBindingMismatch,
+    #[error("Replay V2 result requested meaning differs for {0:?}")]
+    RequestedMeaningMismatch(ObservationComponentV2),
+    #[error("Replay V2 result belongs to a different attempt")]
+    ResultAttemptBindingMismatch,
+    #[error("Replay V2 diagnostic census is empty")]
+    EmptyDiagnosticCensus,
+    #[error("Replay V2 non-terminal result cannot carry a diagnostic census")]
+    NonTerminalDiagnosticCensus,
+    #[error("Replay V2 diagnostic census is duplicated or not in canonical order")]
+    NonCanonicalDiagnosticCensus,
+    #[error("Replay V2 diagnostic census has incompatible members")]
+    IncompatibleDiagnosticCensus,
+    #[error("Replay V2 result content digest does not match its canonical preimage")]
+    ResultDigestMismatch,
+    #[error("Replay V2 result identity does not match its content digest")]
+    ResultIdentityMismatch,
 }
 
 fn validate_text(value: &str, field: &'static str) -> Result<(), ReplayContractErrorV2> {
@@ -503,6 +890,126 @@ fn valid_digest(value: &str) -> bool {
 
 fn encoding_error(error: &serde_json::Error) -> ReplayContractErrorV2 {
     ReplayContractErrorV2::CanonicalEncodingUnavailable(error.to_string())
+}
+
+fn requested_component_meanings(
+    request: &ReplayRequestV2,
+) -> Result<Vec<(ObservationComponentV2, OpaqueIdentityV2, CanonicalDigestV2)>, ReplayContractErrorV2>
+{
+    let dto = request.as_dto();
+    let mut values = Vec::with_capacity(ObservationComponentV2::REQUESTED_MEANING.len());
+    macro_rules! content {
+        ($component:expr, $value:expr) => {
+            values.push(($component, $value.identity.clone(), $value.digest.clone()))
+        };
+    }
+    macro_rules! versioned {
+        ($component:expr, $value:expr) => {
+            values.push((
+                $component,
+                $value.version.clone(),
+                digest_contract_value("vibe.backtest.request-component.v2", $value)?,
+            ))
+        };
+    }
+    macro_rules! serialized {
+        ($component:expr, $value:expr) => {{
+            let digest = digest_contract_value("vibe.backtest.request-component.v2", $value)?;
+            let identity_digest = digest_contract_value(
+                "vibe.backtest.request-component-identity.v2",
+                &($component, &digest),
+            )?;
+            let identity = OpaqueIdentityV2::try_from(format!(
+                "backtest-request-component-v2-{}",
+                identity_digest
+                    .as_str()
+                    .strip_prefix("blake3:")
+                    .ok_or(ReplayContractErrorV2::InvalidDigest)?
+            ))?;
+            values.push(($component, identity, digest));
+        }};
+    }
+
+    content!(
+        ObservationComponentV2::FrozenResearchIntent,
+        &dto.frozen_research_intent
+    );
+    content!(ObservationComponentV2::TrialFamily, &dto.trial_family);
+    content!(
+        ObservationComponentV2::TrialFamilyCensusFrontier,
+        &dto.trial_family_census_frontier
+    );
+    serialized!(
+        ObservationComponentV2::ReplayAuthority,
+        &dto.replay_authority
+    );
+    content!(ObservationComponentV2::StrategyDesign, &dto.strategy_design);
+    content!(ObservationComponentV2::StrategyPlan, &dto.strategy_plan);
+    content!(ObservationComponentV2::Artifact, &dto.artifact);
+    content!(
+        ObservationComponentV2::ResolvedOwnerInputs,
+        &dto.resolved_owner_inputs
+    );
+    content!(ObservationComponentV2::PitScope, &dto.pit_scope);
+    content!(ObservationComponentV2::PitSnapshot, &dto.pit_snapshot);
+    content!(
+        ObservationComponentV2::UniverseSelection,
+        &dto.universe_selection
+    );
+    versioned!(ObservationComponentV2::CorrectionRule, &dto.correction_rule);
+    versioned!(
+        ObservationComponentV2::MarketSemantics,
+        &dto.market_semantics
+    );
+    content!(
+        ObservationComponentV2::ReplayConfiguration,
+        &dto.replay_configuration
+    );
+    versioned!(
+        ObservationComponentV2::RuntimeKernel,
+        &dto.models.runtime_kernel
+    );
+    versioned!(ObservationComponentV2::Simulator, &dto.models.simulator);
+    versioned!(ObservationComponentV2::CostModel, &dto.models.cost);
+    versioned!(ObservationComponentV2::SlippageModel, &dto.models.slippage);
+    versioned!(ObservationComponentV2::CapacityModel, &dto.models.capacity);
+    versioned!(
+        ObservationComponentV2::RunnerOperationalProfile,
+        &dto.runner_operational_profile
+    );
+    versioned!(
+        ObservationComponentV2::DiagnosticPolicy,
+        &dto.diagnostic_policy
+    );
+    serialized!(
+        ObservationComponentV2::DeterministicSeed,
+        &dto.deterministic_seed
+    );
+    serialized!(ObservationComponentV2::ReplayWindow, &dto.window);
+    versioned!(ObservationComponentV2::Calendar, &dto.calendar);
+    versioned!(ObservationComponentV2::Session, &dto.session);
+    versioned!(ObservationComponentV2::TimeZone, &dto.time_zone);
+    content!(
+        ObservationComponentV2::CorporateActionCut,
+        &dto.corporate_action_cut
+    );
+    content!(
+        ObservationComponentV2::HistoricalMembershipCut,
+        &dto.historical_membership_cut
+    );
+    Ok(values)
+}
+
+fn digest_contract_value<T: Serialize>(
+    domain: &str,
+    value: &T,
+) -> Result<CanonicalDigestV2, ReplayContractErrorV2> {
+    let bytes = serde_json::to_vec(value).map_err(|e| encoding_error(&e))?;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(b"\0");
+    hasher.update(&bytes);
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
 }
 
 #[cfg(test)]
@@ -583,6 +1090,131 @@ mod tests {
             protected_plan_cell: content("protected-plan-cell", 'b'),
         };
         value
+    }
+
+    fn result_dto() -> ReplayResultDtoV2 {
+        let request_identity = identity("rd-replay-request-2");
+        let request_meaning_digest = digest('d');
+        let attempt_identity = identity("backtest-attempt-2");
+        let reconciliation = ObservationComponentV2::REQUESTED_MEANING
+            .into_iter()
+            .enumerate()
+            .map(|(index, component)| {
+                let component_digest = digest(
+                    char::from_digit((index % 10) as u32, 10).expect("fixture digit must be valid"),
+                );
+                let component_identity = identity(&format!("component-{index}"));
+                ReconciliationAtomDtoV2 {
+                    component,
+                    requested_meaning_identity: component_identity.clone(),
+                    requested_meaning_digest: component_digest.clone(),
+                    observed_meaning_identity: Some(component_identity),
+                    observed_meaning_digest: Some(component_digest),
+                    observation_locator: Some(ComponentObservationLocatorV2 {
+                        component,
+                        reference: identity(&format!("observation-{index}")),
+                        digest: digest('a'),
+                    }),
+                    status: ReconciliationStatusV2::Exact,
+                }
+            })
+            .collect();
+        let semantic_trace = Some(ConsumedComponentObservationDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            component: ObservationComponentV2::SemanticTrace,
+            locator: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity("semantic-trace-observation"),
+                digest: digest('b'),
+            },
+            observed_meaning_identity: identity("semantic-trace"),
+            observed_meaning_digest: digest('c'),
+        });
+        let diagnostic_census = vec![DiagnosticEvidenceDtoV2 {
+            request_identity: request_identity.clone(),
+            request_meaning_digest: request_meaning_digest.clone(),
+            attempt_identity: attempt_identity.clone(),
+            category: DiagnosticCategoryV2::NoExecutionDefect,
+            decisive_evidence: ComponentObservationLocatorV2 {
+                component: ObservationComponentV2::SemanticTrace,
+                reference: identity("diagnostic-evidence"),
+                digest: digest('e'),
+            },
+        }];
+        let mut result = ReplayResultDtoV2 {
+            schema_version: RESULT_SCHEMA_V2,
+            result_identity: identity("temporary-result"),
+            result_digest: digest('f'),
+            request_identity,
+            request_meaning_digest,
+            namespace: ReplayNamespaceV2::Exploratory,
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            attempt_identity,
+            terminal: ReplayTerminalV2::TerminalResult,
+            reconciliation,
+            semantic_trace,
+            diagnostic_census,
+        };
+        result.result_digest = result
+            .compute_result_digest()
+            .expect("fixture result must hash");
+        result.result_identity = identity(&format!(
+            "backtest-replay-result-v2-{}",
+            result
+                .result_digest
+                .as_str()
+                .strip_prefix("blake3:")
+                .expect("computed digest must be blake3")
+        ));
+        result
+    }
+
+    fn request_correlated_result(request: &ReplayRequestV2) -> ReplayResultDtoV2 {
+        let mut result = result_dto();
+        result.request_identity = request.request_identity().clone();
+        result.request_meaning_digest =
+            request.meaning_digest().expect("fixture request must hash");
+        result.namespace = request.namespace();
+        result.replay_authority = request.as_dto().replay_authority.clone();
+        for (atom, (component, identity, digest)) in result
+            .reconciliation
+            .iter_mut()
+            .zip(requested_component_meanings(request).expect("request components must hash"))
+        {
+            atom.component = component;
+            atom.requested_meaning_identity = identity.clone();
+            atom.requested_meaning_digest = digest.clone();
+            atom.observed_meaning_identity = Some(identity);
+            atom.observed_meaning_digest = Some(digest);
+            atom.observation_locator
+                .as_mut()
+                .expect("fixture observation must exist")
+                .component = component;
+        }
+        let trace = result
+            .semantic_trace
+            .as_mut()
+            .expect("fixture trace must exist");
+        trace.request_identity = result.request_identity.clone();
+        trace.request_meaning_digest = result.request_meaning_digest.clone();
+        for diagnostic in &mut result.diagnostic_census {
+            diagnostic.request_identity = result.request_identity.clone();
+            diagnostic.request_meaning_digest = result.request_meaning_digest.clone();
+        }
+        result.result_digest = result
+            .compute_result_digest()
+            .expect("fixture result must hash");
+        result.result_identity = identity(&format!(
+            "backtest-replay-result-v2-{}",
+            result
+                .result_digest
+                .as_str()
+                .strip_prefix("blake3:")
+                .expect("computed digest must be blake3")
+        ));
+        result
     }
 
     #[rstest]
@@ -819,5 +1451,196 @@ mod tests {
                 .expect("mutated protected request must hash");
             assert_ne!(baseline, changed);
         }
+    }
+
+    #[rstest]
+    fn result_canonical_round_trip_is_stable_but_not_authoritative() {
+        let result = result_dto();
+        let bytes = result
+            .to_canonical_bytes()
+            .expect("fixture result must encode");
+        let decoded =
+            ReplayResultDtoV2::from_canonical_bytes(&bytes).expect("canonical fixture must decode");
+        assert_eq!(decoded, result);
+        assert_eq!(
+            decoded
+                .to_canonical_bytes()
+                .expect("decoded fixture must encode"),
+            bytes
+        );
+    }
+
+    #[rstest]
+    fn result_decoder_rejects_unknown_duplicate_and_noncanonical_json() {
+        let bytes = result_dto()
+            .to_canonical_bytes()
+            .expect("fixture result must encode");
+        let mut value: serde_json::Value =
+            serde_json::from_slice(&bytes).expect("fixture JSON must decode");
+        value["unknown"] = serde_json::json!(true);
+        assert!(matches!(
+            ReplayResultDtoV2::from_canonical_bytes(
+                &serde_json::to_vec(&value).expect("mutated JSON must encode")
+            ),
+            Err(ReplayContractErrorV2::InvalidResultEncoding(_))
+        ));
+
+        let text = String::from_utf8(bytes.clone()).expect("canonical JSON must be UTF-8");
+        let duplicated = text.replacen(
+            "{\"schema_version\":2,",
+            "{\"schema_version\":2,\"schema_version\":2,",
+            1,
+        );
+        assert!(matches!(
+            ReplayResultDtoV2::from_canonical_bytes(duplicated.as_bytes()),
+            Err(ReplayContractErrorV2::InvalidResultEncoding(_))
+        ));
+
+        let mut padded = bytes;
+        padded.push(b'\n');
+        assert_eq!(
+            ReplayResultDtoV2::from_canonical_bytes(&padded),
+            Err(ReplayContractErrorV2::NonCanonicalResultEncoding)
+        );
+    }
+
+    #[rstest]
+    fn result_validation_rejects_digest_identity_namespace_and_binding_mismatches() {
+        let mut digest_mismatch = result_dto();
+        digest_mismatch.result_digest = digest('1');
+        assert_eq!(
+            digest_mismatch.validate(),
+            Err(ReplayContractErrorV2::ResultDigestMismatch)
+        );
+
+        let mut identity_mismatch = result_dto();
+        identity_mismatch.result_identity = identity("forged-result-identity");
+        assert_eq!(
+            identity_mismatch.validate(),
+            Err(ReplayContractErrorV2::ResultIdentityMismatch)
+        );
+
+        let mut namespace_mismatch = result_dto();
+        namespace_mismatch.namespace = ReplayNamespaceV2::Protected;
+        assert_eq!(
+            namespace_mismatch.validate(),
+            Err(ReplayContractErrorV2::ResultNamespaceMismatch)
+        );
+
+        let mut request_mismatch = result_dto();
+        request_mismatch
+            .semantic_trace
+            .as_mut()
+            .expect("fixture trace must exist")
+            .request_identity = identity("different-request");
+        assert_eq!(
+            request_mismatch.validate(),
+            Err(ReplayContractErrorV2::ResultRequestBindingMismatch)
+        );
+    }
+
+    #[rstest]
+    fn result_validation_rejects_noncanonical_or_invalid_reconciliation() {
+        let mut reordered = result_dto();
+        reordered.reconciliation.swap(0, 1);
+        assert_eq!(
+            reordered.validate(),
+            Err(ReplayContractErrorV2::NonCanonicalResultReconciliation)
+        );
+
+        let mut duplicate = result_dto();
+        duplicate.reconciliation[1] = duplicate.reconciliation[0].clone();
+        assert_eq!(
+            duplicate.validate(),
+            Err(ReplayContractErrorV2::NonCanonicalResultReconciliation)
+        );
+
+        let mut false_exact = result_dto();
+        false_exact.reconciliation[4].observed_meaning_digest = Some(digest('f'));
+        assert_eq!(
+            false_exact.validate(),
+            Err(ReplayContractErrorV2::InvalidReconciliationAtom(
+                ObservationComponentV2::StrategyDesign
+            ))
+        );
+
+        let mut incomplete = result_dto();
+        incomplete.reconciliation.pop();
+        assert_eq!(
+            incomplete.validate(),
+            Err(ReplayContractErrorV2::IncompleteResultReconciliation)
+        );
+    }
+
+    #[rstest]
+    fn result_validation_rejects_terminal_and_diagnostic_inconsistency() {
+        let mut missing_trace = result_dto();
+        missing_trace.semantic_trace = None;
+        assert_eq!(
+            missing_trace.validate(),
+            Err(ReplayContractErrorV2::MissingSemanticTrace)
+        );
+
+        let mut duplicate_diagnostic = result_dto();
+        duplicate_diagnostic
+            .diagnostic_census
+            .push(duplicate_diagnostic.diagnostic_census[0].clone());
+        assert_eq!(
+            duplicate_diagnostic.validate(),
+            Err(ReplayContractErrorV2::NonCanonicalDiagnosticCensus)
+        );
+
+        let mut incompatible = result_dto();
+        let mut second = incompatible.diagnostic_census[0].clone();
+        second.category = DiagnosticCategoryV2::ValidEconomicFailure;
+        incompatible.diagnostic_census.push(second);
+        assert_eq!(
+            incompatible.validate(),
+            Err(ReplayContractErrorV2::IncompatibleDiagnosticCensus)
+        );
+
+        let mut non_terminal = result_dto();
+        non_terminal.terminal = ReplayTerminalV2::InProgressOrUnknown;
+        assert_eq!(
+            non_terminal.validate(),
+            Err(ReplayContractErrorV2::NonTerminalDiagnosticCensus)
+        );
+    }
+
+    #[rstest]
+    fn result_request_correlation_covers_every_requested_component() {
+        let request = ReplayRequestV2::try_from(dto()).expect("fixture request must validate");
+        let result = request_correlated_result(&request);
+        assert_eq!(result.validate_against_request(&request), Ok(()));
+
+        let mut changed_request = dto();
+        changed_request.artifact = content("different-artifact", 'f');
+        let changed_request = ReplayRequestV2::try_from(changed_request)
+            .expect("changed request must remain structurally valid");
+        assert_eq!(
+            result.validate_against_request(&changed_request),
+            Err(ReplayContractErrorV2::ResultRequestBindingMismatch)
+        );
+
+        let mut forged_atom = result;
+        forged_atom.reconciliation[6].requested_meaning_identity = identity("forged-artifact");
+        forged_atom.reconciliation[6].observed_meaning_identity = Some(identity("forged-artifact"));
+        forged_atom.result_digest = forged_atom
+            .compute_result_digest()
+            .expect("forged fixture must hash");
+        forged_atom.result_identity = identity(&format!(
+            "backtest-replay-result-v2-{}",
+            forged_atom
+                .result_digest
+                .as_str()
+                .strip_prefix("blake3:")
+                .expect("computed digest must be blake3")
+        ));
+        assert_eq!(
+            forged_atom.validate_against_request(&request),
+            Err(ReplayContractErrorV2::RequestedMeaningMismatch(
+                ObservationComponentV2::Artifact
+            ))
+        );
     }
 }

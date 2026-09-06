@@ -4,6 +4,8 @@ use std::fmt::Display;
 
 use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use ed25519_dalek::{Signature, VerifyingKey};
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use ed25519_dalek::{Signer, SigningKey};
 use rust_decimal::{Decimal, prelude::ToPrimitive};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -223,6 +225,113 @@ struct VerifiedReplayPolicyCatalogBootstrapRequestV1 {
     request: SealedReplayPolicyCatalogBootstrapRequestV1,
     policy: ReplayExecutionPolicyV2,
     authentication_fact_digest: String,
+}
+
+/// Creates or verifies the fixed, signed Catalog genesis used only by the sealed acceptance graph.
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) async fn ensure_authenticated_sealed_acceptance_fixture_v1(
+    pool: &PgPool,
+) -> Result<ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2> {
+    let fixture = authenticated_sealed_acceptance_fixture_v1()?;
+    ensure_authenticated_replay_policy_catalog_genesis_v1(
+        pool,
+        &fixture.sealed_request,
+        fixture.verifier_identity,
+        &fixture.verifier_public_key_hex,
+    )
+    .await
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+pub(crate) fn authenticated_sealed_acceptance_fixture_v1() -> Result<
+    crate::replay_policy_catalog_sealed_acceptance_v2::SealedCatalogFixtureV1,
+    ReplayPolicyCatalogErrorV2,
+> {
+    const VERIFIER_IDENTITY: &str = "rd-catalog-sealed-acceptance-verifier-v1";
+
+    let signing_key = SigningKey::from_bytes(&[11_u8; 32]);
+    let policy = sealed_acceptance_policy()?;
+    let policy_bytes = policy
+        .canonical_bytes()
+        .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?;
+    let mut request = SealedReplayPolicyCatalogBootstrapRequestV1 {
+        schema_version: 1,
+        bootstrap_identity: "rd-catalog-sealed-acceptance-bootstrap-v1".to_owned(),
+        administrator_identity: "rd-catalog-sealed-acceptance-administrator-v1".to_owned(),
+        verifier_identity: VERIFIER_IDENTITY.to_owned(),
+        catalog_record_id: "sealed-acceptance-replay-policy-v2".to_owned(),
+        policy_canonical_bytes_base64: BASE64_STANDARD.encode(&policy_bytes),
+        create_command_identity: "rd-catalog-sealed-acceptance-create-v1".to_owned(),
+        advance_command_identity: "rd-catalog-sealed-acceptance-advance-v1".to_owned(),
+        now_epoch_ms: 1,
+        signature_base64: String::new(),
+    };
+    let canonical = bootstrap_request_canonical_bytes(&request, &policy_bytes)?;
+    request.signature_base64 = BASE64_STANDARD.encode(signing_key.sign(&canonical).to_bytes());
+    let sealed_request = serde_json::to_vec(&request).map_err(|e| {
+        ReplayPolicyCatalogErrorV2::InvalidPolicy(format!(
+            "sealed acceptance bootstrap serialization failed: {e}"
+        ))
+    })?;
+    let verifier_key = bytes_hex(signing_key.verifying_key().as_bytes());
+
+    Ok(
+        crate::replay_policy_catalog_sealed_acceptance_v2::SealedCatalogFixtureV1 {
+            sealed_request,
+            verifier_identity: VERIFIER_IDENTITY,
+            verifier_public_key_hex: verifier_key,
+        },
+    )
+}
+
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+fn sealed_acceptance_policy() -> Result<ReplayExecutionPolicyV2, ReplayPolicyCatalogErrorV2> {
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayWindowV2, VersionedIdentityV2,
+    };
+
+    fn opaque(value: &str) -> Result<OpaqueIdentityV2, ReplayPolicyCatalogErrorV2> {
+        OpaqueIdentityV2::try_from(value.to_owned())
+            .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))
+    }
+
+    fn versioned(value: &str) -> Result<VersionedIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(VersionedIdentityV2 {
+            identity: opaque(value)?,
+            version: opaque("v1")?,
+        })
+    }
+
+    fn content(value: &str) -> Result<ContentIdentityV2, ReplayPolicyCatalogErrorV2> {
+        Ok(ContentIdentityV2 {
+            identity: opaque(value)?,
+            digest: CanonicalDigestV2::try_from(format!("sha256:{}", "b".repeat(64)))
+                .map_err(|e| ReplayPolicyCatalogErrorV2::InvalidPolicy(e.to_string()))?,
+        })
+    }
+
+    Ok(ReplayExecutionPolicyV2 {
+        runtime_kernel: versioned("runtime-kernel-v2")?,
+        simulator: versioned("simulator-v2")?,
+        cost: versioned("cost-model-v1")?,
+        slippage: versioned("slippage-model-v1")?,
+        capacity: versioned("capacity-model-v1")?,
+        runner_operational_profile: versioned("runner-profile-v2")?,
+        diagnostic_policy: versioned("diagnostic-policy-v2")?,
+        deterministic_seed: 1,
+        window: ReplayWindowV2 {
+            start_event_ns: 1,
+            end_event_ns_exclusive: 2,
+        },
+        calendar: versioned("calendar-v2")?,
+        session: versioned("session-v2")?,
+        time_zone: versioned("time-zone-v2")?,
+        correction_rule: versioned("correction-rule-v2")?,
+        market_semantics: versioned("market-semantics-v2")?,
+        replay_configuration: content("replay-configuration-v2")?,
+        corporate_action_cut: content("corporate-action-cut-v2")?,
+        historical_membership_cut: content("historical-membership-cut-v2")?,
+    })
 }
 
 pub async fn ensure_authenticated_replay_policy_catalog_genesis_v1(
@@ -1417,6 +1526,81 @@ fn unavailable(error: impl Display) -> ReplayPolicyCatalogErrorV2 {
     ReplayPolicyCatalogErrorV2::Unavailable(error.to_string())
 }
 
+#[cfg(all(test, feature = "sealed-develop-composer-acceptance"))]
+mod sealed_fixture_tests {
+    use rstest::rstest;
+
+    use super::*;
+
+    #[rstest]
+    fn fixed_fixture_replays_exactly_and_verifies_the_existing_policy() {
+        let fixture = authenticated_sealed_acceptance_fixture_v1().unwrap();
+        let replay = authenticated_sealed_acceptance_fixture_v1().unwrap();
+        assert_eq!(fixture.sealed_request, replay.sealed_request);
+        assert_eq!(
+            fixture.verifier_public_key_hex,
+            replay.verifier_public_key_hex
+        );
+        let verified = verify_bootstrap_request(
+            &fixture.sealed_request,
+            fixture.verifier_identity,
+            &fixture.verifier_public_key_hex,
+        )
+        .unwrap();
+        assert_eq!(verified.request.schema_version, 1);
+        assert_eq!(
+            verified.policy.canonical_bytes().unwrap(),
+            sealed_acceptance_policy()
+                .unwrap()
+                .canonical_bytes()
+                .unwrap()
+        );
+    }
+
+    #[rstest]
+    fn fixed_fixture_rejects_changed_signed_meaning_schema_and_verifier() {
+        let fixture = authenticated_sealed_acceptance_fixture_v1().unwrap();
+
+        for (field, value) in [
+            ("now_epoch_ms", serde_json::json!(2)),
+            ("schema_version", serde_json::json!(2)),
+            ("unknown_field", serde_json::json!(true)),
+            (
+                "signature_base64",
+                serde_json::json!(BASE64_STANDARD.encode([0_u8; 64])),
+            ),
+        ] {
+            let mut request: serde_json::Value =
+                serde_json::from_slice(&fixture.sealed_request).unwrap();
+            request[field] = value;
+            assert!(
+                verify_bootstrap_request(
+                    &serde_json::to_vec(&request).unwrap(),
+                    fixture.verifier_identity,
+                    &fixture.verifier_public_key_hex
+                )
+                .is_err()
+            );
+        }
+        assert!(
+            verify_bootstrap_request(
+                &fixture.sealed_request,
+                "wrong-verifier",
+                &fixture.verifier_public_key_hex
+            )
+            .is_err()
+        );
+        assert!(
+            verify_bootstrap_request(
+                &fixture.sealed_request,
+                fixture.verifier_identity,
+                &"00".repeat(32)
+            )
+            .is_err()
+        );
+    }
+}
+
 #[cfg(test)]
 mod postgres_tests {
     use base64::{Engine, engine::general_purpose::STANDARD as BASE64_STANDARD};
@@ -1500,6 +1684,19 @@ mod postgres_tests {
     fn catalog_rule_manifest_is_closed_across_migration_connect_and_runtime() {
         let source = include_str!("replay_policy_catalog_postgres_v2.rs");
         assert!(AUTHORITY_MIGRATION_SQL.contains(
+            "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner"
+        ));
+        assert!(
+            AUTHORITY_MIGRATION_SQL.contains("REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC")
+        );
+        let post_function_acl_cutover = AUTHORITY_MIGRATION_SQL
+            .split("$catalog_composer_function_acl_cutover$;")
+            .nth(1)
+            .expect("post-Catalog/Composer function ACL cutover");
+        assert!(post_function_acl_cutover.contains(
+            "GRANT EXECUTE ON FUNCTION composer_owner_api.lock_replay_composition_cut_v1(text) TO market_data_reader, market_data_owner"
+        ));
+        assert!(AUTHORITY_MIGRATION_SQL.contains(
             "ALTER FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text) OWNER TO replay_policy_catalog_owner"
         ));
         assert!(AUTHORITY_MIGRATION_SQL.contains(
@@ -1518,7 +1715,7 @@ mod postgres_tests {
         );
         assert!(
             AUTHORITY_MIGRATION_SQL
-                .contains("count(*)=13 AND bool_and(relation.relpersistence='p')")
+                .contains("count(*)=16 AND bool_and(relation.relpersistence='p')")
         );
         assert!(AUTHORITY_MIGRATION_SQL.contains("index_relation.relpersistence='p'"));
         assert!(AUTHORITY_MIGRATION_SQL.contains(

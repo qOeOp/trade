@@ -169,7 +169,7 @@ CARGO_FEATURES := $(BASE_FEATURES),$(EXTRA_FEATURES)
 else
 CARGO_FEATURES := $(BASE_FEATURES)
 endif
-RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance
+RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance
 CORE_SELECTED_FEATURE_LIST := $(filter-out hypersync,$(subst $(comma),$(space),$(CARGO_FEATURES)))
 CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEATURE_LIST))),vibe-serialization/sbe,vibe-infrastructure/postgres
 
@@ -221,7 +221,7 @@ $(NEXTEST_ENV_TARGETS): export NEXTEST_TEST_THREADS=$(NEXTEST_TEST_THREADS_FOR_R
 endif
 
 # Core crates (excludes adapters/* and workspace members without tests)
-CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-common vibe-core \
+CORE_CRATES := vibe-analysis vibe-backtest vibe-backtest-owner vibe-backtest-owner-contracts vibe-backtest-result-custody vibe-common vibe-core \
     vibe-cryptography vibe-data vibe-deployment-attestation vibe-event-store vibe-execution \
     vibe-indicators vibe-indicators-kernel vibe-infrastructure vibe-live vibe-model vibe-scanner \
     vibe-network vibe-observability vibe-persistence vibe-persistence-macros \
@@ -1186,7 +1186,9 @@ docs-site-check:  #-- Type-check and build the static documentation site
 .PHONY: rd-workbench-check rd-workbench-source-intake-sealed-acceptance-check \
 	rd-workbench-source-intake-sealed-acceptance \
 	rd-workbench-source-research-sealed-acceptance-check \
-	rd-workbench-source-research-sealed-acceptance
+	rd-workbench-source-research-sealed-acceptance \
+	rd-workbench-source-research-composer-sealed-acceptance-check \
+	rd-workbench-source-research-composer-sealed-acceptance
 rd-workbench-check:  #-- Validate the pinned non-live Windmill R&D Workbench package
 	$Q bash product/rd-workbench/scripts/check.sh
 
@@ -1201,6 +1203,12 @@ rd-workbench-source-research-sealed-acceptance-check:  #-- Statically validate i
 
 rd-workbench-source-research-sealed-acceptance:  #-- Run isolated Source Intake -> Research acceptance (local effects only)
 	$Q bash scripts/ci/test-source-research-sealed-acceptance.bash
+
+rd-workbench-source-research-composer-sealed-acceptance-check:  #-- Statically validate isolated Source -> Research -> Composer acceptance
+	$Q bash scripts/ci/test-source-research-composer-sealed-acceptance.bash --static-only
+
+rd-workbench-source-research-composer-sealed-acceptance:  #-- Run isolated Source -> Research -> Composer acceptance (local effects only)
+	$Q bash scripts/ci/test-source-research-composer-sealed-acceptance.bash
 
 #== CLI Tools
 

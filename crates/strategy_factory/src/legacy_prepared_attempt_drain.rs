@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{Postgres, Row, Transaction, postgres::PgConnectOptions};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgConnectOptions};
 use std::fmt::Display;
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionLocatorV1,
@@ -114,101 +114,237 @@ struct DrainOutboxPayloadV1 {
     provider_disposition: String,
 }
 
-pub(crate) async fn materialize(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DrainFamilyCensusV1 {
+    table_count: i64,
+    function_count: i64,
+    trigger_count: i64,
+}
+
+impl DrainFamilyCensusV1 {
+    fn is_absent(self) -> bool {
+        self == Self {
+            table_count: 0,
+            function_count: 0,
+            trigger_count: 0,
+        }
+    }
+
+    fn is_complete(self) -> bool {
+        self == Self {
+            table_count: 1,
+            function_count: 1,
+            trigger_count: 1,
+        }
+    }
+}
+
+pub(crate) async fn materialize_family(pool: &PgPool) -> Result<(), ArtifactBuildError> {
+    if !crate::schema_materialization::pre_cutover_materialization_is_admitted(pool)
+        .await
+        .map_err(|e| storage(&e))?
+    {
+        return Err(unavailable(
+            "legacy PREPARED drain family cannot be materialized outside the explicit pre-cutover phase",
+        ));
+    }
+
+    let mut transaction = pool.begin().await.map_err(|e| storage(&e))?;
+    let census = family_census(&mut transaction).await?;
+    if census.is_absent() {
+        create_family(&mut transaction).await?;
+    } else if !census.is_complete() {
+        return Err(unavailable(
+            "legacy PREPARED drain family is partial or malformed",
+        ));
+    }
+    validate_family_in_transaction(&mut transaction).await?;
+    transaction.commit().await.map_err(|e| storage(&e))?;
+    Ok(())
+}
+
+async fn create_family(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ArtifactBuildError> {
-    sqlx::query("CREATE TABLE IF NOT EXISTS rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
+    sqlx::query("CREATE TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, build_request_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)")
         .execute(&mut **transaction)
         .await
         .map_err(|e| storage(&e))?;
 
     for statement in [
-        "ALTER TABLE rd_legacy_prepared_attempt_drain_receipts_v1 OWNER TO rd_owner",
-        "REVOKE ALL ON TABLE rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
-        "CREATE OR REPLACE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''legacy PREPARED drain receipts are immutable''; END'",
-        "ALTER FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() FROM PUBLIC",
-        "DROP TRIGGER IF EXISTS rd_legacy_prepared_attempt_drain_immutable_v1 ON rd_legacy_prepared_attempt_drain_receipts_v1",
-        "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 BEFORE UPDATE OR DELETE ON rd_legacy_prepared_attempt_drain_receipts_v1 FOR EACH ROW EXECUTE FUNCTION rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
+        "ALTER TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 OWNER TO rd_owner",
+        "REVOKE ALL ON TABLE public.rd_legacy_prepared_attempt_drain_receipts_v1 FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "CREATE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RAISE EXCEPTION ''legacy PREPARED drain receipts are immutable''; END'",
+        "ALTER FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1() FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "CREATE TRIGGER rd_legacy_prepared_attempt_drain_immutable_v1 BEFORE UPDATE OR DELETE ON public.rd_legacy_prepared_attempt_drain_receipts_v1 FOR EACH ROW EXECUTE FUNCTION public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()",
     ] {
         sqlx::query(statement)
             .execute(&mut **transaction)
             .await
             .map_err(|e| storage(&e))?;
     }
-    verify(transaction).await
+    Ok(())
 }
 
-pub(crate) async fn verify(
+async fn family_census(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<DrainFamilyCensusV1, ArtifactBuildError> {
+    let (table_count, function_count, trigger_count): (i64, i64, i64) = sqlx::query_as(
+        "SELECT
+           (SELECT count(*) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'),
+           (SELECT count(*) FROM pg_catalog.pg_proc function JOIN pg_catalog.pg_namespace namespace ON namespace.oid=function.pronamespace WHERE namespace.nspname='public' AND function.proname='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'),
+           (SELECT count(*) FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1' AND trigger_fact.tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT trigger_fact.tgisinternal)",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+    Ok(DrainFamilyCensusV1 {
+        table_count,
+        function_count,
+        trigger_count,
+    })
+}
+
+pub(crate) async fn validate_family_in_transaction(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ArtifactBuildError> {
-    let exact: bool = sqlx::query_scalar(
-        "SELECT pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
-            AND relation.relkind='r'
-            AND relation.relpersistence='p'
-            AND NOT relation.relrowsecurity
-            AND NOT relation.relforcerowsecurity
-            AND relation.reloptions IS NULL
-            AND relation.reltablespace=0
-            AND ARRAY(
-              SELECT attribute.attname || ':' || pg_catalog.format_type(attribute.atttypid,attribute.atttypmod) || ':' || attribute.attnotnull::text
-                FROM pg_catalog.pg_attribute attribute
-               WHERE attribute.attrelid=relation.oid
-                 AND attribute.attnum>0
-                 AND NOT attribute.attisdropped
-               ORDER BY attribute.attnum
-            )=ARRAY[
-              'receipt_identity:text:true',
-              'receipt_digest:text:true',
-              'build_request_identity:text:true',
-              'attempt_identity:text:true',
-              'receipt_json:jsonb:true',
-              'committed_at_epoch_ms:bigint:true'
-            ]::text[]
-            AND (SELECT count(*)=3 FROM pg_catalog.pg_constraint constraint_entry WHERE constraint_entry.conrelid=relation.oid AND constraint_entry.contype IN ('p','u'))
-            AND (SELECT count(*)=3 FROM pg_catalog.pg_index index_entry WHERE index_entry.indrelid=relation.oid AND index_entry.indisunique)
-            AND NOT EXISTS (
-              SELECT 1
-                FROM pg_catalog.pg_attribute attribute
-               WHERE attribute.attrelid=relation.oid
-                 AND attribute.attnum>0
-                 AND NOT attribute.attisdropped
-                 AND attribute.attacl IS NOT NULL
-            )
-            AND NOT pg_catalog.has_table_privilege('public',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('product_edge_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('operator_authorization_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('operator_authorization_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('qualification_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('qualification_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND NOT pg_catalog.has_table_privilege('backtest_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-            AND pg_catalog.pg_get_userbyid(function_entry.proowner)='rd_owner'
-            AND NOT function_entry.prosecdef
-            AND function_entry.provolatile='v'
-            AND function_entry.proparallel='u'
-            AND function_entry.proconfig IS NULL
-            AND function_entry.pronargs=0
-            AND function_entry.prorettype='pg_catalog.trigger'::pg_catalog.regtype
-            AND NOT pg_catalog.has_function_privilege('public',function_entry.oid,'EXECUTE')
-            AND trigger_entry.tgenabled='O'
-            AND NOT trigger_entry.tgisinternal
-            AND trigger_entry.tgtype=27
-            AND trigger_entry.tgfoid=function_entry.oid
-            AND (SELECT count(*)=1 FROM pg_catalog.pg_trigger trigger_count WHERE trigger_count.tgrelid=relation.oid AND NOT trigger_count.tgisinternal)
-           FROM pg_catalog.pg_class relation
-           JOIN pg_catalog.pg_trigger trigger_entry
-             ON trigger_entry.tgrelid=relation.oid
-            AND trigger_entry.tgname='rd_legacy_prepared_attempt_drain_immutable_v1'
-           JOIN pg_catalog.pg_proc function_entry
-             ON function_entry.oid=pg_catalog.to_regprocedure('public.rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1()')
-          WHERE relation.oid=pg_catalog.to_regclass('public.rd_legacy_prepared_attempt_drain_receipts_v1')",
+    if !family_census(transaction).await?.is_complete() {
+        return Err(unavailable(
+            "legacy PREPARED drain family is missing or partial",
+        ));
+    }
+
+    let table_is_exact: bool = sqlx::query_scalar(
+        "SELECT relation.relkind='r'
+           AND relation.relpersistence='p'
+           AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+           AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+           AND relation.reloptions IS NULL AND relation.reltablespace=0
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid=relation.oid)
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=relation.oid AND rewrite.rulename<>'_RETURN')
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid=relation.oid OR inheritance.inhparent=relation.oid)
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid=relation.oid)
+           AND (SELECT count(*)=1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid=relation.oid AND NOT trigger_fact.tgisinternal)
+           AND (SELECT count(*)=7 AND count(DISTINCT acl.privilege_type)=7
+                  AND bool_and(acl.grantee=relation.relowner AND acl.grantor=relation.relowner AND NOT acl.is_grantable)
+                  AND bool_and(acl.privilege_type IN ('INSERT','SELECT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'))
+                  FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
+           AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
+          FROM pg_catalog.pg_class relation
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+         WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'",
     )
     .fetch_one(&mut **transaction)
     .await
     .map_err(|e| storage(&e))?;
 
-    if !exact {
-        return Err(unavailable("legacy PREPARED drain receipt ACL mismatch"));
+    let columns_are_exact: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.jsonb_agg(
+                  pg_catalog.jsonb_build_array(attribute.attname,pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull,attribute.attcollation=attribute_type.typcollation,default_fact.oid IS NULL)
+                  ORDER BY attribute.attnum
+                ) = '[[\"receipt_identity\",\"text\",true,true,true],[\"receipt_digest\",\"text\",true,true,true],[\"build_request_identity\",\"text\",true,true,true],[\"attempt_identity\",\"text\",true,true,true],[\"receipt_json\",\"jsonb\",true,true,true],[\"committed_at_epoch_ms\",\"bigint\",true,true,true]]'::pg_catalog.jsonb
+          FROM pg_catalog.pg_class relation
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+          JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid
+          LEFT JOIN pg_catalog.pg_attrdef default_fact ON default_fact.adrelid=relation.oid AND default_fact.adnum=attribute.attnum
+         WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    let constraints_are_exact: bool = sqlx::query_scalar(
+        "SELECT count(*)=3
+           AND count(*) FILTER (WHERE constraint_fact.contype='p' AND keys.names=ARRAY['receipt_identity'])=1
+           AND count(*) FILTER (WHERE constraint_fact.contype='u' AND keys.names=ARRAY['build_request_identity'])=1
+           AND count(*) FILTER (WHERE constraint_fact.contype='u' AND keys.names=ARRAY['attempt_identity'])=1
+           AND bool_and(NOT constraint_fact.condeferrable AND NOT constraint_fact.condeferred AND constraint_fact.convalidated)
+          FROM pg_catalog.pg_constraint constraint_fact
+          JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          CROSS JOIN LATERAL (SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY key_fact.ordinality) AS names FROM pg_catalog.unnest(constraint_fact.conkey) WITH ORDINALITY key_fact(attnum,ordinality) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum=key_fact.attnum) keys
+         WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    let indexes_are_exact: bool = sqlx::query_scalar(
+        "SELECT count(*)=3
+           AND count(*) FILTER (WHERE index_fact.indisprimary AND index_fact.indisunique AND keys.names=ARRAY['receipt_identity'])=1
+           AND count(*) FILTER (WHERE NOT index_fact.indisprimary AND index_fact.indisunique AND keys.names=ARRAY['build_request_identity'])=1
+           AND count(*) FILTER (WHERE NOT index_fact.indisprimary AND index_fact.indisunique AND keys.names=ARRAY['attempt_identity'])=1
+           AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND NOT index_fact.indnullsnotdistinct
+             AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL
+             AND pg_catalog.pg_get_userbyid(index_relation.relowner)='rd_owner' AND index_method.amname='btree'
+             AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL
+             AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+             AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_key(collation_oid,ordinality)
+               JOIN pg_catalog.pg_attribute index_attribute ON index_attribute.attrelid=index_relation.oid AND index_attribute.attnum=collation_key.ordinality
+               JOIN pg_catalog.pg_type index_type ON index_type.oid=index_attribute.atttypid
+               WHERE collation_key.collation_oid<>index_attribute.attcollation OR index_attribute.attcollation<>index_type.typcollation
+             ))
+          FROM pg_catalog.pg_index index_fact
+          JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+          JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam
+          CROSS JOIN LATERAL (SELECT pg_catalog.array_agg(attribute.attname::text ORDER BY key_fact.ordinality) AS names FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key_fact(attnum,ordinality) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=relation.oid AND attribute.attnum=key_fact.attnum) keys
+         WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    let function_is_exact: bool = sqlx::query_scalar(
+        "SELECT function.prokind='f' AND function.pronargs=0 AND function.prorettype='pg_catalog.trigger'::pg_catalog.regtype
+           AND language.lanname='plpgsql' AND function.provolatile='v' AND NOT function.proisstrict
+           AND function.prosecdef=false AND function.proleakproof=false AND function.proparallel='u'
+           AND function.proconfig IS NULL
+           AND function.prosrc='BEGIN RAISE EXCEPTION ''legacy PREPARED drain receipts are immutable''; END'
+           AND pg_catalog.pg_get_userbyid(function.proowner)='rd_owner'
+           AND (SELECT count(*)=1 AND bool_and(acl.grantee=function.proowner AND acl.grantor=function.proowner AND acl.privilege_type='EXECUTE' AND NOT acl.is_grantable)
+                  FROM pg_catalog.aclexplode(COALESCE(function.proacl,pg_catalog.acldefault('f',function.proowner))) acl)
+          FROM pg_catalog.pg_proc function
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=function.pronamespace
+          JOIN pg_catalog.pg_language language ON language.oid=function.prolang
+         WHERE namespace.nspname='public' AND function.proname='rd_owner_reject_legacy_prepared_attempt_drain_mutation_v1'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    let trigger_is_exact: bool = sqlx::query_scalar(
+        "SELECT trigger_fact.tgenabled='O'
+           AND trigger_fact.tgtype=27
+           AND trigger_fact.tgnargs=0 AND trigger_fact.tgattr=''
+           AND trigger_fact.tgqual IS NULL AND trigger_fact.tgoldtable IS NULL AND trigger_fact.tgnewtable IS NULL
+           AND trigger_fact.tgfoid=function.oid
+          FROM pg_catalog.pg_trigger trigger_fact
+          JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid
+          JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          JOIN pg_catalog.pg_proc function ON function.oid=trigger_fact.tgfoid
+         WHERE namespace.nspname='public' AND relation.relname='rd_legacy_prepared_attempt_drain_receipts_v1'
+           AND trigger_fact.tgname='rd_legacy_prepared_attempt_drain_immutable_v1' AND NOT trigger_fact.tgisinternal",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|e| storage(&e))?;
+
+    if !table_is_exact
+        || !columns_are_exact
+        || !constraints_are_exact
+        || !indexes_are_exact
+        || !function_is_exact
+        || !trigger_is_exact
+    {
+        return Err(unavailable(
+            "legacy PREPARED drain family definition or ACL mismatch",
+        ));
     }
     Ok(())
 }
@@ -779,6 +915,47 @@ pub(crate) mod tests {
             11,
         )
         .unwrap()
+    }
+
+    #[rstest]
+    fn drain_family_census_requires_all_or_none() {
+        assert!(
+            DrainFamilyCensusV1 {
+                table_count: 0,
+                function_count: 0,
+                trigger_count: 0,
+            }
+            .is_absent()
+        );
+        assert!(
+            DrainFamilyCensusV1 {
+                table_count: 1,
+                function_count: 1,
+                trigger_count: 1,
+            }
+            .is_complete()
+        );
+
+        for partial_or_malformed in [
+            DrainFamilyCensusV1 {
+                table_count: 1,
+                function_count: 0,
+                trigger_count: 0,
+            },
+            DrainFamilyCensusV1 {
+                table_count: 1,
+                function_count: 1,
+                trigger_count: 0,
+            },
+            DrainFamilyCensusV1 {
+                table_count: 1,
+                function_count: 2,
+                trigger_count: 1,
+            },
+        ] {
+            assert!(!partial_or_malformed.is_absent());
+            assert!(!partial_or_malformed.is_complete());
+        }
     }
 
     #[rstest]

@@ -18,16 +18,11 @@ pub use vibe_backtest_owner_contracts::{
     ObservationComponentV2, OpaqueIdentityV2, ReplayAuthorityClaimV2, ReplayNamespaceV2,
     ReplayRequestDtoV2, ReplayRequestV2, ReplayTerminalV2, VersionedIdentityV2,
 };
-use vibe_backtest_owner_contracts::{ReplayModelProfilesV2, ReplayWindowV2};
-
 mod sealed {
     pub trait Sealed {}
 }
 
-mod native_replay;
-
-pub use native_replay::run_stateful_trend_native_replay_v2;
-
+pub mod postgres;
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
 /// The private supertrait prevents arbitrary external implementations.
@@ -754,11 +749,20 @@ fn encoding_error(error: &serde_json::Error) -> ReplayOwnerErrorV2 {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sqlx::Row;
 
     use super::*;
+    use crate::postgres::{
+        PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
+        PostgresReplayResultOwnerV2, ReplayResultCommitRecoveryV2,
+    };
     use vibe_backtest_owner_contracts::{
         ContentIdentityV2, ReplayModelProfilesV2, ReplayWindowV2, VersionedIdentityV2,
     };
+    use vibe_strategy_factory::{
+        ExploratoryReplayResultLocatorV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+    };
+    use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     fn identity(value: &str) -> OpaqueIdentityV2 {
         OpaqueIdentityV2::try_from(value.to_string()).expect("fixture identity must be valid")
@@ -900,6 +904,398 @@ mod tests {
             observations: observations(request),
             diagnostics: diagnostics(request),
         }
+    }
+
+    fn expect_committed(
+        disposition: PostgresReplayResultCommitDispositionV2,
+    ) -> crate::postgres::ReplayResultReadbackV2 {
+        match disposition {
+            PostgresReplayResultCommitDispositionV2::Committed(readback) => *readback,
+            PostgresReplayResultCommitDispositionV2::SubmittedOrUnknown(_) => {
+                panic!("test PostgreSQL must acknowledge the commit")
+            }
+        }
+    }
+
+    #[rstest]
+    fn postgres_commit_response_loss_is_typed_submitted_or_unknown() {
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request)).expect("sealed result");
+        let bytes = result.to_canonical_bytes().expect("canonical result");
+        let dto = vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(&bytes)
+            .expect("result DTO");
+
+        assert!(matches!(
+            crate::postgres::submitted_or_unknown(&dto),
+            PostgresReplayResultCommitDispositionV2::SubmittedOrUnknown(_)
+        ));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical disposable PostgreSQL Owner topology"]
+    async fn postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("Backtest writer principal");
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request))
+            .expect("Backtest-internal sealed persistence fixture");
+        let result_identity = result.result_identity().as_str().to_string();
+        let expected_bytes = result.to_canonical_bytes().expect("canonical result bytes");
+
+        let first = expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("atomic Result/receipt/outbox submission"),
+        );
+        let retry = expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("byte-identical retry submission joins existing custody"),
+        );
+        assert_eq!(first.result_canonical_bytes(), expected_bytes);
+        assert_eq!(retry.result_canonical_bytes(), expected_bytes);
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM public.backtest_replay_results_v2 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_replay_result_receipts_v1 WHERE result_identity=$1),(SELECT count(*) FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1)",
+        )
+        .bind(&result_identity)
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("aggregate counts");
+        assert_eq!(counts, (1, 1, 1));
+
+        let mut conflicting_draft = draft(&request);
+        conflicting_draft
+            .observations
+            .last_mut()
+            .expect("semantic trace")
+            .observed_meaning_digest = digest('f');
+        let conflicting = commit_owner_result(&request, conflicting_draft)
+            .expect("distinct owner result for the same attempt");
+        assert_eq!(
+            owner
+                .commit_exploratory_replay_result_v2(&conflicting)
+                .await
+                .expect_err("same request/attempt cannot bind different bytes"),
+            PostgresReplayResultOwnerErrorV2::ConflictingResult
+        );
+        let unchanged: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM public.backtest_replay_results_v2 WHERE request_identity=$1 AND attempt_identity=$2),(SELECT count(*) FROM public.backtest_replay_result_receipts_v1 WHERE request_identity=$1),(SELECT count(*) FROM public.backtest_replay_result_outbox_v1 WHERE request_identity=$1)",
+        )
+        .bind(request.request_identity().as_str())
+        .bind("attempt")
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("conflict zero-write counts");
+        assert_eq!(unchanged, (1, 1, 1));
+
+        drop(owner);
+        let restarted = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("restarted Backtest writer");
+        let result_dto =
+            vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(&expected_bytes)
+                .expect("persisted Result DTO");
+        let recovered = ReplayResultCommitRecoveryV2::for_result(&result_dto)
+            .resolve(&restarted)
+            .await
+            .expect("exact response-loss recovery")
+            .expect("existing aggregate");
+        assert_eq!(recovered.result_canonical_bytes(), expected_bytes);
+
+        let conflicting_dto =
+            vibe_backtest_owner_contracts::ReplayResultDtoV2::from_canonical_bytes(
+                &conflicting
+                    .to_canonical_bytes()
+                    .expect("conflicting canonical Result"),
+            )
+            .expect("conflicting Result DTO");
+        assert!(
+            ReplayResultCommitRecoveryV2::for_result(&conflicting_dto)
+                .resolve(&restarted)
+                .await
+                .expect("mismatched exact recovery is a zero readback")
+                .is_none(),
+            "recovery must not resolve a different result for the same request/attempt"
+        );
+
+        let mut rd_transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
+        let locked = resolve_exploratory_replay_result_for_rd_in_transaction(
+            &mut rd_transaction,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: &result_identity,
+                request_identity: request.request_identity().as_str(),
+                attempt_identity: "attempt",
+            },
+        )
+        .await
+        .expect("locked R&D resolve")
+        .expect("complete Backtest aggregate");
+        assert_eq!(locked.result_canonical_bytes(), expected_bytes);
+        assert_eq!(
+            locked.receipt_canonical_bytes(),
+            first.receipt_canonical_bytes()
+        );
+        assert_eq!(
+            locked.outbox_canonical_bytes(),
+            first.outbox_canonical_bytes()
+        );
+        assert!(
+            resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut rd_transaction,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: &result_identity,
+                    request_identity: "wrong-request",
+                    attempt_identity: "attempt",
+                },
+            )
+            .await
+            .expect("wrong correlation is a zero readback")
+            .is_none()
+        );
+        rd_transaction
+            .rollback()
+            .await
+            .expect("caller transaction rollback releases locks without recomposition");
+
+        for sql in [
+            "SELECT result_identity FROM public.backtest_replay_results_v2 LIMIT 1",
+            "INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES('forbidden','forbidden','forbidden','forbidden','forbidden','RUN_REJECTED',''::bytea,'forbidden')",
+            "UPDATE public.backtest_replay_results_v2 SET terminal='RUN_REJECTED' WHERE false",
+            "DELETE FROM public.backtest_replay_results_v2 WHERE false",
+        ] {
+            let error = sqlx::query(sql)
+                .execute(rd_pool)
+                .await
+                .expect_err("R&D has no raw Result table authority");
+            assert_eq!(
+                error.as_database_error().and_then(|value| value.code()),
+                Some(std::borrow::Cow::Borrowed("42501"))
+            );
+        }
+
+        let acl: bool = sqlx::query(
+            "SELECT NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_replay_results_v2','SELECT,INSERT,UPDATE,DELETE') AND pg_catalog.has_function_privilege('rd_owner','backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)','EXECUTE')",
+        )
+        .fetch_one(rd_pool)
+        .await
+        .expect("R&D ACL readback")
+        .try_get(0)
+        .expect("boolean ACL");
+        assert!(acl);
+    }
+
+    async fn assert_rd_result_fault_fails_closed() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request))
+            .expect("stable locator for the previously committed result");
+        let rd_pool = database
+            .mutation()
+            .pool(CanonicalOwnerTestRoleV1::RdOwner)
+            .clone();
+        let mut transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
+        assert!(
+            resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut transaction,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result.result_identity().as_str(),
+                    request_identity: request.request_identity().as_str(),
+                    attempt_identity: "attempt",
+                },
+            )
+            .await
+            .is_err()
+        );
+        transaction
+            .rollback()
+            .await
+            .expect("fault read transaction rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest function-source fault"]
+    async fn postgres_result_rd_read_rejects_function_source_drift() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest Owner API routine sibling"]
+    async fn postgres_result_rd_read_rejects_owner_api_routine_sibling() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest ACL fault"]
+    async fn postgres_result_rd_read_rejects_raw_table_acl_drift() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the harness-injected inherited Backtest Owner membership"]
+    async fn postgres_result_rd_read_rejects_inherited_owner_membership() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the harness-injected Backtest Owner attribute drift"]
+    async fn postgres_result_rd_read_rejects_owner_attribute_drift() {
+        assert_rd_result_fault_fails_closed().await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the isolated topology-fenced ACL mutation harness"]
+    async fn postgres_result_topology_fence_serializes_managed_acl_drift() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let mutation = database.mutation();
+        let backtest_pool = mutation
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool)
+            .await
+            .expect("Backtest writer topology");
+        let request = request();
+        let result = commit_owner_result(&request, draft(&request)).expect("sealed result");
+        expect_committed(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect("aggregate submission"),
+        );
+
+        let mut rd_transaction = rd_pool.begin().await.expect("caller-owned R&D transaction");
+        resolve_exploratory_replay_result_for_rd_in_transaction(
+            &mut rd_transaction,
+            ExploratoryReplayResultLocatorV2 {
+                result_identity: result.result_identity().as_str(),
+                request_identity: request.request_identity().as_str(),
+                attempt_identity: "attempt",
+            },
+        )
+        .await
+        .expect("topology-fenced R&D resolve")
+        .expect("committed aggregate");
+
+        let admin_pool = database.owner_topology_admin_pool().clone();
+        let marker = mutation.marker_identity().to_string();
+        let fault_application_name = "vibe-backtest-result-fence-v1";
+        let observer_pool = admin_pool.clone();
+
+        let fault = tokio::spawn(async move {
+            sqlx::query("SELECT vibe_test_admin.inject_backtest_result_acl_with_fence_v1($1)")
+                .bind(marker)
+                .execute(&admin_pool)
+                .await
+        });
+        let mut observed_wait = false;
+        for _ in 0..100 {
+            observed_wait = sqlx::query_scalar(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity WHERE application_name=$1 AND usename=session_user AND wait_event_type='Lock' AND wait_event='advisory')",
+            )
+            .bind(fault_application_name)
+            .fetch_one(&observer_pool)
+            .await
+            .expect("managed fault wait observation");
+            if observed_wait || fault.is_finished() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            observed_wait && !fault.is_finished(),
+            "managed ACL mutation must reach the advisory wait behind the caller-owned R&D transaction"
+        );
+        rd_transaction
+            .rollback()
+            .await
+            .expect("R&D rollback releases topology fence");
+        fault
+            .await
+            .expect("managed fault task")
+            .expect("managed ACL mutation after fence release");
+
+        let mut rejected = rd_pool.begin().await.expect("second R&D transaction");
+        assert!(
+            resolve_exploratory_replay_result_for_rd_in_transaction(
+                &mut rejected,
+                ExploratoryReplayResultLocatorV2 {
+                    result_identity: result.result_identity().as_str(),
+                    request_identity: request.request_identity().as_str(),
+                    attempt_identity: "attempt",
+                },
+            )
+            .await
+            .is_err(),
+            "post-fence ACL drift must fail closed"
+        );
+        rejected
+            .rollback()
+            .await
+            .expect("fault transaction rollback");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the isolated PostgreSQL Owner topology"]
+    async fn postgres_result_mid_commit_failure_rolls_back_every_aggregate_row() {
+        let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
+            .await
+            .expect("canonical disposable topology");
+        let backtest_pool = database
+            .mutation()
+            .pool(CanonicalOwnerTestRoleV1::BacktestOwner)
+            .clone();
+        let owner = PostgresReplayResultOwnerV2::from_admitted_pool(backtest_pool.clone())
+            .await
+            .expect("Backtest writer topology");
+        let mut dto = request().as_dto().clone();
+        dto.request_identity = identity("rollback-request");
+        let request = ReplayRequestV2::try_from(dto).expect("rollback request");
+        let result = commit_owner_result(&request, draft(&request)).expect("rollback result");
+        sqlx::query(
+            "INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,'isolated-rollback-conflict-event','isolated-test-digest','isolated-rollback-conflict-receipt','isolated-rollback-conflict-seed','isolated-test-meaning','isolated-test-result','EXPLORATORY','isolated-test-payload',0,$2,'isolated-test-storage-digest')",
+        )
+        .bind(result.result_identity().as_str())
+        .bind(b"isolated rollback conflict seed".as_slice())
+        .execute(&backtest_pool)
+        .await
+        .expect("isolated outbox primary-key conflict seed");
+        assert_eq!(
+            owner
+                .commit_exploratory_replay_result_v2(&result)
+                .await
+                .expect_err("outbox failure must abort the atomic commit"),
+            PostgresReplayResultOwnerErrorV2::StorageUnavailable
+        );
+        let counts: (i64, i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM public.backtest_replay_results_v2 WHERE request_identity='rollback-request'),(SELECT count(*) FROM public.backtest_replay_result_receipts_v1 WHERE request_identity='rollback-request'),(SELECT count(*) FROM public.backtest_replay_result_outbox_v1 WHERE request_identity='rollback-request')",
+        )
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("rollback counts");
+        assert_eq!(counts, (0, 0, 0));
+        let seed_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1 AND request_identity='isolated-rollback-conflict-seed'",
+        )
+        .bind(result.result_identity().as_str())
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("isolated conflict seed count");
+        assert_eq!(seed_count, 1, "the pre-existing conflict row must survive");
     }
 
     #[rstest]

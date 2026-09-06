@@ -239,12 +239,19 @@ Source Intake never repairs or stores those market facts itself.
   transport intended for production. If obtained, this evidence is acceptance-only and never proves `CURRENT`
   production, network, credential, rights, DNS, policy, Time Evidence, or live-provider readiness.
 - The target A2 composition deploys the fixed chain `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
-  Composer RUN/RESOLVE` with compile-time sealed adapters, a fixed Source Intake corpus, a fixed A0 build corpus,
-  and unique internal PostgreSQL, Windmill, network, ingress, and volume state. It has no runtime provider selector.
-- The A1 positive transaction atomically persists the private canonical A0 Build Receipt bytes with the Artifact,
-  Composer receipts, and outbox while the opaque non-serializable verified token remains move-only and in-process.
-- The composed runner must prove concurrent same-request join and changed-meaning conflict, zero partial rows at every
-  atomic write fault, post-commit response-loss resolution, restart byte-identical `RESOLVE` after private canonical
+  Composer RUN/RESOLVE` with compile-time sealed adapters, a fixed Source Intake corpus, one shared fixed A0 build
+  corpus, and unique internal PostgreSQL, Windmill, network, ingress, and volume state. It has no runtime provider
+  selector. Composer accepts only the canonical Research request locator; its Owner derives request/Design/digests/
+  provider in the same lock/write transaction while retaining the Operator Authorization frontier and final cut.
+- The A1 positive transaction atomically persists an intrinsic private canonical A0 Build Receipt fact and a separate
+  ordered Artifact-use relation with the Artifact, Composer receipts, and outbox while the opaque non-serializable
+  verified token remains move-only and in-process. Two Research-derived Artifacts may share one sealed build fact
+  only through two distinct use rows. Only the exact legacy schema admits a one-time byte-preserving normalization;
+  every other shape fails closed.
+- The composed runner must prove locator-only/full-DTO negatives, two-custody shared-build normalization, concurrent
+  same-request join and changed-meaning conflict, zero partial rows at every same-transaction atomic write fault,
+  read-only projection before `RUN`, post-commit response-loss/bodyless-resolution, restart byte-identical `RESOLVE`
+  after private canonical
   A0 Build Receipt reread and validation of its capsule/toolchain/linker/configuration/two-build provenance,
   Artifact/Composer receipt rebinding, canonical-byte parse/hash, and `ProgramHostV2` readmission. It also proves
   every required single-field mutation negative, including a separate single-field mutation of the canonical A0

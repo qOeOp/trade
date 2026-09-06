@@ -34,15 +34,7 @@ use vibe_trading::{
     vibe_strategy,
 };
 
-use crate::{
-    artifact_v2::StrategyArtifactV2,
-    program_host_v2::{AdmittedProgramEventV2, ProgramHostV2, admit_backtest_lifecycle_event_v2},
-    strategy_plan_v2::StrategyPlanV2,
-};
-
-pub use crate::program_host_v2_backtest_tests::{
-    StatefulBacktestNativeReplayEvidenceV2, run_stateful_backtest_native_replay_v2,
-};
+use crate::program_host_v2::{AdmittedProgramEventV2, ProgramHostV2};
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub(crate) struct BacktestHostTransitionV2 {
@@ -91,8 +83,6 @@ struct PendingNativeFillV2 {
 
 pub(crate) struct BacktestProgramHostStrategyV2 {
     core: StrategyCore,
-    plan: StrategyPlanV2,
-    artifact: StrategyArtifactV2,
     host: ProgramHostV2,
     instrument_id: InstrumentId,
     bar_type: BarType,
@@ -112,8 +102,7 @@ impl BacktestProgramHostStrategyV2 {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         strategy_id: StrategyId,
-        plan: StrategyPlanV2,
-        artifact: StrategyArtifactV2,
+        host: ProgramHostV2,
         instrument_id: InstrumentId,
         bar_type: BarType,
         bar_events: impl IntoIterator<Item = AdmittedProgramEventV2>,
@@ -121,7 +110,6 @@ impl BacktestProgramHostStrategyV2 {
         restore_performed: Rc<Cell<bool>>,
         trace: Rc<RefCell<BacktestProgramHostTraceV2>>,
     ) -> anyhow::Result<Self> {
-        let host = ProgramHostV2::new(plan.clone(), artifact.clone())?;
         let mut events = BTreeMap::new();
 
         for event in bar_events {
@@ -143,8 +131,6 @@ impl BacktestProgramHostStrategyV2 {
                     .oms_type(OmsType::Netting)
                     .build()?,
             ),
-            plan,
-            artifact,
             host,
             instrument_id,
             bar_type,
@@ -175,7 +161,7 @@ impl BacktestProgramHostStrategyV2 {
             ),
             EnvelopePayloadV1::Start,
         )?;
-        let event = admit_backtest_lifecycle_event_v2(&self.plan, envelope)?;
+        let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         self.apply_host_event(&event)?;
         self.subscribe_bars(self.bar_type, None, None);
         Ok(())
@@ -213,16 +199,11 @@ impl BacktestProgramHostStrategyV2 {
         if !event.is_joined_input() {
             return value == raw_to_i128(price.raw);
         }
-        let Some(role) = self
-            .plan
-            .input_roles()
-            .iter()
-            .find(|role| role.semantic_id == role_id)
-        else {
+        let Some(scale) = self.host.input_role_scale(role_id) else {
             return false;
         };
         let mut decimal = price.as_decimal();
-        decimal.rescale(u32::from(role.scale));
+        decimal.rescale(u32::from(scale));
         decimal.mantissa() == value
     }
 
@@ -338,7 +319,7 @@ impl BacktestProgramHostStrategyV2 {
                 cumulative_filled_units: fill.cumulative_filled_units,
             }),
         )?;
-        let event = admit_backtest_lifecycle_event_v2(&self.plan, envelope)?;
+        let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         let trace = self.apply_host_event(&event)?;
         if fill.disposition == FillDispositionV1::Filled {
             self.maybe_restore_host(trace)?;
@@ -383,8 +364,7 @@ impl BacktestProgramHostStrategyV2 {
             && trace.position_after_units == 8
         {
             let checkpoint = self.host.checkpoint().clone();
-            self.host =
-                ProgramHostV2::restore(self.plan.clone(), self.artifact.clone(), &checkpoint)?;
+            self.host = self.host.restore_checkpoint(&checkpoint)?;
             anyhow::ensure!(
                 self.host.checkpoint() == &checkpoint,
                 "Backtest V2 Host restore changed the opaque checkpoint"
@@ -689,7 +669,7 @@ impl DataActor for BacktestProgramHostStrategyV2 {
                 ),
                 EnvelopePayloadV1::Stop,
             )?;
-            let event = admit_backtest_lifecycle_event_v2(&self.plan, envelope)?;
+            let event = self.host.admit_backtest_lifecycle_event(envelope)?;
             self.apply_host_event(&event)?;
             Ok(())
         })();

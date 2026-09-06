@@ -65,9 +65,8 @@ mod sealed {
             prepare_strategy_design_v2, strategy_input_role_identity_v2,
         },
     };
-    use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_BYTES;
     use vibe_data::owner::{
-        sealed_acceptance::issue_strategy_input_universe_frame,
+        sealed_acceptance::issue_strategy_input_exact_instrument_bar_frame,
         strategy_input_binding::{
             MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
             UntrustedStrategyInputBindingRequest, UntrustedStrategyInputScope,
@@ -97,7 +96,6 @@ mod sealed {
         ("proposal.take-profit.v1", ValueTypeV2::I64),
         ("proposal.trailing-distance.v1", ValueTypeV2::U64),
         ("proposal.trailing-stop.v1", ValueTypeV2::I64),
-        ("proposal.member-target-set.v2", ValueTypeV2::Bytes),
     ];
 
     pub struct SealedDevelopComposerAcceptanceV2 {
@@ -129,8 +127,21 @@ mod sealed {
     }
 
     impl SealedDevelopComposerAcceptanceV2 {
+        #[doc(hidden)]
         pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
-            let store = PostgresDevelopComposerStoreV2::connect(database_url).await?;
+            let rd_owner_database_url = std::env::var("RD_OWNER_TEST_DATABASE_URL")?;
+            Self::connect_with_writer(&rd_owner_database_url, database_url).await
+        }
+
+        pub async fn connect_with_writer(
+            rd_owner_database_url: &str,
+            rd_fact_writer_database_url: &str,
+        ) -> anyhow::Result<Self> {
+            let store = PostgresDevelopComposerStoreV2::connect(
+                rd_owner_database_url,
+                rd_fact_writer_database_url,
+            )
+            .await?;
             let (request, evidence) = fixed_corpus()?;
             Ok(Self {
                 store,
@@ -144,6 +155,30 @@ mod sealed {
             self.store
                 .run(&mut builder, &self.evidence, self.request, 1)
                 .await
+        }
+
+        /// Test-support-only fault injection at the single transactional Composer write call.
+        #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+        #[doc(hidden)]
+        pub async fn run_with_fault_for_test(
+            &self,
+            fail_after_boundary: usize,
+        ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
+            let mut builder = SealedDevelopComposerA0BuildV2;
+            let mut transaction = self.store.begin_read_transaction().await?;
+            let result = self
+                .store
+                .run_in_transaction_with_fault_for_test(
+                    &mut transaction,
+                    &mut builder,
+                    &self.evidence,
+                    self.request,
+                    1,
+                    Some(fail_after_boundary),
+                )
+                .await;
+            transaction.rollback().await?;
+            result
         }
 
         pub async fn resolve(
@@ -178,7 +213,7 @@ mod sealed {
         &'static DevelopComposerRunRequestV2,
         SealedDevelopComposerAcceptanceEvidenceV2,
     )> {
-        let frame = issue_strategy_input_universe_frame()?;
+        let frame = issue_strategy_input_exact_instrument_bar_frame()?;
         let design = fixed_design();
         let design_identity = match prepare_strategy_design_v2(&design) {
             StrategyDesignPreparationV2::Prepared {
@@ -193,7 +228,7 @@ mod sealed {
         }) {
             anyhow::bail!("sealed Market Data frame does not bind the fixed Design");
         }
-        let bindings = VerifiedStrategyInputBindingsV2::from_sealed_universe(&frame);
+        let bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(frame.bindings());
         let binding_requests = design
             .inputs
             .iter()
@@ -203,7 +238,6 @@ mod sealed {
                     input,
                     design.research_request_identity,
                     design_identity,
-                    frame.selection().selection_identity(),
                     ordinal as u8,
                 )
             })
@@ -252,16 +286,19 @@ mod sealed {
         input: &InputRoleV2,
         research_request_identity: BindingDigest,
         strategy_design_identity: BindingDigest,
-        selection_identity: BindingDigest,
         seed: u8,
     ) -> UntrustedStrategyInputBindingRequest {
         UntrustedStrategyInputBindingRequest {
             research_request_identity,
             strategy_design_identity,
             input_role_identity: strategy_input_role_identity_v2(input),
-            scope: UntrustedStrategyInputScope::UniverseSelection { selection_identity },
+            scope: UntrustedStrategyInputScope::ExactInstrument {
+                instrument: input.instrument.clone(),
+            },
             field_semantic: match input.field_semantic_id.as_str() {
                 "MARKET_DATA.BAR.OPEN.PRICE.V1" => MarketDataFieldSemantic::BarOpenPrice,
+                "MARKET_DATA.BAR.HIGH.PRICE.V1" => MarketDataFieldSemantic::BarHighPrice,
+                "MARKET_DATA.BAR.LOW.PRICE.V1" => MarketDataFieldSemantic::BarLowPrice,
                 _ => MarketDataFieldSemantic::BarClosePrice,
             },
             channel: StrategyInputChannel::Market,
@@ -311,14 +348,13 @@ mod sealed {
             take_profit_ticks: output(node, "proposal.take-profit.v1"),
             trailing_distance_ticks: output(node, "proposal.trailing-distance.v1"),
             trailing_stop_ticks: output(node, "proposal.trailing-stop.v1"),
-            member_target_set: Some(output(node, "proposal.member-target-set.v2")),
+            member_target_set: None,
         }
     }
 
     fn compute_node(node: &str, state: &str, event: bool) -> ComputeNodeV2 {
-        let market_source = |input_id: &str, member_ordinal| ValueRefV2::UniverseMemberInput {
+        let market_source = |input_id: &str| ValueRefV2::Input {
             input_id: input_id.to_owned(),
-            member_ordinal,
         };
         let timer_source = || ValueRefV2::Parameter {
             parameter_id: "research.parameter.timer-close.v1".to_owned(),
@@ -327,7 +363,7 @@ mod sealed {
             PortBindingV2 {
                 port_id: "input.close.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.close.v1", 0)
+                    market_source("research.input.close.v1")
                 } else {
                     timer_source()
                 },
@@ -335,23 +371,39 @@ mod sealed {
             PortBindingV2 {
                 port_id: "input.open.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.open.v1", 0)
+                    market_source("research.input.open.v1")
                 } else {
                     timer_source()
                 },
             },
             PortBindingV2 {
-                port_id: "input.member-b-close.v2".to_owned(),
+                port_id: "input.high.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.close.v1", 1)
+                    market_source("research.input.high.v1")
                 } else {
                     timer_source()
                 },
             },
             PortBindingV2 {
-                port_id: "input.member-b-open.v2".to_owned(),
+                port_id: "input.low.v1".to_owned(),
                 source: if event {
-                    market_source("research.input.open.v1", 1)
+                    market_source("research.input.low.v1")
+                } else {
+                    timer_source()
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.close-1h.v1".to_owned(),
+                source: if event {
+                    market_source("research.input.close-1h.v1")
+                } else {
+                    timer_source()
+                },
+            },
+            PortBindingV2 {
+                port_id: "input.close-1d-session.v1".to_owned(),
+                source: if event {
+                    market_source("research.input.close-1d-session.v1")
                 } else {
                     timer_source()
                 },
@@ -421,8 +473,10 @@ mod sealed {
         let mut input_ports = vec![
             ("input.close.v1", ValueTypeV2::I128, 16),
             ("input.open.v1", ValueTypeV2::I128, 16),
-            ("input.member-b-close.v2", ValueTypeV2::I128, 16),
-            ("input.member-b-open.v2", ValueTypeV2::I128, 16),
+            ("input.high.v1", ValueTypeV2::I128, 16),
+            ("input.low.v1", ValueTypeV2::I128, 16),
+            ("input.close-1h.v1", ValueTypeV2::I128, 16),
+            ("input.close-1d-session.v1", ValueTypeV2::I128, 16),
             ("input.current-position.v1", ValueTypeV2::I64, 8),
             ("input.envelope-digest.v1", ValueTypeV2::Digest32, 32),
             ("input.intent.v1", ValueTypeV2::StableIdentity16, 16),
@@ -443,7 +497,6 @@ mod sealed {
                 semantic_id: (*semantic_id).to_owned(),
                 value_type: *value_type,
                 max_bytes: match *semantic_id {
-                    "proposal.member-target-set.v2" => TARGET_SET_BYTES as u32,
                     _ if matches!(
                         value_type,
                         ValueTypeV2::PositionIntentV1
@@ -468,11 +521,11 @@ mod sealed {
                 InputRoleV2 {
                     semantic_id: "research.input.close.v1".to_owned(),
                     fact_class: InputFactClassV2::MarketData,
-                    instrument: String::new(),
-                    scope: InputScopeV2::UniverseMembers,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
                     field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     channel: "MARKET".to_owned(),
-                    timeframe: "1D".to_owned(),
+                    timeframe: "1M".to_owned(),
                     unit: "PRICE".to_owned(),
                     scale: 2,
                     value_type: ValueTypeV2::I128,
@@ -480,9 +533,57 @@ mod sealed {
                 InputRoleV2 {
                     semantic_id: "research.input.open.v1".to_owned(),
                     fact_class: InputFactClassV2::MarketData,
-                    instrument: String::new(),
-                    scope: InputScopeV2::UniverseMembers,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
                     field_semantic_id: "MARKET_DATA.BAR.OPEN.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.high.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.HIGH.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.low.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.LOW.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1M".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.close-1h.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
+                    channel: "MARKET".to_owned(),
+                    timeframe: "1H".to_owned(),
+                    unit: "PRICE".to_owned(),
+                    scale: 2,
+                    value_type: ValueTypeV2::I128,
+                },
+                InputRoleV2 {
+                    semantic_id: "research.input.close-1d-session.v1".to_owned(),
+                    fact_class: InputFactClassV2::MarketData,
+                    instrument: "AAPL.XNAS".to_owned(),
+                    scope: InputScopeV2::ExactInstrument,
+                    field_semantic_id: "MARKET_DATA.BAR.CLOSE.PRICE.V1".to_owned(),
                     channel: "MARKET".to_owned(),
                     timeframe: "1D".to_owned(),
                     unit: "PRICE".to_owned(),
@@ -490,7 +591,20 @@ mod sealed {
                     value_type: ValueTypeV2::I128,
                 },
             ],
-            joins: vec![],
+            joins: vec![InputJoinV2 {
+                semantic_id: "research.join.bar-six.v1".to_owned(),
+                inputs: vec![
+                    "research.input.open.v1".to_owned(),
+                    "research.input.high.v1".to_owned(),
+                    "research.input.low.v1".to_owned(),
+                    "research.input.close.v1".to_owned(),
+                    "research.input.close-1h.v1".to_owned(),
+                    "research.input.close-1d-session.v1".to_owned(),
+                ],
+                alignment_semantic_id: "strategy.input-join.latest-not-after-trigger.v1".to_owned(),
+                trigger_input_id: "research.input.close.v1".to_owned(),
+                max_staleness_ns: 86_400_000_000_000,
+            }],
             parameters: vec![
                 ParameterV2 {
                     semantic_id: "research.parameter.lookback.v1".to_owned(),
@@ -528,7 +642,7 @@ mod sealed {
                     LifecycleKindV2::Event,
                     "research.node.event.v1",
                     "research.state.trend.v1",
-                    true,
+                    false,
                 ),
                 ReactionGraphV2 {
                     kind: LifecycleKindV2::Fill,
@@ -595,14 +709,49 @@ mod sealed {
         use super::*;
 
         #[rstest]
-        fn fixed_corpus_matches_the_owner_sealed_aapl_msft_frame() {
+        fn fixed_corpus_matches_the_owner_sealed_exact_instrument_frame() {
+            let design = fixed_design();
+            let event = design
+                .reactions
+                .iter()
+                .find(|reaction| reaction.kind == LifecycleKindV2::Event)
+                .expect("EVENT lifecycle remains declared");
+            assert_eq!(event.nodes.len(), 1);
+            assert_eq!(event.state_writes.len(), 1);
+            assert!(event.proposal.is_some());
+            assert!(event.nodes.iter().all(|node| {
+                node.input_bindings
+                    .iter()
+                    .all(|binding| !matches!(binding.source, ValueRefV2::Input { .. }))
+            }));
+            assert!(
+                design
+                    .reactions
+                    .iter()
+                    .filter_map(|reaction| reaction.proposal.as_ref())
+                    .all(|proposal| proposal.member_target_set.is_none())
+            );
+            let StrategyDesignPreparationV2::Prepared {
+                design_identity, ..
+            } = prepare_strategy_design_v2(&design)
+            else {
+                panic!("fixed BAR Design must prepare");
+            };
+            let frame = issue_strategy_input_exact_instrument_bar_frame().expect("fixed BAR frame");
+            assert_eq!(frame.role_bindings().len(), 6);
+            for role in frame.role_bindings() {
+                assert_eq!(
+                    design_identity.as_bytes(),
+                    role.strategy_design_identity().as_bytes()
+                );
+            }
             let (request, _) = fixed_corpus().expect("fixed corpus");
             assert_eq!(
                 request.request_identity,
                 SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2
             );
-            assert_eq!(request.design.inputs.len(), 2);
-            assert_eq!(request.binding_requests.len(), 2);
+            assert_eq!(request.design.inputs.len(), 6);
+            assert_eq!(request.binding_requests.len(), 6);
             assert_eq!(request.plugin_source_capsules.len(), 1);
         }
 

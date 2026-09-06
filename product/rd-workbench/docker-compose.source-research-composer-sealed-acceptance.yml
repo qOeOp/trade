@@ -1,0 +1,123 @@
+name: ${SEALED_ACCEPTANCE_PROJECT:?set SEALED_ACCEPTANCE_PROJECT}
+
+services:
+  postgres:
+    environment:
+      RD_OWNER_DATABASE_NAME: ${SEALED_TEST_DATABASE_NAME:?set SEALED_TEST_DATABASE_NAME}
+      RD_FACT_WRITER_DB_PASSWORD: ${SEALED_RD_FACT_WRITER_DB_PASSWORD:?set SEALED_RD_FACT_WRITER_DB_PASSWORD}
+      MARKET_DATA_OWNER_DB_PASSWORD: ${SEALED_MARKET_DATA_OWNER_DB_PASSWORD:?set SEALED_MARKET_DATA_OWNER_DB_PASSWORD}
+      # This disposable internal-only topology needs an exact market_data_reader
+      # session identity; the canonical migration intentionally assigns it no password.
+      POSTGRES_INITDB_ARGS: --auth-host=trust
+      POSTGRES_HOST_AUTH_METHOD: trust
+
+  authority-custody-migrate:
+    environment:
+      POSTGRES_DATABASE: ${SEALED_TEST_DATABASE_NAME:?set SEALED_TEST_DATABASE_NAME}
+      SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"
+      RD_FACT_WRITER_DB_PASSWORD: ${SEALED_RD_FACT_WRITER_DB_PASSWORD:?set SEALED_RD_FACT_WRITER_DB_PASSWORD}
+      MARKET_DATA_OWNER_DB_PASSWORD: ${SEALED_MARKET_DATA_OWNER_DB_PASSWORD:?set SEALED_MARKET_DATA_OWNER_DB_PASSWORD}
+
+  rd-owner-api:
+    depends_on:
+      replay-policy-catalog-owner-readback:
+        condition: service_completed_successfully
+    environment:
+      RD_OWNER_ENABLE_ACCEPTANCE_FAULTS: "1"
+      RD_FACT_WRITER_DATABASE_URL: ${SEALED_RD_FACT_WRITER_DATABASE_URL:?set SEALED_RD_FACT_WRITER_DATABASE_URL}
+      MARKET_DATA_OWNER_DATABASE_URL: >-
+        ${SEALED_MARKET_DATA_OWNER_DATABASE_URL:?set SEALED_MARKET_DATA_OWNER_DATABASE_URL}
+      MARKET_DATA_RD_ROLE_SET_DATABASE_URL: >-
+        ${SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL:?set SEALED_MARKET_DATA_RD_ROLE_SET_DATABASE_URL}
+
+  replay-policy-catalog-fixture:
+    profiles: ["catalog-fixture"]
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    network_mode: none
+    user: "${SEALED_STORED_TAMPER_UID:?set probe UID}:${SEALED_STORED_TAMPER_GID:?set probe GID}"
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-sealed-fixture"]
+    volumes:
+      - type: bind
+        source: ${SEALED_CATALOG_FIXTURE_OUTPUT:?set SEALED_CATALOG_FIXTURE_OUTPUT}
+        target: /run/sealed-catalog-fixture
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  replay-policy-catalog-bootstrap:
+    restart: "no"
+    read_only: true
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-authority-bootstrap"]
+    environment:
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
+        /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
+    depends_on:
+      authority-custody-migrate:
+        condition: service_completed_successfully
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  replay-policy-catalog-owner-readback:
+    restart: "no"
+    read_only: true
+    entrypoint: ["/usr/local/bin/replay-policy-catalog-owner-readback"]
+    environment:
+      REPLAY_POLICY_CATALOG_BOOTSTRAP_REQUEST_PATH: /run/secrets/replay-policy-catalog-bootstrap-request.json
+      REPLAY_POLICY_CATALOG_TRUSTED_VERIFIER_PUBLIC_KEY_PATH: >-
+        /run/secrets/replay-policy-catalog-trusted-verifier-public-key.hex
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  stored-tamper-install-sql:
+    profiles: ["stored-tamper-probe"]
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    network_mode: none
+    user: "${SEALED_STORED_TAMPER_UID:?set probe UID}:${SEALED_STORED_TAMPER_GID:?set probe GID}"
+    entrypoint: ["/usr/local/bin/source-research-composer-stored-tamper-probe", "--emit-install-sql"]
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  stored-tamper-probe:
+    profiles: ["stored-tamper-probe"]
+    image: ${SEALED_ACCEPTANCE_OWNER_IMAGE:?set SEALED_ACCEPTANCE_OWNER_IMAGE}
+    pull_policy: never
+    restart: "no"
+    read_only: true
+    user: "${SEALED_STORED_TAMPER_UID:?set probe UID}:${SEALED_STORED_TAMPER_GID:?set probe GID}"
+    entrypoint: ["/usr/local/bin/source-research-composer-stored-tamper-probe"]
+    environment:
+      RD_OWNER_TEST_DATABASE_URL: ${SEALED_STORED_TAMPER_TEST_DATABASE_URL:?set SEALED_STORED_TAMPER_TEST_DATABASE_URL}
+      RD_OWNER_TEST_DATABASE_ROLE: >-
+        ${SEALED_STORED_TAMPER_TEST_DATABASE_ROLE:?set SEALED_STORED_TAMPER_TEST_DATABASE_ROLE}
+      VIBE_POSTGRES_TEST_DATABASE_NAME: ${SEALED_TEST_DATABASE_NAME:?set SEALED_TEST_DATABASE_NAME}
+      VIBE_POSTGRES_TEST_INSTANCE_MARKER: >-
+        ${SEALED_STORED_TAMPER_INSTANCE_MARKER:?set SEALED_STORED_TAMPER_INSTANCE_MARKER}
+      SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN: ${SEALED_RD_OWNER_API_TOKEN:?set SEALED_RD_OWNER_API_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rd-owner-api:
+        condition: service_healthy
+    volumes:
+      - type: bind
+        source: ${SEALED_STORED_TAMPER_INPUT:?set SEALED_STORED_TAMPER_INPUT}
+        target: /run/source-research-composer-stored-tamper/input.json
+        read_only: true
+    networks:
+      - sealed-internal
+    cap_drop:
+      - ALL

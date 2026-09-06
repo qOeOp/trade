@@ -3,6 +3,9 @@ use std::{collections::BTreeMap, fmt::Display};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row, postgres::PgRow};
+pub use vibe_backtest_result_custody::{
+    BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2, LockedExploratoryReplayResultV2,
+};
 use vibe_product_edge::{
     DownstreamAdmissionModeV1, ProductEdgeAdmissionReadbackV1,
     resolve_admission_for_downstream_in_transaction,
@@ -10,6 +13,14 @@ use vibe_product_edge::{
 use vibe_qualification::{
     ProtectedFeedbackFrontierReadbackV1, admit_historical_projection_in_transaction,
 };
+
+/// Resolves a complete Backtest-owned result without leaving the caller's R&D transaction.
+pub async fn resolve_exploratory_replay_result_for_rd_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: ExploratoryReplayResultLocatorV2<'_>,
+) -> Result<Option<LockedExploratoryReplayResultV2>, BacktestResultCustodyErrorV2> {
+    vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(transaction, locator).await
+}
 
 use crate::{
     product_edge::{

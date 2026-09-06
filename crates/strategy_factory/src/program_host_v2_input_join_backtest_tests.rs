@@ -264,10 +264,10 @@ fn run_backtest_join_corpus() -> anyhow::Result<Vec<u8>> {
 
     let trace = Rc::new(RefCell::new(BacktestProgramHostTraceV2::default()));
     let restored = Rc::new(Cell::new(false));
+    let host = ProgramHostV2::new(plan, artifact)?;
     let strategy = BacktestProgramHostStrategyV2::new(
         StrategyId::from("STRATEGY-DESIGN-V2-INPUT-JOIN-001"),
-        plan,
-        artifact,
+        host,
         instrument_id,
         bar_type,
         events,

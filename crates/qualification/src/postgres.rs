@@ -61,8 +61,8 @@ impl PostgresQualificationOwnerV1 {
                   JOIN pg_catalog.pg_namespace namespace
                     ON namespace.oid = relation.relnamespace
                   WHERE namespace.nspname = 'public'
-                    AND relation.relname LIKE 'rd_%'
                     AND relation.relkind IN ('r', 'p')
+                    AND relation.relname LIKE 'rd_%'
                     AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
                       current_user,
                       relation.oid,

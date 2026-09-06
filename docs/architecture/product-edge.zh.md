@@ -147,16 +147,32 @@ attempt-local `CREATED`/`RESOLVED` field 区分两者。immutable audit fact 是
 readback 是唯一 projection，不存在 administration receipt 或 outbox。bootstrap custody 缺失或 conflict 时，
 startup 必须在无 default 的情况下 fail closed。
 
-公开 Composer `RUN` 只接收不受信的 request identity、Research custody reference、Design proposal、
-binding request 和有界 plugin-source capsule。这些值只能是 proposal 与 locator，绝不是 verified fact。
-operation 必须在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以
-move 消费该 token。该正向类型既不可 `Clone`，也不可序列化或反序列化。私有规范 A0 Build Receipt bytes
-是另一项持久事实，不是 token representation。不存在公开 verified-build locator、verified-build read port、
-数据库或 API token representation；provider、caller、Windmill flow 或重启路径都不得从 bytes、digest、
-receipt 或 label 重建 verified token。
+公开 Composer `RUN` 只接收一个不受信的规范 Research request locator，并拒绝 caller request identity、
+Design、digest、binding request、plugin-source capsule、provider selector、build receipt 或其他字段。在正向
+commit 使用的同一个 Owner lock/write transaction 内，R&D 规范重读该 locator 指向的 current Research
+custody，并独自派生 Composer request identity/digest、Research/Intent 与 Design identity/digest、Design、
+binding set、source capsule 和 provider identity。该派生保留准确 Product Edge Operator Authorization
+frontier 与最终 commit cut；Windmill 与 caller 均不得替换、省略或重算。Owner-internal exact commit-cut
+capability 只锁定该 request 及其 aggregate row，绝不取得 table-wide lock。
 
-A0 完成后且正向提交前，A1 锁定并重读最终已接纳 Research custody 与每份准确 fact-Owner binding。R&D、
-Composer 与 Market Data 路径使用一个已准入 R&D PostgreSQL transaction domain：A1 把其既有 transaction
+在 `RUN` 前，已认证只读 `GET /v2/develop-composer/request-projections` 可以从同一规范 Research locator
+投影派生 request identity 与完整 identity/digest tuple。该 projection 仅用于在发送前获知 identity，并在
+response loss 后执行 bodyless same-identity `RESOLVE`；它不写入也不授予 custody。
+`POST /v2/develop-composer/runs` 只接收 locator，并独立重读、派生全部含义，绝不信任或接收 caller 回灌
+的 projection field。
+
+operation 在同一进程调用已接纳的 A0 确定性 build 边界，在进程内保留其不透明 verified build，并以 move
+消费该 token。该正向类型既不可 `Clone`，也不可序列化或反序列化。私有规范 A0 Build Receipt bytes 是
+与 Research request 和 Artifact 解耦的 intrinsic content-addressed sealed build fact。每个 Artifact 通过独立、
+immutable 且规范排序的 use relation 引用它，因此两个不同 Research 派生 Artifact 可以共享一份 byte-identical
+sealed build fact，同时保留两条 use row 与完整 Research/Design/Artifact lineage。只有准确 legacy schema 可
+执行一次 byte-preserving normalization；其他 legacy shape、partial relation、byte mismatch 或 ambiguous
+duplicate 均 fail closed。不存在公开 verified-build locator、verified-build read port、数据库或 API token
+representation；provider、caller、Windmill flow 或重启路径都不得从 bytes、digest、receipt 或 label 重建
+verified token。
+
+A0 完成后且正向提交前，A1 在同一个已准入 R&D PostgreSQL transaction 内锁定并规范重读最终已接纳
+Research custody、派生全部 Composer 含义并重读每份准确 fact-Owner binding。A1 把其既有 transaction
 capability 传给每个适用且由 Owner 拥有的密封 Composer 或 Market Data read method。每个 Owner 都在该准确
 transaction 上 lock、规范回读、校验并密封自己的事实。任何 method 都不能打开另一个 pool、
 connection 或 transaction；caller 与 Windmill 都不能读取 raw Owner table、重建 sealed evidence 或取得
@@ -164,8 +180,8 @@ Owner 的 fact authority。Composer 或 Market Data evidence 缺失、不可用�
 wrong-owner，或 family-sealed policy cross-binding 无效时，都必须在第一笔正向写入前失败。该同一个 R&D
 transaction 原子存储规范 `StrategyDesignV2`、`StrategyPlanV2`、
 `StrategyArtifactV2` package 与私有
-module bytes、私有规范 A0 Build Receipt bytes，以及 Composer receipt、host-admission receipt、operation
-receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
+module bytes、intrinsic 私有规范 A0 Build Receipt bytes、ordered Artifact-build use relation，以及 Composer
+receipt、host-admission receipt、operation receipt 和 R&D outbox。JSON 仅为 projection，不能作为规范回读或 hash 来源。重启和 `RESOLVE` 重读并解析
 规范 Build Receipt，校验其 capsule、toolchain、linker、configuration 与确定性 two-build provenance，
 把该 receipt 与 Artifact 和 Composer receipts 绑定，再重新计算并比较每个 content 与 binding digest，
 然后把 Artifact 重新接纳到 `ProgramHostV2`。该校验绝不重建 move-only verified token。raw Wasm 与规范
@@ -214,21 +230,24 @@ authority。
 
 组合 runner 必须针对已部署 operation 与规范 Owner 回读证明以下全部事项：
 
-1. 并发相同 meaning 的 `RUN` 加入一份字节一致 receipt；并发相同 identity 但 changed meaning 的请求发生
-   conflict，且没有 changed-meaning 或 partial row；
-2. 在每个 A1 write boundary 注入失败，都留下零 partial Design、Plan、Artifact/module、receipt、
-   host-admission、operation 或 outbox row；
-3. 原子 commit 后丢失 response，仍能解析到准确终态，且只执行一次 A0、不创建 successor attempt；
-4. process 与 database 重启后调用 `RESOLVE`，重读并解析私有规范 A0 Build Receipt，校验其
+1. 两份不同规范 Research custody 产生两个不同 Artifact 与准确两条 ordered use relation，同时只共享一份
+   intrinsic sealed A0 Build Receipt fact；
+2. locator-only transport 拒绝 empty、unknown、oversized、malformed 与 full-DTO injection；并发相同 meaning
+   的 `RUN` 加入一份字节一致 receipt，而相同 identity 的 changed meaning 发生 conflict 且零 partial row；
+3. 在每个 A1 write boundary 注入失败，都在单一 R&D transaction 中留下零 partial Design、Plan、
+   Artifact/module、intrinsic build、build-use、receipt、host-admission、operation 或 outbox row；
+4. `RUN` 前只读 projection、原子 commit 后 response loss 与 bodyless same-identity `RESOLVE` 恢复准确终态，
+   且只执行一次 A0、不创建 successor attempt；POST 还必须证明没有信任 projection 回灌；
+5. process 与 database 重启后调用 `RESOLVE`，重读并解析私有规范 A0 Build Receipt，校验其
    capsule/toolchain/linker/configuration/two-build provenance 与 Artifact/Composer receipt binding，再完成
    其余规范 byte parse/hash 校验并成功重新接纳到 `ProgramHostV2` 后，返回字节一致的公开 evidence；
-5. 对每个 Source Intake ancestry member、Research proposal/Design/binding/source-capsule input、A0
+6. 对每个 Source Intake ancestry member 与 Owner-derived Research/Design/binding/source-capsule input、A0
    identity、已存储规范 object、module byte、receipt 或 outbox binding 做单字段 mutation，都必须失败关闭
    且不创建正向 successor；另对私有规范 A0 Build Receipt 做一次单字段 mutation，也必须得到相同结果；
-6. 已部署 Windmill golden path 达到 `RETRIEVED`、规范 Research admission 及其类型化 accepted Research
+7. 已部署 Windmill golden path 达到 `RETRIEVED`、规范 Research admission 及其类型化 accepted Research
    custody 与持久 Composer terminal；准确 replay 使用三个 same-request `RESOLVE` path 并加入相同
    receipts；以及
-7. cleanup 删除唯一 Windmill project/workspace、PostgreSQL state、network、ingress allocation 与所有
+8. cleanup 删除唯一 Windmill project/workspace、PostgreSQL state、network、ingress allocation 与所有
    volume，然后证明 byte-for-byte 或枚举 baseline equality、零隔离 residue 与零 shared-target change。
 
 在这些 gate 全部通过前，持久 Composer custody、公开 API composition、类型化 Source

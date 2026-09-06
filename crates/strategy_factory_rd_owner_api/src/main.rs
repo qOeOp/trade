@@ -11,6 +11,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+#[cfg(feature = "sealed-develop-composer-acceptance")]
+use vibe_data::owner::replay_market_facts_v2::{
+    ReplayCompositionIssuanceLocatorV1, ReplayCompositionLocatorOnlyIssuanceRequestV1,
+    ReplayCompositionOwnerV1,
+};
 #[cfg(test)]
 use vibe_data::owner::{
     ResearchPitTerminalBootstrapError, ResearchPitTerminalBootstrapFailure,
@@ -55,11 +60,69 @@ use vibe_strategy_factory::{
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
 #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
+#[cfg(all(
+    feature = "sealed-develop-composer-acceptance",
+    any(test, not(feature = "sealed-source-intake-composer-acceptance"))
+))]
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2;
+#[cfg(all(
+    feature = "sealed-develop-composer-acceptance",
+    not(feature = "sealed-source-intake-composer-acceptance")
+))]
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::SealedDevelopComposerAcceptanceV2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
-use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::{
-    SEALED_DEVELOP_COMPOSER_REQUEST_IDENTITY_V2, SealedDevelopComposerAcceptanceV2,
-    submitted_or_unknown_response,
+use vibe_strategy_factory::develop_composer_sealed_acceptance_v2::submitted_or_unknown_response;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::source_research_composer_postgres_v2::{
+    SealedPostgresSourceResearchComposerV2, SourceResearchComposerAcceptanceControlV2,
+    SourceResearchComposerAcceptanceTamperV2,
+    sealed_source_research_composer_a0_execution_count_v2,
 };
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerLocatorV2 {
+    #[serde(deserialize_with = "deserialize_research_locator_v2")]
+    research_request_locator: String,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn deserialize_research_locator_v2<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let locator = String::deserialize(deserializer)?;
+    if locator.trim().is_empty() || locator.len() > 256 {
+        return Err(serde::de::Error::custom(
+            "a bounded Research request locator is required",
+        ));
+    }
+    Ok(locator)
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerAcceptanceRunV2 {
+    research_request_locator: String,
+    control: SourceResearchComposerAcceptanceControlV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceResearchComposerAcceptanceResolveV2 {
+    tamper: SourceResearchComposerAcceptanceTamperV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[derive(Debug, Serialize)]
+#[serde(deny_unknown_fields)]
+struct DevelopComposerA0ExecutionsV1 {
+    schema_version: u16,
+    a0_executions: u64,
+}
 
 mod exploratory_replay;
 mod source_intake;
@@ -78,8 +141,15 @@ struct ApiState {
     request_proof_digest: String,
     allow_acceptance_faults: bool,
     _market_data_research_pit: Option<Arc<dyn ResearchPitTerminalResolver>>,
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     develop_composer: Arc<SealedDevelopComposerAcceptanceV2>,
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    develop_composer: Arc<SealedPostgresSourceResearchComposerV2>,
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    replay_composition: Option<Arc<ReplayCompositionOwnerV1>>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -175,6 +245,8 @@ async fn main() -> anyhow::Result<()> {
         PostgresResearchGoalOwnerV1::materialize_schema(&database_url).await?;
         PostgresArtifactBuildOwnerV1::materialize_schema(&database_url).await?;
         vibe_strategy_factory::develop_composer_postgres_v2::PostgresDevelopComposerStoreV2::materialize_schema(&database_url).await?;
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        ReplayCompositionOwnerV1::materialize_schema(&database_url).await?;
         #[cfg(feature = "sealed-source-intake-acceptance")]
         source_intake::materialize_schema(&database_url).await?;
         return Ok(());
@@ -216,8 +288,32 @@ async fn main() -> anyhow::Result<()> {
     let historical_custody_owner =
         Arc::new(PostgresHistoricalCustodyOwnerV1::connect_read_only(&database_url).await?);
     #[cfg(feature = "sealed-develop-composer-acceptance")]
-    let develop_composer =
-        Arc::new(SealedDevelopComposerAcceptanceV2::connect(&composer_writer_database_url).await?);
+    let replay_composition = Arc::new(
+        ReplayCompositionOwnerV1::connect(
+            &required_env("MARKET_DATA_OWNER_DATABASE_URL")?,
+            &required_env("MARKET_DATA_RD_ROLE_SET_DATABASE_URL")?,
+        )
+        .await?,
+    );
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
+    let develop_composer = Arc::new(
+        SealedDevelopComposerAcceptanceV2::connect_with_writer(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let develop_composer = Arc::new(
+        SealedPostgresSourceResearchComposerV2::connect(
+            &database_url,
+            &composer_writer_database_url,
+        )
+        .await?,
+    );
     let allow_acceptance_faults =
         env::var("RD_OWNER_ENABLE_ACCEPTANCE_FAULTS").as_deref() == Ok("1");
     let state = ApiState {
@@ -234,6 +330,8 @@ async fn main() -> anyhow::Result<()> {
         _market_data_research_pit: market_data_research_pit,
         #[cfg(feature = "sealed-develop-composer-acceptance")]
         develop_composer,
+        #[cfg(feature = "sealed-develop-composer-acceptance")]
+        replay_composition: Some(replay_composition),
     };
     #[cfg(not(feature = "sealed-source-intake-acceptance"))]
     let source_intake = source_intake::production_router(
@@ -312,13 +410,40 @@ async fn main() -> anyhow::Result<()> {
         )
         .route("/v2/develop-composer/runs", post(run_develop_composer))
         .route(
+            "/v2/develop-composer/request-projections",
+            get(project_develop_composer_request),
+        )
+        .route(
+            "/v1/replay-compositions/issuances",
+            post(issue_replay_composition),
+        )
+        .route(
+            "/v1/replay-compositions/issuances/resolve",
+            post(resolve_replay_composition),
+        )
+        .route(
             "/v2/develop-composer/runs/{request_identity}/readback",
             get(read_develop_composer),
         )
         .route(
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
+        );
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    let app = app
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/a0-executions",
+            get(develop_composer_a0_executions),
         )
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/runs",
+            post(run_develop_composer_with_acceptance_control),
+        )
+        .route(
+            "/_sealed-acceptance/v1/develop-composer/runs/{request_identity}/resolve",
+            post(resolve_develop_composer_with_acceptance_tamper),
+        );
+    let app = app
         .with_state(state)
         .merge(source_intake)
         .merge(source_intake_research::router(
@@ -359,6 +484,157 @@ async fn health() -> &'static str {
     "ok"
 }
 
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn develop_composer_a0_executions(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(DevelopComposerA0ExecutionsV1 {
+            schema_version: 1,
+            a0_executions: sealed_source_research_composer_a0_execution_count_v2(),
+        }),
+    )
+        .into_response()
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn run_develop_composer_with_acceptance_control(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
+        return status.into_response();
+    }
+    let request: SourceResearchComposerAcceptanceRunV2 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match state
+        .develop_composer
+        .run_with_acceptance_control(&request.research_request_locator, request.control)
+        .await
+    {
+        Ok(response) => composer_operation_response(response),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn resolve_develop_composer_with_acceptance_tamper(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
+        return status.into_response();
+    }
+    let request: SourceResearchComposerAcceptanceResolveV2 = match serde_json::from_slice(&body) {
+        Ok(request) => request,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match state
+        .develop_composer
+        .resolve_with_acceptance_tamper(&request_identity, request.tamper)
+        .await
+    {
+        Ok(response) => composer_operation_response(response),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+fn admit_sealed_acceptance_fault_control(enabled: bool) -> Result<(), StatusCode> {
+    enabled.then_some(()).ok_or(StatusCode::NOT_FOUND)
+}
+
+async fn issue_replay_composition(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = body;
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let command: ReplayCompositionLocatorOnlyIssuanceRequestV1 =
+            match serde_json::from_slice(&body) {
+                Ok(command) => command,
+                Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+            };
+        let Some(replay_composition) = &state.replay_composition else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+
+        match replay_composition.issue_binding_v1(&command).await {
+            Ok(response) => (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                response.canonical_bytes().to_vec(),
+            )
+                .into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
+}
+
+async fn resolve_replay_composition(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = body;
+        StatusCode::SERVICE_UNAVAILABLE.into_response()
+    }
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        let locator: ReplayCompositionIssuanceLocatorV1 = match serde_json::from_slice(&body) {
+            Ok(locator) => locator,
+            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+        };
+        let Some(replay_composition) = &state.replay_composition else {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        };
+
+        match replay_composition.recover_issuance_v1(locator).await {
+            Ok(response) => (
+                StatusCode::OK,
+                [(axum::http::header::CONTENT_TYPE, "application/json")],
+                response.canonical_bytes().to_vec(),
+            )
+                .into_response(),
+            Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        }
+    }
+}
+
 async fn run_develop_composer(
     State(state): State<ApiState>,
     headers: HeaderMap,
@@ -388,7 +664,10 @@ async fn run_develop_composer(
         )
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     {
         if develop_composer_body_injects_evidence(&body) {
             return composer_response(
@@ -405,6 +684,65 @@ async fn run_develop_composer(
             ),
         }
     }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    {
+        let request: SourceResearchComposerLocatorV2 = match serde_json::from_slice(&body) {
+            Ok(request) => request,
+            Err(_) => {
+                return composer_response(
+                    StatusCode::BAD_REQUEST,
+                    default_unavailable_response("unbound"),
+                );
+            }
+        };
+
+        match state
+            .develop_composer
+            .run(&request.research_request_locator)
+            .await
+        {
+            Ok(response) => {
+                let delay_after_commit =
+                    response.disposition == DevelopComposerOperationDispositionV2::Success;
+                let response = composer_operation_response(response);
+
+                if delay_after_commit {
+                    maybe_delay(&state, &headers).await;
+                }
+                response
+            }
+            Err(_) => composer_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request.research_request_locator),
+            ),
+        }
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn project_develop_composer_request(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    Query(request): Query<SourceResearchComposerLocatorV2>,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    match state
+        .develop_composer
+        .request_projection(&request.research_request_locator)
+        .await
+    {
+        Ok(projection) => (StatusCode::OK, Json(projection)).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+#[cfg(not(feature = "sealed-source-intake-composer-acceptance"))]
+async fn project_develop_composer_request() -> Response {
+    StatusCode::NOT_FOUND.into_response()
 }
 
 async fn resolve_develop_composer(
@@ -429,9 +767,30 @@ async fn resolve_develop_composer(
         )
     }
 
-    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    #[cfg(all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    ))]
     {
         if develop_composer_body_injects_evidence(&body) {
+            return composer_response(
+                StatusCode::BAD_REQUEST,
+                default_unavailable_response(&request_identity),
+            );
+        }
+
+        match state.develop_composer.resolve(&request_identity).await {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::ACCEPTED,
+                submitted_or_unknown_response(&request_identity),
+            ),
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    {
+        if !body.is_empty() {
             return composer_response(
                 StatusCode::BAD_REQUEST,
                 default_unavailable_response(&request_identity),
@@ -500,7 +859,13 @@ fn composer_response(status: StatusCode, response: DevelopComposerOperationRespo
     (status, Json(response)).into_response()
 }
 
-#[cfg(any(test, feature = "sealed-develop-composer-acceptance"))]
+#[cfg(any(
+    test,
+    all(
+        feature = "sealed-develop-composer-acceptance",
+        not(feature = "sealed-source-intake-composer-acceptance")
+    )
+))]
 fn develop_composer_body_injects_evidence(body: &[u8]) -> bool {
     body.iter().any(|byte| !byte.is_ascii_whitespace())
 }
@@ -528,6 +893,127 @@ mod develop_composer_api_contract_tests {
         assert!(develop_composer_body_injects_evidence(
             br#"{"module_bytes":"caller-selected"}"#
         ));
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn a2_run_dto_accepts_only_the_research_locator() {
+        let parsed: SourceResearchComposerLocatorV2 =
+            serde_json::from_slice(br#"{"research_request_locator":"research-1"}"#)
+                .expect("locator-only DTO");
+        assert_eq!(parsed.research_request_locator, "research-1");
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerLocatorV2>(
+                br#"{"research_request_locator":"research-1","design":{}}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn a2_locator_decode_enforces_the_transport_byte_bound_without_rewriting_identity() {
+        for locator in [
+            "research/request v2".to_owned(),
+            "x".repeat(256),
+            "\u{754c}".repeat(85),
+        ] {
+            let request = serde_json::json!({"research_request_locator": locator});
+            let parsed: SourceResearchComposerLocatorV2 =
+                serde_json::from_value(request).expect("bounded locator");
+            assert_eq!(parsed.research_request_locator, locator);
+        }
+
+        for locator in [
+            String::new(),
+            " \t\n".to_owned(),
+            "x".repeat(257),
+            "\u{754c}".repeat(86),
+        ] {
+            assert!(
+                serde_json::from_value::<SourceResearchComposerLocatorV2>(
+                    serde_json::json!({"research_request_locator": locator})
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest]
+    fn a2_execution_count_json_has_only_the_exact_contract_keys() {
+        let value = serde_json::to_value(DevelopComposerA0ExecutionsV1 {
+            schema_version: 1,
+            a0_executions: 7,
+        })
+        .expect("A0 execution response");
+        assert_eq!(
+            value,
+            serde_json::json!({"schema_version": 1, "a0_executions": 7})
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest::rstest]
+    fn acceptance_routes_accept_only_closed_control_selectors() {
+        let request: SourceResearchComposerAcceptanceRunV2 = serde_json::from_slice(
+            br#"{"research_request_locator":"research-1","control":{"kind":"FailAfter","selector":"AfterDesign"}}"#,
+        )
+        .expect("closed write boundary");
+        assert!(matches!(
+            request.control,
+            SourceResearchComposerAcceptanceControlV2::FailAfter(
+                vibe_strategy_factory::develop_composer_postgres_v2::DevelopComposerAcceptanceWriteBoundaryV2::AfterDesign
+            )
+        ));
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerAcceptanceRunV2>(
+                br#"{"research_request_locator":"research-1","control":{"kind":"FailAfter","selector":"AfterArbitrarySql"}}"#,
+            )
+            .is_err()
+        );
+        assert!(
+            serde_json::from_slice::<SourceResearchComposerAcceptanceResolveV2>(
+                br#"{"tamper":"ArbitraryField"}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+    #[rstest::rstest]
+    fn acceptance_fault_controls_require_the_explicit_runtime_gate() {
+        assert_eq!(
+            admit_sealed_acceptance_fault_control(false),
+            Err(StatusCode::NOT_FOUND)
+        );
+        assert_eq!(admit_sealed_acceptance_fault_control(true), Ok(()));
+
+        let source = include_str!("main.rs");
+
+        for (handler, next_item) in [
+            (
+                "async fn run_develop_composer_with_acceptance_control",
+                "async fn resolve_develop_composer_with_acceptance_tamper",
+            ),
+            (
+                "async fn resolve_develop_composer_with_acceptance_tamper",
+                "fn admit_sealed_acceptance_fault_control",
+            ),
+        ] {
+            let body = source
+                .split(handler)
+                .nth(1)
+                .expect("acceptance handler")
+                .split(next_item)
+                .next()
+                .expect("bounded acceptance handler");
+            assert!(
+                body.contains(
+                    "admit_sealed_acceptance_fault_control(state.allow_acceptance_faults)"
+                )
+            );
+        }
     }
 
     #[rstest]
@@ -1784,6 +2270,8 @@ mod tests {
     use vibe_rd_artifact_invocation_custody::{
         ArtifactInvocationReservationMeaningV1, seal_invocation_reservation,
     };
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
     use vibe_strategy_factory::{
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
         product_edge::{RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchSourceV1},
@@ -1791,6 +2279,21 @@ mod tests {
     use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
     use super::*;
+
+    #[rstest]
+    fn composer_startup_uses_two_owner_urls_without_preissued_native_join() {
+        let source = include_str!("main.rs");
+        assert!(source.contains("MARKET_DATA_OWNER_DATABASE_URL"));
+        assert!(source.contains("MARKET_DATA_RD_ROLE_SET_DATABASE_URL"));
+        let removed_native_env = ["MARKET_DATA_COMPOSER", "_NATIVE_JOIN_LOCATORS_V1"].concat();
+        let removed_native_issue = ["issue_composer", "_native_join_v1"].concat();
+        let removed_native_connect = ["connect_with_writer", "_and_native_join"].concat();
+        assert!(!source.contains(&removed_native_env));
+        assert!(!source.contains(&removed_native_issue));
+        assert!(!source.contains(&removed_native_connect));
+        let forbidden_route = ["/v1/strategy-design-role-sets", "/resolve"].concat();
+        assert!(!source.contains(&forbidden_route));
+    }
 
     #[rstest]
     fn startup_mode_admits_only_default_serve_or_exact_schema_materialization() {
@@ -2047,6 +2550,18 @@ mod tests {
     async fn same_identity_started_retry_returns_http_ok_with_exact_custody_once() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        {
+            let catalog_admin_pool = sqlx::PgPool::connect(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            )
+            .await
+            .unwrap();
+            ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+                .await
+                .unwrap();
+        }
         let token = "rd-owner-api-start-retry-test";
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
@@ -2099,7 +2614,10 @@ mod tests {
             request_proof_digest,
             allow_acceptance_faults: false,
             _market_data_research_pit: None,
-            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            #[cfg(all(
+                feature = "sealed-develop-composer-acceptance",
+                not(feature = "sealed-source-intake-composer-acceptance")
+            ))]
             develop_composer: Arc::new(
                 SealedDevelopComposerAcceptanceV2::connect(
                     test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
@@ -2107,6 +2625,17 @@ mod tests {
                 .await
                 .unwrap(),
             ),
+            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            develop_composer: Arc::new(
+                SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            replay_composition: None,
         };
         let headers = bearer_headers(token);
         let research_request_identity = format!("rd-api-retry-research-{suffix}");

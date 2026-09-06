@@ -15,8 +15,10 @@
 use std::fmt::Display;
 
 use super::{
-    shared_time_evidence::UntrustedClockHeadLocator, source_binding::BindingDigest,
+    shared_time_evidence::UntrustedClockHeadLocator,
+    source_binding::BindingDigest,
     strategy_input_binding::StrategyInputUniverseSelectionReceipt,
+    universe_selection::{UniverseSelectionReadbackV1, verify_universe_selection_readback_v1},
 };
 
 pub(super) mod authority;
@@ -337,6 +339,7 @@ pub(crate) mod membership_seal {
     pub trait Sealed {}
 }
 impl membership_seal::Sealed for StrategyInputUniverseSelectionReceipt {}
+impl membership_seal::Sealed for UniverseSelectionReadbackV1 {}
 
 pub trait InstrumentMasterUniverseMembershipResolver:
     membership_seal::Sealed + Send + Sync
@@ -365,6 +368,36 @@ impl InstrumentMasterUniverseMembershipResolver for StrategyInputUniverseSelecti
             .iter()
             .map(|member| member.instrument().to_owned())
             .collect();
+        authority::validate_members(&members)?;
+        Ok(InstrumentMasterUniverseMembershipV1 {
+            selection_identity,
+            members,
+        })
+    }
+}
+
+impl InstrumentMasterUniverseMembershipResolver for UniverseSelectionReadbackV1 {
+    fn resolve_instrument_master_membership(
+        &self,
+        selection_identity: InstrumentMasterIdentity,
+    ) -> Result<InstrumentMasterUniverseMembershipV1, InstrumentMasterError> {
+        if !verify_universe_selection_readback_v1(self)
+            || self.record().identity() != selection_identity
+        {
+            return Err(InstrumentMasterError::MembershipMismatch);
+        }
+        let mut members = self
+            .record()
+            .membership()
+            .iter()
+            .filter(|membership| membership.included())
+            .map(|membership| {
+                std::str::from_utf8(membership.instrument())
+                    .map(str::to_owned)
+                    .map_err(|_| InstrumentMasterError::MembershipMismatch)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        members.sort();
         authority::validate_members(&members)?;
         Ok(InstrumentMasterUniverseMembershipV1 {
             selection_identity,

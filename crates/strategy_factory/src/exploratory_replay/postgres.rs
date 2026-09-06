@@ -231,6 +231,90 @@ struct ValidatedAvailableEnvelopeV1 {
     owner_cut_epoch_ms: u64,
 }
 
+pub(crate) async fn require_runtime_relation_name_census(pool: &PgPool) -> Result<(), sqlx::Error> {
+    let relation_names_are_unambiguous: bool = sqlx::query_scalar(
+        "
+        WITH names AS (
+          SELECT pg_catalog.to_regclass(
+                   'public.rd_exploratory_replay_request_custody_v1'
+                 ) AS internal_oid,
+                 pg_catalog.to_regclass(
+                   'public.rd_exploratory_replay_requests_v1'
+                 ) AS public_oid
+        )
+        SELECT internal_oid IS NULL
+           AND (
+             public_oid IS NULL
+             OR EXISTS (
+               SELECT 1
+                 FROM pg_catalog.pg_class relation
+                WHERE relation.oid=public_oid
+                  AND relation.relkind='r'
+                  AND relation.relpersistence='p'
+                  AND (
+                    SELECT pg_catalog.count(*)=13
+                       AND pg_catalog.bool_and(CASE attribute.attname
+                         WHEN 'replay_request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'run_attempt_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'handoff_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'research_view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         WHEN 'request_schema_version' THEN attribute.atttypid='pg_catalog.int2'::pg_catalog.regtype AND attribute.attnotnull
+                         WHEN 'v2_canonical_request_bytes' THEN attribute.atttypid='pg_catalog.bytea'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         WHEN 'v2_meaning_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         WHEN 'v2_seal_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         WHEN 'v2_receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                         ELSE false
+                       END)
+                      FROM pg_catalog.pg_attribute attribute
+                     WHERE attribute.attrelid=public_oid
+                       AND attribute.attnum>0
+                       AND NOT attribute.attisdropped
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                      FROM pg_catalog.pg_constraint constraint_entry
+                     WHERE constraint_entry.conrelid=public_oid
+                       AND constraint_entry.contype='p'
+                       AND constraint_entry.conkey=ARRAY[(
+                         SELECT attribute.attnum
+                           FROM pg_catalog.pg_attribute attribute
+                          WHERE attribute.attrelid=public_oid
+                            AND attribute.attname='replay_request_identity'
+                       )]::smallint[]
+                  )
+                  AND EXISTS (
+                    SELECT 1
+                      FROM pg_catalog.pg_constraint constraint_entry
+                     WHERE constraint_entry.conrelid=public_oid
+                       AND constraint_entry.contype='u'
+                       AND constraint_entry.conkey=ARRAY[(
+                         SELECT attribute.attnum
+                           FROM pg_catalog.pg_attribute attribute
+                          WHERE attribute.attrelid=public_oid
+                            AND attribute.attname='run_attempt_identity'
+                       )]::smallint[]
+                  )
+             )
+           )
+          FROM names
+        ",
+    )
+    .fetch_one(pool)
+    .await?;
+
+    if !relation_names_are_unambiguous {
+        return Err(sqlx::Error::Protocol(
+            "runtime R&D exploratory Replay relation topology is ambiguous or incompatible"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerError> {
     let mut migration = pool.begin().await.map_err(storage)?;
     sqlx::query(
@@ -1081,7 +1165,12 @@ async fn commit_inner(
                 .to_string(),
             census_frontier_identity: proposal.census_frontier_identity.clone(),
             census_frontier_digest: frontier.frontier_digest().to_string(),
-            replay_execution_policy_v2: root.policy().replay_execution_policy_v2().cloned(),
+            replay_execution_policy_v2: family
+                .trial_family()
+                .root()
+                .policy()
+                .replay_execution_policy_v2()
+                .cloned(),
         },
         research_receipt.committed_at_epoch_ms,
     )?;

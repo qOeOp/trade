@@ -11,7 +11,14 @@ use vibe_data::owner::{
     strategy_input_binding::StrategyInputUniverseSelectionReceipt,
 };
 use vibe_data::owner::{
-    source_binding::BindingDigest, strategy_input_binding::StrategyInputBindingReceipt,
+    source_binding::BindingDigest,
+    strategy_design_role_set::{
+        StrategyDesignJoinEntryV1, StrategyDesignJoinRoleV1, StrategyDesignRoleEntryV1,
+        StrategyDesignRoleSetErrorV1, StrategyDesignRoleSetLocatorV1,
+        StrategyDesignRoleSetReceiptV1,
+    },
+    strategy_input_binding::StrategyInputBindingReceipt,
+    strategy_input_joined_cut::derive_strategy_input_join_identity_v2,
 };
 
 use crate::strategy_design_v2::*;
@@ -702,6 +709,109 @@ pub(crate) fn durable_decode<T: DeserializeOwned>(bytes: &[u8]) -> Result<T, Str
     let json = serde_json::to_vec(&value.into_json()?)
         .map_err(|e| format!("canonical typed bridge encode failed: {e}"))?;
     serde_json::from_slice(&json).map_err(|e| format!("canonical typed decode failed: {e}"))
+}
+
+/// Projects the authenticated role/join set from exact durable Composer custody.
+///
+/// This parses the existing Plan and canonical Design codecs; it does not canonicalize a second
+/// Design representation or accept caller-authored role coordinates.
+pub(crate) fn project_strategy_design_role_set_v1(
+    plan_bytes: &[u8],
+    canonical_design_bytes: &[u8],
+    canonical_design_digest: BindingDigest,
+    locator: StrategyDesignRoleSetLocatorV1,
+    research_request_identity: BindingDigest,
+    intent_identity: BindingDigest,
+) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
+    let plan = durable_decode_plan(plan_bytes)
+        .map_err(|_| StrategyDesignRoleSetErrorV1::InvalidProjection)?;
+
+    if plan.durable_bytes() != plan_bytes
+        || plan.canonical_design_durable_bytes() != canonical_design_bytes
+        || plan.canonical_plan_digest() != locator.canonical_plan_digest
+        || plan.design_digest() != locator.design_digest
+    {
+        return Err(StrategyDesignRoleSetErrorV1::InvalidProjection);
+    }
+
+    let mut roles = plan
+        .input_roles()
+        .iter()
+        .map(|role| StrategyDesignRoleEntryV1 {
+            role_identity: role_identity(role),
+            semantic_id: role.semantic_id.clone(),
+            fact_class: canonical_coordinate(&role.fact_class),
+            instrument: role.instrument.clone(),
+            scope: canonical_coordinate(&role.scope),
+            field_semantic_id: role.field_semantic_id.clone(),
+            channel: role.channel.clone(),
+            timeframe: role.timeframe.clone(),
+            unit: role.unit.clone(),
+            scale: role.scale,
+            value_type: canonical_coordinate(&role.value_type),
+        })
+        .collect::<Vec<_>>();
+    roles.sort_by_key(|role| role.role_identity);
+    let by_semantic_id = roles
+        .iter()
+        .map(|role| (role.semantic_id.as_str(), role.role_identity))
+        .collect::<BTreeMap<_, _>>();
+    let mut joins = plan
+        .input_joins()
+        .iter()
+        .map(|join| {
+            let roles = join
+                .inputs
+                .iter()
+                .map(|semantic_id| {
+                    by_semantic_id
+                        .get(semantic_id.as_str())
+                        .copied()
+                        .map(|role_identity| StrategyDesignJoinRoleV1 {
+                            semantic_id: semantic_id.clone(),
+                            role_identity,
+                        })
+                        .ok_or(StrategyDesignRoleSetErrorV1::InvalidProjection)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(StrategyDesignJoinEntryV1 {
+                join_identity: derive_strategy_input_join_identity_v2(
+                    &join.semantic_id,
+                    &join.inputs,
+                    &join.alignment_semantic_id,
+                    &join.trigger_input_id,
+                    join.max_staleness_ns,
+                ),
+                semantic_id: join.semantic_id.clone(),
+                roles,
+                alignment_semantic_id: join.alignment_semantic_id.clone(),
+                trigger_input_id: join.trigger_input_id.clone(),
+                max_staleness_ns: join.max_staleness_ns,
+            })
+        })
+        .collect::<Result<Vec<_>, StrategyDesignRoleSetErrorV1>>()?;
+    joins.sort_by_key(|join| join.join_identity);
+
+    StrategyDesignRoleSetReceiptV1::from_rd_owner_projection(
+        locator,
+        research_request_identity,
+        intent_identity,
+        plan.design_identity(),
+        plan.design_digest(),
+        canonical_design_digest,
+        roles,
+        joins,
+    )
+}
+
+fn canonical_coordinate(value: &impl Serialize) -> String {
+    let value =
+        serde_json::to_value(value).expect("Strategy Design coordinate serialization is total");
+    match value {
+        serde_json::Value::String(value) => value,
+        other => serde_json::to_string(&other)
+            .expect("Strategy Design coordinate serialization is total"),
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -3262,6 +3372,7 @@ pub(crate) fn compile_with_binding_projections_for_test(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn compile_with_binding_and_implementation_receipts_for_test(
     design: StrategyDesignV2,
     bindings: Vec<(InputRoleV2, BindingDigest)>,
@@ -3302,6 +3413,7 @@ pub(crate) fn verified_strategy_input_bindings_for_test(
     }
 }
 
+#[cfg(test)]
 fn test_binding_projections(
     canonical: &CanonicalDesignV2,
     design_identity: BindingDigest,
@@ -3334,6 +3446,7 @@ fn test_binding_projections(
         .collect()
 }
 
+#[cfg(test)]
 fn test_data_kind(field_semantic_id: &str) -> &'static str {
     match field_semantic_id {
         "MARKET_DATA.BAR.CLOSE.PRICE.V1" | "MARKET_DATA.BAR.OPEN.PRICE.V1" => "BAR",
@@ -3342,6 +3455,7 @@ fn test_data_kind(field_semantic_id: &str) -> &'static str {
     }
 }
 
+#[cfg(test)]
 fn test_selection_identity(input: &InputRoleV2) -> BindingDigest {
     digest(
         b"strategy.plan.test-selection.v2\0",
@@ -3382,6 +3496,7 @@ pub(crate) fn plugin_implementation_receipts_for_test(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(test)]
 pub(crate) fn issue_plugin_implementation_receipt_v2_for_test(
     plugin: &PluginManifestV2,
     implementation_capsule_digest: BindingDigest,

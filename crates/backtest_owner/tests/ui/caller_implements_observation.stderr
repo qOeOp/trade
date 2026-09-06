@@ -9,7 +9,6 @@ help: the trait `vibe_backtest_owner::sealed::Sealed` is not implemented for `Fo
   |
 6 | struct ForgedObservation;
   | ^^^^^^^^^^^^^^^^^^^^^^^^
-  = note: `ForgedObservation` implements similarly named trait `unicode_width::private::Sealed`, but not `vibe_backtest_owner::sealed::Sealed`
 help: the trait `vibe_backtest_owner::sealed::Sealed` is implemented for `ConsumedComponentObservationV2`
  --> src/lib.rs
   |

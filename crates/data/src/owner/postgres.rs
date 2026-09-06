@@ -9,6 +9,19 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
+mod calendar;
+mod corporate_action;
+mod market_semantics;
+mod observation_census;
+mod reference_fact_catalog;
+mod reference_fact_coordinates;
+mod replay_market_facts_v2;
+mod sample_projection_v4;
+mod session;
+mod strategy_input_binding_registry;
+mod time_zone;
+mod universe_selection;
+
 #[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::research_pit_terminal::{
@@ -60,6 +73,12 @@ use super::{
             decode_receipt as decode_instrument_receipt, select_facts as select_instrument_facts,
             validate_fact_graph as validate_instrument_fact_graph,
         },
+    },
+    observation_census::{
+        ObservationCensusErrorV1, ObservationCensusReadbackV1, ObservationCensusResolverV1,
+        StrategyInputJoinedCutOwnerResolverV1, StrategyInputJoinedCutReadbackV1,
+        UntrustedObservationCensusLocatorV1, UntrustedObservationCensusRequestV1,
+        UntrustedStrategyInputJoinedCutLocatorV1,
     },
     pit_snapshot::{
         PitSnapshotCommitAggregate, PitSnapshotError, UntrustedPitObservationBatchProposal,
@@ -123,9 +142,10 @@ use super::{
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
 const SHARED_TIME_MIGRATION_ID: &str = "market-data-owner-shared-time-v1";
 const OWNER_HISTORY_CENSUS_MIGRATION_ID: &str = "market-data-owner-history-census-v1";
+const OWNER_SCHEMA_GUARD_V1: &str = "DO $owner_schema$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace namespace JOIN pg_catalog.pg_roles role ON role.oid=namespace.nspowner WHERE namespace.nspname='market_data_private' AND role.rolname=current_user) THEN RAISE EXCEPTION 'Market Data bootstrap schema ownership is unavailable'; END IF; END $owner_schema$";
 
 const MIGRATION_STATEMENTS: &[&str] = &[
-    "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
+    OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_migrations_v1 (migration_id TEXT PRIMARY KEY, installed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp())",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE, CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",
@@ -229,6 +249,14 @@ pub(crate) struct MarketDataReadPostgres {
     admitted_port: AdmittedMarketDataSnapshotPort,
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ObservationCensusFaultV1 {
+    None,
+    RollbackBeforeCommit,
+    ResponseLoss,
+}
+
 /// Unforgeable proof that PostgreSQL custody and every native dependency were verified.
 ///
 /// Only this module can construct the proof. The projection contract may consume it, while other
@@ -274,6 +302,24 @@ impl MarketDataOwnerPostgres {
         Ok(owner)
     }
 
+    pub(crate) async fn connect_existing(database_url: &str) -> Result<Self, SourceBindingError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        let admitted: bool = sqlx::query_scalar(
+            "SELECT session_user='market_data_owner' AND current_user='market_data_owner' AND NOT pg_catalog.pg_is_in_recovery() AND pg_catalog.to_regclass('market_data_private.owner_migrations_v1') IS NOT NULL AND role.rolcanlogin AND role.rolinherit AND NOT role.rolsuper AND NOT role.rolcreatedb AND NOT role.rolcreaterole AND NOT role.rolreplication AND NOT role.rolbypassrls AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members membership WHERE membership.member=role.oid OR membership.roleid=role.oid) FROM pg_catalog.pg_roles role WHERE role.rolname=current_user",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        if !admitted {
+            return Err(SourceBindingError::StoreUnavailable);
+        }
+        Ok(Self { pool })
+    }
+
     async fn migrate(&self) -> Result<(), SourceBindingError> {
         let mut transaction = self
             .pool
@@ -287,6 +333,16 @@ impl MarketDataOwnerPostgres {
                 .await
                 .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+
+        for statement in super::replay_market_facts_v2::postgres::REPLAY_MARKET_FACTS_SCHEMA_V2 {
+            sqlx::query(statement)
+                .execute(&mut *transaction)
+                .await
+                .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        }
+        sample_projection_v4::install(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         let history_census_installed: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM market_data_private.owner_migrations_v1 WHERE migration_id=$1)",
         )
@@ -319,6 +375,23 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| SourceBindingError::StoreUnavailable)?;
         }
+        universe_selection::install_universe_selection_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        market_semantics::install_market_semantics_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        reference_fact_coordinates::install_reference_fact_r0_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        strategy_input_binding_registry::install_strategy_input_binding_registry_schema_v1(
+            &mut transaction,
+        )
+        .await
+        .map_err(|_| SourceBindingError::StoreUnavailable)?;
+        observation_census::install_observation_census_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| SourceBindingError::StoreUnavailable)?;
         sqlx::query(
             "INSERT INTO market_data_private.owner_migrations_v1(migration_id) VALUES ($1) ON CONFLICT (migration_id) DO NOTHING",
         )
@@ -2046,6 +2119,138 @@ impl InstrumentMasterResolver for MarketDataOwnerPostgres {
             .await
             .map_err(|_| InstrumentMasterError::StoreUnavailable)?;
         Ok(readback)
+    }
+}
+
+impl MarketDataOwnerPostgres {
+    async fn resolve_observation_census_inner_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+        #[cfg(test)] fault: ObservationCensusFaultV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let (census, _) =
+            observation_census::resolve_and_commit_observation_census_v1(&mut transaction, request)
+                .await?;
+        #[cfg(test)]
+        if fault == ObservationCensusFaultV1::RollbackBeforeCommit {
+            return Err(ObservationCensusErrorV1::CommitInterrupted);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        #[cfg(test)]
+        if fault == ObservationCensusFaultV1::ResponseLoss {
+            return Err(ObservationCensusErrorV1::ResponseLost);
+        }
+        Ok(census)
+    }
+
+    #[cfg(test)]
+    pub(super) async fn resolve_observation_census_with_fault_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+        fault: ObservationCensusFaultV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        self.resolve_observation_census_inner_v1(request, fault)
+            .await
+    }
+}
+
+impl super::observation_census::resolver_seal::Sealed for MarketDataOwnerPostgres {}
+
+#[async_trait::async_trait]
+impl ObservationCensusResolverV1 for MarketDataOwnerPostgres {
+    async fn resolve_observation_census_v1(
+        &self,
+        request: &UntrustedObservationCensusRequestV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        self.resolve_observation_census_inner_v1(
+            request,
+            #[cfg(test)]
+            ObservationCensusFaultV1::None,
+        )
+        .await
+    }
+
+    async fn recover_observation_census_v1(
+        &self,
+        locator: &UntrustedObservationCensusLocatorV1,
+    ) -> Result<ObservationCensusReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let request =
+            observation_census::load_observation_census_request_v1(&mut transaction, locator)
+                .await?
+                .ok_or(ObservationCensusErrorV1::UnknownIdentity)?;
+        let (census, _) = observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &request,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        Ok(census)
+    }
+}
+
+#[async_trait::async_trait]
+impl StrategyInputJoinedCutOwnerResolverV1 for MarketDataOwnerPostgres {
+    async fn resolve_strategy_input_joined_cut_v1(
+        &self,
+        locator: &UntrustedStrategyInputJoinedCutLocatorV1,
+    ) -> Result<StrategyInputJoinedCutReadbackV1, ObservationCensusErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        let (request, custody_bytes, receipt_digest) =
+            observation_census::load_strategy_input_joined_cut_custody_v1(
+                &mut transaction,
+                locator,
+            )
+            .await?
+            .ok_or(ObservationCensusErrorV1::UnknownIdentity)?;
+        let (_, joined) = observation_census::resolve_and_commit_observation_census_v1(
+            &mut transaction,
+            &request,
+        )
+        .await?;
+
+        if joined.record().identity() != locator.joined_cut_identity()
+            || joined.record().canonical_bytes() != custody_bytes.as_ref()
+            || joined.record().joined_cut_receipt().digest() != receipt_digest
+        {
+            return Err(ObservationCensusErrorV1::DigestMismatch);
+        }
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?;
+        Ok(joined)
     }
 }
 
@@ -7524,4 +7729,4 @@ fn nonnegative_u64(value: i64) -> Result<u64, sqlx::Error> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

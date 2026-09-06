@@ -139,6 +139,51 @@ Artifact is dynamically accepted by `ProgramHostV2`; this proves only the crate-
 consumer path. Durable PostgreSQL custody, restart recovery across processes, provider/API/Windmill composition,
 and deployed Owner readiness remain unavailable and are not inferred from the in-memory join.
 
+**TARGET - canonical Research-to-Composer custody:** the public operation accepts only a canonical Research request
+locator. On one R&D transaction, the Owner-internal exact commit-cut capability takes request/aggregate row locks,
+canonically rereads current Research custody, and derives the request, Design, all Research/Intent/Design digests,
+bindings, source capsule, provider, Operator Authorization frontier, and final cut before any write. The authenticated
+GET request projection is read-only recovery metadata; POST derives independently and cannot accept projection
+feedback. The same transaction persists all positive Composer facts or none. The sealed A0 Build Receipt is one
+intrinsic content-addressed fact, while each Artifact owns a separate canonically ordered use relation. Thus two
+distinct Research custodies may produce two Artifacts and two use rows that share one build fact without collapsing
+their lineage. The intrinsic relation is
+`rd_develop_build_receipts_v2(receipt_identity, build_attempt_identity, capsule_identity, canonical_bytes)`;
+`rd_develop_artifact_build_receipt_uses_v2(artifact_identity, ordinal, receipt_identity)` owns the ordered references.
+Only the exact legacy embedded-receipt schema permits a one-time byte-preserving normalization; partial, mismatched,
+ambiguous, or any other shape fails closed. This remains `TARGET` until the isolated Windmill
+golden chain, locator/full-DTO negatives, dual-custody sharing, concurrency/conflict, fault atomicity, response loss,
+restart readback, and exact cleanup baseline all pass.
+
+**CURRENT/PARTIAL - authenticated Strategy Design role-set readback:** the fixed R&D Owner adapter can resolve one
+exact accepted Composer request locator against the existing durable Design/Plan/Composer custody and return the
+additive `StrategyDesignRoleSetReceiptV1`. It repeats schema/reserved, exact request and operation receipt,
+Research request and Intent, Design identity/digest, canonical-Design and Plan digests, Artifact identity, every
+role sorted by derived role identity with complete semantic coordinates, and every join sorted by derived join
+identity while preserving declared role order, alignment, trigger and maximum staleness. Its SHA-256 domain is
+`rd.strategy-design-role-set.receipt.v1\0`; the hash protects integrity only, while the fixed admitted R&D resolver
+supplies authority. **CURRENT/PARTIAL:** the fixed R&D API resolves this exact readback before Market Data binding
+issuance; callers cannot supply the receipt, roles, counts or resolver. The same Market transaction issues and
+stores unchanged Replay V2 facts, and exact binding-locator recovery returns byte-identical binding and Replay
+payloads. **TARGET:** admitted deployment and isolated PostgreSQL acceptance.
+**NOT_ADMITTED:** this projection is
+not a second Design store, does not transfer Design/role/join authority to Market Data, and claims no default
+deployment, Replay composition, Dashboard, production write, runtime, Backtest result or trading authority.
+
+The receipt canonical binary codec is fixed and has no JSON dependency. Integers are unsigned big-endian;
+digests are their raw 32 bytes; a string is its UTF-8 byte length as `u32BE` followed by those bytes; and a list is
+its item count as `u32BE` followed by its items. The bytes are, in order: receipt schema `u16BE`, reserved-zero
+`u16BE`; Composer locator schema `u16BE`, request identity string, operation-receipt digest, artifact-locator
+string, artifact digest, Plan digest and Design digest; repeated operation-receipt, Research-request, Intent,
+Design-identity, Design, canonical-Design, Plan and Artifact digests; role count, then each role's identity digest,
+semantic-id, fact-class, instrument, scope, field-semantic-id, channel, timeframe and unit strings, scale `u8`, and
+value-type string; join count, then each join's identity digest, semantic-id string, ordered-role count, each
+ordered role's semantic-id string and identity digest, alignment and trigger strings, and maximum staleness
+`u64BE`. No trailing bytes are admitted. `receipt_digest` is SHA-256 of the domain above followed by exactly these
+bytes; neither the canonical bytes nor the digest are themselves encoded into the canonical bytes. Exact-locator
+recovery reprojects existing Composer custody and must return byte-identical canonical bytes and digest. A
+self-consistent caller-created byte sequence or hash remains untrusted and cannot enter the fixed resolver path.
+
 **CURRENT/PARTIAL - local bounded-plugin build producer:** for exactly one current `PluginManifestV2`, R&D admits
 only one content-bounded `src/lib.rs` in the fixed `rust.no_std.fixed-abi-source.v2` language and rejects every
 other path, symlink, file, dependency, build script, toolchain, target, or command. It materializes two separate
@@ -328,15 +373,22 @@ that family-sealed policy and cross-binding and never rereads the Catalog as aut
 audit-only and cannot affect admissibility; a later Catalog version, revocation, deletion, unavailability, or
 tamper cannot replace the policy or invalidate a formed family.
 
-Later Replay Policy V2 composition uses one admitted R&D PostgreSQL transaction domain across the R&D, Composer,
-and Market Data path. The R&D-owned composition resolver/A1 alone holds that transaction capability and passes it
-to each applicable Owner-owned sealed Composer or Market Data read method. Each Owner performs its own locking,
-canonical reread, validation, and sealing on that exact transaction. No Owner or composition resolver may open
-another pool, connection, or transaction for the
-composition, read another Owner's raw tables, reconstruct sealed evidence, or transfer fact authority. Any
-unavailable, stale, mismatched, cross-cut, or wrong-owner Composer or Market Data evidence, or any invalid
-family-sealed policy cross-binding, fails before the first positive write. R&D then commits the formed facts,
-receipts, and R&D outbox atomically on that same transaction.
+Later Replay Policy V2 composition uses one R&D-owned A1 orchestration across two explicitly bounded Owner
+transactions. A read-only `market_data_reader` transaction first acquires the exact Composer request's shared cut
+lock, locks and canonically rereads the complete Composer aggregate through Owner-owned sealed functions, validates
+it, and remains open through the Market terminal decision. Only then may the fixed `market_data_owner` login
+principal open one SERIALIZABLE transaction, prove that both connections reach the same live primary, database,
+postmaster incarnation and advisory
+lock manager, acquire the same shared Composer cut lock as a database-level handoff, and perform every Market Data
+lock, canonical reread, validation, seal and positive write. The Composer writer uses the matching exclusive cut
+lock before every mutation, so either surviving shared lock prevents Composer drift until the Market transaction
+commits or rolls back. No Owner or A1 may read another Owner's raw tables, reconstruct sealed evidence, transfer fact
+authority, receive raw access to another Owner, claim a shared XID or MVCC snapshot, or claim cross-Owner atomic
+commit. `market_data_owner` retains raw authority only over its own private Market Data relations. Any unavailable, stale,
+mismatched, cross-cut, wrong-owner or wrong-database evidence, any failed lock-manager proof, or any invalid
+family-sealed policy cross-binding fails before the first positive Market write. Binding, Replay facts, receipts,
+outbox and issuance response bytes commit atomically only inside the Market Data Owner transaction; Composer
+evidence is stable for the guarded window but was committed independently.
 
 A disposable Catalog fixture is test-only. An isolated `SEALED_ACCEPTANCE` harness may use the private
 administration port to create and explicitly advance one fixed content-addressed policy head in its fresh

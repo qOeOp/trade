@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1091,SC2154
 set -eu
 
 check_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
@@ -12,6 +13,7 @@ fi
 POSTGRES_PASSWORD=check-only \
   RD_OWNER_DB_PASSWORD=check-only \
   RD_FACT_WRITER_DB_PASSWORD=check-only \
+  MARKET_DATA_OWNER_DB_PASSWORD=check-only \
   REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=check-only \
   OPERATOR_AUTHORIZATION_DB_PASSWORD=check-only \
   QUALIFICATION_OWNER_DB_PASSWORD=check-only \
@@ -21,6 +23,8 @@ POSTGRES_PASSWORD=check-only \
   WINDMILL_DATABASE_URL=check-only \
   RD_OWNER_DATABASE_URL=check-only \
   RD_FACT_WRITER_DATABASE_URL=check-only \
+  MARKET_DATA_OWNER_DATABASE_URL=check-only \
+  MARKET_DATA_RD_ROLE_SET_DATABASE_URL=check-only \
   REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL=check-only \
   OPERATOR_AUTHORIZATION_DATABASE_URL=check-only \
   QUALIFICATION_OWNER_DATABASE_URL=check-only \

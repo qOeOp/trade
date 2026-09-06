@@ -225,12 +225,17 @@ correlation binding。含义改变必须创建后继请求；传输成功 静默
   `RUN`/`RESOLVE` 传输。即使取得，该证据也仅适用于验收，绝不证明 `CURRENT` 生产、网络、credential、
   权利、DNS、政策、Time Evidence 或 live-provider readiness。
 - 目标 A2 composition 部署固定链 `Source Intake RUN/RESOLVE -> typed Research RUN/RESOLVE ->
-  Composer RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、固定 A0 build corpus，以及唯一内部
-  PostgreSQL、Windmill、network、ingress 与 volume state。它没有 runtime provider selector。
-- A1 正向 transaction 把私有规范 A0 Build Receipt bytes 与 Artifact、Composer receipts 和 outbox 原子持久化，
-  同时让不透明、不可序列化的 verified token 保持 move-only 且仅存在于进程内。
-- 组合 runner 必须证明并发相同 request join 与 changed-meaning conflict、每个 atomic write fault 都零 partial
-  row、commit 后 response-loss resolution、重启后重读私有规范 A0 Build Receipt，并校验其 capsule、
+  Composer RUN/RESOLVE`，使用编译期 sealed adapter、固定 Source Intake corpus、共享的固定 A0 build corpus，
+  以及唯一内部 PostgreSQL、Windmill、network、ingress 与 volume state。它没有 runtime provider selector。
+  Composer 只接收规范 Research request locator；Owner 在同一 lock/write transaction 中派生 request、Design、
+  digests 与 provider，同时保留 Operator Authorization frontier 与 final cut。
+- A1 正向 transaction 把 intrinsic 私有规范 A0 Build Receipt fact、独立 ordered Artifact-use relation、Artifact、
+  Composer receipts 与 outbox 原子持久化，同时让不透明、不可序列化的 verified token 保持 move-only 且仅存在
+  于进程内。两个 Research-derived Artifact 只能通过两条不同 use row 共享一份 sealed build fact。只有准确
+  legacy schema 可做一次 byte-preserving normalization；其他 shape 全部 fail closed。
+- 组合 runner 必须证明 locator-only/full-DTO negatives、双 custody shared-build normalization、并发相同
+  request join 与 changed-meaning conflict、每个 same-transaction atomic write fault 都零 partial row、`RUN`
+  前只读 projection、commit 后 response-loss/bodyless resolution、重启后重读私有规范 A0 Build Receipt，并校验其 capsule、
   toolchain、linker、configuration 与 two-build provenance，重新绑定 Artifact/Composer receipts，完成规范
   byte parse/hash 与 `ProgramHostV2` readmission 后得到字节一致 `RESOLVE`。它还证明每个必需 single-field
   mutation negative，包括另对规范 A0 Build Receipt 做一次单字段 mutation、已部署 golden-path replay，
