@@ -14,12 +14,12 @@ import { Views } from "./view-tabs";
 
 export function CalendarHeader(props: CalendarHeaderProps) {
   return <div className={styles.calendarHeader} data-slot="schedule-calendar-header" aria-label="Schedule controls">
-    <motion.div className={styles.calendarIdentity} variants={slideFromLeft} initial="initial" animate="animate"
+    <motion.div className={styles.calendarIdentity} variants={slideFromLeft} initial={false} animate="animate"
       transition={transition}>
       <TodayButton onToday={props.onToday} />
       <DateNavigator date={props.date} view={props.view} statusLabel={props.statusLabel} onShift={props.onShift} />
     </motion.div>
-    <motion.div className={styles.calendarTools} variants={slideFromRight} initial="initial" animate="animate"
+    <motion.div className={styles.calendarTools} variants={slideFromRight} initial={false} animate="animate"
       transition={transition}>
       <div className={styles.calendarOptions}>
         <FilterSchedules query={props.query} observationScope={props.observationScope}

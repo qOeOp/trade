@@ -73,6 +73,19 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
 });
 
+test("schedule controls are visible before animation frames advance", async () => {
+  const header = await readFile(new URL("../components/ui/schedule-calendar/header/calendar-header.tsx", import.meta.url), "utf8");
+  const today = await readFile(new URL("../components/ui/schedule-calendar/header/today-button.tsx", import.meta.url), "utf8");
+  const navigator = await readFile(new URL("../components/ui/schedule-calendar/header/date-navigator.tsx", import.meta.url), "utf8");
+
+  for (const source of [header, today, navigator]) {
+    assert.doesNotMatch(source, /initial=(?:"initial"|\{\{[^}]*opacity:\s*0)/u);
+  }
+  assert.equal(header.match(/initial=\{false\}/g)?.length, 2);
+  assert.equal(today.match(/initial=\{false\}/g)?.length, 2);
+  assert.equal(navigator.match(/initial=\{false\}/g)?.length, 3);
+});
+
 test("calendar body retains the source view, cell, badge, and inspection hierarchy", async () => {
   const bodyFiles = await Promise.all([
     "calendar-body.tsx",

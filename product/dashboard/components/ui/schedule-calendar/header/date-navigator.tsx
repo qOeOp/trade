@@ -33,11 +33,11 @@ export function DateNavigator({ date, view, statusLabel, onShift }: {
   const range = calendarRangeV1(date, view);
   return <div className={styles.dateNavigator}>
     <div className={styles.headingLine}>
-      <motion.h3 initial={{ x: -20, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={transition}>
+      <motion.h3 initial={false} animate={{ x: 0, opacity: 1 }} transition={transition}>
         {monthHeading(date)}
       </motion.h3>
       <AnimatePresence mode="wait">
-        <motion.span key={statusLabel} initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+        <motion.span key={statusLabel} initial={false} animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.8, opacity: 0 }} transition={transition}>
           {statusLabel}
         </motion.span>
@@ -48,7 +48,7 @@ export function DateNavigator({ date, view, statusLabel, onShift }: {
         variants={buttonHover} whileHover="hover" whileTap="tap">
         <InterfaceIcons.previous size={15} aria-hidden="true" />
       </motion.button>
-      <motion.p key={`${range.start}-${range.end}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={transition}>
+      <motion.p key={`${range.start}-${range.end}`} initial={false} animate={{ opacity: 1 }} transition={transition}>
         {compactRange(range.start, range.end)}
       </motion.p>
       <motion.button type="button" aria-label="Next range" onClick={() => onShift(1)}
