@@ -13,6 +13,7 @@ import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
 import { OperationsSchedulesPreview } from "./operations-schedules-preview";
+import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
 
@@ -91,10 +92,14 @@ export function DashboardShell({
   current,
   runIdentity,
   workerIdentity,
+  artifactBuildRequestIdentity,
+  artifactAttemptIdentity,
 }: {
   current: string;
   runIdentity?: string;
   workerIdentity?: string;
+  artifactBuildRequestIdentity?: string;
+  artifactAttemptIdentity?: string;
 }) {
   const activeModule = moduleFor(current);
   const page = pageFor(current);
@@ -104,7 +109,10 @@ export function DashboardShell({
   const operationsRunDetail = current === "/operations/runs/example";
   const operationsWorkers = current === "/operations/workers";
   const operationsSchedules = current === "/operations/schedules";
+  const artifactSourceDetail = current === "/rd/artifacts"
+    && Boolean(artifactBuildRequestIdentity && artifactAttemptIdentity);
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
+  const connected = operationsConnected || artifactSourceDetail;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -121,8 +129,10 @@ export function DashboardShell({
             </div>
             <div className="authority-block">
               <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
-              <small>{operationsRunDetail
+              <b>{artifactSourceDetail ? "Verified Artifact read" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+              <small>{artifactSourceDetail
+                ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
+                : operationsRunDetail
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD"
                 : operationsWorkers
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN"
@@ -139,10 +149,16 @@ export function DashboardShell({
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview />
+              : artifactSourceDetail ? <ArtifactSourceWorkspace
+                buildRequestIdentity={artifactBuildRequestIdentity!}
+                attemptIdentity={artifactAttemptIdentity!}
+              />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
           <footer className="prototype-notice">
-            {operationsConnected
+            {artifactSourceDetail
+              ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
+              : connected
                 ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
           </footer>

@@ -211,6 +211,8 @@ export function StrategyCodeViewer({
         ) : safeProjection.source && safeProjection.wasmPreview ? (
           <motion.div
             className={styles.shell}
+            data-preview-mode={safeProjection.wasmPreview.status === "not_run"
+              || safeProjection.wasmPreview.status === "unavailable" ? "compact" : "result"}
             initial={reduceMotion ? false : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: reduceMotion ? 0 : 0.16 }}
@@ -226,7 +228,11 @@ export function StrategyCodeViewer({
               </div>
             </div>
             <ReadOnlyCodeMirror code={safeProjection.source.content} language={safeProjection.source.language} />
-            <section className={styles.preview} aria-label="WASM preview result">
+            <section
+              className={styles.preview}
+              data-status={safeProjection.wasmPreview.status}
+              aria-label="WASM preview result"
+            >
               <header><span>WASM preview</span><code>{safeProjection.wasmPreview.moduleIdentity ?? "No module"}</code></header>
               <WasmPreview preview={safeProjection.wasmPreview} />
             </section>

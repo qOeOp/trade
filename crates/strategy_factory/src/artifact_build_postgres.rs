@@ -16,7 +16,8 @@ use crate::{
         ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
-        ArtifactRequestIdentityPreflightV1, LegacyPreparedAttemptDrainReadbackV1,
+        ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
+        ArtifactWasmPreviewStatusV1, LegacyPreparedAttemptDrainReadbackV1,
         ReservedArtifactBuildInvocationV1, StoredArtifactBuildInvocationSnapshotV1,
         UnixArtifactBuildSandboxV1, artifact_review, artifact_review_action_projection,
         build_receipt, build_request_semantic_digest, canonical_intent_bytes, issue_artifact,
@@ -1353,6 +1354,75 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
         self.resolve_legacy_terminal_in_store(build_request_identity, attempt_identity)
             .await
+    }
+}
+
+#[async_trait]
+impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
+    async fn read_source(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
+        let mut transaction = self.pool.begin().await.map_err(storage)?;
+        let Some(custody) = Box::pin(admit_attempt_custody_in_transaction(
+            &mut transaction,
+            build_request_identity,
+        ))
+        .await?
+        else {
+            transaction.commit().await.map_err(storage)?;
+            return Ok(None);
+        };
+
+        if custody.attempt.request.attempt_identity != attempt_identity {
+            return Err(ArtifactBuildError::ConflictingReplay);
+        }
+        let Some(receipt) = custody.attempt.receipt.as_ref() else {
+            return Ok(None);
+        };
+
+        if receipt.disposition != ArtifactBuildDisposition::Success {
+            return Ok(None);
+        }
+        let candidate = custody.attempt.candidate.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful candidate missing".to_string())
+        })?;
+        let candidate_digest = custody.attempt.candidate_digest.as_deref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful candidate digest missing".to_string())
+        })?;
+        let review = custody.artifact_review.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful artifact review missing".to_string())
+        })?;
+        let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful artifact identity missing".to_string())
+        })?;
+
+        if review.artifact_identity.artifact_digest != artifact_identity
+            || review.build_receipt.candidate_digest != candidate_digest
+            || review.build_receipt.attempt_identity != attempt_identity
+        {
+            return Err(ArtifactBuildError::Storage(
+                "artifact source custody mismatch".to_string(),
+            ));
+        }
+        let source = crate::artifact_build::render_program_source(candidate, candidate_digest);
+        let source_digest = format!("sha256:{:x}", sha2::Sha256::digest(source.as_bytes()));
+        let readback = ArtifactSourceReadbackV1 {
+            schema_version: 1,
+            build_request_identity: build_request_identity.to_string(),
+            attempt_identity: attempt_identity.to_string(),
+            artifact_identity: artifact_identity.to_string(),
+            observed_at_epoch_ms: receipt.committed_at_epoch_ms,
+            file_name: "strategy.rs".to_string(),
+            language: "rust".to_string(),
+            source,
+            source_digest,
+            wasm_preview_status: ArtifactWasmPreviewStatusV1::NotRun,
+            wasm_preview_reason: "WASM_PREVIEW_NOT_RUN".to_string(),
+        };
+        transaction.commit().await.map_err(storage)?;
+        Ok(Some(readback))
     }
 }
 
@@ -3446,6 +3516,68 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         assert_eq!(terminal.resolution(), ArtifactBuildResolution::Success);
+        let before_source_read = state_snapshot(
+            &pool,
+            &research_request_identity,
+            &sealed_success_request,
+            &intent_identity,
+            &family_identity,
+        )
+        .await;
+        let source = owner
+            .read_source(
+                &sealed_success_request.build_request_identity,
+                &sealed_success_request.attempt_identity,
+            )
+            .await
+            .unwrap()
+            .expect("terminal-success custody exposes verified source");
+        assert_eq!(source.schema_version, 1);
+        assert_eq!(
+            source.artifact_identity,
+            terminal
+                .owner_receipt()
+                .unwrap()
+                .artifact_identity
+                .as_deref()
+                .unwrap()
+        );
+        assert_eq!(
+            source.source,
+            crate::artifact_build::render_program_source(
+                &candidate,
+                &crate::artifact_build::candidate_digest(&candidate).unwrap(),
+            )
+        );
+        assert_eq!(
+            source.source_digest,
+            format!("sha256:{:x}", Sha256::digest(source.source.as_bytes()))
+        );
+        assert_eq!(
+            source.wasm_preview_status,
+            ArtifactWasmPreviewStatusV1::NotRun
+        );
+        assert!(matches!(
+            owner
+                .read_source(
+                    &sealed_success_request.build_request_identity,
+                    "different-attempt",
+                )
+                .await,
+            Err(ArtifactBuildError::ConflictingReplay)
+        ));
+        assert_eq!(
+            state_snapshot(
+                &pool,
+                &research_request_identity,
+                &sealed_success_request,
+                &intent_identity,
+                &family_identity,
+            )
+            .await,
+            before_source_read,
+            "source read must not mutate terminal custody",
+        );
         assert_eq!(
             owner
                 .resolve(
