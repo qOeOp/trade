@@ -9,6 +9,10 @@ import {
   type ArtifactDirectoryCursorV1,
   type ArtifactDirectoryItemV1,
 } from "../lib/artifact-directory-gateway";
+import type {
+  HistoricalArtifactCandidateV1,
+  HistoricalBindingCandidateV1,
+} from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { UnavailableState } from "./ui/evidence-strip";
@@ -24,6 +28,7 @@ import {
   PanelFrameHeader,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -44,6 +49,8 @@ function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
 }
 
 export function ArtifactDirectory() {
+  const [view, setView] = useState<"verified" | "candidates">("verified");
+  const [candidateKind, setCandidateKind] = useState<"attempts" | "bindings">("attempts");
   const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
   const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
@@ -53,6 +60,7 @@ export function ArtifactDirectory() {
   const [pendingOlder, setPendingOlder] = useState(false);
   const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
   const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
+  const custodyCandidates = useHistoricalCustodyDirectory(view === "candidates");
 
   const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
@@ -122,6 +130,20 @@ export function ArtifactDirectory() {
       item.buildTarget,
     ].some((value) => value.toLowerCase().includes(normalizedSearch)))
     : items, [items, normalizedSearch]);
+  const visibleAttemptCandidates = useMemo(() => {
+    const candidates = custodyCandidates.projection?.artifactAttempts ?? [];
+    return normalizedSearch
+      ? candidates.filter((item) => `${item.buildRequestIdentity} ${item.attemptIdentity}`
+        .toLowerCase().includes(normalizedSearch))
+      : candidates;
+  }, [custodyCandidates.projection, normalizedSearch]);
+  const visibleBindingCandidates = useMemo(() => {
+    const candidates = custodyCandidates.projection?.bindings ?? [];
+    return normalizedSearch
+      ? candidates.filter((item) => `${item.bindingIdentity} ${item.trialFamilyIdentity}`
+        .toLowerCase().includes(normalizedSearch))
+      : candidates;
+  }, [custodyCandidates.projection, normalizedSearch]);
 
   const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
     {
@@ -169,6 +191,104 @@ export function ArtifactDirectory() {
       cell: (item) => <time dateTime={item.committedAt}>{displayTime(item.committedAt)}</time>,
     },
   ], []);
+  const attemptCandidateColumns = useMemo<DataWorkspaceColumn<HistoricalArtifactCandidateV1>[]>(() => [
+    {
+      id: "build",
+      name: <DataTableHeaderLabel>Build request</DataTableHeaderLabel>,
+      selector: (item) => item.buildRequestIdentity,
+      sortable: true,
+      minWidth: "310px",
+      grow: 1.4,
+      cell: (item) => <div className={styles.identityCell}>
+        <strong title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</strong>
+        <span>Candidate identity only</span>
+      </div>,
+    },
+    {
+      id: "attempt",
+      name: <DataTableHeaderLabel>Attempt</DataTableHeaderLabel>,
+      selector: (item) => item.attemptIdentity,
+      sortable: true,
+      minWidth: "280px",
+      grow: 1.2,
+      cell: (item) => <code className={styles.intent} title={item.attemptIdentity}>
+        {displayIdentity(item.attemptIdentity)}
+      </code>,
+    },
+    {
+      id: "verification",
+      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
+      selector: (item) => item.projectionState,
+      minWidth: "220px",
+      cell: () => <div className={styles.verification}>
+        <StatusBadge tone="unavailable">Not verified</StatusBadge>
+        <span>Point read required</span>
+      </div>,
+    },
+    {
+      id: "observed",
+      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      selector: (item) => item.preparedAtEpochMs,
+      sortable: true,
+      minWidth: "210px",
+      cell: (item) => <time dateTime={new Date(item.preparedAtEpochMs).toISOString()}>
+        {new Date(item.preparedAtEpochMs).toLocaleString()}
+      </time>,
+    },
+  ], []);
+  const bindingCandidateColumns = useMemo<DataWorkspaceColumn<HistoricalBindingCandidateV1>[]>(() => [
+    {
+      id: "family",
+      name: <DataTableHeaderLabel>TrialFamily</DataTableHeaderLabel>,
+      selector: (item) => item.trialFamilyIdentity,
+      sortable: true,
+      minWidth: "330px",
+      grow: 1.4,
+      cell: (item) => <div className={styles.identityCell}>
+        <strong title={item.trialFamilyIdentity}>{displayIdentity(item.trialFamilyIdentity)}</strong>
+        <span>Candidate identity only</span>
+      </div>,
+    },
+    {
+      id: "binding",
+      name: <DataTableHeaderLabel>Binding</DataTableHeaderLabel>,
+      selector: (item) => item.bindingIdentity,
+      sortable: true,
+      minWidth: "300px",
+      grow: 1.2,
+      cell: (item) => <code className={styles.intent} title={item.bindingIdentity}>
+        {displayIdentity(item.bindingIdentity)}
+      </code>,
+    },
+    {
+      id: "verification",
+      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
+      selector: (item) => item.projectionState,
+      minWidth: "220px",
+      cell: () => <div className={styles.verification}>
+        <StatusBadge tone="unavailable">Not verified</StatusBadge>
+        <span>Point read required</span>
+      </div>,
+    },
+    {
+      id: "observed",
+      name: <DataTableHeaderLabel>Custody time</DataTableHeaderLabel>,
+      selector: (item) => item.committedAtEpochMs,
+      sortable: true,
+      minWidth: "210px",
+      cell: (item) => <time dateTime={new Date(item.committedAtEpochMs).toISOString()}>
+        {new Date(item.committedAtEpochMs).toLocaleString()}
+      </time>,
+    },
+  ], []);
+
+  const pending = view === "verified"
+    ? availability === "loading"
+    : custodyCandidates.availability === "loading";
+  const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
+  const candidateTotal = candidateKind === "attempts"
+    ? custodyCandidates.projection?.artifactAttemptTotal ?? 0
+    : custodyCandidates.projection?.bindingTotal ?? 0;
 
   return (
     <PageStack>
@@ -177,30 +297,51 @@ export function ArtifactDirectory() {
           eyebrow="Verified Artifact custody"
           title="Strategy artifacts"
           titleId="artifact-directory-title"
-          description="Owner-verified terminal builds. Open an artifact to inspect its immutable source."
-          actions={<button type="button" onClick={() => void readPage()} disabled={availability === "loading"}>
+          description={view === "verified"
+            ? "Owner-verified terminal builds. Open an artifact to inspect its immutable source."
+            : "Bounded custody identities only. Candidates carry no Artifact or TrialFamily outcome."}
+          actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} />
-            {availability === "loading" ? "Reading…" : "Refresh"}
+            {pending ? "Reading…" : "Refresh"}
           </button>}
         />
         <PanelFrameBody>
           <DataTableSurface className={styles.tableSurface} toolbarLabel="Artifact table controls" toolbar={
-            <TableToolbar filter={<FilterTabs
-              label="Artifact state"
-              items={[{ value: "all", label: "All", icon: InterfaceIcons.filter }]}
-              selected="all"
-              onSelect={() => undefined}
-            />}>
+            <TableToolbar filter={<div className={styles.filterGroup}>
+              <FilterTabs
+                label="Artifact directory view"
+                items={[
+                  { value: "verified", label: "Verified" },
+                  { value: "candidates", label: "Custody candidates" },
+                ]}
+                selected={view}
+                onSelect={(value) => setView(value === "candidates" ? "candidates" : "verified")}
+              />
+              {view === "candidates" ? <FilterTabs
+                label="Candidate custody kind"
+                items={[
+                  { value: "attempts", label: "Attempts" },
+                  { value: "bindings", label: "Bindings" },
+                ]}
+                selected={candidateKind}
+                onSelect={(value) => setCandidateKind(value === "bindings" ? "bindings" : "attempts")}
+                variant="rail"
+              /> : null}
+            </div>}>
               <FilterSearch
                 label="Search artifacts"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Artifact, intent, or request"
+                placeholder={view === "verified"
+                  ? "Artifact, intent, or request"
+                  : candidateKind === "attempts"
+                  ? "Build or attempt identity"
+                  : "Family or binding identity"}
                 maxLength={128}
               />
             </TableToolbar>}
           >
-            <DataWorkspaceTable<ArtifactDirectoryItemV1>
+            {view === "verified" ? <DataWorkspaceTable<ArtifactDirectoryItemV1>
               ariaLabel="Verified strategy artifacts"
               columns={columns}
               data={visibleItems}
@@ -222,10 +363,55 @@ export function ArtifactDirectory() {
                 <EvidenceIcons.artifact aria-hidden="true" size={18} />
                 <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
               </div>}
-            />
+            /> : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
+              ariaLabel="Artifact custody candidates"
+              columns={attemptCandidateColumns}
+              data={visibleAttemptCandidates}
+              keyField="attemptIdentity"
+              defaultSortFieldId="observed"
+              defaultSortAsc={false}
+              pagination
+              paginationPerPage={20}
+              paginationResetKey={normalizedSearch}
+              paginationRowsPerPageOptions={[20, 50]}
+              noDataComponent={custodyCandidates.availability === "unavailable" ? (
+                <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
+                  title="Custody candidate directory unavailable"
+                  reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
+              ) : <div className="data-workspace-empty">
+                <EvidenceIcons.pending aria-hidden="true" size={18} />
+                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}</p>
+              </div>}
+            /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
+              ariaLabel="TrialFamily binding custody candidates"
+              columns={bindingCandidateColumns}
+              data={visibleBindingCandidates}
+              keyField="bindingIdentity"
+              defaultSortFieldId="observed"
+              defaultSortAsc={false}
+              pagination
+              paginationPerPage={20}
+              paginationResetKey={normalizedSearch}
+              paginationRowsPerPageOptions={[20, 50]}
+              noDataComponent={custodyCandidates.availability === "unavailable" ? (
+                <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
+                  title="Custody candidate directory unavailable"
+                  reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
+              ) : <div className="data-workspace-empty">
+                <EvidenceIcons.pending aria-hidden="true" size={18} />
+                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}</p>
+              </div>}
+            />}
           </DataTableSurface>
         </PanelFrameBody>
-        {availability === "available" && (partial || nextCursor) ? (
+        {view === "candidates" && custodyCandidates.availability === "available" ? (
+          <PanelFrameFooter layout="split">
+            <PanelFrameFooterSummary
+              primary={`${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
+              secondary="Every row remains POINT_READ_REQUIRED; no Artifact, binding validity or current authority is inferred."
+            />
+          </PanelFrameFooter>
+        ) : availability === "available" && (partial || nextCursor) ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={partial ? "Partial verified cut" : "More verified artifacts available"}

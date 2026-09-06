@@ -51,6 +51,42 @@
     "calendarSettings": {
       "path": "apps/web/src/features/journal/calendar/settings/settings.tsx",
       "blob": "a8958c06d18bc9e5bde691d30ed21e5a29f33f37"
+    },
+    "calendarBody": {
+      "path": "apps/web/src/features/journal/calendar/calendar-body.tsx",
+      "blob": "d5e09c2374d9ab491048c833210f77f663146ebd"
+    },
+    "calendarMonthView": {
+      "path": "apps/web/src/features/journal/calendar/views/month-view/calendar-month-view.tsx",
+      "blob": "c00b8b0614cb6d8b1b5560dbb2c8dcdecc91eb51"
+    },
+    "calendarDayCell": {
+      "path": "apps/web/src/features/journal/calendar/views/month-view/day-cell.tsx",
+      "blob": "7a2c37667218a9a7932691d5b4f27705715d7cad"
+    },
+    "calendarEventBadge": {
+      "path": "apps/web/src/features/journal/calendar/views/month-view/month-event-badge.tsx",
+      "blob": "ee00f49d4f625cbd6157a6c295141ec77426b6d4"
+    },
+    "calendarDayView": {
+      "path": "apps/web/src/features/journal/calendar/views/week-and-day-view/calendar-day-view.tsx",
+      "blob": "4fe9756fd9414b2aac3a1b43579a2642a0a89113"
+    },
+    "calendarWeekView": {
+      "path": "apps/web/src/features/journal/calendar/views/week-and-day-view/calendar-week-view.tsx",
+      "blob": "49d8494105c11609f8b6b74f9dc803696b99ce75"
+    },
+    "calendarYearView": {
+      "path": "apps/web/src/features/journal/calendar/views/year-view/calendar-year-view.tsx",
+      "blob": "f16b98662164a410e9efb853be2cff2943e694f5"
+    },
+    "calendarAgendaView": {
+      "path": "apps/web/src/features/journal/calendar/views/agenda-view/agenda-events.tsx",
+      "blob": "09f4270c61f803fbd4ba8b8aa2bcbb7d77bf83ca"
+    },
+    "calendarEventsListDialog": {
+      "path": "apps/web/src/features/journal/calendar/dialogs/events-list-dialog.tsx",
+      "blob": "e5c3b45222d1215a33163c73021bc491ec2929b6"
     }
   },
   "adaptation": {
@@ -58,6 +94,6 @@
     "icons": "Lucide only",
     "geometry": "Source frame/header/body hierarchy retained",
     "compatibility": "Existing static-body consumers remain source-compatible while scroll and flex modes are opt-in",
-    "calendar": "Source header hierarchy and motion retained; user selection maps to operation scope, refresh replaces the unavailable write action, and unavailable data keeps the calendar frame without invented events"
+    "calendar": "Source CalendarBody, five view, day-cell, event-badge, overflow inspection and header hierarchy retained; Trade projects only read-only point evidence, refresh replaces the unavailable write action, and unavailable data keeps the calendar frame without invented events"
   }
 }

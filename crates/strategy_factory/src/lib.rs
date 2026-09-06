@@ -93,6 +93,8 @@ mod program_project;
 mod program_runtime;
 pub mod program_runtime_v2;
 mod program_session;
+pub mod rd_historical_custody;
+pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
 pub use rd_owner_postgres_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
