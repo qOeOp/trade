@@ -94,6 +94,10 @@ static_check() {
   grep -Fq 'RD_FACT_WRITER_DATABASE_URL:' "$overlay_compose"
   grep -Fq 'MARKET_DATA_OWNER_DATABASE_URL:' "$overlay_compose"
   grep -Fq 'MARKET_DATA_RD_ROLE_SET_DATABASE_URL:' "$overlay_compose"
+  grep -Fq 'CREATE SCHEMA market_data_private AUTHORIZATION rd_owner;' \
+    "$package_dir/postgres-init/00-create-rd-owner.sh"
+  grep -Fq 'REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC;' \
+    "$package_dir/postgres-init/00-create-rd-owner.sh"
   grep -Fq 'POSTGRES_INITDB_ARGS: --auth-host=trust' "$overlay_compose"
   grep -Fq 'POSTGRES_HOST_AUTH_METHOD: trust' "$overlay_compose"
   grep -Fq '/v2/develop-composer/request-projections?research_request_locator=' "$runner_file"

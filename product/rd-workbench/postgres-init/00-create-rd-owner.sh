@@ -41,6 +41,11 @@ GRANT USAGE ON SCHEMA product_edge_api TO rd_owner;
 CREATE SCHEMA rd_owner_api AUTHORIZATION rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner;
+-- The bounded Rust materializer runs before the custody cutover. Pre-create the
+-- Market Data namespace under its temporary bootstrap owner; the idempotent
+-- authority migration later transfers it to market_data_owner.
+CREATE SCHEMA market_data_private AUTHORIZATION rd_owner;
+REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC;
 CREATE SCHEMA operator_authorization_private AUTHORIZATION operator_authorization_owner;
 CREATE SCHEMA operator_authorization_api AUTHORIZATION operator_authorization_owner;
 REVOKE ALL ON SCHEMA operator_authorization_private FROM PUBLIC, rd_owner, product_edge_owner;
