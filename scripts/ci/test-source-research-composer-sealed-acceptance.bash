@@ -111,6 +111,8 @@ static_check() {
   grep -Fq 'RD_OWNER_TEST_DATABASE_URL:' "$overlay_compose"
   grep -Fq 'SEALED_STORED_TAMPER_OWNER_BEARER_TOKEN:' "$overlay_compose"
   grep -Fq 'stored_tamper_cases=' "$runner_file"
+  grep -Fq 'GRANT CONNECT ON DATABASE :"test_database" TO :"test_role";' \
+    "$repo_root/crates/strategy_factory/src/bin/source_research_composer_stored_tamper_probe.rs"
   python3 - "$repo_root/crates/strategy_factory/Cargo.toml" \
     "$repo_root/crates/strategy_factory/src/bin/source_research_composer_stored_tamper_probe.rs" << 'PY'
 import json
@@ -895,25 +897,19 @@ with_deadline 30 "${docker_local[@]}" exec -i "$postgres_container" psql -X -U p
 printf '%s\n' '{}' > "$stored_tamper_input"
 chmod 0600 "$stored_tamper_input"
 reject_stored_admission() {
-  local label=$1 expected=$2 observed attempt=1
+  local label=$1 expected=$2 observed
   shift 2
-  while ((attempt <= 3)); do
-    if with_deadline 30 "${compose[@]}" run --rm --no-deps -T "$@" stored-tamper-probe --admission-only \
-      > "$run_dir/admission-$label.stdout" 2> "$run_dir/admission-$label.stderr"; then
-      die "stored-tamper admission accepted $label"
-    fi
-    [[ ! -s $run_dir/admission-$label.stdout ]] || die 'rejected admission emitted success'
-    grep -Fq "$expected" "$run_dir/admission-$label.stderr" && return
-    if grep -Fq 'dedicated database read-only preflight unavailable' \
-      "$run_dir/admission-$label.stderr" && ((attempt < 3)); then
-      attempt=$((attempt + 1))
-      continue
-    fi
+  if with_deadline 30 "${compose[@]}" run --rm --no-deps -T "$@" stored-tamper-probe --admission-only \
+    > "$run_dir/admission-$label.stdout" 2> "$run_dir/admission-$label.stderr"; then
+    die "stored-tamper admission accepted $label"
+  fi
+  [[ ! -s $run_dir/admission-$label.stdout ]] || die 'rejected admission emitted success'
+  if ! grep -Fq "$expected" "$run_dir/admission-$label.stderr"; then
     observed=$(grep -Eo \
       'known application/default database is forbidden|test database or role does not match provisioned identity|test database aliases production target from [A-Z_]+|dedicated database read-only preflight unavailable|dedicated database marker mismatch|dedicated database marker is mutable by test role|stored-tamper admission guard rejected' \
       "$run_dir/admission-$label.stderr" | tail -n 1 || true)
-    die "admission $label failed for an unrelated reason after $attempt attempt(s) (observed=${observed:-unclassified})"
-  done
+    die "admission $label failed for an unrelated reason (observed=${observed:-unclassified})"
+  fi
 }
 stored_test_url="postgresql://$test_role:$test_password@postgres:5432/$test_database"
 reject_stored_admission default 'known application/default database is forbidden' \

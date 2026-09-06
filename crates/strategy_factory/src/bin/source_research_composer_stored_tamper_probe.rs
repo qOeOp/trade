@@ -402,6 +402,7 @@ SELECT 1 / ((session_user='postgres' AND current_user='postgres'
   AND :'test_role' ~ '^vibe_test_role_[0-9a-f]+$' AND :'test_marker' ~ '^[0-9a-f]{48}$')::integer);
 BEGIN;
 CREATE ROLE :"test_role" LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+GRANT CONNECT ON DATABASE :"test_database" TO :"test_role";
 CREATE SCHEMA vibe_test_admin AUTHORIZATION postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 CREATE TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 (
