@@ -2558,6 +2558,7 @@ pub(crate) async fn persist_replay_alternate_r0_time_zone_fixture_v1(
         alternate_r0_coordinate_digest,
     );
     let mut transaction = owner.pool().begin().await.unwrap();
+
     for proposal in &mut proposals {
         proposal.catalog_entry =
             super::reference_fact_catalog::admit_reference_fact_catalog_entry_v1(

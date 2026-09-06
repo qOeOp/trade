@@ -587,6 +587,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
     let correction_publication_ns = d.i128()?;
     let owner_observation_ns = d.i128()?;
     let decision_cut = d.u64()?;
+
     if provider_available_ns <= 0
         || correction_publication_ns <= 0
         || provider_available_ns > correction_publication_ns

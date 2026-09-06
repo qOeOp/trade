@@ -2181,6 +2181,7 @@ fn validate_native_reference_fact_evidence_v1(
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     let record = r0.record();
     let evidence = &record.evidence;
+
     if fact.source_binding_identity != source.binding_id()
         || fact.source_binding_fact_digest != source.fact_digest()
         || fact.source_binding_lineage_root != source.lineage_root()
