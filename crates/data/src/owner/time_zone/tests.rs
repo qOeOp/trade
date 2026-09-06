@@ -243,11 +243,11 @@ fn complete_transition_cut_round_trips_and_receipt_equals_outbox() {
     );
     let prepared = authority::prepare_resolution_v1(request(), proposals(), d(16), d(17)).unwrap();
     let readback = authority::seal_readback_v1(prepared, d(18), 1).unwrap();
+    let expected_evidence = readback.facts()[0].evidence();
     assert_eq!(readback.receipt().identity(), readback.outbox_identity());
-    assert_eq!(
-        readback,
-        authority::decode_readback_v1(readback.canonical_bytes()).unwrap()
-    );
+    let decoded = authority::decode_readback_v1(readback.canonical_bytes()).unwrap();
+    assert_eq!(decoded.facts()[0].evidence(), expected_evidence);
+    assert_eq!(readback, decoded);
     assert_eq!(readback.facts()[0].utc_offset_seconds(), 32_400);
     assert_eq!(readback.facts()[1].utc_offset_seconds(), 36_000);
 }

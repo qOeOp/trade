@@ -78,10 +78,38 @@ pub(crate) struct SessionFactV1 {
     pub(crate) utc_close_ns: i128,
     pub(crate) lineage_root: SessionIdentityV1,
     pub(crate) source_binding_identity: SessionIdentityV1,
+    pub(crate) source_binding_fact_digest: SessionIdentityV1,
+    pub(crate) source_binding_lineage_version: u64,
+    pub(crate) source_frontier_digest: SessionIdentityV1,
+    pub(crate) correction_frontier_digest: SessionIdentityV1,
     pub(crate) predecessor_identity: Option<SessionIdentityV1>,
     pub(crate) correction_sequence: u64,
+    pub(crate) provider_available_ns: i128,
+    pub(crate) retrieval_ns: i128,
+    pub(crate) correction_publication_ns: i128,
+    pub(crate) owner_observation_ns: i128,
+    pub(crate) decision_cut: u64,
+    pub(crate) r0_coordinate_identity: SessionIdentityV1,
+    pub(crate) r0_coordinate_digest: SessionIdentityV1,
     pub(crate) identity: SessionIdentityV1,
     pub(crate) canonical_bytes: Box<[u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SessionFactEvidenceV1 {
+    pub(crate) source_binding_identity: SessionIdentityV1,
+    pub(crate) source_binding_fact_digest: SessionIdentityV1,
+    pub(crate) source_binding_lineage_root: SessionIdentityV1,
+    pub(crate) source_binding_lineage_version: u64,
+    pub(crate) source_frontier_digest: SessionIdentityV1,
+    pub(crate) correction_frontier_digest: SessionIdentityV1,
+    pub(crate) provider_available_ns: i128,
+    pub(crate) retrieval_ns: i128,
+    pub(crate) correction_publication_ns: i128,
+    pub(crate) owner_observation_ns: i128,
+    pub(crate) decision_cut: u64,
+    pub(crate) r0_coordinate_identity: SessionIdentityV1,
+    pub(crate) r0_coordinate_digest: SessionIdentityV1,
 }
 
 impl SessionFactV1 {
@@ -90,6 +118,23 @@ impl SessionFactV1 {
     }
     pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
+    }
+    pub(crate) const fn evidence(&self) -> SessionFactEvidenceV1 {
+        SessionFactEvidenceV1 {
+            source_binding_identity: self.source_binding_identity,
+            source_binding_fact_digest: self.source_binding_fact_digest,
+            source_binding_lineage_root: self.lineage_root,
+            source_binding_lineage_version: self.source_binding_lineage_version,
+            source_frontier_digest: self.source_frontier_digest,
+            correction_frontier_digest: self.correction_frontier_digest,
+            provider_available_ns: self.provider_available_ns,
+            retrieval_ns: self.retrieval_ns,
+            correction_publication_ns: self.correction_publication_ns,
+            owner_observation_ns: self.owner_observation_ns,
+            decision_cut: self.decision_cut,
+            r0_coordinate_identity: self.r0_coordinate_identity,
+            r0_coordinate_digest: self.r0_coordinate_digest,
+        }
     }
 }
 

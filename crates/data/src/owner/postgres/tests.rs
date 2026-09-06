@@ -2508,6 +2508,84 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     }
 }
 
+pub(crate) async fn persist_replay_alternate_r0_time_zone_fixture_v1(
+    owner: &MarketDataOwnerPostgres,
+    base: &ReplayCompositionMarketBaseFixtureV1,
+    request_identity: BindingDigest,
+    alternate_r0_coordinate_identity: BindingDigest,
+    alternate_r0_coordinate_digest: BindingDigest,
+) -> crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
+    let mut independent_claim = base.coordinates.claim().clone();
+    independent_claim.source.binding_identity = d(244);
+    independent_claim.source.binding_fact_digest = d(245);
+    independent_claim.source.lineage_root = d(246);
+    independent_claim.source.frontier.stream_identity =
+        b"independent-source-stream".to_vec().into();
+    independent_claim.source.frontier.cut_identity = b"independent-source-cut".to_vec().into();
+    independent_claim.source.frontier.digest = d(247);
+    independent_claim.correction.stream_identity = b"independent-correction-stream".to_vec().into();
+    independent_claim.correction.cut_identity = b"independent-correction-cut".to_vec().into();
+    independent_claim.correction.digest = d(248);
+    let independent_coordinates =
+        crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1::verify(
+            independent_claim,
+        )
+        .unwrap();
+    let mut independent_source_locator = base.source.receipt().locator().clone();
+    independent_source_locator.binding_id = d(244);
+    independent_source_locator.fact_digest = d(245);
+    independent_source_locator.lineage_root = d(246);
+    independent_source_locator.source_frontier.stream_identity = "independent-source-stream".into();
+    independent_source_locator.source_frontier.cut_identity = "independent-source-cut".into();
+    independent_source_locator.source_frontier.digest = d(247);
+    independent_source_locator
+        .correction_frontier
+        .stream_identity = "independent-correction-stream".into();
+    independent_source_locator.correction_frontier.cut_identity =
+        "independent-correction-cut".into();
+    independent_source_locator.correction_frontier.digest = d(248);
+    let source_locator_bytes = serde_json::to_vec(&independent_source_locator).unwrap();
+    let r0_locator = base.r0.receipt();
+    let mut r0_locator_bytes = Vec::with_capacity(64);
+    r0_locator_bytes.extend_from_slice(r0_locator.request_identity.as_bytes());
+    r0_locator_bytes.extend_from_slice(r0_locator.request_meaning_digest.as_bytes());
+    let (request, mut proposals) = crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
+        request_identity,
+        &independent_coordinates,
+        &source_locator_bytes,
+        &r0_locator_bytes,
+        alternate_r0_coordinate_identity,
+        alternate_r0_coordinate_digest,
+    );
+    let mut transaction = owner.pool().begin().await.unwrap();
+    for proposal in &mut proposals {
+        proposal.catalog_entry =
+            super::reference_fact_catalog::admit_reference_fact_catalog_entry_v1(
+                &mut transaction,
+                &proposal.catalog_entry,
+            )
+            .await
+            .unwrap();
+    }
+    super::time_zone::resolve_time_zone_in_transaction_v1(
+        &mut transaction,
+        request.clone(),
+        proposals,
+        base.r0.cut().identity(),
+        base.r0.cut().digest(),
+    )
+    .await
+    .unwrap();
+    transaction.commit().await.unwrap();
+    crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
+        request_identity: request.request_identity,
+        request_meaning_digest: crate::owner::time_zone::authority::request_meaning_digest_v1(
+            &request,
+        )
+        .unwrap(),
+    }
+}
+
 pub(crate) struct ReplayJoinedProjectionFixtureV1 {
     pub(crate) census_request:
         crate::owner::observation_census::UntrustedObservationCensusRequestV1,

@@ -232,8 +232,19 @@ fn session_fact(ordinal: u32, open: u64, close: u64) -> SessionFactV1 {
         utc_close_ns: i128::from(close),
         lineage_root: d(8),
         source_binding_identity: d(6),
+        source_binding_fact_digest: d(7),
+        source_binding_lineage_version: 1,
+        source_frontier_digest: d(9),
+        correction_frontier_digest: d(11),
         predecessor_identity: None,
         correction_sequence: 1,
+        provider_available_ns: 70,
+        retrieval_ns: 80,
+        correction_publication_ns: 75,
+        owner_observation_ns: 90,
+        decision_cut: 100,
+        r0_coordinate_identity: d(37),
+        r0_coordinate_digest: d(38),
         identity: d(40 + u8::try_from(ordinal).unwrap()),
         canonical_bytes: b"fact".to_vec().into(),
     }
@@ -378,10 +389,10 @@ fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
     let fact = authority::issue_fact(&request(), &deps, &proposal).unwrap();
     assert_eq!(fact.utc_open_ns, 3_600_000_000_000);
     assert_eq!(fact.utc_close_ns, 7_200_000_000_000);
-    assert_eq!(
-        fact,
-        authority::decode_fact(fact.canonical_bytes()).unwrap()
-    );
+    let expected_evidence = fact.evidence();
+    let decoded = authority::decode_fact(fact.canonical_bytes()).unwrap();
+    assert_eq!(decoded.evidence(), expected_evidence);
+    assert_eq!(fact, decoded);
     let mut cross_splice = proposal;
     cross_splice.predecessor_identity = Some(d(39));
     assert_eq!(

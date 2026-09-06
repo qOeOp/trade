@@ -164,11 +164,20 @@ pub(crate) fn issue_fact_v1(
         correction_sequence: catalog.correction_sequence(),
         lineage_root: claim.source.lineage_root,
         source_binding_identity: claim.source.binding_identity,
+        source_binding_fact_digest: claim.source.binding_fact_digest,
+        source_binding_lineage_version: claim.source.lineage_version,
+        source_frontier_digest: claim.source.frontier.digest,
+        correction_frontier_digest: claim.correction.digest,
         predecessor_identity: catalog.predecessor_identity(),
         effective_from_ns: catalog.effective_from_ns(),
         effective_until_ns: catalog.effective_until_ns(),
+        provider_available_ns: claim.time.provider_available_ns,
+        retrieval_ns: claim.time.retrieval_ns,
+        correction_publication_ns: claim.time.correction_publication_ns,
         owner_observation_ns: claim.time.owner_observation_ns,
         decision_cut: claim.time.decision_cut,
+        r0_coordinate_identity: proposal.dependencies.r0_coordinate_identity(),
+        r0_coordinate_digest: proposal.dependencies.r0_coordinate_digest(),
         identity,
         canonical_bytes: bytes.into(),
     })
@@ -364,14 +373,14 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
     let correction_publication_ns = decoder.i128()?;
     let owner_observation_ns = decoder.i128()?;
     let decision_cut = decoder.u64()?;
-    let _r0_coordinate_identity = decoder.identity()?;
-    let _r0_coordinate_digest = decoder.identity()?;
+    let r0_coordinate_identity = decoder.identity()?;
+    let r0_coordinate_digest = decoder.identity()?;
     let source_binding_identity = decoder.identity()?;
-    let _source_binding_fact_digest = decoder.identity()?;
+    let source_binding_fact_digest = decoder.identity()?;
     let tail_lineage_root = decoder.identity()?;
     let lineage_version = decoder.u64()?;
-    let _source_frontier_digest = decoder.identity()?;
-    let _correction_frontier_digest = decoder.identity()?;
+    let source_frontier_digest = decoder.identity()?;
+    let correction_frontier_digest = decoder.identity()?;
     decoder.finish()?;
 
     if tail_lineage_root != lineage_root
@@ -393,11 +402,20 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
         correction_sequence,
         lineage_root,
         source_binding_identity,
+        source_binding_fact_digest,
+        source_binding_lineage_version: lineage_version,
+        source_frontier_digest,
+        correction_frontier_digest,
         predecessor_identity,
         effective_from_ns,
         effective_until_ns,
+        provider_available_ns,
+        retrieval_ns,
+        correction_publication_ns,
         owner_observation_ns,
         decision_cut,
+        r0_coordinate_identity,
+        r0_coordinate_digest,
         identity,
         canonical_bytes: bytes.into(),
     })

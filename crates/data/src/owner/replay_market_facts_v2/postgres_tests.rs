@@ -955,6 +955,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         postgres::{
             MarketDataOwnerPostgres,
             tests::{
+                persist_replay_alternate_r0_time_zone_fixture_v1,
                 persist_replay_joined_projection_fixture_v1,
                 persist_replay_reference_leaf_fixture_v1,
                 replay_composition_market_base_fixture_v1,
@@ -964,7 +965,9 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             AuthenticatedComposerNativeJoinV1, ReplayCompositionContentLocatorV1,
             ReplayCompositionLocatorOnlyIssuanceRequestV1, ReplayCompositionOwnerV1,
             ReplayCompositionRequestLocatorV1, UntrustedComposerNativeJoinRequestV1,
-            composition::ReplayCompositionBindingIssuanceRequestV1,
+            composition::{
+                ReplayCompositionBindingErrorV1, ReplayCompositionBindingIssuanceRequestV1,
+            },
         },
         sample_projection_v4::UntrustedStrategyInputSampleProjectionLocatorV4,
         source_binding::BindingDigest,
@@ -1362,6 +1365,40 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             )
         };
     let before = replay_positive_state(market_mutation_pool).await;
+    let alternate_time_zone =
+        persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
+            .await;
+    let alternate_time_zone_composition =
+        ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
+            command.composition().composer_locator().clone(),
+            command.composition().pit_locator().clone(),
+            command.composition().source_binding_locator().clone(),
+            command.composition().replay_start_event_ns(),
+            command.composition().replay_end_event_ns_exclusive(),
+            command.composition().instrument_master_locator(),
+            command.composition().universe_selection_locator(),
+            command.composition().observation_census_locator(),
+            command.composition().joined_cut_locator(),
+            command.composition().sample_projection_locator(),
+            command.composition().reference_fact_r0_locator(),
+            command.composition().calendar_locator(),
+            command.composition().session_locator(),
+            ReplayCompositionRequestLocatorV1::from_untrusted(
+                alternate_time_zone.request_identity,
+                alternate_time_zone.request_meaning_digest,
+            ),
+            command.composition().market_semantics_locator(),
+            command.composition().correction_policy_locator(),
+            command.composition().corporate_action_locator(),
+        );
+    let alternate_time_zone_command =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), alternate_time_zone_composition)
+            .unwrap();
+    assert_eq!(
+        owner.issue_binding_v1(&alternate_time_zone_command).await,
+        Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
     let mut cross_design_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *cross_design_tx)

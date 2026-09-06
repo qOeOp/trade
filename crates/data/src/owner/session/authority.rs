@@ -204,8 +204,19 @@ pub(super) fn issue_fact(
         utc_close_ns: utc_close,
         lineage_root: claim.source.lineage_root,
         source_binding_identity: claim.source.binding_identity,
+        source_binding_fact_digest: claim.source.binding_fact_digest,
+        source_binding_lineage_version: claim.source.lineage_version,
+        source_frontier_digest: claim.source.frontier.digest,
+        correction_frontier_digest: claim.correction.digest,
         predecessor_identity: proposal.predecessor_identity,
         correction_sequence: proposal.correction_sequence,
+        provider_available_ns: claim.time.provider_available_ns,
+        retrieval_ns: claim.time.retrieval_ns,
+        correction_publication_ns: claim.time.correction_publication_ns,
+        owner_observation_ns: claim.time.owner_observation_ns,
+        decision_cut: claim.time.decision_cut,
+        r0_coordinate_identity: proposal.r0_coordinate_identity,
+        r0_coordinate_digest: proposal.r0_coordinate_digest,
         identity,
         canonical_bytes: bytes.into(),
     })
@@ -571,25 +582,32 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         return Err(SessionErrorV1::StoreUntrusted);
     }
 
-    for _ in 0..4 {
-        let _ = d.i128()?;
-    }
+    let provider_available_ns = d.i128()?;
+    let retrieval_ns = d.i128()?;
+    let correction_publication_ns = d.i128()?;
+    let owner_observation_ns = d.i128()?;
     let decision_cut = d.u64()?;
-    if decision_cut == 0 {
+    if provider_available_ns <= 0
+        || correction_publication_ns <= 0
+        || provider_available_ns > correction_publication_ns
+        || correction_publication_ns > retrieval_ns
+        || retrieval_ns > owner_observation_ns
+        || decision_cut == 0
+    {
         return Err(SessionErrorV1::StoreUntrusted);
     }
-    let _r0 = d.id()?;
-    let _r0d = d.id()?;
+    let r0_coordinate_identity = d.id()?;
+    let r0_coordinate_digest = d.id()?;
     let source_binding_identity = d.id()?;
-    let _sfd = d.id()?;
+    let source_binding_fact_digest = d.id()?;
     let lineage_root = d.id()?;
-    if d.u64()? != correction_sequence {
+    let source_binding_lineage_version = d.u64()?;
+    if source_binding_lineage_version != correction_sequence {
         return Err(SessionErrorV1::StoreUntrusted);
     }
-
-    for _ in 0..3 {
-        let _ = d.id()?;
-    }
+    let source_frontier_digest = d.id()?;
+    let correction_frontier_digest = d.id()?;
+    let _correction_identity = d.id()?;
     d.finish()?;
     Ok(SessionFactV1 {
         session_identity,
@@ -601,8 +619,19 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         utc_close_ns,
         lineage_root,
         source_binding_identity,
+        source_binding_fact_digest,
+        source_binding_lineage_version,
+        source_frontier_digest,
+        correction_frontier_digest,
         predecessor_identity,
         correction_sequence,
+        provider_available_ns,
+        retrieval_ns,
+        correction_publication_ns,
+        owner_observation_ns,
+        decision_cut,
+        r0_coordinate_identity,
+        r0_coordinate_digest,
         identity: codec::digest(codec::FACT_DOMAIN, bytes),
         canonical_bytes: bytes.into(),
     })

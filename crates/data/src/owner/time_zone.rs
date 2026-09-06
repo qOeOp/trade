@@ -102,13 +102,39 @@ pub(crate) struct TimeZoneFactV1 {
     correction_sequence: u64,
     lineage_root: TimeZoneIdentity,
     source_binding_identity: TimeZoneIdentity,
+    source_binding_fact_digest: TimeZoneIdentity,
+    source_binding_lineage_version: u64,
+    source_frontier_digest: TimeZoneIdentity,
+    correction_frontier_digest: TimeZoneIdentity,
     predecessor_identity: Option<TimeZoneIdentity>,
     effective_from_ns: i128,
     effective_until_ns: Option<i128>,
+    provider_available_ns: i128,
+    retrieval_ns: i128,
+    correction_publication_ns: i128,
     owner_observation_ns: i128,
     decision_cut: u64,
+    r0_coordinate_identity: TimeZoneIdentity,
+    r0_coordinate_digest: TimeZoneIdentity,
     identity: TimeZoneIdentity,
     canonical_bytes: Box<[u8]>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TimeZoneFactEvidenceV1 {
+    pub(crate) source_binding_identity: TimeZoneIdentity,
+    pub(crate) source_binding_fact_digest: TimeZoneIdentity,
+    pub(crate) source_binding_lineage_root: TimeZoneIdentity,
+    pub(crate) source_binding_lineage_version: u64,
+    pub(crate) source_frontier_digest: TimeZoneIdentity,
+    pub(crate) correction_frontier_digest: TimeZoneIdentity,
+    pub(crate) provider_available_ns: i128,
+    pub(crate) retrieval_ns: i128,
+    pub(crate) correction_publication_ns: i128,
+    pub(crate) owner_observation_ns: i128,
+    pub(crate) decision_cut: u64,
+    pub(crate) r0_coordinate_identity: TimeZoneIdentity,
+    pub(crate) r0_coordinate_digest: TimeZoneIdentity,
 }
 
 impl TimeZoneFactV1 {
@@ -150,6 +176,23 @@ impl TimeZoneFactV1 {
     }
     pub(crate) const fn decision_cut(&self) -> u64 {
         self.decision_cut
+    }
+    pub(crate) const fn evidence(&self) -> TimeZoneFactEvidenceV1 {
+        TimeZoneFactEvidenceV1 {
+            source_binding_identity: self.source_binding_identity,
+            source_binding_fact_digest: self.source_binding_fact_digest,
+            source_binding_lineage_root: self.lineage_root,
+            source_binding_lineage_version: self.source_binding_lineage_version,
+            source_frontier_digest: self.source_frontier_digest,
+            correction_frontier_digest: self.correction_frontier_digest,
+            provider_available_ns: self.provider_available_ns,
+            retrieval_ns: self.retrieval_ns,
+            correction_publication_ns: self.correction_publication_ns,
+            owner_observation_ns: self.owner_observation_ns,
+            decision_cut: self.decision_cut,
+            r0_coordinate_identity: self.r0_coordinate_identity,
+            r0_coordinate_digest: self.r0_coordinate_digest,
+        }
     }
 }
 
