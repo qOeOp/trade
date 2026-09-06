@@ -104,7 +104,8 @@ terminalization、sandbox invocation 或数据库写入。
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
 detail column 预留空间。frame header 包含 eyebrow、title、单行 purpose 与一个 `Refresh` action。body
-只有一行 table toolbar：左侧恰好一个 `All` filter capsule，右侧 search。表格按顺序只有四个 plain、左对齐
+只有一行 table toolbar：左侧是 `Verified / Custody candidates` segmented control，右侧 search，且默认始终为
+`Verified`。verified 表格按顺序只有四个 plain、左对齐
 column：`Research request`、`State`、`Intent`、`Updated`。表头文字前不放装饰性 icon；不存在 View/column
 chooser、registered/visible 数量、多级 filter popover、row action 或 backend-only 字段。表头固定在有界
 scroll viewport 内；loading、合法 empty、unavailable、partial 保持相同 card geometry。窄屏只横向滚动，
@@ -117,6 +118,10 @@ candidate 都在独立的 canonical read-committed transaction 中以 `FOR SHARE
 custody verifier，覆盖 stored request、receipt、frozen intent、Research view、authority lineage、independence
 basis、protected-feedback projection 与 TrialFamily custody。legacy 或 quarantined request schema 被隐藏并使
 cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使整次读取 unavailable，绝不能伪装成成功空页。
+次级 candidate view 使用经认证的 GET `/v1/historical-custodies`。其独立 Owner port 只建立
+`default_transaction_read_only=on` session，并在一个有界 repeatable-read transaction 中读取；最多返回 200 个
+request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
+availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或
@@ -125,7 +130,8 @@ ancestry 与 storage 字段全部隐藏。未知 wire key、矛盾 disposition/v
 错误 completeness/count、超限 response、transport failure 或缺失 configuration 全部 fail closed 为
 `unavailable`。
 
-唯一 action 是 `Refresh`、local search/sort/pagination 与 `Load older`。本切片没有 detail link，且不能
+唯一 action 是 `Refresh`、切换本地 directory view、local search/sort/pagination 与 `Load older`。本切片没有
+detail link，且不能
 Submit 或 Resolve Research request、创建 successor、build/run Artifact、调用 provider、mutate Windmill、
 写 business state 或授权交易。route registry 中更广的 selected-request detail 与 action panel 仍属于未来蓝图。
 
@@ -133,7 +139,8 @@ Submit 或 Resolve Research request、创建 successor、build/run Artifact、�
 
 `ArtifactDirectory` 是 `/rd/artifacts` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
 detail column 预留空间。frame header 依次包含 eyebrow、title、单行 purpose 和一个 `Refresh` action。body
-只有一行 table toolbar：左侧恰好一个 `All` filter capsule，右侧 search。表格按顺序只有四个 plain、左对齐
+只有一行 table toolbar：左侧是 `Verified / Custody candidates` segmented control，右侧 search，且默认始终为
+`Verified`；candidate mode 在同一行追加 `Attempts / Bindings` kind rail。verified 表格按顺序只有四个 plain、左对齐
 column：`Artifact`、`Strategy intent`、`Verification`、`Created`。表头文字前不放装饰性 icon；不存在
 View/column chooser、registered/visible 数量、多级 filter popover 或 backend-only 字段。点击 Artifact identity
 进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
@@ -148,9 +155,14 @@ Review 精确匹配时才投影；browser 只接收 build request、attempt、Ar
 time、build target 与显式 `ADMITTED` build security state。nonterminal 或 non-success attempt 被隐藏，并使页面
 明确标为 partial。任何 malformed custody、database/verification error、未知 wire key、矛盾的
 completeness/count、非法 identity/time、超限 response 或 transport/configuration failure 都使对应 read
-unavailable，绝不能伪装成成功空页。UI 只说明存在被隐藏的未验证 candidate，不暴露其数量或 raw storage 字段。
+unavailable，绝不能伪装成成功空页。candidate view 使用与 Research 相同的经认证 GET
+`/v1/historical-custodies` 与 read-only Owner cut；最多暴露 200 个 attempt 与 200 个 TrialFamily-binding identity、
+custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 数量，绝不是 verified Artifact 或
+valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
+payload 或 storage 字段。
 
-唯一 action 是 `Refresh`、local search/sort/pagination、`Load older` 与打开一个精确 Artifact。目录不 submit
+唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older` 与打开一个
+精确 verified Artifact。目录不 submit
 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写
 business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
 Owner-backed preview contract 被单独准入。

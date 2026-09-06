@@ -10,8 +10,10 @@ test("Research directory uses the shared compact read-only table surface", async
     readFile(new URL("../components/owner-directory.module.css", import.meta.url), "utf8"),
   ]);
   assert.match(component, /<DataWorkspaceTable<ResearchDirectoryItemV1>/u);
-  assert.match(component, /items=\{\[\{ value: "all", label: "All", icon: InterfaceIcons\.filter \}\]\}/u);
-  assert.match(component, /placeholder="Request, intent, or state"/u);
+  assert.match(component, /<DataWorkspaceTable<HistoricalResearchCandidateV1>/u);
+  assert.match(component, /label: "Custody candidates"/u);
+  assert.match(component, /POINT_READ_REQUIRED/u);
+  assert.match(component, /"Request, intent, or state"/u);
   for (const header of ["Research request", "State", "Intent", "Updated"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
   }
@@ -34,10 +36,10 @@ test("bilingual Research directory contract fixes layout, fields and no-effect b
     assert.ok(start >= 0);
     const specification = doc.slice(start, doc.indexOf("\n## ", start + heading.length));
     for (const token of [
-      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "All", "search",
+      "ResearchDirectory", "/rd/research", "PanelFrame", "Refresh", "Custody candidates", "search",
       "Research request", "State", "Intent", "Updated", "20", "60",
       "committed_at_epoch_ms", "request_identity", "Load older", "partial",
-      "unavailable", "Submit", "Resolve", "Windmill",
+      "unavailable", "POINT_READ_REQUIRED", "/v1/historical-custodies", "Submit", "Resolve", "Windmill",
     ]) assert.ok(specification.includes(token), `${suffix || "en"} missing ${token}`);
   }
 });

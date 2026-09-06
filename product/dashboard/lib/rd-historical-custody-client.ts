@@ -28,7 +28,7 @@ export type HistoricalBindingCandidateV1 = {
   projectionState: "POINT_READ_REQUIRED";
 };
 export type HistoricalCustodyProjectionV1 = {
-  resolution: "RETRIEVED" | "SUBMITTED_OR_UNKNOWN";
+  resolution: "RETRIEVED" | "UNAVAILABLE";
   completeness: "COMPLETE" | "PARTIAL_TRUNCATED";
   observedAtEpochMs: number | null;
   researchTotal: number;
@@ -59,7 +59,8 @@ export function parseHistoricalCustodyOwnerV1(
   startedAt: number,
   observedAt: number,
 ): HistoricalCustodyProjectionV1 | null {
-  if (!object(value) || !exactKeys(value, [
+  if (!count(startedAt) || !count(observedAt) || observedAt < startedAt
+    || !object(value) || !exactKeys(value, [
     "schema_version", "operation", "completeness", "observed_at_epoch_ms",
     "research_total", "artifact_attempt_total", "binding_total", "research",
     "artifact_attempts", "bindings",
@@ -89,17 +90,39 @@ export function parseHistoricalCustodyOwnerV1(
       || !count(row.committed_at_epoch_ms) || row.projection_state !== "POINT_READ_REQUIRED") return null;
     return { bindingIdentity: row.binding_identity, trialFamilyIdentity: row.trial_family_identity, committedAtEpochMs: row.committed_at_epoch_ms, projectionState: row.projection_state };
   });
+  const observedAtEpochMs = Number(value.observed_at_epoch_ms);
+  const researchTotal = Number(value.research_total);
+  const artifactAttemptTotal = Number(value.artifact_attempt_total);
+  const bindingTotal = Number(value.binding_total);
   if ([...research, ...artifactAttempts, ...bindings].some((row) => row === null)
-    || research.length > Number(value.research_total)
-    || artifactAttempts.length > Number(value.artifact_attempt_total)
-    || bindings.length > Number(value.binding_total)) return null;
+    || research.length > 200 || artifactAttempts.length > 200 || bindings.length > 200) return null;
+  const exactCounts = research.length === researchTotal
+    && artifactAttempts.length === artifactAttemptTotal
+    && bindings.length === bindingTotal;
+  const truncatedCounts = research.length < researchTotal
+    || artifactAttempts.length < artifactAttemptTotal
+    || bindings.length < bindingTotal;
+  if ((value.completeness === "COMPLETE" && !exactCounts)
+    || (value.completeness === "PARTIAL_TRUNCATED" && !truncatedCounts)
+    || (research as HistoricalResearchCandidateV1[])
+      .some((row) => row.committedAtEpochMs > observedAtEpochMs)
+    || (artifactAttempts as HistoricalArtifactCandidateV1[])
+      .some((row) => row.preparedAtEpochMs > observedAtEpochMs)
+    || (bindings as HistoricalBindingCandidateV1[])
+      .some((row) => row.committedAtEpochMs > observedAtEpochMs)
+    || new Set((research as HistoricalResearchCandidateV1[])
+      .map((row) => row.requestIdentity)).size !== research.length
+    || new Set((artifactAttempts as HistoricalArtifactCandidateV1[])
+      .map((row) => `${row.buildRequestIdentity}\u0000${row.attemptIdentity}`)).size !== artifactAttempts.length
+    || new Set((bindings as HistoricalBindingCandidateV1[])
+      .map((row) => row.bindingIdentity)).size !== bindings.length) return null;
   return {
     resolution: "RETRIEVED",
     completeness: value.completeness as "COMPLETE" | "PARTIAL_TRUNCATED",
-    observedAtEpochMs: value.observed_at_epoch_ms,
-    researchTotal: value.research_total,
-    artifactAttemptTotal: value.artifact_attempt_total,
-    bindingTotal: value.binding_total,
+    observedAtEpochMs,
+    researchTotal,
+    artifactAttemptTotal,
+    bindingTotal,
     research: research as HistoricalResearchCandidateV1[],
     artifactAttempts: artifactAttempts as HistoricalArtifactCandidateV1[],
     bindings: bindings as HistoricalBindingCandidateV1[],
@@ -114,7 +137,7 @@ function unavailable(reason: string, status: number, now: number) {
     transport_observed_at: new Date(now).toISOString(),
     availability: "unavailable" as const,
     unavailable_reason: reason,
-    projection: { resolution: "SUBMITTED_OR_UNKNOWN" as const, completeness: "PARTIAL_TRUNCATED" as const, observedAtEpochMs: null, researchTotal: 0, artifactAttemptTotal: 0, bindingTotal: 0, research: [], artifactAttempts: [], bindings: [] },
+    projection: { resolution: "UNAVAILABLE" as const, completeness: "PARTIAL_TRUNCATED" as const, observedAtEpochMs: null, researchTotal: 0, artifactAttemptTotal: 0, bindingTotal: 0, research: [], artifactAttempts: [], bindings: [] },
   } };
 }
 
@@ -140,7 +163,10 @@ export async function resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher
 }
 
 export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): HistoricalCustodyProjectionV1 | null {
-  if (!object(value) || value.schema_version !== 1 || value.operation !== RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION
+  if (!object(value) || !exactKeys(value, [
+    "schema_version", "operation", "channel", "transport_observed_at", "availability",
+    "unavailable_reason", "projection", "operational_run",
+  ]) || value.schema_version !== 1 || value.operation !== RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION
     || value.channel !== "DASHBOARD_SHADOW_READ" || value.availability !== "available"
     || value.unavailable_reason !== null || !object(value.projection) || !object(value.operational_run)
     || !validOperationalRunReferenceV1(value.operational_run, "available")) return null;
@@ -148,7 +174,16 @@ export function parseHistoricalCustodyBrowserEnvelopeV1(value: unknown): Histori
   if (!exactKeys(projection, ["resolution", "completeness", "observedAtEpochMs", "researchTotal", "artifactAttemptTotal", "bindingTotal", "research", "artifactAttempts", "bindings"])
     || projection.resolution !== "RETRIEVED" || !Array.isArray(projection.research)
     || !Array.isArray(projection.artifactAttempts) || !Array.isArray(projection.bindings)) return null;
-  const transport = Date.parse(String(value.transport_observed_at));
+  if (!projection.research.every((row) => object(row) && exactKeys(row, [
+    "requestIdentity", "committedAtEpochMs", "projectionState",
+  ])) || !projection.artifactAttempts.every((row) => object(row) && exactKeys(row, [
+    "buildRequestIdentity", "attemptIdentity", "preparedAtEpochMs", "projectionState",
+  ])) || !projection.bindings.every((row) => object(row) && exactKeys(row, [
+    "bindingIdentity", "trialFamilyIdentity", "committedAtEpochMs", "projectionState",
+  ]))) return null;
+  if (typeof value.transport_observed_at !== "string") return null;
+  const transport = Date.parse(value.transport_observed_at);
+  if (!count(transport)) return null;
   const operation = operationByIdV1(RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION);
   const ownerShape = {
     schema_version: 1, operation: "rd.historical_custody_quarantine.read.v1", completeness: projection.completeness,
