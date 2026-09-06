@@ -154,7 +154,7 @@ test "$(printf '%s' "$acceptance_composer_header" | sha256_stdin)" = 77142de2536
 acceptance_composer_source=$(sed -n '/AS \$composer_acceptance_commit\$/,/END\$composer_acceptance_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_acceptance_commit\$//; $s/\$composer_acceptance_commit\$;//')
 # This exact source identity binds the closed GUC validation and every insert -> matching raise,
 # including module/build-use loops, ROW_COUNT-gated new receipts, and the native-join conditional.
-test "$(printf '%s' "$acceptance_composer_source" | sha256_stdin)" = f4f0d3342ba5b537d716fd142245127e637eedb93f88a75a092b540d2702482c
+test "$(printf '%s' "$acceptance_composer_source" | sha256_stdin)" = f5c0f1ba53d2225b40d8242a555b462fc947db250c990388fac1aee8b11d76e2
 acceptance_composer_acl=$(sed -n '/^ALTER FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(/,/^GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(.* TO rd_owner;$/p' "$composer_migration")
 test "$(printf '%s' "$acceptance_composer_acl" | sha256_stdin)" = c2fc6bbd3d0c1e38ebfa6f830830ac90aed222499b42e11c819d1f6a3879ad19
 test "$(grep -Fc '\if :composer_acceptance' "$composer_migration")" -eq 3
