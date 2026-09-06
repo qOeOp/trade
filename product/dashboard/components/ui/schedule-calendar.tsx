@@ -14,13 +14,14 @@ const timeLabel = (iso: string) => iso.slice(11, 16);
 
 // Vibe Journal's full-week cells, event overflow inspection and view transitions,
 // adapted to point-in-time operational evidence (no editable duration events).
-export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSelect, onDate }: {
+export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSelect, onDate, compact = false }: {
   schedules: readonly ScheduleProjectionV1[];
   date: string;
   view: ScheduleCalendarView;
   selectedIdentity: string | null;
   onSelect: (identity: string) => void;
   onDate: (date: string, view: ScheduleCalendarView) => void;
+  compact?: boolean;
 }) {
   const range = calendarRangeV1(date, view);
   const [inspection, setInspection] = useState<{ label: string; groups: ScheduleCalendarGroupV1[] } | null>(null);
@@ -52,7 +53,7 @@ export function ScheduleCalendar({ schedules, date, view, selectedIdentity, onSe
   const inspected = inspection?.groups[groupIndex];
   const start = view === "month" ? range.start - new Date(range.start).getUTCDay() * DAY : range.start;
   const end = view === "month" ? range.end + ((7 - new Date(range.end).getUTCDay()) % 7) * DAY : range.end;
-  return <div className={styles.calendar}>
+  return <div className={styles.calendar} data-density={compact ? "compact" : "comfortable"}>
     <div key={`${date}-${view}`} className={styles.transition}>
       {view === "year" ? <div className={styles.year}>
         {Array.from({ length: 12 }, (_, month) => {
