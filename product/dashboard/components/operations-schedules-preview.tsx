@@ -8,7 +8,7 @@ import { scheduleAvailabilityPresentationV1 } from "../lib/schedule-availability
 import { ScheduleCalendar } from "./ui/schedule-calendar";
 import { CalendarHeader } from "./ui/schedule-calendar/header/calendar-header";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { PanelFrame, PanelFrameHeader, PanelFrameBody } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody } from "./ui/panel-frame";
 import { InterfaceIcons } from "./ui/iconography";
 import styles from "./ui/schedule-calendar.module.css";
 
@@ -68,7 +68,6 @@ export function OperationsSchedulesPreview() {
       cell: (row) => row.last_run_identity ? <a href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</a> : "Not observed" },
   ], []);
   return <PanelFrame className={styles.page} aria-label="Shadow-read schedules">
-    <PanelFrameHeader title="Shadow-read schedules" description="Expected triggers and observed runs · UTC" />
     <PanelFrameBody>
       <CalendarHeader date={date} view={view} mode={mode} pending={pending}
         statusLabel={pending ? "Reading" : envelope ? `${all.length} schedules` : "Unavailable"}

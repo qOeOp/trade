@@ -2,7 +2,7 @@
 .page { min-width: 0; }
 .page button, .page input, .page select { font: inherit; }
 .page button:focus-visible, .page input:focus-visible, .page select:focus-visible, .page a:focus-visible, .page summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
-.calendarHeader { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 20px; min-width: 0; padding: 16px; border-bottom: 1px solid var(--data-table-gridline); background: var(--surface-panel); border-radius: 18px 18px 0 0; }
+.calendarHeader { position: relative; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 20px; min-width: 0; padding: 16px; border-bottom: 1px solid var(--data-table-gridline); background: var(--surface-panel); border-radius: calc(var(--panel-radius) - 4px) calc(var(--panel-radius) - 4px) 0 0; }
 .calendarIdentity, .calendarTools, .calendarOptions, .calendarActions, .headingLine, .rangeNavigator, .viewTabs { display: flex; align-items: center; }
 .calendarIdentity { gap: 14px; flex: 0 0 auto; }
 .todayCard { display: grid; width: 58px; overflow: hidden; padding: 0; border: 1px solid var(--data-table-gridline); border-radius: 12px; background: var(--surface-panel); color: var(--text-primary); box-shadow: var(--shadow-soft); }
