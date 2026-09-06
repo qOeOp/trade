@@ -150,12 +150,12 @@ slightly lighter theme surface used by the standard card system; borders are low
 fully connected grid.
 
 Loading retains the lookup rail and shows exactly three grouped skeletons. A verified terminal keeps the same
-geometry for every terminal value. An exact `SUBMITTED_OR_UNKNOWN` readback shows a neutral `No verified
-terminal` state with the request identity only; it does not expose or imply a Resolve control. Invalid identity
-shows inline validation without transport. Missing configuration, transport failure, malformed or oversized
-Owner response, permission denial, and any identity/receipt/custody mismatch replace all previously rendered
-terminal fields with one same-height unavailable state. Stale successful content is never retained after a new
-lookup or failed refresh.
+geometry for every terminal value. An exact `SUBMITTED_OR_UNKNOWN` readback shows a neutral
+`No verified terminal` state with the request identity only; it does not expose or imply a Resolve control.
+Invalid identity shows inline validation without transport. Missing configuration, transport failure, malformed
+or oversized Owner response, permission denial, and any identity/receipt/custody mismatch replace all previously
+rendered terminal fields with one same-height unavailable state. Stale successful content is never retained after
+a new lookup or failed refresh.
 
 The Dashboard BFF binds the path identity to authenticated Owner GET
 `/v1/source-intakes/{request_identity}/readback`, accepts only the existing strict Source Intake projection, and
