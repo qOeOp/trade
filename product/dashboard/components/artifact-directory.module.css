@@ -1,0 +1,48 @@
+.tableSurface {
+  min-height: min(620px, calc(100dvh - 250px));
+}
+
+.identityCell {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.identityCell strong,
+.identityCell span,
+.intent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.identityCell strong {
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.identityCell span,
+.intent,
+.verification span {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+}
+
+.identityCell:hover strong {
+  color: var(--primary);
+}
+
+.verification {
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+}
+
+@media (max-width: 760px) {
+  .tableSurface {
+    min-height: 480px;
+  }
+}

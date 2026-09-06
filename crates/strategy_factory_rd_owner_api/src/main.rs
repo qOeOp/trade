@@ -5,7 +5,7 @@ use axum::extract::Query;
 use axum::{
     Json, Router,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -38,8 +38,9 @@ use vibe_strategy_factory::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
         ArtifactBuildError, ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction,
         ArtifactBuildOwnerPort, ArtifactBuildPreparationV1, ArtifactBuildRequestV1,
-        ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactRequestIdentityPreflightV1,
-        ArtifactSourceOwnerPort, SANDBOX_SOCKET_DEFAULT,
+        ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactDirectoryCursorV1,
+        ArtifactDirectoryOwnerPort, ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort,
+        SANDBOX_SOCKET_DEFAULT,
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
@@ -133,6 +134,7 @@ struct ApiState {
     owner: Arc<PostgresResearchGoalOwnerV1>,
     artifact_owner: Arc<dyn ArtifactBuildOwnerPort>,
     artifact_source_owner: Arc<dyn ArtifactSourceOwnerPort>,
+    artifact_directory_owner: Arc<dyn ArtifactDirectoryOwnerPort>,
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
@@ -193,6 +195,14 @@ struct ArtifactBuildInvocationStartOperationV1 {
     build_request_identity: String,
     attempt_identity: String,
     research_request_identity: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArtifactDirectoryQueryV1 {
+    limit: Option<u32>,
+    after_prepared_at_epoch_ms: Option<u64>,
+    after_build_request_identity: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -298,7 +308,8 @@ async fn main() -> anyhow::Result<()> {
         product_edge: product_edge.clone(),
         owner: owner.clone(),
         artifact_owner: artifact_owner.clone(),
-        artifact_source_owner: artifact_owner,
+        artifact_source_owner: artifact_owner.clone(),
+        artifact_directory_owner: artifact_owner,
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
@@ -369,6 +380,10 @@ async fn main() -> anyhow::Result<()> {
             post(submit_artifact_candidate),
         )
         .route("/v1/artifact-builds/fail", post(fail_artifact_build))
+        .route(
+            "/v1/artifact-builds/directory",
+            get(read_artifact_directory),
+        )
         .route(
             "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/resolve",
             post(resolve_artifact_build),
@@ -1615,6 +1630,39 @@ async fn read_artifact_source(
     }
 }
 
+async fn read_artifact_directory(
+    State(state): State<ApiState>,
+    Query(query): Query<ArtifactDirectoryQueryV1>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let after = match (
+        query.after_prepared_at_epoch_ms,
+        query.after_build_request_identity,
+    ) {
+        (None, None) => None,
+        (Some(prepared_at_epoch_ms), Some(build_request_identity)) => {
+            Some(ArtifactDirectoryCursorV1 {
+                prepared_at_epoch_ms,
+                build_request_identity,
+            })
+        }
+        _ => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match state
+        .artifact_directory_owner
+        .list_artifacts(after.as_ref(), query.limit.unwrap_or(20))
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 async fn artifact_result_response(
     state: &ApiState,
     admission: &ProductEdgeAdmissionLocatorV1,
@@ -2420,7 +2468,8 @@ mod tests {
             product_edge,
             owner,
             artifact_owner: artifact_owner.clone(),
-            artifact_source_owner: artifact_owner,
+            artifact_source_owner: artifact_owner.clone(),
+            artifact_directory_owner: artifact_owner,
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,

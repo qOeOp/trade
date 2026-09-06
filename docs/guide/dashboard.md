@@ -121,6 +121,36 @@ but creates no new admission and performs no timeout terminalization, sandbox in
 write. This detail slice does not create an Artifact list, prove deployed availability or establish
 Windmill replacement.
 
+## Bounded admission: verified Artifact directory
+
+`ArtifactDirectory` is the exact `P` surface for `/rd/artifacts`. The route uses one full-width `PanelFrame` and
+does not reserve an empty detail column. Its frame header contains the eyebrow, title, one-line purpose, then one
+`Refresh` action. Its body contains one horizontal table toolbar with exactly one `All` filter capsule at the left
+and search at the right. The table has four plain, left-aligned columns in this order: `Artifact`, `Strategy intent`,
+`Verification`, and `Created`. Column headings have no decorative icons and there is no View/column-chooser button,
+registered/visible count, multi-level filter popover, or backend-only field. Opening the Artifact identity navigates
+to the exact read-only source-viewer URL. The table header is sticky inside the bounded scroll viewport; loading,
+valid empty, unavailable, and partial states preserve the same card geometry. At narrow widths the table scrolls
+horizontally; it does not collapse identities into invented mobile facts.
+
+The authenticated Owner GET `/v1/artifact-builds/directory` returns at most 20 verified items. It considers at most
+60 attempt candidates per page, ordered by `(prepared_at_epoch_ms, build_request_identity)` descending with
+PostgreSQL `C` collation for the bounded ASCII identity, and exposes
+that same tuple only as an opaque stable `Load older` cursor. Every candidate is checked in its own canonical
+read-committed transaction by the existing full Artifact custody verifier. Only a terminal `SUCCESS` receipt whose
+Artifact identity exactly matches its sealed Artifact Review is projected; the browser receives the build request,
+attempt, Artifact, and strategy-intent identities, committed time, build target, and explicit `ADMITTED` build
+security state. Nonterminal or non-success attempts are withheld and make the page explicitly partial. Any malformed
+custody, database/verification error, unknown wire key, contradictory completeness/count, invalid identity/time,
+oversized response, or transport/configuration failure makes the affected read unavailable; it never becomes an
+empty successful page. The UI says only that unverified candidates were withheld and does not expose their count or
+raw storage fields.
+
+`Refresh`, local search/sort/pagination, `Load older`, and opening one exact Artifact are the only actions. This
+directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
+Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
+unchanged until a separate real Owner-backed preview contract is admitted.
+
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
 narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard
@@ -1466,11 +1496,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                    | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels; R&D Research `/rd/research` selected‑request detail; R&D Artifacts `/rd/artifacts` selected‑artifact detail                                       | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination, or loading‑row geometry; the whole route is not drawable or implementable                                                              |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                      | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                   | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; R&D Artifacts `/rd/artifacts`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels; R&D Research `/rd/research` selected‑request detail                                                                                                                              | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination, or loading‑row geometry; the whole route is not drawable or implementable                                                              |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                     | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -1496,6 +1526,12 @@ source contracts are `CURRENT/PARTIAL`, their exact default-Web deployment remai
 `ArtifactRequestAdmissionPanel` remains fixed unavailable until a bounded server projection exposes its required
 custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolves status only; it does not change
 the fixed panel, button, or state geometry in the registry.
+
+The currently admitted `/rd/artifacts` route is a bounded read-only directory, and supersedes the broader future
+Artifacts registry row below for implementation. It has no summary strip, split detail pane, build controls, or
+provider controls. Its only `P` surface is `ArtifactDirectory`; the exact detail remains a separate identity-bound
+URL. The broader admission, outcome, review, binding, replay, and security-evidence panels in the registry row stay
+future blueprint content and are not inferred into this slice.
 
 #### Overview and R&D
 
@@ -1659,15 +1695,16 @@ Higher layers depend only on lower layers. Pages do not redefine color, spacing,
 
 ### Data display components
 
-| Component                                                                    | Contract                                                                                                                |
-| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | white, 12 px radius, optional expand, no glass                                                                          |
-| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | gray frame, white body, scroll/flex modes                                                                               |
-| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit, source cut, empty/unavailable states                                                                              |
-| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axes, unit, locale, disclosure, no‑data behavior                                                                        |
-| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization, stable keys, redaction, truncation and retention disclosure                                             |
-| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filters, stable columns/order, filtered‑empty, row count and pagination; mobile changes only the container |
-| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                                         |
+| Component                                                                    | Contract                                                                                                                                                                                              |
+| ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | white, 12 px radius, optional expand, no glass                                                                                                                                                        |
+| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | gray frame, white body, scroll/flex modes                                                                                                                                                             |
+| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit, source cut, empty/unavailable states                                                                                                                                                            |
+| `DataTableSurface`, `DataWorkspaceTable`, `ArtifactDirectory`                | TanStack headless state with shared shadcn‑style table atoms; one‑row toolbar, sticky plain headers, subtle separators, bounded Owner‑verified rows, and fail‑closed empty/partial/unavailable states |
+| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axes, unit, locale, disclosure, no‑data behavior                                                                                                                                                      |
+| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization, stable keys, redaction, truncation and retention disclosure                                                                                                                           |
+| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filters, stable columns/order, filtered‑empty, row count and pagination; mobile changes only the container                                                                               |
+| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                                                                                                                       |
 
 ### Domain components
 
