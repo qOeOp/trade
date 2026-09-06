@@ -22,7 +22,8 @@ export function Views({ view, mode, onView }: {
     {calendarViews.map(([value, label, Icon]) => {
       const active = mode === "calendar" && view === value;
       return <motion.button type="button" key={value} aria-label={`${label} view`} aria-pressed={active}
-        animate={{ width: active ? 104 : 38 }} onClick={() => onView(value)}>
+        initial={false} animate={{ width: active ? 120 : 32 }}
+        transition={{ type: "tween", duration: 0.25, ease: "easeOut" }} onClick={() => onView(value)}>
         <Icon size={16} aria-hidden="true" />
         <AnimatePresence initial={false}>{active ? <motion.span
           initial={{ opacity: 0, scaleX: 0.8 }} animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }}
