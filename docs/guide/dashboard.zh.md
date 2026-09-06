@@ -64,6 +64,31 @@ provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest 
 因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
 replacement。
 
+## 有界准入：只读策略代码查看器
+
+`StrategyCodeViewer` 是 `ArtifactReviewPanel` source/Wasm 区域的
+`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 展示原子。其源码保真基线是 Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 `apps/web/src/features/lab` 下的 CodeMirror 6
+editor shell 与只读代码表面。Trade 适配保留真实 CodeMirror 的行号 gutter、语法高亮、折叠、文本选择、
+有界滚动、文件 tab、编辑器 chrome、output pane、响应式布局、reduced-motion 动画和 Lucide action。
+它是具有编辑器外观的**查看器**，不是编辑器：不存在内容输入、光标、自动补全、编辑快捷键、insert-cell、
+Run、保存、改写、提交、kernel 连接、WebSocket 或 AI action。
+
+正向渲染只接受一份精确且有界的 Owner 投影：artifact identity、canonical observation time、单份 source
+filename/language/content/digest，以及一个显式 Wasm preview state。Source 上限为 256 KiB，preview output
+上限为 64 KiB。Preview state 只有 `not_run`、`succeeded`、`failed`、`unavailable`；仅 succeeded/failed
+携带精确 module identity、target、canonical observation time、有限 duration、有界 output 与有界 typed
+diagnostics。未知字段、错误时间、非法 digest、超限文本、非法位置、状态字段矛盾或携带陈旧内容全部
+fail closed 为零 source 和 preview 数据。浏览器不生成示例代码、不执行 source、不合成 Wasm 结果，也不把
+transport success 提升为 Artifact fact。
+
+唯一 local UI action 是 Copy source。折叠、选择和滚动仅属于展示状态，不能修改投影。Wasm pane 只展示
+已经投影的 sandbox 结果，不提供 Run control，也不执行 module instantiation、network call、Owner resolve、
+provider effect、业务写、Windmill mutation 或交易动作。当前没有 Dashboard route 或已准入 Owner resolver
+提供正向投影，因此 exact contract test 与 static build 只能建立此有界原子，不能证明 live Owner data、
+sandbox execution acceptance 或 Windmill replacement。
+
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
 实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
