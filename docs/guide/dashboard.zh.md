@@ -177,6 +177,14 @@ Workbench/Dashboard/Windmill consumer、LIVE provider use、trading 或 cutover�
 `/data` 与 `/data/pit-catalog` 只渲染固定 foundation card，不显示 binding/snapshot count、row、
 timeline、positive badge、resolver action 或 mutation action。
 
+可以在不改变 route maturity 的前提下准备一个 `TARGET_DRAFT` 平铺 `MarketHeatmap` 展示原子。它只接受
+server 已验证且有界的 projection：stable item identity、展示 label、正数布局 weight 与 percentage change。
+它保留原源码的 squarified layout、响应式测量、搜索、键盘 focus 与 ripple hover redistribution，但明确没有
+child node、breadcrumb、drill-down、candlestick preview、synthetic series 或 runtime mock data。Loading、
+unavailable、合法 empty 与 filtered-empty 分开；unavailable 固定渲染零 tile。该原子不能 resolve Owner
+custody、读取 private PostgreSQL、认证 provider，也不能把 `/data`、`/data/pit-catalog` 或 `/market` 提升为
+available。任何 positive runtime item 进入该原子前，仍必须另行准入 Dashboard/H0 Market Data resolver。
+
 ### 2026-08-23 已合并 Portfolio R0 fail-closed readback
 
 PR #332 已从 exact head `e2de832c09811f80158ffd5c70a538f5fad6055c` guarded squash-merge 到当前

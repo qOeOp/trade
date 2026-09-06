@@ -197,6 +197,15 @@ HTTP/JSON resolution, Workbench/Dashboard/Windmill consumption, LIVE provider us
 such product consumer is separately admitted, `/data` and `/data/pit-catalog` render the fixed foundation card and
 no binding/snapshot count, row, timeline, positive badge, resolver action, or mutation action.
 
+A `TARGET_DRAFT` flat `MarketHeatmap` presentation atom may be prepared without changing that route maturity. It
+accepts only an already verified, bounded server projection of stable item identity, display label, positive
+layout weight and percentage change. It preserves the source squarified layout, responsive measurement, search,
+keyboard focus and ripple hover redistribution, but deliberately has no child nodes, breadcrumb, drill-down,
+candlestick preview, synthetic series or runtime mock data. Loading, unavailable, valid empty and filtered-empty
+remain distinct; unavailable renders zero tiles. The atom cannot resolve Owner custody, read private PostgreSQL,
+authenticate a provider or promote `/data`, `/data/pit-catalog` or `/market` to available. A separately admitted
+Dashboard/H0 Market Data resolver remains required before any positive runtime item can reach it.
+
 ### 2026-08-23 merged Portfolio R0 fail-closed readback
 
 PR #332 is guarded squash-merged on current Trade main as
