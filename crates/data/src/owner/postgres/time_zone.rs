@@ -99,7 +99,7 @@ SELECT (
             WHERE attribute.attrelid=relations.oid
               AND attribute.attnum>0
               AND NOT attribute.attisdropped
-              AND acl.grantee<>relation.relowner
+              AND acl.grantee<>relations.relowner
          )
          AND NOT EXISTS (
            SELECT 1
