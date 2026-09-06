@@ -897,6 +897,34 @@ The nested policy owns every execution choice needed to compose the complete `Re
 - the correction-rule and market-semantics identities and versions, corporate-action cut, historical-membership
   cut, and any other selection in the request that family policy, rather than an input Owner, owns.
 
+### TARGET / NOT_ADMITTED - Replay execution profile V1
+
+The TrialFamily policy selects two separately sealed, content-addressed values: one economic replay configuration
+and one runner operational profile. The economic seal fixes the first route to `EVENT`, one venue, Margin/Netting/L1,
+the exact starting balance and common quote currency, exact leverage, deterministic full fill, disabled slippage,
+latency and capacity models, and every native Sim Exchange behavioral switch. The operational seal fixes every
+Backtest engine state, timeout, logging, instance, cache and subsystem field. Both use strict canonical codecs,
+fixed-width integer or exact base-10 fixed-point values, closed model enums and no hidden default, floating-point,
+environment or caller fallback.
+
+The permanent TrialFamily binding and the R&D-owned request binding both repeat the exact two seal digests and
+cross-bind the same family identity and digest. Maker/taker fees and initial/maintenance margins are usable only
+with a distinct non-forgeable Instrument Owner provenance value binding the exact instrument fact, receipt and term
+bytes; the visible economic configuration cannot attest them, and a missing value never becomes zero or a native
+default. Any missing, noncanonical, mismatched or cross-spliced family, request, profile or Instrument Owner binding
+fails before `ProgramHostV2` or Backtest state exists.
+
+Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
+numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
+or bind a version-specific inactive constant outside policy meaning. Before materialization, one version-bound,
+fail-closed adapter must also prove every native identifier, currency/fixed-point, message-bus codec, time-origin,
+rate-limit and deterministic instance-UUID conversion, and select exact native fill, fee and margin models without
+host randomness or an implicit model default. These are explicit unavailable prerequisites rather than inferred
+conversions from the sealed policy. The real non-test
+`ProgramHostV2 -> BacktestEngine/Sim Exchange EVENT` consumer must also exist and produce actual-consumption
+evidence before admission. This target does not claim a runnable RDQ loop, Native Replay, Backtest result, Paper,
+Live, production or trading capability.
+
 The TrialFamily's existing top-level cost-model, slippage-model, and capacity-model identities must equal the
 corresponding nested model profiles exactly. A mismatch is unavailable, not an alternate representation. A legacy
 TrialFamily without the sealed policy remains historically readable, but is ineligible and unavailable for Replay
