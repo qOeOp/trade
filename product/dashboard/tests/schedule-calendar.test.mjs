@@ -71,6 +71,44 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
 });
 
+test("calendar body retains the source view, cell, badge, and inspection hierarchy", async () => {
+  const bodyFiles = await Promise.all([
+    "calendar-body.tsx",
+    "views/month-view/calendar-month-view.tsx",
+    "views/month-view/day-cell.tsx",
+    "views/week-and-day-view/calendar-day-view.tsx",
+    "views/week-and-day-view/calendar-time-view.tsx",
+    "views/week-and-day-view/calendar-week-view.tsx",
+    "views/year-view/calendar-year-view.tsx",
+    "views/agenda-view/agenda-events.tsx",
+    "schedule-entry.tsx",
+    "dialogs/schedule-inspection-dialog.tsx",
+  ].map((name) => readFile(new URL(`../components/ui/schedule-calendar/${name}`, import.meta.url), "utf8")));
+  const source = bodyFiles.join("\n");
+  const lock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
+  for (const marker of [
+    'data-slot="calendar-body"',
+    'data-slot="calendar-month-view"',
+    'data-slot="calendar-day-cell"',
+    'data-slot="calendar-event-badge"',
+    '"calendar-day-view"',
+    '"calendar-week-view"',
+    'data-slot="calendar-year-view"',
+    'data-slot="calendar-agenda-view"',
+    "MAX_VISIBLE_EVENTS = 3",
+    "AnimatePresence",
+    "ScheduleInspectionDialog",
+    "CalendarDayView",
+    "CalendarWeekView",
+  ]) assert.ok(source.includes(marker), `missing source body marker: ${marker}`);
+  assert.equal(lock.components.calendarBody.blob, "d5e09c2374d9ab491048c833210f77f663146ebd");
+  assert.equal(lock.components.calendarDayCell.blob, "7a2c37667218a9a7932691d5b4f27705715d7cad");
+  assert.equal(lock.components.calendarEventBadge.blob, "ee00f49d4f625cbd6157a6c295141ec77426b6d4");
+  assert.equal(lock.components.calendarWeekView.blob, "49d8494105c11609f8b6b74f9dc803696b99ce75");
+  assert.doesNotMatch(source, /AddEditEvent|DraggableEvent|DroppableArea|ResizableEvent|CALENDAR_ITEMS_MOCK/u);
+  assert.doesNotMatch(source, />Add Event<|>Edit<|>Delete</u);
+});
+
 test("unavailable schedule data preserves the source calendar frame without invented events", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../components/ui/schedule-calendar.module.css", import.meta.url), "utf8");
