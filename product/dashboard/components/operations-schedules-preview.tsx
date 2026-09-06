@@ -3,7 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseScheduleEnvelopeV1, type ScheduleEnvelopeProjectionV1, type ScheduleProjectionV1 } from "../lib/schedule-projection";
-import { calendarRangeV1, type ScheduleCalendarView } from "../lib/schedule-calendar";
+import { calendarRangeV1, filterScheduleRowsV1, type ScheduleCalendarView,
+  type ScheduleObservationScope } from "../lib/schedule-calendar";
 import { scheduleAvailabilityPresentationV1 } from "../lib/schedule-availability-policy";
 import { ScheduleCalendar } from "./ui/schedule-calendar";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -49,7 +50,9 @@ export function OperationsSchedulesPreview() {
   const [view, setView] = useState<ScheduleCalendarView>("month");
   const [date, setDate] = useState(today);
   const [query, setQuery] = useState("");
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [operationScope, setOperationScope] = useState("all");
+  const [observationScope, setObservationScope] = useState<ScheduleObservationScope>("all");
+  const [compactCalendar, setCompactCalendar] = useState(false);
   const refresh = useCallback(async () => {
     setPending(true); setEnvelope(null); setSelectedIdentity(null); setError(null);
     try {
@@ -65,9 +68,9 @@ export function OperationsSchedulesPreview() {
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
   const all = envelope?.availability === "available" ? envelope.schedules : [];
-  const schedules = useMemo(() => all.filter((row) =>
-    `${row.operation_id} ${row.schedule_identity}`.toLowerCase().includes(query.trim().toLowerCase()))
-    .sort((a, b) => a.next_due_at.localeCompare(b.next_due_at) || a.schedule_identity.localeCompare(b.schedule_identity)), [all, query]);
+  const operations = useMemo(() => [...new Set(all.map((row) => row.operation_id))].sort(), [all]);
+  const schedules = useMemo(() => filterScheduleRowsV1(all, query, operationScope, observationScope),
+    [all, observationScope, operationScope, query]);
   const selected = schedules.find((row) => row.schedule_identity === selectedIdentity);
   const range = calendarRangeV1(date, view);
   const todayDate = new Date(`${today()}T00:00:00.000Z`);
@@ -88,8 +91,7 @@ export function OperationsSchedulesPreview() {
       cell: (row) => row.last_run_identity ? <a href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</a> : "Not observed" },
   ], []);
   return <PanelFrame className={styles.page} aria-label="Shadow-read schedules">
-    <PanelFrameHeader title="Shadow-read schedules" description="Expected triggers and observed runs · UTC"
-      actions={<button type="button" disabled={pending} onClick={() => void refresh()}><InterfaceIcons.refresh size={14} aria-hidden="true" /> Refresh</button>} />
+    <PanelFrameHeader title="Shadow-read schedules" description="Expected triggers and observed runs · UTC" />
     <PanelFrameBody>
       <div className={styles.calendarHeader} aria-label="Schedule controls">
         <motion.div className={styles.calendarIdentity} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
@@ -122,15 +124,25 @@ export function OperationsSchedulesPreview() {
           </div>
         </motion.div>
         <motion.div className={styles.calendarTools} initial={{ x: 10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
-          <motion.label className={styles.searchControl} data-open={searchOpen || Boolean(query)}
-            animate={{ width: searchOpen || query ? 220 : 40 }}>
-            <button type="button" aria-label="Search schedules" onClick={() => setSearchOpen((value) => !value)}>
-              <InterfaceIcons.search size={16} aria-hidden="true" />
-            </button>
-            <input aria-label="Search schedules" type="search" value={query}
-              onFocus={() => setSearchOpen(true)} onChange={(event) => setQuery(event.target.value)}
-              onBlur={() => { if (!query) setSearchOpen(false); }} placeholder="Operation or schedule…" />
-          </motion.label>
+          <details name="calendar-toolbar-menu" className={`${styles.toolMenu} ${styles.filterMenu}`}>
+            <summary aria-label="Filter schedules"><InterfaceIcons.filter size={16} aria-hidden="true" /></summary>
+            <div className={styles.toolPopover}>
+              <label className={styles.filterSearch}>
+                <InterfaceIcons.search size={15} aria-hidden="true" />
+                <input aria-label="Search schedules" type="search" value={query}
+                  onChange={(event) => setQuery(event.target.value)} placeholder="Operation or schedule…" />
+              </label>
+              <fieldset>
+                <legend>Observation</legend>
+                {([['all', 'All schedules'], ['observed', 'Observed'], ['pending', 'Not observed']] as const).map(([value, label]) =>
+                  <button type="button" key={value} aria-pressed={observationScope === value}
+                    aria-label={label}
+                    onClick={() => setObservationScope(value)}>
+                    <span>{label}</span>{observationScope === value && <InterfaceIcons.selected size={14} aria-hidden="true" />}
+                  </button>)}
+              </fieldset>
+            </div>
+          </details>
           <div className={styles.viewTabs} role="group" aria-label="Calendar view">
             {calendarViews.map(([value, label, Icon]) => {
               const active = mode === "calendar" && view === value;
@@ -142,11 +154,34 @@ export function OperationsSchedulesPreview() {
               </motion.button>;
             })}
           </div>
-          <motion.button type="button" className={styles.tableMode} aria-label="Table view" aria-pressed={mode === "table"}
-            animate={{ width: mode === "table" ? 92 : 40 }} onClick={() => setMode("table")}>
-            <InterfaceIcons.table size={16} aria-hidden="true" />
-            <AnimatePresence initial={false}>{mode === "table" ? <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }}>Table</motion.span> : null}</AnimatePresence>
+          <label className={styles.operationScope}>
+            <select aria-label="Operation scope" value={operationScope} onChange={(event) => setOperationScope(event.target.value)}>
+              <option value="all">All schedules</option>
+              {operations.map((operation) => <option key={operation} value={operation}>{operation}</option>)}
+            </select>
+            <InterfaceIcons.expand size={15} aria-hidden="true" />
+          </label>
+          <motion.button type="button" className={styles.refreshAction} disabled={pending}
+            onClick={() => void refresh()} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
+            <InterfaceIcons.refresh size={16} aria-hidden="true" /><span>Refresh</span>
           </motion.button>
+          <details name="calendar-toolbar-menu" className={`${styles.toolMenu} ${styles.settingsMenu}`}>
+            <summary aria-label="Calendar settings"><InterfaceIcons.settings size={16} aria-hidden="true" /></summary>
+            <div className={styles.toolPopover}>
+              <strong>Calendar settings</strong>
+              <label className={styles.settingRow}>
+                <span><b>Compact cells</b><small>Show more dates without changing schedule data.</small></span>
+                <input type="checkbox" checked={compactCalendar}
+                  aria-label="Compact calendar cells"
+                  onChange={(event) => setCompactCalendar(event.target.checked)} />
+              </label>
+              <button type="button" className={styles.tableSetting} aria-pressed={mode === "table"}
+                aria-label="Table view"
+                onClick={() => setMode(mode === "table" ? "calendar" : "table")}>
+                <span>Table view</span>{mode === "table" && <InterfaceIcons.selected size={14} aria-hidden="true" />}
+              </button>
+            </div>
+          </details>
         </motion.div>
       </div>
       {pending ? <div className={styles.message} role="status" aria-label="Reading schedules">{Array.from({ length: 6 }, (_, i) => <div className={styles.skeleton} key={i} />)}</div>
@@ -156,7 +191,7 @@ export function OperationsSchedulesPreview() {
             {!schedules.length ? <div className={styles.message}>No matching schedules.</div>
               : mode === "calendar" ? <ScheduleCalendar key={`${date}-${view}-${query}-${envelope?.observed_at}`}
                 schedules={schedules} date={date} view={view} selectedIdentity={selectedIdentity}
-                onSelect={setSelectedIdentity} onDate={changeDate} />
+                onSelect={setSelectedIdentity} onDate={changeDate} compact={compactCalendar} />
               : <DataWorkspaceTable ariaLabel="Shadow-read schedules" columns={columns} data={schedules}
                 keyField="schedule_identity" pagination paginationPerPage={20} paginationRowsPerPageOptions={[10, 20, 50]}
                 paginationResetKey={query} onRowClicked={(row) => setSelectedIdentity(row.schedule_identity)}

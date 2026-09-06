@@ -3,6 +3,23 @@ import type { ScheduleProjectionV1 } from "./schedule-projection";
 const DAY_MS = 86_400_000;
 
 export type ScheduleCalendarView = "day" | "week" | "month" | "year" | "agenda";
+export type ScheduleObservationScope = "all" | "observed" | "pending";
+
+export function filterScheduleRowsV1(
+  schedules: readonly ScheduleProjectionV1[],
+  query: string,
+  operationScope: string,
+  observationScope: ScheduleObservationScope,
+): ScheduleProjectionV1[] {
+  const needle = query.trim().toLowerCase();
+  return schedules.filter((schedule) => (
+    (operationScope === "all" || schedule.operation_id === operationScope)
+    && (observationScope === "all"
+      || (observationScope === "observed") === Boolean(schedule.last_run_identity))
+    && `${schedule.operation_id} ${schedule.schedule_identity}`.toLowerCase().includes(needle)
+  )).sort((a, b) => a.next_due_at.localeCompare(b.next_due_at)
+    || a.schedule_identity.localeCompare(b.schedule_identity));
+}
 
 export function calendarRangeV1(date: string, view: ScheduleCalendarView) {
   const selected = new Date(`${date}T00:00:00.000Z`);
