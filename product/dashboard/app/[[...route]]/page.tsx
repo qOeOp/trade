@@ -27,5 +27,12 @@ export default async function DashboardPage({
   const sourceIntakeRequestIdentity = typeof query.sourceRequestIdentity === "string"
     ? query.sourceRequestIdentity
     : undefined;
-  return <DashboardShell current={current} sourceIntakeRequestIdentity={sourceIntakeRequestIdentity} />;
+  const composerRequestIdentity = typeof query.requestIdentity === "string"
+    ? query.requestIdentity
+    : undefined;
+  return <DashboardShell
+    current={current}
+    sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
+    composerRequestIdentity={composerRequestIdentity}
+  />;
 }
