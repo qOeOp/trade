@@ -119,7 +119,7 @@ fn tz_proposal(
 }
 fn time_zone(before: i32, after: i32) -> time_zone::TimeZoneReadbackV1 {
     let first = tz_proposal(-10_000_000_000_000, Some(0), 1, None, before);
-    let first_id = time_zone::authority::issue_fact_v1(first.clone())
+    let first_id = time_zone::authority::issue_fact_v1(&first)
         .unwrap()
         .identity();
     let request = UntrustedTimeZoneRequestV1 {

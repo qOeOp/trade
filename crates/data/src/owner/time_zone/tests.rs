@@ -101,7 +101,7 @@ fn fact_preserves_independent_source_and_correction_frontiers() {
     let proposal =
         time_zone_catalog_proposal(b"Asia/Tokyo", d(14), 32_400, 1, None, 5, Some(25), deps);
 
-    assert!(authority::issue_fact_v1(proposal).is_ok());
+    assert!(authority::issue_fact_v1(&proposal).is_ok());
 }
 fn proposal(
     start: i128,
@@ -184,14 +184,14 @@ fn request() -> UntrustedTimeZoneRequestV1 {
 }
 fn proposals() -> Vec<TimeZoneFactProposalV1> {
     let first = proposal(5, Some(15), 1, None, 32_400);
-    let first_id = authority::issue_fact_v1(first.clone()).unwrap().identity();
+    let first_id = authority::issue_fact_v1(&first).unwrap().identity();
     vec![first, proposal(15, Some(25), 2, Some(first_id), 36_000)]
 }
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn replay_time_zone_fixture_v1(
     request_identity: TimeZoneIdentity,
-    coordinates: VerifiedReferenceFactCoordinatesV1,
+    coordinates: &VerifiedReferenceFactCoordinatesV1,
     source_locator_bytes: &[u8],
     r0_locator_bytes: &[u8],
     r0_coordinate_identity: TimeZoneIdentity,
@@ -235,7 +235,7 @@ pub(crate) fn replay_time_zone_fixture_v1(
 fn complete_transition_cut_round_trips_and_receipt_equals_outbox() {
     let _ = replay_time_zone_fixture_v1(
         d(90),
-        dependencies(10, Some(20), 1, None).coordinates().clone(),
+        dependencies(10, Some(20), 1, None).coordinates(),
         b"source-locator",
         b"r0-locator",
         d(22),
@@ -273,7 +273,7 @@ fn receipt_is_generation_bound() {
 #[rstest]
 fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
     let first = proposal(5, Some(14), 1, None, 0);
-    let first_id = authority::issue_fact_v1(first.clone()).unwrap().identity();
+    let first_id = authority::issue_fact_v1(&first).unwrap().identity();
     assert_eq!(
         authority::prepare_resolution_v1(
             request(),
@@ -284,7 +284,7 @@ fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
         Err(TimeZoneErrorV1::NonCanonicalOrder)
     );
     let first = proposal(5, Some(16), 1, None, 0);
-    let first_id = authority::issue_fact_v1(first.clone()).unwrap().identity();
+    let first_id = authority::issue_fact_v1(&first).unwrap().identity();
     assert_eq!(
         authority::prepare_resolution_v1(
             request(),
@@ -329,7 +329,7 @@ fn rejects_cross_splice_zero_and_corrupt_aggregate() {
         Err(TimeZoneErrorV1::InvalidDependency)
     );
     let mut wrong_ruleset = proposals();
-    let first_id = authority::issue_fact_v1(wrong_ruleset[0].clone())
+    let first_id = authority::issue_fact_v1(&wrong_ruleset[0])
         .unwrap()
         .identity();
     wrong_ruleset[1] = time_zone_catalog_proposal(

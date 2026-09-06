@@ -278,6 +278,7 @@ pub(crate) fn decode_reference_fact_catalog_entry_v1(
     let key_value = key.value(value_kind)?;
     let key_identity = key.identity()?;
     key.finish()?;
+
     if digest(KEY_DOMAIN, &key_bytes[..key_bytes.len() - 32]) != key_identity {
         return Err(ReferenceFactCatalogErrorV1::NonCanonical);
     }
@@ -299,6 +300,7 @@ pub(crate) fn decode_reference_fact_catalog_entry_v1(
     let value = d.value(value_kind)?;
     let stable_correlation = d.identity()?;
     d.finish()?;
+
     if value != key_value {
         return Err(ReferenceFactCatalogErrorV1::NonCanonical);
     }
@@ -348,6 +350,7 @@ fn validate_proposal(
     {
         return Err(ReferenceFactCatalogErrorV1::InvalidProposal);
     }
+
     match &p.value {
         ReferenceFactCatalogValueV1::Calendar {
             calendar_identity, ..

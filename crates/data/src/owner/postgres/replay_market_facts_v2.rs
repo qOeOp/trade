@@ -502,6 +502,7 @@ impl ReplayCompositionOwnerV1 {
         trigger_is_minute_close: bool,
     ) -> Result<(), ReplayCompositionBindingErrorV1> {
         let mut seen = [false; 6];
+
         for role in roles {
             let role = match role {
                 0 => ReplayFirstCorpusRoleV1::MinuteOpen,

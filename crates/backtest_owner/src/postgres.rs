@@ -478,8 +478,9 @@ fn attempt_lock_key(
 #[cfg(test)]
 mod lock_key_tests {
     use super::attempt_lock_key;
+    use rstest::rstest;
 
-    #[test]
+    #[rstest]
     fn attempt_lock_key_is_stable_unambiguous_and_postgres_text_safe() {
         let key = attempt_lock_key("request\0with:separator", "attempt/with:separator")
             .expect("string-only lock preimage must serialize");

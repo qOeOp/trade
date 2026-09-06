@@ -556,7 +556,7 @@ pub(crate) mod tests {
                 .commit_prepared_sample_v1(prepared)
                 .await
                 .expect("a new fixture sample must advance empty Owner heads"),
-            Err(error) => panic!("exact BAR sample resolution failed: {error}"),
+            Err(e) => panic!("exact BAR sample resolution failed: {e}"),
         };
         assert_eq!(
             stored.fact().canonical_bytes(),

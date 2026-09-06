@@ -30,7 +30,7 @@ pub(crate) fn prepare_resolution_v1(
     }
     let mut facts = proposals
         .into_iter()
-        .map(issue_fact_v1)
+        .map(|proposal| issue_fact_v1(&proposal))
         .collect::<Result<Vec<_>, _>>()?;
     facts.sort_by_key(TimeZoneFactV1::effective_from_ns);
     validate_fact_graph(&request, &facts)?;
@@ -88,7 +88,7 @@ pub(crate) fn prepare_resolution_v1(
 }
 
 pub(crate) fn issue_fact_v1(
-    proposal: TimeZoneFactProposalV1,
+    proposal: &TimeZoneFactProposalV1,
 ) -> Result<TimeZoneFactV1, TimeZoneErrorV1> {
     let claim = proposal.dependencies.coordinates().claim();
     let catalog = &proposal.catalog_entry;
@@ -101,6 +101,7 @@ pub(crate) fn issue_fact_v1(
         return Err(TimeZoneErrorV1::InvalidDependency);
     };
     let source = catalog.source();
+
     if time_zone_identity.is_empty()
         || time_zone_identity.len() > codec::MAX_IDENTITY_BYTES
         || !codec::nonzero(*ruleset_identity)

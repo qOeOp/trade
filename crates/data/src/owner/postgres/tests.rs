@@ -2384,7 +2384,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     let (time_zone_request, mut time_zone_proposals) =
         crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
             d(202),
-            base.coordinates.clone(),
+            &base.coordinates,
             &source_locator_bytes,
             &r0_locator_bytes,
             base.r0.record().identity(),
@@ -2392,6 +2392,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         );
     let _time_zone = {
         let mut transaction = owner.pool().begin().await.unwrap();
+
         for proposal in &mut time_zone_proposals {
             proposal.catalog_entry =
                 super::reference_fact_catalog::admit_reference_fact_catalog_entry_v1(

@@ -1,4 +1,4 @@
-//! Transaction-bound storage for exact ReferenceFactCatalog entries.
+//! Transaction-bound storage for exact `ReferenceFactCatalog` entries.
 
 #![allow(
     dead_code,
@@ -49,6 +49,7 @@ pub(super) async fn admit_reference_fact_catalog_entry_v1(
     )
     .bind(entry.lineage_root().as_bytes().as_slice())
     .fetch_optional(&mut **tx).await.map_err(store_error)?;
+
     match (
         head,
         entry.predecessor_identity(),
@@ -90,6 +91,7 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
     };
     let digest: Vec<u8> = row.try_get("entry_digest").map_err(store_error)?;
     let bytes: Vec<u8> = row.try_get("entry_bytes").map_err(store_error)?;
+
     if digest != locator.entry_digest.as_bytes().as_slice() {
         return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
     }
