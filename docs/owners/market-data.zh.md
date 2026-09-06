@@ -155,8 +155,8 @@ typed business value 从该 catalog entry 派生并与之逐字节匹配；calle
 
 每条 native fact 拥有自身 lineage root、正 native correction sequence、可选 native predecessor 与 current
 native head。Native lineage root 准确等于 catalog scope identity；该 scope 只标识一个 native fact key：
-`(calendar identity, civil day)`、`(time-zone identity, ruleset identity)` 或 `(session identity, trading day,
-interval ordinal)`。它既不从 Source Binding lineage coordinate 派生，也不与其比较。Native predecessor
+`(calendar identity, civil day)`、`(time-zone identity, ruleset identity)` 或 `(session identity,
+trading day, interval ordinal)`。它既不从 Source Binding lineage coordinate 派生，也不与其比较。Native predecessor
 始终是同一 native fact key 与 domain 的紧邻前一 fact identity，绝不是
 catalog entry identity。Catalog 与 native correction sequence 一一对应。Genesis 时两个 sequence 均为 `1`
 且两个 predecessor 都不存在。每个 sequence 大于 `1` 的 correction 必须同时具备两个 predecessor，native
