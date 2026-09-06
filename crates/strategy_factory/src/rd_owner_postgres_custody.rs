@@ -1137,6 +1137,45 @@ pub(crate) async fn admit_research_custody_in_transaction(
     .map(Some)
 }
 
+pub(crate) async fn admit_research_v2_custody_read_only_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request_identity: &str,
+) -> Result<Option<VerifiedResearchCustodyV1>, ResearchGoalOwnerError> {
+    let hint_rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1")
+        .bind(request_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+    let admissions = resolve_research_admission_hints(transaction, &hint_rows).await?;
+    let rows = sqlx::query("SELECT request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE request_identity = $1 FOR SHARE")
+        .bind(request_identity)
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|e| storage(&e))?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+
+    if rows.len() != 1 {
+        return Err(ResearchGoalOwnerError::Storage(
+            "research directory identity is not unique".into(),
+        ));
+    }
+    let admission = admissions.get(request_identity).ok_or_else(|| {
+        ResearchGoalOwnerError::Storage("research custody changed across authority cut".into())
+    })?;
+    let custody = admit_preloaded_research_row_in_transaction(transaction, row, admission).await?;
+    if custody.request_schema_version() != 2 {
+        return Ok(None);
+    }
+    Box::pin(complete_research_custody_in_transaction(
+        transaction,
+        custody,
+    ))
+    .await
+    .map(Some)
+}
+
 pub(crate) async fn admit_all_research_custodies_in_transaction(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
 ) -> Result<Vec<VerifiedResearchCustodyV1>, ResearchGoalOwnerError> {

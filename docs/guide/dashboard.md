@@ -121,6 +121,38 @@ but creates no new admission and performs no timeout terminalization, sandbox in
 write. This detail slice does not create an Artifact list, prove deployed availability or establish
 Windmill replacement.
 
+## Bounded admission: verified Research directory
+
+`ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
+does not reserve an empty detail column. Its frame header contains an eyebrow, title, one-line purpose, and one
+`Refresh` action. The body contains one horizontal table toolbar with exactly one `All` filter capsule at the left
+and search at the right. The table has four plain, left-aligned columns in this order: `Research request`, `State`,
+`Intent`, and `Updated`. Column headings have no decorative icons and there is no View/column-chooser button,
+registered/visible count, multi-level filter popover, row action, or backend-only field. The table header remains
+sticky inside the bounded scroll viewport. Loading, valid empty, unavailable, and partial states preserve the same
+card geometry; narrow layouts scroll horizontally rather than inventing a reduced mobile fact.
+
+The authenticated Owner GET `/v1/research-goals/directory` returns at most 20 verified V2 request outcomes. It
+considers at most 60 receipt candidates per page, ordered by `(committed_at_epoch_ms, request_identity)` descending
+with PostgreSQL `C` collation for the bounded ASCII identity, and exposes the same tuple only as an opaque stable
+`Load older` cursor. Each candidate is read in its own canonical read-committed transaction under `FOR SHARE` and
+passes the existing complete Research custody verifier, including its stored request, receipt, frozen intent,
+Research view, authority lineage, independence basis, protected-feedback projection, and TrialFamily custody.
+Legacy or quarantined request schemas are omitted and make the cut explicitly partial. A malformed or changed
+candidate fails the entire read unavailable; it is never treated as an empty successful page.
+
+The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
+current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
+invented intent or view. Research goal text, sources, principals, policy, authorization, raw receipts, TrialFamily
+payloads, ancestry, and storage fields remain withheld. Unknown wire keys, contradictory disposition/view fields,
+duplicate identities, future or malformed time, invalid completeness/count, oversized response, transport failure,
+or missing configuration all fail closed to `unavailable`.
+
+`Refresh`, local search/sort/pagination, and `Load older` are the only actions. There is no detail link in this
+slice, and it cannot Submit or Resolve a Research request, create a successor, build or run an Artifact, invoke a
+provider, mutate Windmill, write business state, or authorize trading. The broader selected-request detail and
+action panels in the route registry remain future blueprint content.
+
 ## Bounded admission: verified Artifact directory
 
 `ArtifactDirectory` is the exact `P` surface for `/rd/artifacts`. The route uses one full-width `PanelFrame` and
@@ -1496,11 +1528,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                   | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; R&D Artifacts `/rd/artifacts`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels; R&D Research `/rd/research` selected‑request detail                                                                                                                              | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination, or loading‑row geometry; the whole route is not drawable or implementable                                                              |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                     | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                         | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; R&D Research `/rd/research` directory and Artifacts `/rd/artifacts`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                      | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination, or loading‑row geometry; the whole route is not drawable or implementable                                                              |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                                                           | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -1527,11 +1559,12 @@ source contracts are `CURRENT/PARTIAL`, their exact default-Web deployment remai
 custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolves status only; it does not change
 the fixed panel, button, or state geometry in the registry.
 
-The currently admitted `/rd/artifacts` route is a bounded read-only directory, and supersedes the broader future
-Artifacts registry row below for implementation. It has no summary strip, split detail pane, build controls, or
-provider controls. Its only `P` surface is `ArtifactDirectory`; the exact detail remains a separate identity-bound
-URL. The broader admission, outcome, review, binding, replay, and security-evidence panels in the registry row stay
-future blueprint content and are not inferred into this slice.
+The currently admitted `/rd/research` and `/rd/artifacts` routes are bounded read-only directories and supersede
+the broader future Research and Artifacts registry rows below for implementation. Neither has a summary strip or
+split detail pane. Their only `P` surfaces are `ResearchDirectory` and `ArtifactDirectory`. Research has no detail
+link in its admitted slice; Artifact detail remains a separate identity-bound URL. The broader Research detail,
+admission, outcome, review, binding, replay, and security-evidence panels in the registry stay future blueprint
+content and are not inferred into these slices.
 
 #### Overview and R&D
 

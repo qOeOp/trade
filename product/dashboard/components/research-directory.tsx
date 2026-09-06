@@ -3,12 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  parseArtifactDirectoryBrowserProjectionV1,
-  createArtifactDirectoryRequestGuardV1,
-  mergeArtifactDirectoryItemsV1,
-  type ArtifactDirectoryCursorV1,
-  type ArtifactDirectoryItemV1,
-} from "../lib/artifact-directory-gateway";
+  createResearchDirectoryRequestGuardV1,
+  mergeResearchDirectoryItemsV1,
+  parseResearchDirectoryBrowserProjectionV1,
+  type ResearchDirectoryCursorV1,
+  type ResearchDirectoryItemV1,
+} from "../lib/research-directory-gateway";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { UnavailableState } from "./ui/evidence-strip";
@@ -24,6 +24,7 @@ import {
   PanelFrameHeader,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { researchAvailabilityTone } from "./ui/status-tone-policy";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -34,27 +35,36 @@ function displayTime(value: string): string {
   return new Date(value).toLocaleString();
 }
 
-function directoryUrl(cursor?: ArtifactDirectoryCursorV1): string {
-  if (!cursor) return "/api/rd/artifacts/directory/";
-  const search = new URLSearchParams({
-    afterPreparedAtEpochMs: String(cursor.preparedAtEpochMs),
-    afterBuildRequestIdentity: cursor.buildRequestIdentity,
-  });
-  return `/api/rd/artifacts/directory/?${search}`;
+function phaseLabel(item: ResearchDirectoryItemV1): string {
+  if (item.disposition === "REJECTED_NO_WRITE") return "No Owner write";
+  if (item.availability === "STALE") return "Stale view";
+  if (item.availability === "UNAVAILABLE") return "View unavailable";
+  if (item.phase === "ARTIFACT_AVAILABLE") return "Artifact available";
+  if (item.phase === "INTENT_FROZEN") return "Intent frozen";
+  return "Request unresolved";
 }
 
-export function ArtifactDirectory() {
-  const [items, setItems] = useState<readonly ArtifactDirectoryItemV1[]>([]);
-  const [nextCursor, setNextCursor] = useState<ArtifactDirectoryCursorV1 | null>(null);
+function directoryUrl(cursor?: ResearchDirectoryCursorV1): string {
+  if (!cursor) return "/api/rd/research/directory/";
+  const search = new URLSearchParams({
+    afterCommittedAtEpochMs: String(cursor.committedAtEpochMs),
+    afterRequestIdentity: cursor.requestIdentity,
+  });
+  return `/api/rd/research/directory/?${search}`;
+}
+
+export function ResearchDirectory() {
+  const [items, setItems] = useState<readonly ResearchDirectoryItemV1[]>([]);
+  const [nextCursor, setNextCursor] = useState<ResearchDirectoryCursorV1 | null>(null);
   const [availability, setAvailability] = useState<"loading" | "available" | "unavailable">("loading");
   const [partial, setPartial] = useState(false);
   const [reason, setReason] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [pendingOlder, setPendingOlder] = useState(false);
-  const itemsRef = useRef<readonly ArtifactDirectoryItemV1[]>([]);
-  const requestGuard = useRef(createArtifactDirectoryRequestGuardV1());
+  const itemsRef = useRef<readonly ResearchDirectoryItemV1[]>([]);
+  const requestGuard = useRef(createResearchDirectoryRequestGuardV1());
 
-  const readPage = useCallback(async (cursor?: ArtifactDirectoryCursorV1) => {
+  const readPage = useCallback(async (cursor?: ResearchDirectoryCursorV1) => {
     const requestIdentity = requestGuard.current.begin();
     if (cursor) setPendingOlder(true);
     else {
@@ -63,29 +73,29 @@ export function ArtifactDirectory() {
     }
     try {
       const response = await fetch(directoryUrl(cursor), { cache: "no-store" });
-      const parsed = parseArtifactDirectoryBrowserProjectionV1(await response.json());
+      const parsed = parseResearchDirectoryBrowserProjectionV1(await response.json());
       if (!requestGuard.current.isCurrent(requestIdentity)) return;
       if (!response.ok || !parsed || parsed.availability !== "available") {
         if (!cursor) {
           itemsRef.current = [];
           setItems([]);
           setAvailability("unavailable");
-          setReason(parsed?.reason ?? "ARTIFACT_DIRECTORY_RESPONSE_UNAVAILABLE");
+          setReason(parsed?.reason ?? "RESEARCH_DIRECTORY_RESPONSE_UNAVAILABLE");
         } else {
           setPartial(true);
-          setReason("OLDER_ARTIFACT_CUT_UNAVAILABLE");
+          setReason("OLDER_RESEARCH_CUT_UNAVAILABLE");
         }
         return;
       }
       const merged = cursor
-        ? mergeArtifactDirectoryItemsV1(itemsRef.current, parsed.items)
+        ? mergeResearchDirectoryItemsV1(itemsRef.current, parsed.items)
         : parsed.items;
       if (!merged) {
         itemsRef.current = [];
         setItems([]);
         setNextCursor(null);
         setAvailability("unavailable");
-        setReason("ARTIFACT_DIRECTORY_PAGE_IDENTITY_CONFLICT");
+        setReason("RESEARCH_DIRECTORY_PAGE_IDENTITY_CONFLICT");
         return;
       }
       itemsRef.current = merged;
@@ -100,10 +110,10 @@ export function ArtifactDirectory() {
         itemsRef.current = [];
         setItems([]);
         setAvailability("unavailable");
-        setReason("ARTIFACT_DIRECTORY_TRANSPORT_UNAVAILABLE");
+        setReason("RESEARCH_DIRECTORY_TRANSPORT_UNAVAILABLE");
       } else {
         setPartial(true);
-        setReason("OLDER_ARTIFACT_CUT_UNAVAILABLE");
+        setReason("OLDER_RESEARCH_CUT_UNAVAILABLE");
       }
     } finally {
       if (requestGuard.current.isCurrent(requestIdentity)) setPendingOlder(false);
@@ -115,53 +125,54 @@ export function ArtifactDirectory() {
   const normalizedSearch = search.trim().toLowerCase();
   const visibleItems = useMemo(() => normalizedSearch
     ? items.filter((item) => [
-      item.artifactIdentity,
-      item.buildRequestIdentity,
-      item.attemptIdentity,
-      item.intentIdentity,
-      item.buildTarget,
+      item.requestIdentity,
+      item.intentIdentity ?? "",
+      phaseLabel(item),
     ].some((value) => value.toLowerCase().includes(normalizedSearch)))
     : items, [items, normalizedSearch]);
 
-  const columns = useMemo<DataWorkspaceColumn<ArtifactDirectoryItemV1>[]>(() => [
+  const columns = useMemo<DataWorkspaceColumn<ResearchDirectoryItemV1>[]>(() => [
     {
-      id: "artifact",
-      name: <DataTableHeaderLabel>Artifact</DataTableHeaderLabel>,
-      selector: (item) => item.artifactIdentity,
+      id: "request",
+      name: <DataTableHeaderLabel>Research request</DataTableHeaderLabel>,
+      selector: (item) => item.requestIdentity,
       sortable: true,
       minWidth: "300px",
-      grow: 1.5,
-      cell: (item) => (
-        <a className={styles.identityCell} href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}>
-          <strong title={item.artifactIdentity}>{displayIdentity(item.artifactIdentity)}</strong>
-          <span title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</span>
-        </a>
-      ),
-      ignoreRowClick: true,
-    },
-    {
-      id: "intent",
-      name: <DataTableHeaderLabel>Strategy intent</DataTableHeaderLabel>,
-      selector: (item) => item.intentIdentity,
-      sortable: true,
-      minWidth: "260px",
-      grow: 1.2,
-      cell: (item) => <code className={styles.intent} title={item.intentIdentity}>{displayIdentity(item.intentIdentity)}</code>,
-    },
-    {
-      id: "verification",
-      name: <DataTableHeaderLabel>Verification</DataTableHeaderLabel>,
-      selector: (item) => item.buildSecurityState,
-      sortable: true,
-      minWidth: "180px",
-      cell: (item) => <div className={styles.verification}>
-        <StatusBadge tone="warning">Verified build</StatusBadge>
-        <span title={item.buildTarget}>{item.buildTarget}</span>
+      grow: 1.4,
+      cell: (item) => <div className={styles.identityCell}>
+        <strong title={item.requestIdentity}>{displayIdentity(item.requestIdentity)}</strong>
+        <span>Owner-verified custody</span>
       </div>,
     },
     {
-      id: "created",
-      name: <DataTableHeaderLabel>Created</DataTableHeaderLabel>,
+      id: "state",
+      name: <DataTableHeaderLabel>State</DataTableHeaderLabel>,
+      selector: (item) => phaseLabel(item),
+      sortable: true,
+      minWidth: "210px",
+      cell: (item) => <div className={styles.verification}>
+        <StatusBadge tone={item.disposition === "ACCEPTED"
+          ? researchAvailabilityTone(item.availability)
+          : "unavailable"}>
+          {item.disposition === "ACCEPTED" ? "Accepted" : "Rejected"}
+        </StatusBadge>
+        <span>{phaseLabel(item)}</span>
+      </div>,
+    },
+    {
+      id: "intent",
+      name: <DataTableHeaderLabel>Intent</DataTableHeaderLabel>,
+      selector: (item) => item.intentIdentity ?? "",
+      sortable: true,
+      minWidth: "280px",
+      grow: 1.2,
+      cell: (item) => item.intentIdentity
+        ? <code className={styles.intent} title={item.intentIdentity}>{displayIdentity(item.intentIdentity)}</code>
+        : <span className={styles.intent}>Not created</span>,
+    },
+    {
+      id: "updated",
+      name: <DataTableHeaderLabel>Updated</DataTableHeaderLabel>,
       selector: (item) => item.committedAt,
       sortable: true,
       sortFunction: (left, right) => Date.parse(left.committedAt) - Date.parse(right.committedAt),
@@ -172,40 +183,40 @@ export function ArtifactDirectory() {
 
   return (
     <PageStack>
-      <PanelFrame aria-labelledby="artifact-directory-title">
+      <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
-          eyebrow="Verified Artifact custody"
-          title="Strategy artifacts"
-          titleId="artifact-directory-title"
-          description="Owner-verified terminal builds. Open an artifact to inspect its immutable source."
+          eyebrow="Verified Research custody"
+          title="Research requests"
+          titleId="research-directory-title"
+          description="Current Owner-verified request outcomes, without research payloads or execution controls."
           actions={<button type="button" onClick={() => void readPage()} disabled={availability === "loading"}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} />
             {availability === "loading" ? "Reading…" : "Refresh"}
           </button>}
         />
         <PanelFrameBody>
-          <DataTableSurface className={styles.tableSurface} toolbarLabel="Artifact table controls" toolbar={
+          <DataTableSurface className={styles.tableSurface} toolbarLabel="Research table controls" toolbar={
             <TableToolbar filter={<FilterTabs
-              label="Artifact state"
+              label="Research state"
               items={[{ value: "all", label: "All", icon: InterfaceIcons.filter }]}
               selected="all"
               onSelect={() => undefined}
             />}>
               <FilterSearch
-                label="Search artifacts"
+                label="Search research requests"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Artifact, intent, or request"
+                placeholder="Request, intent, or state"
                 maxLength={128}
               />
             </TableToolbar>}
           >
-            <DataWorkspaceTable<ArtifactDirectoryItemV1>
-              ariaLabel="Verified strategy artifacts"
+            <DataWorkspaceTable<ResearchDirectoryItemV1>
+              ariaLabel="Verified research requests"
               columns={columns}
               data={visibleItems}
-              keyField="artifactIdentity"
-              defaultSortFieldId="created"
+              keyField="requestIdentity"
+              defaultSortFieldId="updated"
               defaultSortAsc={false}
               pagination
               paginationPerPage={20}
@@ -214,13 +225,13 @@ export function ArtifactDirectory() {
               noDataComponent={availability === "unavailable" ? (
                 <UnavailableState
                   density="compact"
-                  icon={<EvidenceIcons.artifact aria-hidden="true" size={17} />}
-                  title="Artifact directory unavailable"
-                  reason={reason ?? "ARTIFACT_DIRECTORY_UNAVAILABLE"}
+                  icon={<EvidenceIcons.research aria-hidden="true" size={17} />}
+                  title="Research directory unavailable"
+                  reason={reason ?? "RESEARCH_DIRECTORY_UNAVAILABLE"}
                 />
               ) : <div className="data-workspace-empty">
-                <EvidenceIcons.artifact aria-hidden="true" size={18} />
-                <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
+                <EvidenceIcons.research aria-hidden="true" size={18} />
+                <p>{availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}</p>
               </div>}
             />
           </DataTableSurface>
@@ -228,8 +239,8 @@ export function ArtifactDirectory() {
         {availability === "available" && (partial || nextCursor) ? (
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
-              primary={partial ? "Partial verified cut" : "More verified artifacts available"}
-              secondary={partial ? "Unverified candidates remain withheld." : "Load an older bounded observation window."}
+              primary={partial ? "Partial verified cut" : "More verified requests available"}
+              secondary={partial ? "Legacy or unverifiable candidates remain withheld." : "Load an older bounded observation window."}
             />
             {nextCursor ? <PanelFrameFooterActions>
               <button type="button" onClick={() => void readPage(nextCursor)} disabled={pendingOlder}>

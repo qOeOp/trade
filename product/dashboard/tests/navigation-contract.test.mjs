@@ -29,7 +29,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .filter(({ href }) => maturityFor(href) === "DRAWABLE_EXACT")
     .map(({ href }) => href);
   assert.deepEqual(exact, [
-    "/rd/artifacts",
+    "/rd/research", "/rd/artifacts",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/runs/example", "/operations/workers/example",
   ]);
@@ -37,7 +37,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 });
 
 test("R&D detail-only routes and all remaining pages fail closed", () => {
-  for (const href of ["/rd", "/rd/research"]) {
+  for (const href of ["/rd"]) {
     assert.equal(maturityFor(href), "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY");
   }
   for (const href of [

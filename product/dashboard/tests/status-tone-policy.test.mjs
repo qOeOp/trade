@@ -62,6 +62,7 @@ test("shared status policy keeps routing, progress, action, and R&D mappings exp
   assert.equal(actionStateTone("TERMINAL"), "info");
   assert.equal(researchAvailabilityTone("AVAILABLE"), "info");
   assert.equal(researchAvailabilityTone("STALE"), "warning");
+  assert.equal(researchAvailabilityTone("UNAVAILABLE"), "unavailable");
   assert.equal(decisionDispositionTone("TERMINAL_STOP"), "info");
   assert.equal(decisionDispositionTone("CONTINUE"), "warning");
   assert.equal(optionalDecisionDispositionTone("TERMINAL_STOP"), "info");
