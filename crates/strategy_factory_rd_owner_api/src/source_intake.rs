@@ -659,6 +659,10 @@ fn router(state: SourceIntakeApiState) -> Router {
         .route(
             "/v1/source-intakes/{request_identity}/resolve",
             post(resolve),
+        )
+        .route(
+            "/v1/source-intakes/{request_identity}/readback",
+            axum::routing::get(readback),
         );
     #[cfg(feature = "sealed-source-intake-acceptance")]
     let router = router.route(
@@ -776,6 +780,32 @@ async fn resolve(
     )
 }
 
+async fn readback(
+    State(state): State<SourceIntakeApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return unknown_response(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            &request_identity,
+        );
+    }
+
+    if !valid_identity(&request_identity) {
+        return unknown_response(
+            StatusCode::BAD_REQUEST,
+            "MALFORMED_TYPED_REQUEST",
+            &request_identity,
+        );
+    }
+    owner_response(
+        state.owner.resolve(&request_identity).await,
+        &request_identity,
+    )
+}
+
 fn owner_response(
     result: Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1>,
     request_identity: &str,
@@ -861,9 +891,85 @@ fn valid_identity(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(feature = "sealed-source-intake-acceptance"))]
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use rstest::rstest;
 
     use super::*;
+
+    #[cfg(not(feature = "sealed-source-intake-acceptance"))]
+    struct ResolveProbe {
+        calls: AtomicUsize,
+    }
+
+    #[cfg(not(feature = "sealed-source-intake-acceptance"))]
+    #[async_trait]
+    impl SourceIntakeOwnerPort for ResolveProbe {
+        async fn run(
+            &self,
+            _request: SourceIntakeOperationRequestV1,
+        ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
+            Err(SourceIntakeOwnerErrorV1::Invalid)
+        }
+
+        async fn resolve(
+            &self,
+            _request_identity: &str,
+        ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+
+    #[cfg(not(feature = "sealed-source-intake-acceptance"))]
+    #[tokio::test]
+    async fn dashboard_get_readback_and_windmill_post_resolve_share_the_read_only_owner_path() {
+        let probe = Arc::new(ResolveProbe {
+            calls: AtomicUsize::new(0),
+        });
+        let state = SourceIntakeApiState {
+            owner: probe.clone(),
+            token_digest: Sha256::digest(b"secret").into(),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            "Bearer secret".parse().expect("header"),
+        );
+
+        let unauthorized = readback(
+            State(state.clone()),
+            Path("source-request-1".to_string()),
+            HeaderMap::new(),
+        )
+        .await;
+        let malformed = readback(
+            State(state.clone()),
+            Path("bad identity".to_string()),
+            headers.clone(),
+        )
+        .await;
+        let dashboard = readback(
+            State(state.clone()),
+            Path("source-request-1".to_string()),
+            headers.clone(),
+        )
+        .await;
+        let windmill = resolve(
+            State(state),
+            Path("source-request-1".to_string()),
+            headers,
+            Bytes::from_static(b"{}"),
+        )
+        .await;
+
+        assert_eq!(unauthorized.status(), StatusCode::FORBIDDEN);
+        assert_eq!(malformed.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(dashboard.status(), StatusCode::ACCEPTED);
+        assert_eq!(windmill.status(), StatusCode::ACCEPTED);
+        assert_eq!(probe.calls.load(Ordering::SeqCst), 2);
+    }
 
     #[rstest]
     fn token_comparison_and_request_identity_are_bounded() {

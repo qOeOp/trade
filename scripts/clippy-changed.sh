@@ -90,19 +90,25 @@ fi
 # Build package args and resolve applicable features per package
 pkg_args=()
 feat_seen=""
+has_lib_target=0
 
 for pkg in "${seen_list[@]}"; do
   pkg_args+=("-p" "$pkg")
 
-  pkg_features=$(cargo metadata --format-version 1 --no-deps 2> /dev/null |
+  pkg_metadata=$(cargo metadata --format-version 1 --no-deps 2> /dev/null |
     python3 -c "
 import json, sys
 data = json.load(sys.stdin)
 for p in data['packages']:
     if p['name'] == '$pkg':
         print(' '.join(p['features'].keys()))
+        print('1' if any('lib' in target['kind'] for target in p['targets']) else '0')
         break
 " 2> /dev/null || true)
+  pkg_features=$(printf '%s\n' "$pkg_metadata" | sed -n '1p')
+  if [ "$(printf '%s\n' "$pkg_metadata" | sed -n '2p')" = "1" ]; then
+    has_lib_target=1
+  fi
 
   desired_features="${DESIRED_FEATURES[*]}"
   if [ "$pkg" = "vibe-serialization" ]; then
@@ -147,5 +153,9 @@ fi
 echo "Running clippy on: ${seen_list[*]}"
 # `${feat_args[@]+...}` guards the expansion: bash 3.2 (macOS default) treats an
 # empty array as unbound under `set -u`, which fires when no features are needed.
-cargo clippy "${pkg_args[@]}" --lib --bins --tests ${feat_args[@]+"${feat_args[@]}"} \
+target_args=(--bins --tests)
+if [ "$has_lib_target" -eq 1 ]; then
+  target_args=(--lib "${target_args[@]}")
+fi
+cargo clippy "${pkg_args[@]}" "${target_args[@]}" ${feat_args[@]+"${feat_args[@]}"} \
   --profile "$PROFILE" -- -D warnings
