@@ -1,5 +1,48 @@
 # Trade Dashboard
 
+## 有界准入：只读影子调度日历
+
+用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，仅覆盖第一方
+零 effect 影子读取调度。此窄例外覆盖该路由的通用 blueprint-only 分类，不准入 Scanner due-slot
+Resolve 或 Windmill 通用调度。复用 `configuredShadowScheduleSetV1` 与 RunStore
+`readBoundScheduledReads`：配置中的身份、摘要、operation 和 dispatch binding 必须与全部已注册
+记录精确匹配（1-100 条）。配置、注册或兼容 custody 缺失时 fail closed。API 仅 GET；读取不创建
+scheduler，不注册、tick 或入队。
+
+浏览器只从成功 HTTP 响应及有效绑定投影接收正向数据。刷新得到不可用或被拒绝的证据时清除旧行与
+选中详情。全程使用 UTC。`next_due_at` 与 cadence 描述**预计触发**，不是执行事实；调度器可能跳过
+已过去的周期。只有返回的 `last_due_at` 与 `last_run_identity` 配对才是**已观测运行**，不得推断
+更早历史、完成、时长、成功或 Owner acceptance。
+
+路由只有一个标题/action header（`Shadow-read schedules`，随后 `Refresh`）和内嵌内容 body。
+紧凑摘要依次显示配置调度数、观测时已到期调度数、已观测运行引用数；不可用显示横线而不是零。
+单行工具栏依次为 Calendar/Table、Today、Previous、日期范围、Next、Day/Week/Month/Year/Agenda，
+最后为右对齐搜索。窄屏控件横向滚动，不使用下钻筛选菜单。默认当前 UTC 日期的 Month 视图；搜索
+匹配 operation 和 schedule identity。
+
+日历保留 Vibe 的日期导航、五视图、事件查看、溢出展开及克制动画。Month 使用覆盖完整周的七列网格，
+每天最多三个摘要条目及可访问的溢出按钮。Day/Week 按 UTC 小时展示零时长触发点，不伪造持续时长块。
+Year 显示十二个月块，点击进入 Month；Agenda 展示选中月份的逐日列表。密集 cadence 按调度/日或
+调度/小时以算术方式聚合；展开后每页 50 个精确预计时间戳，不物化无界事件列表。已观测记录独立标注，
+链接现有 Run Detail。日历导航不得执行调度；Today 重置日期但保留当前视图。
+
+表格列依次为 Operation、Cadence、Next expected trigger、Last observed run；默认按下次触发升序，
+再按不可变 schedule identity 排序。先搜索再分页，默认 20 行，可选 10/20/50。选中打开与日历相同的
+详情。不提供列选择器、批量选择或每列表头装饰图标。表头在有界 body 滚动区域内冻结。详情依次为
+operation/标题、cadence 与下次预计触发、上次已观测 due/run 链接、默认折叠的身份/摘要/recovery 字段。
+不提供 Run、Resolve、CRUD、拖拽或缩放操作。
+
+1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body
+高度，双方内部滚动。低于 1280px，详情在主卡片之后自然增高。低于 768px，Month/Week 保留至少
+700px 的内部滚动宽度，其他视图适配卡片。header/footer 共用主题 chrome token，配内嵌 body、弱
+分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
+控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
+
+加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。
+不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与 Refresh，不保留旧正向详情。
+动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
+五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
+
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
 实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不

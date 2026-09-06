@@ -60,7 +60,7 @@ export const allRoutes = [
 
 const exactRoutes = new Set([
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
-  "/operations/workers", "/operations/workers/example",
+  "/operations/workers", "/operations/workers/example", "/operations/schedules",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
 ]);
 const detailOnlyRoutes = new Set(["/rd", "/rd/research", "/rd/artifacts"]);
@@ -90,6 +90,7 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/workers": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "Independent identity-bound WorkerDetail", terminal: "WorkerStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations/workers/example": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "ExactWorkerDetail", terminal: "ExactWorkerUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations": { summaries: ["Loaded", "Active loaded", "Unknown loaded", "Terminal loaded"], primary: "CursorBoundRunTable", context: "Exact state segments + source-cut pagination", terminal: "ExactRunDetailLink or RunStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT" },
