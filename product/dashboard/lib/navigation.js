@@ -63,9 +63,10 @@ const exactRoutes = new Set([
   "/operations/workers", "/operations/workers/example", "/operations/schedules",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd/research", "/rd/artifacts",
+  "/rd", "/rd/research", "/rd/artifacts",
 ]);
-const detailOnlyRoutes = new Set(["/rd"]);
+/** @type {Set<string>} */
+const detailOnlyRoutes = new Set([]);
 
 /** @param {string} href @returns {BlueprintMaturity} */
 export function maturityFor(href) {
@@ -92,6 +93,7 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/rd": { summaries: [], primary: "SourceIntakeReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
