@@ -129,7 +129,7 @@ pub(super) async fn resolve_calendar_in_transaction_v1(
                 .map_err(store_error)?;
             Ok(readback)
         }
-        Err(error) => {
+        Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_calendar_catalog_v1")
                 .execute(&mut **transaction)
                 .await
@@ -138,7 +138,7 @@ pub(super) async fn resolve_calendar_in_transaction_v1(
                 .execute(&mut **transaction)
                 .await
                 .map_err(store_error)?;
-            Err(error)
+            Err(e)
         }
     }
 }

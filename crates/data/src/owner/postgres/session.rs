@@ -127,6 +127,7 @@ async fn resolve_inner(
     let time_zone = super::time_zone::recover_time_zone_in_transaction_v1(tx, time_zone_locator)
         .await
         .map_err(map_time_zone_error)?;
+
     if request.session_identity.as_ref() != instrument_session.as_ref()
         || calendar.cut().calendar_identity() != instrument_calendar.as_ref()
         || time_zone
@@ -218,6 +219,7 @@ async fn resolve_inner(
                 let prior_fact = crate::owner::session::authority::decode_fact(&prior_bytes)?;
                 let catalog = load_catalog_for_fact(tx, fact).await?;
                 let prior_catalog = load_catalog_for_fact(tx, &prior_fact).await?;
+
                 if prior_lineage != fact.lineage_root.as_bytes().as_slice()
                     || prior_session != fact.session_identity.as_ref()
                     || prior_day != fact.trading_day
@@ -388,6 +390,7 @@ async fn load_catalog_for_fact(
         }
         _ => false,
     };
+
     if entry.scope_identity() != fact.lineage_root
         || entry.correction_sequence() != fact.correction_sequence
         || source.source_binding_identity != fact.source_binding_identity

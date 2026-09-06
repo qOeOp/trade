@@ -2296,7 +2296,7 @@ async fn recover_native_reference_r0s_v1(
             fact.r0_coordinate_identity,
         )
         .await
-        .map_err(|error| match error {
+        .map_err(|e| match e {
             crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ErrorV1::StoreUnavailable => {
                 ReplayCompositionBindingErrorV1::ReplayV2Unavailable
             }

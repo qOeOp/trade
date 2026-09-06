@@ -251,6 +251,7 @@ fn proposals() -> (
     ];
     let mut proposals = Vec::new();
     let mut entries = Vec::new();
+
     for (day, is_open, _scope, r0_identity, r0_digest) in inputs {
         let coordinates = coordinates(None);
         let entry = catalog_entry(day, is_open, &coordinates);

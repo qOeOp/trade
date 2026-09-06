@@ -51,7 +51,7 @@ pub(super) async fn admit_reference_fact_catalog_entry_v1(
                 .map_err(store_error)?;
             Ok(stored)
         }
-        Err(error) => {
+        Err(e) => {
             sqlx::query("ROLLBACK TO SAVEPOINT market_data_reference_fact_catalog_v1")
                 .execute(&mut **tx)
                 .await
@@ -60,7 +60,7 @@ pub(super) async fn admit_reference_fact_catalog_entry_v1(
                 .execute(&mut **tx)
                 .await
                 .map_err(store_error)?;
-            Err(error)
+            Err(e)
         }
     }
 }
@@ -75,6 +75,7 @@ async fn admit_inner(
         catalog_head_lock(entry.scope_identity(), entry.lineage_root()),
     )
     .await?;
+
     if let Some(stored) = resolve_reference_fact_catalog_entry_v1(tx, locator).await? {
         if stored.canonical_bytes() != entry.canonical_bytes() {
             return Err(ReferenceFactCatalogErrorV1::RequestConflict);
@@ -98,6 +99,7 @@ async fn admit_inner(
             .await?
         }
     };
+
     if let Some(prior) = predecessor.as_ref()
         && (prior.scope_identity() != entry.scope_identity()
             || prior.kind() != entry.kind()
@@ -143,6 +145,7 @@ async fn admit_inner(
             .bind(prior.as_bytes().as_slice()).bind(sequence - 1)
             .execute(&mut **tx).await.map_err(store_error)?.rows_affected(),
     };
+
     if affected != 1 {
         return Err(ReferenceFactCatalogErrorV1::RequestConflict);
     }
@@ -178,6 +181,7 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
     let Some(entry) = load_entry(tx, locator.entry_identity).await? else {
         return Ok(None);
     };
+
     if entry.identity() != locator.entry_digest {
         return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
     }
@@ -200,6 +204,7 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
     let mut successor_source_version = None;
     let mut seen = HashSet::new();
     let mut found_requested_entry = false;
+
     loop {
         if !seen.insert(current_identity) {
             return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
@@ -207,6 +212,7 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
         let current = load_entry(tx, current_identity)
             .await?
             .ok_or(ReferenceFactCatalogErrorV1::StoreUntrusted)?;
+
         if current.scope_identity() != entry.scope_identity()
             || current.lineage_root() != entry.lineage_root()
             || current.kind() != entry.kind()
@@ -221,9 +227,11 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
         {
             return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
         }
+
         if current_identity == entry.identity() {
             found_requested_entry = true;
         }
+
         match (expected_sequence, current.predecessor_identity()) {
             (1, None) => break,
             (2.., Some(predecessor)) => {
@@ -234,6 +242,7 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
             _ => return Err(ReferenceFactCatalogErrorV1::StoreUntrusted),
         }
     }
+
     if !found_requested_entry {
         return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
     }
@@ -260,6 +269,7 @@ async fn load_entry(
     let bytes: Vec<u8> = row.try_get("entry_bytes").map_err(store_error)?;
     let entry = decode_reference_fact_catalog_entry_v1(&bytes)
         .map_err(|_| ReferenceFactCatalogErrorV1::StoreUntrusted)?;
+
     if identity != entry.identity()
         || digest != entry.digest()
         || scope != entry.scope_identity()

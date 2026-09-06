@@ -30,6 +30,7 @@ pub(crate) fn prepare_resolution_v1<T: CatalogBoundTimeZoneProposalV1>(
         else {
             return Err(TimeZoneErrorV1::InvalidDependency);
         };
+
         if claim.stable_correlation != request.stable_correlation
             || claim.time.owner_observation_ns != request.owner_observation_ns
             || claim.time.decision_cut != request.decision_cut
@@ -612,6 +613,7 @@ fn validate_catalog_graph<T: CatalogBoundTimeZoneProposalV1>(
     if proposals.len() != facts.len() {
         return Err(TimeZoneErrorV1::InvalidFact);
     }
+
     for (resolved, fact) in proposals.iter().zip(facts) {
         if resolved.catalog_entry().identity() != fact.catalog_entry_identity()
             || resolved.catalog_entry().correction_sequence() != fact.correction_sequence()
@@ -620,6 +622,7 @@ fn validate_catalog_graph<T: CatalogBoundTimeZoneProposalV1>(
             return Err(TimeZoneErrorV1::InvalidFact);
         }
     }
+
     for pair in proposals.windows(2) {
         let left = pair[0].catalog_entry();
         let right = pair[1].catalog_entry();

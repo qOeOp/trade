@@ -2676,6 +2676,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         );
     let calendar = {
         let mut transaction = owner.pool().begin().await.unwrap();
+
         for (proposal, entry) in calendar_proposals
             .iter_mut()
             .zip(calendar_catalog_entries.iter())
@@ -2821,6 +2822,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     }
     let session = {
         let mut transaction = owner.pool().begin().await.unwrap();
+
         for (proposal, entry) in session_proposals
             .iter_mut()
             .zip(session_catalog_entries.iter())

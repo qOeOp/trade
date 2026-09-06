@@ -1425,6 +1425,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         d(239),
     )
     .await;
+
     for (issuance_identity, locator) in [
         (d(230), wrong_digest_time_zone),
         (d(231), missing_r0_time_zone),

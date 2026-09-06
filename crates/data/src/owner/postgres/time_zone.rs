@@ -353,7 +353,7 @@ async fn load_catalog_for_fact(
         UntrustedReferenceFactCatalogLocatorV1::from_untrusted(identity, identity),
     )
     .await
-    .map_err(|error| match error {
+    .map_err(|e| match e {
         crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUnavailable => {
             TimeZoneErrorV1::StoreUnavailable
         }
