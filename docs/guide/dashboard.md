@@ -16,12 +16,18 @@ Use UTC throughout. `next_due_at` and cadence describe **expected triggers**, no
 the scheduler may skip elapsed slots. Only the returned `last_due_at` and `last_run_identity` pair is
 an **observed run**. Never infer older runs, completion, duration, success or Owner acceptance.
 
-The route has one title/action header (`Shadow-read schedules`, then `Refresh`) and an inset content
-body. A compact summary contains configured schedules, due-at-observation schedules and observed-run
-references, with unavailable values shown as dashes, never zero. The single-row toolbar orders
-Calendar/Table, Today, Previous, range label, Next, Day/Week/Month/Year/Agenda, then right-aligned
-search. Controls horizontally scroll on narrow screens instead of opening a nested filter menu.
-Default view is Month at the current UTC date. Search matches operation and schedule identity.
+The route has one outer title header (`Shadow-read schedules` with its one-line purpose) and an inset
+calendar body. Inside that body, the toolbar preserves the Vibe Journal source hierarchy instead of
+replacing it with a Dashboard-specific control strip. The left identity group is Today card, month/year
+heading with schedule count or unavailable state, then Previous, range label and Next. The right tool
+group is Filter, one shared animated Agenda/Day/Week/Month/Year segmented control, operation selector,
+Refresh in the source primary-action position, then Settings. The active view expands to its text label
+while inactive views remain icon-only. The operation selector retains the source stacked-marker trigger
+geometry, but derives markers only from returned operation identities; unavailable data creates no
+placeholder marker. Filter contains local operation/identity search and observed/not-observed scope;
+Settings contains compact density and Table mode. Controls horizontally scroll or wrap as one toolbar
+on narrow screens. Default view is Month at the current UTC date. No separate summary strip, duplicate
+Calendar/Table buttons or always-visible search field is inserted above the source calendar header.
 
 Calendar fidelity preserves Vibe's date navigation, five views, event inspection, overflow expansion
 and restrained transitions. Month uses a seven-column full-week grid with at most three summary

@@ -14,11 +14,15 @@ scheduler，不注册、tick 或入队。
 已过去的周期。只有返回的 `last_due_at` 与 `last_run_identity` 配对才是**已观测运行**，不得推断
 更早历史、完成、时长、成功或 Owner acceptance。
 
-路由只有一个标题/action header（`Shadow-read schedules`，随后 `Refresh`）和内嵌内容 body。
-紧凑摘要依次显示配置调度数、观测时已到期调度数、已观测运行引用数；不可用显示横线而不是零。
-单行工具栏依次为 Calendar/Table、Today、Previous、日期范围、Next、Day/Week/Month/Year/Agenda，
-最后为右对齐搜索。窄屏控件横向滚动，不使用下钻筛选菜单。默认当前 UTC 日期的 Month 视图；搜索
-匹配 operation 和 schedule identity。
+路由只有一个外层标题 header（`Shadow-read schedules` 及单行用途）和内嵌日历 body。body 内的工具栏
+保留 Vibe Journal 源码层级，不再替换成 Dashboard 自绘控制条。左侧 identity group 依次为 Today 日期卡、
+带调度数或 unavailable 状态的月/年标题、Previous、日期范围和 Next；右侧 tool group 依次为 Filter、
+共用一个底座并带动画的 Agenda/Day/Week/Month/Year segmented control、operation selector、占用源码主操作
+位置的 Refresh、Settings。当前视图展开文字，未选视图只保留图标。operation selector 保留源码叠放标记
+trigger 的构型，但标记只能从已返回的 operation identity 派生；数据不可用时不制造占位标记。Filter 内
+提供本地 operation/identity 搜索及 observed/not-observed scope；Settings 内提供紧凑密度和 Table mode。
+窄屏时这些控件作为同一工具栏横向滚动或换行。默认当前 UTC 日期的 Month 视图。源码日历 header 上方
+不得再插入独立摘要条、重复 Calendar/Table 按钮或常驻搜索框。
 
 日历保留 Vibe 的日期导航、五视图、事件查看、溢出展开及克制动画。Month 使用覆盖完整周的七列网格，
 每天最多三个摘要条目及可访问的溢出按钮。Day/Week 按 UTC 小时展示零时长触发点，不伪造持续时长块。
