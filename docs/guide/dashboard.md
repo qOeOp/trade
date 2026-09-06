@@ -54,6 +54,30 @@ Dynamic acceptance requires disposable PostgreSQL bound reads reaching the brows
 failure rejection, distinction between predicted and observed entries, all five views, overflow,
 keyboard operation, both themes and narrow/desktop layouts. Fixtures alone are not dynamic acceptance.
 
+## Bounded admission: Backtest return-band presentation atom
+
+`BacktestReturnBand` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` read-only presentation atom for
+the already documented `/backtest` and `/backtest/compare` surfaces. Its source-fidelity reference is
+Vibe Trading commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the factor home daily-return band chart.
+The Trade adaptation preserves the quantile min/max and Q1/Q3 bands, selected-strategy ink overlay,
+month stripes or year dividers, draw-to-focus time window and reset, drawdown ceiling texture,
+optional explicit benchmark, and external hover readout. It uses the shared Dashboard panel and theme
+tokens, responsive measurement, restrained motion, reduced-motion behavior, and Lucide actions.
+
+Positive rendering accepts only one exact, bounded Owner-projected result identity: canonical UTC
+timestamps, ordered finite quantiles, strictly ordered points, and optional strategy and benchmark
+series whose timestamps belong to the same cut. Unknown keys, malformed ordering, mismatched series,
+stale carried values, or non-canonical time fail closed to zero chart data. A benchmark is shown only
+when the projection supplies it explicitly; the browser must never derive a baseline from the band
+median, synthesize returns, or import Vibe mock factor data. Loading, unavailable, valid empty, and
+available data are distinct states.
+
+This atom performs no Backtest dispatch, selection commit, comparison judgment, economic claim,
+Owner resolve, provider call, or business write. No Dashboard route or admitted Backtest Owner resolver
+currently supplies its positive projection, so component tests and static rendering do not establish
+live data, deployed-browser acceptance, S3 availability, or Windmill replacement.
+
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
 narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard

@@ -43,6 +43,27 @@ operation/标题、cadence 与下次预计触发、上次已观测 due/run 链�
 动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
 五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
 
+## 有界准入：Backtest 收益带展示原子
+
+`BacktestReturnBand` 是已文档化 `/backtest` 与 `/backtest/compare` 表面的
+`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读展示原子。其源码保真基线是 Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 factor home 的日收益带图。Trade 适配保留
+quantile min/max 与 Q1/Q3 区间、选中策略的墨迹 overlay、月份色带或年份分割线、拖动聚焦时间窗口与
+reset、回撤顶部纹理、可选的显式 benchmark 及外置 hover readout；同时使用 Dashboard 共享 panel、
+主题 token、响应式测量、克制动画、reduced-motion 行为和 Lucide action。
+
+正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳、有序有限 quantile、
+严格按时间排序的 point，以及时间戳属于同一 cut 的可选 strategy/benchmark series。未知字段、错误顺序、
+series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零图表数据。只有投影显式提供 benchmark
+时才展示基准；浏览器绝不能从 band median 派生 baseline、合成收益或导入 Vibe mock factor data。
+Loading、unavailable、合法 empty 与 available 是四种独立状态。
+
+该原子不执行 Backtest dispatch、selection commit、comparison judgment、economic claim、Owner resolve、
+provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest Owner resolver 为它提供正向投影，
+因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
+replacement。
+
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
 实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
