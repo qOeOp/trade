@@ -886,6 +886,9 @@ impl ReplayCompositionOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::time_zone::verify_time_zone_custody_in_transaction_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
 
         let (joined_request, joined_custody, joined_cut_receipt_digest) =
             super::observation_census::load_strategy_input_joined_cut_custody_v1(

@@ -1095,7 +1095,20 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     sqlx::query(
         "ALTER TABLE market_data_private.time_zone_state_v1
-         ADD CHECK(append_sequence>=0)",
+         ADD CONSTRAINT time_zone_state_v1_substitution_probe_check CHECK(singleton)",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_state_v1
+         DROP CONSTRAINT time_zone_state_v1_substitution_probe_check,
+         ADD CONSTRAINT time_zone_state_v1_append_sequence_check CHECK(append_sequence>=0)",
     )
     .execute(market_mutation_pool)
     .await
@@ -1221,12 +1234,13 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         joined.projection.subject_identity(),
         *joined_receipt_digest.as_bytes()
     );
+    let native_request = UntrustedComposerNativeJoinRequestV1 {
+        joined_cut_identity: joined.joined.record().identity(),
+        joined_cut_digest: joined_digest,
+        frame_projection_digests: joined.frame_projection_digests,
+    };
     let native_capability = owner
-        .issue_composer_native_join_v1(&UntrustedComposerNativeJoinRequestV1 {
-            joined_cut_identity: joined.joined.record().identity(),
-            joined_cut_digest: joined_digest,
-            frame_projection_digests: joined.frame_projection_digests,
-        })
+        .issue_composer_native_join_v1(&native_request)
         .await
         .unwrap();
     assert_eq!(
@@ -1243,6 +1257,26 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .schedule_dependency_set_digest()
             .as_bytes(),
         &joined.projection.schedule_dependency_set_digest()
+    );
+    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        owner.issue_composer_native_join_v1(&native_request).await,
+        Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+    ));
+    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    let recovered_native_capability = owner
+        .issue_composer_native_join_v1(&native_request)
+        .await
+        .unwrap();
+    assert_eq!(
+        recovered_native_capability.locator(),
+        native_capability.locator()
     );
     let native_join =
         StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &native_capability)

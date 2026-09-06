@@ -142,6 +142,18 @@ const TIME_ZONE_CUSTODY_QUERY_V1: &str = "WITH expected(relation_name) AS (
     LEFT JOIN pg_catalog.pg_class relation
       ON relation.relnamespace=namespace.oid
      AND relation.relname=expected.relation_name
+), observed_checks AS (
+  SELECT relations.relation_name,
+         pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false) AS expression,
+         constraint_fact.condeferrable,
+         constraint_fact.condeferred,
+         constraint_fact.convalidated,
+         constraint_fact.connoinherit,
+         constraint_fact.conislocal,
+         constraint_fact.coninhcount
+    FROM pg_catalog.pg_constraint constraint_fact
+    JOIN relations ON relations.oid=constraint_fact.conrelid
+   WHERE constraint_fact.contype='c'
 )
 SELECT (
          SELECT count(*)=1
@@ -205,18 +217,27 @@ SELECT (
        LEFT JOIN pg_catalog.pg_class foreign_relation ON foreign_relation.oid=constraint_fact.confrelid
       WHERE constraint_fact.contype IN ('p','u','f'))
    AND (SELECT count(*)=22 AND pg_catalog.bool_and(
-         (relations.relation_name,pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false))
-         IN (SELECT * FROM expected_checks)
-         AND NOT constraint_fact.condeferrable
-         AND NOT constraint_fact.condeferred
-         AND constraint_fact.convalidated
-         AND NOT constraint_fact.connoinherit
-         AND constraint_fact.conislocal
-         AND constraint_fact.coninhcount=0
+         NOT observed_checks.condeferrable
+         AND NOT observed_checks.condeferred
+         AND observed_checks.convalidated
+         AND NOT observed_checks.connoinherit
+         AND observed_checks.conislocal
+         AND observed_checks.coninhcount=0
+       ) FROM observed_checks)
+   AND NOT EXISTS (
+         SELECT 1 FROM (
+           SELECT relation_name,expression FROM expected_checks
+           EXCEPT ALL
+           SELECT relation_name,expression FROM observed_checks
+         ) missing_check
        )
-       FROM pg_catalog.pg_constraint constraint_fact
-       JOIN relations ON relations.oid=constraint_fact.conrelid
-      WHERE constraint_fact.contype='c')
+   AND NOT EXISTS (
+         SELECT 1 FROM (
+           SELECT relation_name,expression FROM observed_checks
+           EXCEPT ALL
+           SELECT relation_name,expression FROM expected_checks
+         ) unexpected_check
+       )
    AND NOT EXISTS (
          SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
           WHERE constraint_fact.conrelid IN (SELECT oid FROM relations)
@@ -288,6 +309,20 @@ pub(super) const TIME_ZONE_SCHEMA_V1: &[&str] = &[
 pub(super) async fn verify_time_zone_custody_v1(pool: &PgPool) -> Result<(), TimeZoneErrorV1> {
     let exact: bool = sqlx::query_scalar(TIME_ZONE_CUSTODY_QUERY_V1)
         .fetch_one(pool)
+        .await
+        .map_err(store_error)?;
+
+    if !exact {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    Ok(())
+}
+
+pub(super) async fn verify_time_zone_custody_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), TimeZoneErrorV1> {
+    let exact: bool = sqlx::query_scalar(TIME_ZONE_CUSTODY_QUERY_V1)
+        .fetch_one(&mut **transaction)
         .await
         .map_err(store_error)?;
 
@@ -846,6 +881,8 @@ mod tests {
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=31"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=21"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=22"));
+        assert_eq!(TIME_ZONE_CUSTODY_QUERY_V1.matches("EXCEPT ALL").count(), 2);
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("observed_checks"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attisdropped"));
         assert!(
             TIME_ZONE_CUSTODY_QUERY_V1
