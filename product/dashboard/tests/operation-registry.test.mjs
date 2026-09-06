@@ -45,6 +45,11 @@ test("the Trade registry exposes only admitted read-only shadow operations", () 
       assert.equal(operation.owner_route.body_schema, null);
     }
     assert.equal(operation.timeout_class.milliseconds, 8_000);
+    if (operation.operation_id === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION) {
+      assert.deepEqual(operation.owner_route.query_fields, ["request_identity", "meaning_digest"]);
+    } else {
+      assert.equal(operation.owner_route.query_fields, undefined);
+    }
     assert.equal(operation.deployment_state, "unavailable");
     assert.equal(operation.compatibility_envelope_digest, null);
     assert.equal(operation.compatibility_observed_at_epoch_ms, null);
@@ -102,7 +107,16 @@ test("Owner URL rendering requires the exact registered route identities", () =>
       request_identity: "replay/request",
       meaning_digest: `blake3:${"a".repeat(64)}`,
     },
-  })), `http://rd-owner-api:8080/v2/exploratory-replay-requests/replay%2Frequest/readback?meaning_digest=blake3%3A${"a".repeat(64)}`);
+  })), `http://rd-owner-api:8080/v2/exploratory-replay-requests/readback?request_identity=replay%2Frequest&meaning_digest=blake3%3A${"a".repeat(64)}`);
+  for (const requestIdentity of [".", "..", "identity with spaces", "\ufeffidentity"]) {
+    const endpoint = ownerOperationUrlV1({
+      operationId: EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+      baseUrl: "http://rd-owner-api:8080",
+      identities: { request_identity: requestIdentity, meaning_digest: `blake3:${"b".repeat(64)}` },
+    });
+    assert.equal(endpoint.searchParams.get("request_identity"), requestIdentity);
+    assert.equal(endpoint.pathname, "/v2/exploratory-replay-requests/readback");
+  }
   assert.equal(ownerOperationUrlV1({
     operationId: ARTIFACT_SHADOW_RESOLVE_OPERATION,
     baseUrl: "https://token@example.test",
@@ -144,6 +158,7 @@ test("registry digest binds every dispatch-bearing descriptor field", () => {
     (value) => { value.capability = "rd.source_intake.changed"; },
     (value) => { value.owner_route.path_template = "/changed/{request_identity}"; },
     (value) => { value.owner_route.identity_fields = ["changed_identity"]; },
+    (value) => { value.owner_route.query_fields = ["request_identity"]; },
     (value) => { value.timeout_class.milliseconds = 7_999; },
     (value) => { value.recovery_identity_fields = ["changed_identity"]; },
     (value) => { value.allowed_operational_reads = ["owner_outcome"]; },

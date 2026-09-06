@@ -63,7 +63,7 @@ const exactRoutes = new Set([
   "/operations/workers", "/operations/workers/example", "/operations/schedules",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
   "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-  "/rd", "/rd/composer", "/rd/research", "/rd/artifacts",
+  "/rd", "/rd/composer", "/rd/research", "/rd/artifacts", "/backtest",
 ]);
 /** @type {Set<string>} */
 const detailOnlyRoutes = new Set([]);
@@ -93,6 +93,7 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/backtest": { summaries: [], primary: "ExploratoryReplayReadbackWorkbench", context: null, terminal: "ResultProjectionUnavailable", state: "IMPLEMENTATION_ADMITTED - SEALED_REQUEST_POINT_READ_ONLY - NO_RUN_OR_RESULT" },
   "/rd": { summaries: [], primary: "SourceIntakeReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },
   "/rd/composer": { summaries: [], primary: "DevelopComposerReadbackWorkbench", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_RUN_RESOLVE_OR_EDIT" },
   "/rd/research": { summaries: [], primary: "VerifiedResearchDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE" },

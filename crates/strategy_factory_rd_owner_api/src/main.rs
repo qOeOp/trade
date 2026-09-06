@@ -375,6 +375,10 @@ async fn main() -> anyhow::Result<()> {
             post(exploratory_replay::resolve),
         )
         .route(
+            "/v2/exploratory-replay-requests/readback",
+            get(exploratory_replay::readback),
+        )
+        .route(
             "/v1/trial-families/by-intent/{intent_identity}",
             post(resolve_family_by_intent),
         )

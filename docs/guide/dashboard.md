@@ -105,10 +105,10 @@ browser receives none of the canonical request bytes, raw receipt, component dig
 admission, protected diagnostics, source, result bytes or storage fields.
 
 The authenticated Owner route is exactly
-`GET /v2/exploratory-replay-requests/{request_identity}/readback?meaning_digest={meaning_digest}`. It accepts
+`GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`. It accepts
 no body and calls the existing sealed R&D Owner Replay V2 read port. The Owner reads existing custody only;
 it creates no request, admission, attempt, timeout transition, outbox row or effect. The Dashboard BFF
-path/query-binds both selector fields, validates the complete canonical Owner response, verifies canonical
+query-binds both selector fields without path normalization, validates the complete canonical Owner response, verifies canonical
 request bytes against the typed request, and then projects only the fields above. Invalid selectors perform
 zero Owner calls. Unknown keys, malformed canonical bytes, identity/digest drift, contradictory availability,
 oversize response, permission denial or transport failure clear stale positive state and fail closed.

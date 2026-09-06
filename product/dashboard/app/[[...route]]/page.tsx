@@ -30,9 +30,17 @@ export default async function DashboardPage({
   const composerRequestIdentity = typeof query.requestIdentity === "string"
     ? query.requestIdentity
     : undefined;
+  const replayRequestIdentity = typeof query.replayRequestIdentity === "string"
+    ? query.replayRequestIdentity
+    : undefined;
+  const replayMeaningDigest = typeof query.meaningDigest === "string"
+    ? query.meaningDigest
+    : undefined;
   return <DashboardShell
     current={current}
     sourceIntakeRequestIdentity={sourceIntakeRequestIdentity}
     composerRequestIdentity={composerRequestIdentity}
+    replayRequestIdentity={replayRequestIdentity}
+    replayMeaningDigest={replayMeaningDigest}
   />;
 }
