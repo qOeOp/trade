@@ -2895,28 +2895,22 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
+pub(crate) async fn persist_replay_unbound_r0_time_zone_fixture_v1(
     owner: &MarketDataOwnerPostgres,
     base: &ReplayCompositionMarketBaseFixtureV1,
     request_identity: BindingDigest,
-    catalog_predecessor_identity: BindingDigest,
-    native_predecessor_identity: BindingDigest,
-    correction_sequence: u64,
+    ruleset_identity: BindingDigest,
     r0_request_identity: BindingDigest,
     r0_request_meaning_digest: BindingDigest,
     r0_coordinate_identity: BindingDigest,
     r0_coordinate_digest: BindingDigest,
-) -> (
-    crate::owner::time_zone::UntrustedTimeZoneLocatorV1,
-    BindingDigest,
-    BindingDigest,
-) {
+) -> crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
     let coordinates = replay_reference_coordinates_v1(&base.r0);
     let source_locator_bytes = serde_json::to_vec(base.source.receipt().locator()).unwrap();
     let mut r0_locator_bytes = Vec::with_capacity(64);
     r0_locator_bytes.extend_from_slice(r0_request_identity.as_bytes());
     r0_locator_bytes.extend_from_slice(r0_request_meaning_digest.as_bytes());
-    let (request, _) = crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
+    let (mut request, _) = crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
         request_identity,
         &coordinates,
         &source_locator_bytes,
@@ -2924,6 +2918,7 @@ pub(crate) async fn persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
         r0_coordinate_identity,
         r0_coordinate_digest,
     );
+    request.ruleset_identity = ruleset_identity;
     let dependencies = crate::owner::time_zone::VerifiedTimeZoneDependenciesV1::verify(
         coordinates.clone(),
         r0_coordinate_identity,
@@ -2932,11 +2927,11 @@ pub(crate) async fn persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
     .unwrap();
     let proposal = crate::owner::time_zone::tests::time_zone_catalog_proposal(
         b"Etc/UTC",
-        request.ruleset_identity,
+        ruleset_identity,
         0,
-        correction_sequence,
-        Some(catalog_predecessor_identity),
-        Some(native_predecessor_identity),
+        1,
+        None,
+        None,
         coordinates.claim().replay_start_event_ns,
         Some(
             coordinates
@@ -2956,8 +2951,7 @@ pub(crate) async fn persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
     .unwrap();
     proposal.catalog_locator = admitted.locator();
     proposal.catalog_entry = admitted;
-    let catalog_entry_identity = proposal.catalog_entry.identity();
-    let readback = super::time_zone::resolve_time_zone_in_transaction_v1(
+    super::time_zone::resolve_time_zone_in_transaction_v1(
         &mut transaction,
         request.clone(),
         vec![proposal],
@@ -2967,17 +2961,13 @@ pub(crate) async fn persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
     .await
     .unwrap();
     transaction.commit().await.unwrap();
-    (
-        crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
-            request_identity: request.request_identity,
-            request_meaning_digest: crate::owner::time_zone::authority::request_meaning_digest_v1(
-                &request,
-            )
-            .unwrap(),
-        },
-        catalog_entry_identity,
-        readback.facts()[0].identity(),
-    )
+    crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
+        request_identity: request.request_identity,
+        request_meaning_digest: crate::owner::time_zone::authority::request_meaning_digest_v1(
+            &request,
+        )
+        .unwrap(),
+    }
 }
 
 async fn session_positive_state_v1(pool: &PgPool) -> Vec<i64> {

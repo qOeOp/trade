@@ -958,7 +958,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
                 persist_replay_alternate_r0_time_zone_fixture_v1,
                 persist_replay_joined_projection_fixture_v1,
                 persist_replay_reference_leaf_fixture_v1,
-                persist_replay_same_source_unbound_r0_time_zone_fixture_v1,
+                persist_replay_unbound_r0_time_zone_fixture_v1,
                 replay_composition_market_base_fixture_v1,
             },
         },
@@ -1403,28 +1403,22 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
     );
     assert_eq!(replay_positive_state(market_mutation_pool).await, before);
-    let first_invalid_sequence = leaves.time_zone_correction_sequence.checked_add(1).unwrap();
-    let (wrong_digest_time_zone, wrong_digest_catalog, wrong_digest_fact) =
-        persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
-            &market,
-            &base,
-            d(234),
-            leaves.time_zone_catalog_entry_identity,
-            leaves.time_zone_fact_identity,
-            first_invalid_sequence,
-            base.native_r0.receipt().request_identity,
-            base.native_r0.receipt().request_meaning_digest,
-            base.native_r0.record().identity(),
-            d(235),
-        )
-        .await;
-    let (missing_r0_time_zone, _, _) = persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
+    let wrong_digest_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
+        &market,
+        &base,
+        d(234),
+        d(233),
+        base.native_r0.receipt().request_identity,
+        base.native_r0.receipt().request_meaning_digest,
+        base.native_r0.record().identity(),
+        d(235),
+    )
+    .await;
+    let missing_r0_time_zone = persist_replay_unbound_r0_time_zone_fixture_v1(
         &market,
         &base,
         d(236),
-        wrong_digest_catalog,
-        wrong_digest_fact,
-        first_invalid_sequence.checked_add(1).unwrap(),
+        d(240),
         d(237),
         d(238),
         d(239),
