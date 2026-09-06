@@ -1,7 +1,7 @@
 use axum::{
     Json,
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
@@ -16,6 +16,7 @@ use vibe_strategy_factory::{
         EXPLORATORY_REPLAY_MUTATION_EFFECT_V2, EXPLORATORY_REPLAY_OPERATION_V2,
         EXPLORATORY_REPLAY_SCHEMA_V2, ExploratoryReplayOwnerError,
         ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestProposalV2,
+        ExploratoryReplaySealedReadPortV2,
     },
     product_edge::RESEARCH_OWNER_V1,
 };
@@ -35,6 +36,12 @@ pub(super) struct ExploratoryReplayOperationV2 {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ExploratoryReplayResolveRequestV2 {
+    meaning_digest: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ExploratoryReplayReadbackQueryV2 {
     meaning_digest: String,
 }
 
@@ -207,6 +214,56 @@ pub(super) async fn resolve(
         Ok(result) => (StatusCode::OK, Json(result)).into_response(),
         Err(e) => owner_error(&e, &request_identity),
     }
+}
+
+pub(super) async fn readback(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    Query(query): Query<ExploratoryReplayReadbackQueryV2>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return rejection(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            &request_identity,
+        );
+    }
+
+    let selector = match readback_selector(request_identity.clone(), query.meaning_digest) {
+        Ok(selector) => selector,
+        Err(()) => {
+            return rejection(
+                StatusCode::BAD_REQUEST,
+                "INVALID_EXPLORATORY_REPLAY_SELECTOR",
+                &request_identity,
+            );
+        }
+    };
+
+    match state
+        .owner
+        .resolve_sealed_exploratory_replay_request_v2(&selector)
+        .await
+    {
+        Ok(result) => (StatusCode::OK, Json(result)).into_response(),
+        Err(e) => owner_error(&e, &request_identity),
+    }
+}
+
+fn readback_selector(
+    request_identity: String,
+    meaning_digest: String,
+) -> Result<ExploratoryReplayRecoverySelectorV2, ()> {
+    if OpaqueIdentityV2::try_from(request_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(meaning_digest.clone()).is_err()
+    {
+        return Err(());
+    }
+    Ok(ExploratoryReplayRecoverySelectorV2 {
+        request_identity,
+        meaning_digest,
+    })
 }
 
 fn identify_request(
@@ -385,6 +442,33 @@ mod tests {
         });
         let protected = serde_json::from_value(protected).expect("protected request");
         assert!(identify_request(protected).is_err());
+    }
+
+    #[rstest]
+    fn readback_selector_binds_exact_identity_and_meaning_digest() {
+        let selector = readback_selector(
+            "request-1".to_string(),
+            format!("sha256:{}", "a".repeat(64)),
+        )
+        .expect("valid selector");
+
+        assert_eq!(selector.request_identity, "request-1");
+        assert_eq!(
+            selector.meaning_digest,
+            format!("sha256:{}", "a".repeat(64))
+        );
+    }
+
+    #[rstest]
+    #[case(" request-1", &format!("sha256:{}", "a".repeat(64)))]
+    #[case("request-1", "sha256:short")]
+    fn readback_selector_rejects_invalid_values_without_owner_access(
+        #[case] request_identity: &str,
+        #[case] meaning_digest: &str,
+    ) {
+        assert!(
+            readback_selector(request_identity.to_string(), meaning_digest.to_string()).is_err()
+        );
     }
 
     #[rstest]
