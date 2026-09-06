@@ -278,11 +278,11 @@ function BacktestReturnCanvas({
     const bounds = event.currentTarget.getBoundingClientRect();
     return nearestBacktestPointIndex(
       event.clientX,
-      bounds.left + MARGINS.left * (bounds.width / Math.max(1, width)),
-      Math.max(1, geometry.plotWidth * (bounds.width / Math.max(1, width))),
+      bounds.left,
+      bounds.width,
       visiblePoints.length,
     );
-  }, [geometry.plotWidth, visiblePoints.length, width]);
+  }, [visiblePoints.length]);
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<SVGRectElement>) => {
     const localIndex = localIndexFromPointer(event);

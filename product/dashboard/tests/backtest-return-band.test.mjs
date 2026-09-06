@@ -155,6 +155,10 @@ test("strategy ink, drawdown, and time-window helpers remain deterministic", () 
   assert.deepEqual(clampBacktestWindow(8, 3, 10), { start: 8, end: 9 });
   assert.equal(nearestBacktestPointIndex(150, 100, 200, 5), 1);
   assert.equal(nearestBacktestPointIndex(900, 100, 200, 5), 4);
+
+  // SVGRectElement.getBoundingClientRect() already describes the plot rectangle.
+  // A point ten percent into a 730px plot must select index 10 of 101.
+  assert.equal(nearestBacktestPointIndex(125 + 73, 125, 730, 101), 10);
 });
 
 test("component keeps Vibe chart fidelity without synthetic baseline or foreign icons", async () => {
@@ -181,6 +185,7 @@ test("component keeps Vibe chart fidelity without synthetic baseline or foreign 
     assert.match(component, new RegExp(required.replace(".", "\\."), "u"));
   }
   assert.match(layout, /widthFactor/u);
+  assert.match(component, /event\.clientX,\s+bounds\.left,\s+bounds\.width,/u);
   for (const forbidden of ["mock", "synthetic", "children", "candlestick", "baseline = median"]) {
     assert.doesNotMatch(component, new RegExp(forbidden, "iu"));
   }
