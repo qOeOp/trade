@@ -29,6 +29,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-product-edge|vibe_product_edge|postgres::tests::genesis_admission_claim_cutover_and_revocation_are_canonical'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows'
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
+  'vibe-strategy-factory|exploratory_replay_request_owner|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only'
@@ -63,8 +64,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 24 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-four ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 25 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-five ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -72,18 +73,19 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[2]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[5]}" != *'|owner::replay_market_facts_v2::postgres_tests::postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_market_transaction_overlap' ]] ||
     [[ "${rd_owner_postgres_tests[9]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
-    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
-    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
-    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
-    [[ "${rd_owner_postgres_tests[21]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[22]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[23]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[11]}" != *'|market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
+    [[ "${rd_owner_postgres_tests[14]}" != *'|tests::postgres_result_owner_is_atomic_restart_exact_and_rd_locked_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[15]}" != *'|tests::postgres_result_rd_read_rejects_function_source_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[16]}" != *'|tests::postgres_result_rd_read_rejects_owner_api_routine_sibling' ]] ||
+    [[ "${rd_owner_postgres_tests[17]}" != *'|tests::postgres_result_rd_read_rejects_raw_table_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[18]}" != *'|tests::postgres_result_rd_read_rejects_inherited_owner_membership' ]] ||
+    [[ "${rd_owner_postgres_tests[19]}" != *'|tests::postgres_result_rd_read_rejects_owner_attribute_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
+    [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
+    [[ "${rd_owner_postgres_tests[22]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[23]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
+    [[ "${rd_owner_postgres_tests[24]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -327,9 +329,88 @@ if rust.index("pg_advisory_xact_lock_shared") > rust.index("let exact_lock"):
 PY
 }
 
+check_exploratory_replay_read_fence_source() {
+  local repository_root
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  python3 - \
+    "$repository_root/crates/strategy_factory/src/exploratory_replay/postgres.rs" \
+    "$repository_root/crates/rd_exploratory_replay_custody/src/lib.rs" \
+    "$repository_root/scripts/ci/test-rd-owner-postgres.bash" << 'PY'
+from hashlib import sha256
+from pathlib import Path
+import re
+import sys
+
+postgres = Path(sys.argv[1]).read_text(encoding="utf-8")
+custody = Path(sys.argv[2]).read_text(encoding="utf-8")
+test_script = Path(sys.argv[3]).read_text(encoding="utf-8")
+helper_signatures = (
+    "verify_exploratory_replay_request_internal_v1",
+    "verify_exploratory_replay_request_internal_v2",
+)
+shared_lock = (
+    "pg_catalog.pg_advisory_xact_lock_shared(\n"
+    "            pg_catalog.hashtextextended(requested_request_identity,0)\n"
+    "          );"
+)
+for helper in helper_signatures:
+    match = re.search(
+        rf"CREATE FUNCTION rd_owner_api\.{helper}\(.*?AS \$function\$(.*?)\$function\$",
+        postgres,
+        re.DOTALL,
+    )
+    if match is None:
+        raise SystemExit(f"ERROR: {helper} source is unavailable")
+    source = match.group(1)
+    if source.count(shared_lock) != 1 or source.index(shared_lock) > source.index("FROM public."):
+        raise SystemExit(f"ERROR: {helper} request fence is absent, duplicated, or ordered after its first read")
+    if "FOR SHARE" in source:
+        raise SystemExit(f"ERROR: {helper} requires forbidden table write privilege")
+    digest = sha256(source.encode("utf-8")).hexdigest()
+    if f'"{digest}"' not in custody:
+        raise SystemExit(f"ERROR: {helper} authenticated source digest is stale")
+exclusive_lock = (
+    'sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock('
+    'pg_catalog.hashtextextended($1,0))")\n'
+    '        .bind(&proposal.request_identity)'
+)
+if exclusive_lock not in postgres:
+    raise SystemExit("ERROR: Replay commit does not hold the paired exclusive request fence")
+canonical_v1_parameter = (
+    "verify_exploratory_replay_request_internal_v1(requested_request_identity text,"
+    "requested_request_digest text,requested_receipt_identity text)"
+)
+drift_source = test_script.rsplit(
+    "CREATE FUNCTION vibe_test_admin.drift_rd_exploratory_replay_routine_v1(", 1
+)[1].split("$function$;", 1)[0]
+if canonical_v1_parameter not in drift_source:
+    raise SystemExit("ERROR: V1 helper drift oracle changes the canonical parameter identity")
+PY
+}
+
+check_market_data_principal_bootstrap_order() {
+  local repository_root bootstrap migration bootstrap_line materializer_line
+  repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+  bootstrap="$repository_root/product/rd-workbench/postgres-init/00-create-rd-owner.sh"
+  migration="$repository_root/product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
+  test "$(rg -Fxc 'CREATE ROLE market_data_owner NOLOGIN;' "$bootstrap")" -eq 1
+  test "$(rg -Fxc 'CREATE ROLE market_data_reader NOLOGIN;' "$bootstrap")" -eq 1
+  if rg -n 'CREATE ROLE market_data_(owner|reader) LOGIN|market_data_(owner|reader).*PASSWORD|GRANT .*market_data_(owner|reader)|GRANT market_data_(owner|reader)' "$bootstrap"; then
+    echo "ERROR: bootstrap must not admit Market Data login, password, membership, or grants" >&2
+    return 1
+  fi
+  rg -Fq "ALTER ROLE market_data_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_owner_password';" "$migration"
+  rg -Fq 'ALTER ROLE market_data_reader LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;' "$migration"
+  bootstrap_line="$(rg -n '00-create-rd-owner\.sh' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
+  materializer_line="$(rg -n -- '--materialize-schema' "${BASH_SOURCE[0]}" | tail -1 | cut -d: -f1)"
+  test "$bootstrap_line" -lt "$materializer_line"
+}
+
 check_static_isolation
 check_nextest_graph_contract
 check_backtest_result_function_source
+check_exploratory_replay_read_fence_source
+check_market_data_principal_bootstrap_order
 if [[ "${1:-}" == "--check" ]]; then
   exit 0
 fi
@@ -831,6 +912,79 @@ $function$;
 ALTER FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text)
+  TO vibe_test_owner_topology_admin;
+
+CREATE TABLE vibe_test_admin.rd_exploratory_replay_routine_definition_v1 (
+  target text PRIMARY KEY,
+  definition text NOT NULL
+);
+CREATE TABLE vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 (
+  target text PRIMARY KEY
+);
+ALTER TABLE vibe_test_admin.rd_exploratory_replay_routine_definition_v1 OWNER TO postgres;
+ALTER TABLE vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 OWNER TO postgres;
+REVOKE ALL ON TABLE vibe_test_admin.rd_exploratory_replay_routine_definition_v1,
+  vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 FROM PUBLIC;
+GRANT INSERT ON TABLE vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1
+  TO rd_exploratory_replay_api_owner;
+GRANT SELECT ON TABLE vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1
+  TO vibe_test_owner_topology_admin;
+
+CREATE FUNCTION vibe_test_admin.drift_rd_exploratory_replay_routine_v1(
+  expected_marker_identity text,
+  target text,
+  restore boolean
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE target_oid oid;
+DECLARE saved_definition text;
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'R&D Replay routine drift caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'R&D Replay routine drift marker mismatch' USING ERRCODE='55000';
+  END IF;
+  target_oid := CASE target
+    WHEN 'facade' THEN pg_catalog.to_regprocedure('rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)')
+    WHEN 'v2' THEN pg_catalog.to_regprocedure('rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)')
+    WHEN 'v1' THEN pg_catalog.to_regprocedure('rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)')
+    ELSE NULL
+  END;
+  IF target_oid IS NULL THEN
+    RAISE EXCEPTION 'R&D Replay routine drift target mismatch' USING ERRCODE='22023';
+  END IF;
+  IF restore THEN
+    SELECT definition INTO STRICT saved_definition
+      FROM vibe_test_admin.rd_exploratory_replay_routine_definition_v1 stored
+     WHERE stored.target=drift_rd_exploratory_replay_routine_v1.target;
+    EXECUTE saved_definition;
+    DELETE FROM vibe_test_admin.rd_exploratory_replay_routine_definition_v1 stored
+     WHERE stored.target=drift_rd_exploratory_replay_routine_v1.target;
+    RETURN;
+  END IF;
+  INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_definition_v1(target,definition)
+  VALUES (target,pg_catalog.pg_get_functiondef(target_oid));
+  IF target='facade' THEN
+    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('facade'); RETURN NULL; END$body$$ddl$;
+  ELSIF target='v2' THEN
+    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('v2'); RETURN NULL; END$body$$ddl$;
+  ELSE
+    EXECUTE $ddl$CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(requested_request_identity text,requested_request_digest text,requested_receipt_identity text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER SET search_path=pg_catalog AS $body$BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES ('v1'); RETURN NULL; END$body$$ddl$;
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.drift_rd_exploratory_replay_routine_v1(text,text,boolean)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.drift_rd_exploratory_replay_routine_v1(text,text,boolean)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.drift_rd_exploratory_replay_routine_v1(text,text,boolean)
   TO vibe_test_owner_topology_admin;
 
 CREATE FUNCTION vibe_test_admin.rename_sealed_exploratory_replay_fixture_v1(
@@ -2249,17 +2403,28 @@ BEGIN
     RAISE EXCEPTION 'R&D canonical source ownership mismatch';
   END IF;
 
-  IF EXISTS (
-    SELECT 1
-      FROM pg_catalog.pg_class relation
-      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(
-        relation.relacl,
-        pg_catalog.acldefault('r', relation.relowner)
-      )) acl
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_class relation
      WHERE relation.oid='public.rd_sealed_exploratory_replay_requests_v1'::pg_catalog.regclass
-       AND acl.grantee<>relation.relowner
+       AND (SELECT count(*)=8
+              AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+              AND count(*) FILTER (
+                WHERE pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                  AND acl.grantor=relation.relowner
+                  AND acl.privilege_type='SELECT'
+                  AND NOT acl.is_grantable
+              )=1
+              AND bool_and(
+                acl.grantee=relation.relowner
+                OR (pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                    AND acl.privilege_type='SELECT')
+              )
+            FROM pg_catalog.aclexplode(COALESCE(
+              relation.relacl,
+              pg_catalog.acldefault('r', relation.relowner)
+            )) acl)
   ) THEN
-    RAISE EXCEPTION 'sealed exploratory Replay table ACL is not Owner-private';
+    RAISE EXCEPTION 'sealed exploratory Replay table runtime ACL mismatch';
   END IF;
 
   IF EXISTS (

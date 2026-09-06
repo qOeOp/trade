@@ -158,6 +158,7 @@ struct DevelopEvaluationOutboxV1<'a> {
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
         name: "rd_complex_strategy_develop_evaluations_v1",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("evaluation_identity", "text"),
             crate::schema_materialization::required("evaluation_digest", "text"),
@@ -183,6 +184,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_complex_strategy_develop_evaluation_heads_v1",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("lineage_identity", "text"),
             crate::schema_materialization::required("evaluation_identity", "text"),

@@ -22,9 +22,10 @@ const ARTIFACT_BOUND_EVENT: &str = "ARTIFACT_TRIAL_FAMILY_BOUND_V1";
 const CENSUS_ADVANCED_EVENT: &str = "TRIAL_FAMILY_CENSUS_ADVANCED_V2";
 
 macro_rules! table {
-    ($name:literal, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
+    ($name:literal, $runtime_read_grantees:expr, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
         crate::schema_materialization::PublicTableSpec {
             name: $name,
+            runtime_read_grantees: $runtime_read_grantees,
             columns: &[$(crate::schema_materialization::required($column, $data_type)),*],
             constraints: &[$($constraint),*],
             indexes: &[$(table!(@index $kind $keys)),*],
@@ -35,13 +36,13 @@ macro_rules! table {
 }
 
 pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
-    table!("rd_trial_families_v1", [
+    table!("rd_trial_families_v1", &["rd_exploratory_replay_api_owner"], [
         ("trial_family_identity", "text"), ("intent_identity", "text"),
         ("root_digest", "text"), ("root_json", "jsonb"),
         ("root_receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
     ], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
     [primary "trial_family_identity", unique "intent_identity"]),
-    table!("rd_trial_family_members_v1", [
+    table!("rd_trial_family_members_v1", &["rd_exploratory_replay_api_owner"], [
         ("member_identity", "text"), ("trial_family_identity", "text"),
         ("ordinal", "integer"), ("fact_identity", "text"), ("member_digest", "text"),
         ("member_json", "jsonb"), ("membership_receipt_json", "jsonb"),
@@ -51,7 +52,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "p:member_identity:::false:false:true:", "u:fact_identity:::false:false:true:",
         "u:trial_family_identity,ordinal:::false:false:true:"
     ], [primary "member_identity", unique "fact_identity", unique "trial_family_identity,ordinal"]),
-    table!("rd_trial_family_heads_v1", [
+    table!("rd_trial_family_heads_v1", &["rd_exploratory_replay_api_owner"], [
         ("trial_family_identity", "text"), ("frontier_identity", "text"),
         ("frontier_digest", "text"), ("frontier_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")
@@ -59,7 +60,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "f:trial_family_identity:public.rd_trial_families_v1(trial_family_identity):a:a:s:false:false:true:",
         "p:trial_family_identity:::false:false:true:", "u:frontier_identity:::false:false:true:"
     ], [primary "trial_family_identity", unique "frontier_identity"]),
-    table!("rd_trial_family_attempt_cuts_v2", [
+    table!("rd_trial_family_attempt_cuts_v2", &[], [
         ("census_frontier_identity", "text"), ("trial_family_identity", "text"),
         ("attempt_ordinal", "integer"), ("attempt_frontier_identity", "text"),
         ("candidate_set_frontier_identity", "text"), ("census_frontier_json", "jsonb"),
@@ -72,7 +73,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "u:candidate_set_frontier_identity:::false:false:true:",
         "u:trial_family_identity,attempt_ordinal:::false:false:true:"
     ], [primary "census_frontier_identity", unique "attempt_frontier_identity", unique "candidate_set_frontier_identity", unique "trial_family_identity,attempt_ordinal"]),
-    table!("rd_artifact_trial_family_bindings_v1", [
+    table!("rd_artifact_trial_family_bindings_v1", &["rd_exploratory_replay_api_owner"], [
         ("binding_identity", "text"), ("artifact_identity", "text"),
         ("build_receipt_identity", "text"), ("intent_identity", "text"),
         ("trial_family_identity", "text"), ("binding_digest", "text"),
@@ -83,7 +84,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         "p:binding_identity:::false:false:true:", "u:artifact_identity:::false:false:true:",
         "u:build_receipt_identity:::false:false:true:"
     ], [primary "binding_identity", unique "artifact_identity", unique "build_receipt_identity"]),
-    table!("rd_owner_outbox_v1", [
+    table!("rd_owner_outbox_v1", &["rd_exploratory_replay_api_owner"], [
         ("event_identity", "text"), ("aggregate_identity", "text"), ("event_kind", "text"),
         ("payload_digest", "text"), ("payload_json", "jsonb"),
         ("committed_at_epoch_ms", "bigint")

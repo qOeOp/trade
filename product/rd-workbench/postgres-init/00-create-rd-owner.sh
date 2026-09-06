@@ -17,6 +17,9 @@ psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
 CREATE ROLE rd_database_owner NOLOGIN;
 CREATE ROLE replay_policy_catalog_owner NOLOGIN;
 CREATE ROLE composer_owner NOLOGIN;
+CREATE ROLE rd_exploratory_replay_api_owner NOLOGIN;
+CREATE ROLE market_data_owner NOLOGIN;
+CREATE ROLE market_data_reader NOLOGIN;
 CREATE ROLE rd_owner LOGIN PASSWORD :'rd_password';
 CREATE ROLE rd_fact_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'fact_writer_password';
 CREATE ROLE replay_policy_catalog_admin_writer LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'catalog_admin_password';

@@ -178,6 +178,7 @@ struct LegacyRequestMeaningV1<'a> {
 const ARTIFACT_BUILD_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
         name: "rd_artifact_build_attempts_v1",
+        runtime_read_grantees: &["rd_exploratory_replay_api_owner"],
         columns: &[
             crate::schema_materialization::required("build_request_identity", "text"),
             crate::schema_materialization::required("attempt_identity", "text"),
@@ -196,6 +197,7 @@ const ARTIFACT_BUILD_TABLES: &[crate::schema_materialization::PublicTableSpec] =
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_strategy_artifacts_v1",
+        runtime_read_grantees: &["rd_exploratory_replay_api_owner"],
         columns: &[
             crate::schema_materialization::required("artifact_digest", "text"),
             crate::schema_materialization::required("intent_identity", "text"),

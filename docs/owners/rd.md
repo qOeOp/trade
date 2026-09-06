@@ -30,7 +30,15 @@ Unify Research and Develop under one business-fact Owner. The Research capabilit
   requester role, and request identity. R&D alone provides the fixed read-only resolver and durable byte-identical
   readback for that locator. The locator, a caller-supplied digest, or another Owner's binding cannot construct,
   deserialize, sign, replace, or attest the receipt. Market Data must resolve and verify this R&D-native receipt and
-  canonical request through the fixed Owner port before it may independently issue any event-binding receipt.
+  canonical request through the fixed
+  `lock_sealed_exploratory_replay_request_for_market_data_v1` Owner port before it may independently issue any
+  event-binding receipt.
+  **TARGET / NOT_ADMITTED:** the three executable routines in that fixed path are owned by the isolated
+  `NOLOGIN` `rd_exploratory_replay_api_owner`, which has `SELECT` only on the nine relations traversed by the
+  canonical verifier chain and no table- or column-level mutation privilege. `market_data_owner` receives only
+  schema usage and execution of the exact four-field
+  `SECURITY DEFINER` facade, and must call it inside its existing SERIALIZABLE transaction. Runtime roles have no
+  membership in the routine owner and cannot replace the facade or either verifier.
 - Exploratory request-result equality across Strategy Artifact, requested PIT scope, PIT Market Snapshot,
   Universe Selection Record and correction rule, replay configuration, Runtime kernel, simulator, and cost,
   slippage, and capacity-model identities. Only a request-equal `TERMINAL_RESULT` may enter Research Selection.

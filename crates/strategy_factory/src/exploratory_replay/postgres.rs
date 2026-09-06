@@ -491,6 +491,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM backtest_owner",
         "GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner",
+        "REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_owner, market_data_reader",
+        "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
     ] {
         sqlx::query(statement)
             .execute(&mut *migration)
@@ -569,6 +571,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     let mut publication = pool.begin().await.map_err(storage)?;
 
     for statement in [
+        "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.resolve_exploratory_replay_request_v2(text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)",
@@ -596,12 +599,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         DECLARE owner_cut bigint;
         DECLARE result_availability text := 'AVAILABLE';
         BEGIN
-          IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN RETURN NULL; END IF;
+          IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
           SELECT * INTO sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity = requested_request_identity
-             AND (requested_request_digest = '' OR request_digest = requested_request_digest)
-           FOR SHARE;
+             AND (requested_request_digest = '' OR request_digest = requested_request_digest);
           IF NOT FOUND THEN RETURN NULL; END IF;
           IF sealed.lifecycle_state = 'REVOKED'
              AND (requested_request_digest <> '' OR requested_receipt_identity <> '') THEN
@@ -634,17 +639,15 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
                  committed_at_epoch_ms
             INTO STRICT locked_trial_family_outbox
-            FROM public.rd_owner_outbox_v1
+           FROM public.rd_owner_outbox_v1
            WHERE aggregate_identity=sealed.trial_family_identity
-             AND event_kind='TRIAL_FAMILY_FROZEN_V1'
-           FOR SHARE;
+             AND event_kind='TRIAL_FAMILY_FROZEN_V1';
           SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
                  committed_at_epoch_ms
             INTO STRICT locked_artifact_family_outbox
-            FROM public.rd_owner_outbox_v1
+           FROM public.rd_owner_outbox_v1
            WHERE aggregate_identity=sealed.artifact_identity
-             AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
-           FOR SHARE;
+             AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1';
 
           IF NOT EXISTS (
             SELECT 1 FROM public.rd_research_request_receipts_v1 research
@@ -756,10 +759,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
                  committed_at_epoch_ms
             INTO STRICT locked_outbox
-            FROM public.rd_owner_outbox_v1
+           FROM public.rd_owner_outbox_v1
            WHERE aggregate_identity=sealed.request_identity
-             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1'
-           FOR SHARE;
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1';
           owner_cut := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
           RETURN pg_catalog.jsonb_build_object(
             'schema_version',1,
@@ -843,6 +845,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         DECLARE sealed record;
         DECLARE locked_v2_outbox record;
         BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
           SELECT * INTO STRICT sealed
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity
@@ -850,8 +855,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
              AND frozen_json->>'request_schema_version'='2'
              AND v2_meaning_digest=requested_meaning_digest
              AND v2_seal_digest=requested_seal_digest
-             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity
-           FOR SHARE;
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
 
           IF sealed.v2_canonical_request_bytes IS NULL
              OR sealed.v2_meaning_digest IS NULL
@@ -876,10 +880,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
           SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
                  committed_at_epoch_ms
             INTO STRICT locked_v2_outbox
-            FROM public.rd_owner_outbox_v1
+           FROM public.rd_owner_outbox_v1
            WHERE aggregate_identity=sealed.request_identity
-             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'
-           FOR SHARE;
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
 
           IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
                'schema_version',2,
@@ -978,6 +981,21 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .execute(&mut *publication)
     .await
     .map_err(storage)?;
+    sqlx::query(
+        "
+        CREATE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(
+          requested_request_identity text,
+          requested_meaning_digest text,
+          requested_receipt_identity text,
+          requested_seal_digest text
+        ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+        SET search_path = pg_catalog
+        AS $function$BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END$function$
+        ",
+    )
+    .execute(&mut *publication)
+    .await
+    .map_err(storage)?;
 
     for statement in [
         "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_owner",
@@ -987,14 +1005,17 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner",
         "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner",
+        "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner, backtest_owner, market_data_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner",
     ] {
         sqlx::query(statement)
             .execute(&mut *publication)
@@ -1855,14 +1876,17 @@ async fn validate_backtest_binding(
                   AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
-                  AND helper_owner.rolname='rd_owner'
+                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                   AND helper_language.lanname='plpgsql'
                   AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                   AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND helper_acl.grantee<>helper_owner.oid
+                       AND helper_acl.grantee NOT IN (
+                         helper_owner.oid,
+                         (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                       )
                   )
              )
            FROM pg_catalog.pg_proc procedure

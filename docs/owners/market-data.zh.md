@@ -541,6 +541,17 @@ receipt/readback input、bearer token、cryptographic-key authority、latest/his
 该边界保证 guarded window 内 Composer evidence 稳定以及 Market write 原子性；它不声称 shared XID、MVCC
 snapshot 或 cross-Owner atomic commit。
 
+**TARGET / NOT_ADMITTED，密封 R&D Replay request read：** 选择 EVENT 前，既有 `market_data_owner`
+SERIALIZABLE transaction 通过固定 R&D `lock_sealed_exploratory_replay_request_for_market_data_v1` facade
+解析一组准确 request/meaning/receipt/seal locator。facade 及其
+V2/V1 verifier chain 由隔离的 `NOLOGIN` `rd_exploratory_replay_api_owner` 拥有；Market Data 只获得 facade
+执行权，不获得 R&D raw relation grant 或 role membership；routine owner 也没有任何 table-level 或
+column-level mutation privilege。caller 保持 request-scoped transaction advisory
+shared fence；它与 R&D writer-exclusive fence 配对，并由 SERIALIZABLE 提供稳定 read snapshot。返回的 request
+仍属于 R&D authority，且不提供 event selector。隔离 PostgreSQL acceptance 仍须证明准确 positive bytes、
+request-fence retention、wrong role/isolation/locator rejection、runtime replacement denial、controlled
+owner-drift rejection 与 zero writes。
+
 W3 issuance 只接受该不受信 R&D attestation locator 与准确 Market dependency locator。Market Data 在内部校验
 恢复的 attestation，随后独立重新解析每条持久 registry declaration、完整 observation census、未改变的 V1
 joined cut、V4 BAR JOINED_CUT sample projection、R0 与独立 Market Semantics record，并要求 Market Semantics cut 指向准确恢复

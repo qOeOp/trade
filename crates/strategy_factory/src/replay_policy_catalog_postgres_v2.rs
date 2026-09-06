@@ -37,6 +37,7 @@ const CATALOG_TABLES_V2: [&str; 4] = [
 const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
         name: "rd_replay_policy_catalog_records_v2",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("catalog_record_id", "text"),
             crate::schema_materialization::required("catalog_version", "numeric(20,0)"),
@@ -70,6 +71,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_replay_policy_catalog_head_v2",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::defaulted("singleton", "boolean", "true"),
             crate::schema_materialization::required("catalog_record_id", "text"),
@@ -92,6 +94,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_replay_policy_catalog_revocations_v2",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("catalog_record_id", "text"),
             crate::schema_materialization::required("catalog_version", "numeric(20,0)"),
@@ -110,6 +113,7 @@ const CATALOG_PUBLIC_TABLE_SPECS_V2: &[crate::schema_materialization::PublicTabl
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_replay_policy_catalog_audit_v2",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("command_identity", "text"),
             crate::schema_materialization::required("administrator_identity", "text"),
