@@ -322,6 +322,7 @@ async fn recover_instrument_master_reference_v1(
         .await
         .map_err(map_instrument_master_error)?
         .ok_or(SessionErrorV1::InvalidDependency)?;
+
     if readback.request_meaning_digest != request_meaning_digest
         || readback.facts().len() != 1
         || readback.cut().expected_members().len() != 1
@@ -334,6 +335,7 @@ async fn recover_instrument_master_reference_v1(
         fact_digest: readback.facts()[0].digest(),
         cut_digest: readback.cut().digest(),
     };
+
     if untrusted != &canonical {
         return Err(SessionErrorV1::InvalidDependency);
     }

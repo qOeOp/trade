@@ -2144,13 +2144,14 @@ async fn exact_instrument_reference(
     let readback =
         super::load_durable_instrument_readback(transaction, locator.request_identity(), false)
             .await
-            .map_err(|error| match error {
+            .map_err(|e| match e {
                 crate::owner::instrument_master::InstrumentMasterError::StoreUnavailable => {
                     ReplayCompositionBindingErrorV1::ReplayV2Unavailable
                 }
                 _ => ReplayCompositionBindingErrorV1::DependencyMismatch,
             })?
             .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+
     if readback.request_meaning_digest != locator.request_meaning_digest()
         || readback.facts().len() != 1
         || readback.cut().expected_members().len() != 1
@@ -2196,6 +2197,7 @@ fn validate_native_reference_fact_evidence_v1(
     fact: NativeReferenceFactEvidenceV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     let record = r0.record();
+
     if fact.source_binding_identity != source.binding_id()
         || fact.source_binding_fact_digest != source.fact_digest()
         || fact.source_binding_lineage_root != source.lineage_root()
@@ -2246,6 +2248,7 @@ fn build_reference_cuts(
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
+
     if session.cut.instrument_master_readback_identity != instrument_master.readback_identity
         || session.cut.instrument_master_fact_digest != instrument_master.fact_digest
         || session.cut.instrument_master_cut_digest != instrument_master.cut_digest

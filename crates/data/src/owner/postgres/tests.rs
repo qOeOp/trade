@@ -2478,6 +2478,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         )
         .unwrap();
     let before_session = session_positive_state_v1(owner.pool()).await;
+
     for (request_identity, invalid_instrument) in [
         {
             let mut value = session_instrument.clone();
