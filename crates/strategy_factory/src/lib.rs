@@ -101,7 +101,9 @@ pub use rd_owner_postgres_custody::{
     LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
 };
 pub mod receipt;
+pub mod replay_economic_configuration_v1;
 pub mod replay_execution_policy_v2;
+pub mod replay_execution_profile_binding_v1;
 mod replay_policy_catalog_postgres_v2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub mod replay_policy_catalog_sealed_acceptance_v2;
@@ -113,6 +115,7 @@ pub use replay_policy_catalog_postgres_v2::{
 pub use replay_policy_catalog_v2::{
     ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBootstrapReceiptV1, ReplayPolicyCatalogErrorV2,
 };
+pub mod replay_runner_operational_profile_v1;
 mod representative;
 mod research;
 mod robustness;

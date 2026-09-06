@@ -851,6 +851,31 @@ select、override、synthesize、backfill 或 infer 任何 field。
 - correction-rule 与 market-semantics 的身份和版本、corporate-action cut、historical-membership cut，及请求中
   其他应由 family policy 而非 input Owner 选择的内容。
 
+### TARGET / NOT_ADMITTED - Replay execution profile V1
+
+TrialFamily policy 选择两个分别密封且内容寻址的值：economic replay configuration 与 runner operational
+profile。economic seal 将首条路径固定为 `EVENT`、单 venue、Margin/Netting/L1、准确 starting balance 与共同
+quote currency、准确 leverage、deterministic full fill、禁用 slippage/latency/capacity model，并显式固定每个
+原生 Sim Exchange behavioral switch。operational seal 显式固定每个 Backtest engine state、timeout、logging、
+instance、cache 与 subsystem field。两者都使用严格 canonical codec、固定宽度整数或准确十进制定点值、闭集
+model enum，且没有隐藏 default、floating-point、environment 或 caller fallback。
+
+永久 TrialFamily binding 与 R&D-owned request binding 都重复准确的两个 seal digest，并交叉绑定相同 family
+identity/digest。maker/taker fee 与 initial/maintenance margin 只有在独立、不可伪造的 Instrument Owner
+provenance value 绑定准确 instrument fact、receipt 与 term bytes 后才可使用；可见 economic configuration
+不能自行证明这些值，缺失值也绝不变成零或原生 default。任一 family、request、profile 或 Instrument Owner
+binding 缺失、非规范、mismatch 或 cross-splice，都必须在 `ProgramHostV2` 或 Backtest state 产生前失败。
+
+原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
+adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定
+version-specific inactive constant。materialization 前，一个 version-bound、fail-closed adapter 还必须证明每个
+原生 identifier、currency/fixed-point、message-bus codec、time-origin、rate-limit 与 deterministic instance-UUID
+转换，并且在没有 host randomness 或隐式 model default 的前提下选择准确的原生 fill、fee 与 margin model。
+这些都是显式 unavailable prerequisite，不得从 sealed policy 推断转换。真实非测试
+`ProgramHostV2 -> BacktestEngine/Sim Exchange EVENT` consumer 也必须先存在并产生 actual-consumption evidence，
+之后才能 admission。该 TARGET 不声称 runnable RDQ loop、Native Replay、Backtest result、Paper、Live、
+production 或 trading capability。
+
 TrialFamily 既有顶层 cost-model、slippage-model 与 capacity-model 身份必须与对应嵌套 model profile 准确
 相等；不匹配即 unavailable，而不是另一种兼容表示。缺少密封 policy 的 legacy TrialFamily 仍可按历史事实
 读取，但对 Replay V2 composition 不合格且不可用：不得提供 default、backfill、caller substitution，也不得从
