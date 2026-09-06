@@ -116,8 +116,8 @@ oversize response, permission denial or transport failure clear stale positive s
 Loading preserves the lookup rail and shows exactly three bounded group skeletons. Missing or unavailable
 custody uses the same compact body height and a precise reason. Because no admitted Backtest Owner result
 read port currently exists, the page renders no `BacktestReturnBand`, invented strategy line, benchmark,
-return, drawdown, run count or success claim. It instead places one single-line compact `Result projection
-unavailable` status rail after the request groups. `Run`, `Resolve`, `Create successor`, edit, compare,
+return, drawdown, run count or success claim. After the request groups it instead places one single-line
+compact `Result projection unavailable` status rail. `Run`, `Resolve`, `Create successor`, edit, compare,
 download and provider actions have no slot. This slice does not establish S3 deployment availability,
 Backtest result availability, Windmill replacement or real-trading authority.
 
