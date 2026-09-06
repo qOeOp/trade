@@ -3,6 +3,46 @@
   "repository": "https://github.com/qOeOp/vibe-trading.git",
   "revision": "4a6d66fb77fc144c2a013417c703db2caf401641",
   "tree": "984c7d684dba72a6af78dc3e6cf50191bc3622ea",
+  "sourceSets": {
+    "strategyCodeViewer": {
+      "revision": "48c8315f74536d9d308347d63ac9c4e96c9a7120",
+      "tree": "d226b620dc699c9e8e382274434b324a5fefe0e1",
+      "components": {
+        "labPage": {
+          "path": "apps/web/src/features/lab/components/lab-page.tsx",
+          "blob": "550df960fc5120ca3ea2848b5fd93d4506a01dbe"
+        },
+        "chromeHeader": {
+          "path": "apps/web/src/features/lab/components/shell/chrome-header.tsx",
+          "blob": "2ea50e339ccedbf45ed13041b4e1fdb62ee3f7bb"
+        },
+        "contentFrame": {
+          "path": "apps/web/src/features/lab/components/shell/content-frame.tsx",
+          "blob": "59feee98003091a3296e70954fb8a23d0dd85f4e"
+        },
+        "fileTabs": {
+          "path": "apps/web/src/features/lab/components/shell/mine-tab-bar.tsx",
+          "blob": "0a2107b41103adb10a74ac7c40d45a77e519622f"
+        },
+        "sourceCell": {
+          "path": "apps/web/src/features/lab/components/shell/mine-cell.tsx",
+          "blob": "97d99f81db93085620b1537a84f4ce13eb11363a"
+        },
+        "codeMirror": {
+          "path": "apps/web/src/features/lab/components/shell/mine-code-editor.tsx",
+          "blob": "9e8230f0ac8e93d56062803f63f9e3b2b7ee4e3e"
+        },
+        "leftRail": {
+          "path": "apps/web/src/features/lab/components/shell/left-bar.tsx",
+          "blob": "3c303c4be79ed1a6a706edca14430825db83770b"
+        },
+        "rightRail": {
+          "path": "apps/web/src/features/lab/components/shell/activity-bar.tsx",
+          "blob": "ed8fc1507112739fde90d873c9392d37ecfdf2e4"
+        }
+      }
+    }
+  },
   "components": {
     "panelFrame": {
       "path": "apps/web/src/components/shared/panel/panel-frame.tsx",
@@ -94,6 +134,7 @@
     "icons": "Lucide only",
     "geometry": "Source frame/header/body hierarchy retained",
     "compatibility": "Existing static-body consumers remain source-compatible while scroll and flex modes are opt-in",
-    "calendar": "Source CalendarBody, five view, day-cell, event-badge, overflow inspection and header hierarchy retained; Trade projects only read-only point evidence, refresh replaces the unavailable write action, and unavailable data keeps the calendar frame without invented events"
+    "calendar": "Source CalendarBody, five view, day-cell, event-badge, overflow inspection and header hierarchy retained; Trade projects only read-only point evidence, refresh replaces the unavailable write action, and unavailable data keeps the calendar frame without invented events",
+    "strategyCodeViewer": "Source Lab device frame, chrome status lane, file rail, ContentFrame, file tab, MineCell, CodeMirror and evidence rail hierarchy retained; Trade binds one real Owner-projected file and Wasm result, exposes Copy only, and includes no edit, run, save, kernel, WebSocket, AI or mock behavior"
   }
 }

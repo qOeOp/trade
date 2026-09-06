@@ -118,9 +118,18 @@ test("loading and unavailable states cannot retain stale positive source", () =>
 });
 
 test("component retains real CodeMirror read-only affordances and no execution path", async () => {
-  const component = await readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8");
+  const componentFiles = await Promise.all([
+    "../components/ui/strategy-code-viewer.tsx",
+    "../components/ui/strategy-code-viewer/read-only-code-mirror.tsx",
+    "../components/ui/strategy-code-viewer/viewer-chrome.tsx",
+    "../components/ui/strategy-code-viewer/viewer-file-rail.tsx",
+    "../components/ui/strategy-code-viewer/viewer-evidence-panel.tsx",
+    "../components/ui/strategy-code-viewer/viewer-source-cell.tsx",
+  ].map((path) => readFile(new URL(path, import.meta.url), "utf8")));
+  const component = componentFiles.join("\n");
   const css = await readFile(new URL("../components/ui/strategy-code-viewer.module.css", import.meta.url), "utf8");
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const sourceLock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
 
   for (const required of [
     "new EditorView",
@@ -136,7 +145,13 @@ test("component retains real CodeMirror read-only affordances and no execution p
     "PanelFrameFooter",
     "InterfaceIcons.copy",
     "useReducedMotion",
-    "data-preview-mode",
+    'data-slot="strategy-viewer-chrome"',
+    'data-slot="strategy-viewer-workspace"',
+    'data-slot="strategy-viewer-file-rail"',
+    'data-slot="strategy-viewer-content-frame"',
+    'data-slot="strategy-viewer-file-tabs"',
+    'data-slot="strategy-viewer-source-cell"',
+    'data-slot="strategy-viewer-evidence-panel"',
   ]) {
     assert.ok(component.includes(required), `missing ${required}`);
   }
@@ -151,11 +166,18 @@ test("component retains real CodeMirror read-only affordances and no execution p
   ]) {
     assert.ok(!component.includes(forbidden), `unexpected ${forbidden}`);
   }
+  assert.equal(sourceLock.sourceSets.strategyCodeViewer.revision, "48c8315f74536d9d308347d63ac9c4e96c9a7120");
+  assert.equal(sourceLock.sourceSets.strategyCodeViewer.tree, "d226b620dc699c9e8e382274434b324a5fefe0e1");
+  assert.equal(sourceLock.sourceSets.strategyCodeViewer.components.contentFrame.blob, "59feee98003091a3296e70954fb8a23d0dd85f4e");
+  assert.equal(sourceLock.sourceSets.strategyCodeViewer.components.codeMirror.blob, "9e8230f0ac8e93d56062803f63f9e3b2b7ee4e3e");
   assert.equal(packageJson.dependencies["@codemirror/view"], "6.43.11");
   assert.equal(packageJson.dependencies["@codemirror/lang-wast"], "6.0.2");
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b/iu);
   assert.doesNotMatch(css, /rgba?\(/iu);
   assert.doesNotMatch(css, /hsla?\(/iu);
-  assert.match(css, /\.shell\[data-preview-mode="compact"\]/u);
+  assert.match(css, /\.workspace/u);
+  assert.match(css, /\.contentFrame/u);
+  assert.match(css, /\.sourceCell/u);
+  assert.match(css, /\.evidencePanel/u);
   assert.match(css, /\.preview\[data-status="not_run"\]/u);
 });
