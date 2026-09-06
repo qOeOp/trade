@@ -35,6 +35,7 @@
 .toolPopover legend, .toolPopover > strong { color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
 .toolPopover fieldset button, .tableSetting { width: 100%; min-height: 34px; padding: 0 8px; display: flex; align-items: center; justify-content: space-between; border: 0; border-radius: 8px; color: var(--text-primary); background: transparent; text-align: left; font-size: 11px; }
 .toolPopover fieldset button:hover, .tableSetting:hover { background: var(--surface-hover); }
+.toolPopover fieldset button[aria-pressed="true"], .tableSetting[aria-pressed="true"] { background: var(--data-table-row-selected-bg); }
 .operationScope { position: relative; width: 154px; height: 40px; flex: 0 0 auto; display: flex; align-items: center; border: 1px solid var(--data-table-gridline); border-radius: 12px; background: var(--surface-panel); }
 .operationScope select { width: 100%; height: 100%; padding: 0 32px 0 12px; overflow: hidden; appearance: none; border: 0; outline: 0; color: var(--text-primary); background: transparent; font-size: 11px; font-weight: 620; text-overflow: ellipsis; }
 .operationScope svg { position: absolute; right: 10px; pointer-events: none; color: var(--text-muted); }
@@ -44,7 +45,10 @@
 .settingRow > span { min-width: 0; display: grid; gap: 3px; }
 .settingRow b { color: var(--text-primary); font-size: 11px; }
 .settingRow small { color: var(--text-muted); font-size: 9px; line-height: 1.35; }
-.settingRow input { accent-color: var(--primary); }
+.settingRow input { position: relative; width: 30px; height: 18px; flex: 0 0 auto; appearance: none; border: 1px solid var(--border-default); border-radius: 999px; background: var(--surface-panel); cursor: pointer; transition: background 140ms ease, border-color 140ms ease; }
+.settingRow input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 12px; height: 12px; border-radius: 50%; background: var(--text-muted); transition: transform 140ms ease, background 140ms ease; }
+.settingRow input:checked { border-color: color-mix(in oklch, var(--primary) 65%, var(--border-default)); background: color-mix(in oklch, var(--primary) 25%, var(--surface-panel)); }
+.settingRow input:checked::after { transform: translateX(12px); background: var(--primary); }
 .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
 .primary, .detail { min-width: 0; height: clamp(420px, calc(100dvh - 300px), 760px); overflow: auto; border-radius: 0 0 18px 18px; background: var(--surface-panel); }
 .primary > div { height: 100%; }

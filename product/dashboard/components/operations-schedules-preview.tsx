@@ -69,6 +69,11 @@ export function OperationsSchedulesPreview() {
   useEffect(() => { void refresh(); }, [refresh]);
   const all = envelope?.availability === "available" ? envelope.schedules : [];
   const operations = useMemo(() => [...new Set(all.map((row) => row.operation_id))].sort(), [all]);
+  useEffect(() => {
+    if (operationScope !== "all" && !operations.includes(operationScope as typeof operations[number])) {
+      setOperationScope("all");
+    }
+  }, [operationScope, operations]);
   const schedules = useMemo(() => filterScheduleRowsV1(all, query, operationScope, observationScope),
     [all, observationScope, operationScope, query]);
   const selected = schedules.find((row) => row.schedule_identity === selectedIdentity);
