@@ -25,6 +25,9 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(route, /readArtifactDirectoryGatewayV1/u);
   assert.match(shell, /<ArtifactDirectory \/>/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION/u);
+  assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
+  assert.match(css, /overflow-y: auto/u);
+  assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
   assert.doesNotMatch(component, />View<|column chooser|registered|visible count|Run|Save|textarea|contentEditable/u);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}|rgba?\(|hsla?\(/iu);
 });

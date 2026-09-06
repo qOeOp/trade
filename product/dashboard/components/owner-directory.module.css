@@ -1,5 +1,11 @@
 .tableSurface {
-  min-height: min(620px, calc(100dvh - 250px));
+  min-height: 0;
+}
+
+.tableSurface :global(.data-workspace-viewport) {
+  max-height: min(520px, calc(100dvh - 300px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .identityCell {
@@ -45,8 +51,8 @@
 }
 
 @media (max-width: 760px) {
-  .tableSurface {
-    min-height: 480px;
+  .tableSurface :global(.data-workspace-viewport) {
+    max-height: min(440px, calc(100dvh - 250px));
   }
 
   .filterGroup {
