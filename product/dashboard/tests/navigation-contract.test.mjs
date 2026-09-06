@@ -30,6 +30,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .map(({ href }) => href);
   assert.deepEqual(exact, [
     "/rd", "/rd/research", "/rd/artifacts", "/rd/composer",
+    "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
     "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/runs/example", "/operations/workers/example",
@@ -39,7 +40,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 
 test("all remaining pages fail closed", () => {
   for (const href of [
-    "/dashboard", "/backtest", "/rd/hypotheses", "/rd/decisions",
+    "/dashboard", "/rd/hypotheses", "/rd/decisions",
     "/operations/service-logs", "/operations/audit",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
   ]) {
