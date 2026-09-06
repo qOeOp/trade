@@ -712,17 +712,25 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
-               AND family_outbox.payload_json=pg_catalog.jsonb_strip_nulls(pg_catalog.jsonb_build_object(
-                 'schema_version',1,
-                 'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                 'intent_identity',sealed.intent_identity,
-                 'trial_family_identity',sealed.trial_family_identity,
-                 'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
-                 'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                 'census_frontier_identity',head.frontier_identity,
-                 'census_frontier_digest',head.frontier_digest,
-                 'replay_execution_policy_v2',family.root_json->'policy'->'replay_execution_policy_v2'
-               ))
+               AND family_outbox.payload_json=(
+                 pg_catalog.jsonb_build_object(
+                   'schema_version',1,
+                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                   'intent_identity',sealed.intent_identity,
+                   'trial_family_identity',sealed.trial_family_identity,
+                   'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+                   'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+                   'census_frontier_identity',head.frontier_identity,
+                   'census_frontier_digest',head.frontier_digest
+                 ) || CASE
+                   WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_execution_policy_v2',
+                     family.root_json->'policy'->'replay_execution_policy_v2'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+               )
           ) OR NOT EXISTS (
             SELECT 1
               FROM public.rd_owner_outbox_v1 artifact_outbox

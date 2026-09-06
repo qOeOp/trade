@@ -283,7 +283,22 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
                          AND acl.privilege_type='SELECT'
                     ),
                     pg_catalog.has_table_privilege('qualification_writer', relation.oid, 'SELECT'),
-                    relation.relacl IS NULL,
+                    NOT EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.aclexplode(COALESCE(
+                          relation.relacl,
+                          pg_catalog.acldefault('r',relation.relowner)
+                        )) acl
+                       WHERE acl.grantee<>relation.relowner
+                    ) AND NOT EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.pg_attribute attribute
+                        CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+                       WHERE attribute.attrelid=relation.oid
+                         AND attribute.attnum>0
+                         AND NOT attribute.attisdropped
+                         AND acl.grantee<>relation.relowner
+                    ),
                     ARRAY(
                       SELECT attribute.attname || ':' || pg_catalog.format_type(attribute.atttypid, attribute.atttypmod) || ':' || attribute.attnotnull::text
                         FROM pg_catalog.pg_attribute attribute

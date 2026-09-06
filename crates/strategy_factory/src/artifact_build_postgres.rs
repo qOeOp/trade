@@ -291,6 +291,9 @@ impl PostgresArtifactBuildOwnerV1 {
         )
         .await
         .map_err(storage)?;
+        let mut transaction = owner.pool.begin().await.map_err(storage)?;
+        validate_legacy_drain_family_in_transaction(&mut transaction).await?;
+        transaction.rollback().await.map_err(storage)?;
         owner.assert_activation_safe().await?;
         Ok(owner)
     }

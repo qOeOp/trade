@@ -2000,13 +2000,16 @@ BEGIN
   END IF;
 
   FOREACH role_name IN ARRAY ARRAY['qualification_owner', 'qualification_writer'] LOOP
-    SELECT table_name INTO unexpected_source_table
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    SELECT relation.relname INTO unexpected_source_table
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace
+      ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relname LIKE 'rd_%'
+      AND relation.relkind IN ('r', 'p')
       AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
         role_name,
-        pg_catalog.format('public.%I', table_name),
+        relation.oid,
         checked_privilege
       )) FROM pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
     LIMIT 1;
