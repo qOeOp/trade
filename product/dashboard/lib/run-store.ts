@@ -186,6 +186,9 @@ export type ShadowScheduleReadBindingV1 = {
   schedule_identity: string;
   schedule_digest: string;
   operation_id: RegisteredOperationId;
+  recovery_identity: Record<string, string>;
+  cadence_seconds: number;
+  anchor_epoch_ms: number;
   dispatch_binding: OperationDispatchBindingV1;
 };
 
@@ -1706,11 +1709,17 @@ export class PostgresRunStoreV1 {
     const expected = new Map<string, ShadowScheduleReadBindingV1>();
     for (const binding of bindings) {
       const dispatch = canonicalDispatchBindingV1(binding.operation_id, binding.dispatch_binding);
+      const recovery = canonicalRecoveryIdentityV1(binding.operation_id, binding.recovery_identity);
       if (!/^dashboard-schedule-v1-[0-9a-f]{64}$/.test(binding.schedule_identity)
-        || !DIGEST.test(binding.schedule_digest) || !dispatch
+        || !DIGEST.test(binding.schedule_digest) || !dispatch || !recovery
+        || !Number.isInteger(binding.cadence_seconds) || binding.cadence_seconds < 60
+        || binding.cadence_seconds > 86_400 || !Number.isSafeInteger(binding.anchor_epoch_ms)
+        || binding.anchor_epoch_ms < 0
         || identities.has(binding.schedule_identity)) throw new Error("SCHEDULE_QUERY_INVALID");
       identities.add(binding.schedule_identity);
-      expected.set(binding.schedule_identity, { ...binding, dispatch_binding: dispatch });
+      expected.set(binding.schedule_identity, {
+        ...binding, recovery_identity: recovery, dispatch_binding: dispatch,
+      });
     }
     const result = await this.#pool.query<ScheduleRow & { observed_at: Date }>(
       `SELECT *, clock_timestamp() AS observed_at
@@ -1724,6 +1733,10 @@ export class PostgresRunStoreV1 {
       const binding = expected.get(row.schedule_identity);
       if (!binding || row.schedule_digest !== binding.schedule_digest
         || row.operation_id !== binding.operation_id
+        || row.recovery_identity_digest
+          !== recoveryIdentityDigestV1(binding.operation_id, binding.recovery_identity)
+        || row.cadence_seconds !== binding.cadence_seconds
+        || row.anchor_at.getTime() !== binding.anchor_epoch_ms
         || row.registry_entry_digest !== binding.dispatch_binding.registry_entry_digest
         || row.compatibility_envelope_set_digest
           !== binding.dispatch_binding.compatibility_envelope_set_digest) {

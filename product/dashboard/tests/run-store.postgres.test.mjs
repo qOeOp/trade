@@ -899,6 +899,9 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     schedule_identity: currentSchedule.schedule_identity,
     schedule_digest: currentSchedule.schedule_digest,
     operation_id: currentSchedule.operation_id,
+    recovery_identity: currentSchedule.recovery_identity,
+    cadence_seconds: currentSchedule.cadence_seconds,
+    anchor_epoch_ms: Date.parse(currentSchedule.anchor_at),
     dispatch_binding: currentBinding,
   }]);
   assert.deepEqual(boundCurrent.schedules.map(({ schedule_identity }) => schedule_identity), [
@@ -991,6 +994,9 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     schedule_identity: currentSchedule.schedule_identity,
     schedule_digest: currentSchedule.schedule_digest,
     operation_id: currentSchedule.operation_id,
+    recovery_identity: currentSchedule.recovery_identity,
+    cadence_seconds: currentSchedule.cadence_seconds,
+    anchor_epoch_ms: Date.parse(currentSchedule.anchor_at),
     dispatch_binding: currentBinding,
   }])).schedules[0].last_run_identity, currentSchedule.last_run_identity);
   const recovered = await restarted.getRun(research.run_identity);

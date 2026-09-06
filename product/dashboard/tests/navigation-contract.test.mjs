@@ -30,7 +30,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     .map(({ href }) => href);
   assert.deepEqual(exact, [
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
-    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/runs/example", "/operations/workers/example",
+    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
 });

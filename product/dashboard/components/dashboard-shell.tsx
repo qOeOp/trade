@@ -12,6 +12,7 @@ import { ModuleTabLinks } from "./module-tab-links";
 import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
+import { OperationsSchedulesPreview } from "./operations-schedules-preview";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
 
@@ -102,7 +103,8 @@ export function DashboardShell({
   const operationsRuns = current === "/operations";
   const operationsRunDetail = current === "/operations/runs/example";
   const operationsWorkers = current === "/operations/workers";
-  const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers;
+  const operationsSchedules = current === "/operations/schedules";
+  const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -124,6 +126,8 @@ export function DashboardShell({
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD"
                 : operationsWorkers
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN"
+                : operationsSchedules
+                ? "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS"
                 : operationsRuns
                 ? "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT"
                 : drawableExact
@@ -134,6 +138,7 @@ export function DashboardShell({
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
+              : operationsSchedules ? <OperationsSchedulesPreview />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
           <footer className="prototype-notice">
