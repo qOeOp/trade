@@ -1009,6 +1009,38 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     ReplayCompositionOwnerV1::materialize_schema(owner_url)
         .await
         .unwrap();
+    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_receipts_v1
+         RENAME TO time_zone_receipts_v1_missing",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_receipts_v1_missing
+         RENAME TO time_zone_receipts_v1",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
     let owner = Arc::new(
         ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
@@ -1787,15 +1819,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .execute(market_mutation_pool)
     .await
     .unwrap();
-    let native_lineage_tamper =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(226), command.composition().clone())
-            .unwrap();
-    assert!(
-        fresh_owner
-            .issue_binding_v1(&native_lineage_tamper)
-            .await
-            .is_err()
-    );
+    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
     assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
     sqlx::query(
         "UPDATE market_data_private.time_zone_facts_v1

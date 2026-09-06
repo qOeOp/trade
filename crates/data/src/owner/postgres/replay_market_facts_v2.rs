@@ -776,6 +776,9 @@ impl ReplayCompositionOwnerV1 {
         let owner = super::MarketDataOwnerPostgres::connect_existing(market_data_database_url)
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::time_zone::verify_time_zone_custody_v1(&owner.pool)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
         let market_acl = sqlx::query(MARKET_OWNER_COMPOSER_ACL_QUERY_V1)
             .fetch_one(&owner.pool)
             .await
@@ -1393,22 +1396,6 @@ impl ReplayCompositionOwnerV1 {
         )
         .await?;
 
-        if issuance_exists(&mut transaction, issuance_locator.request_identity()).await? {
-            let response =
-                recover_issuance_in_transaction(&mut transaction, issuance_locator).await?;
-            let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
-                "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
-            )
-            .bind(issuance_locator.request_identity().as_bytes().as_slice())
-            .fetch_one(&mut *transaction)
-            .await
-            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
-            if stored_request_bytes != request_bytes {
-                return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
-            }
-            return Ok(response);
-        }
-
         validate_exact_request_row(
             &mut transaction,
             "instrument_master_receipts_v1",
@@ -1525,6 +1512,22 @@ impl ReplayCompositionOwnerV1 {
             request.corporate_action_locator(),
         )
         .await?;
+
+        if issuance_exists(&mut transaction, issuance_locator.request_identity()).await? {
+            let response =
+                recover_issuance_in_transaction(&mut transaction, issuance_locator).await?;
+            let stored_request_bytes: Vec<u8> = sqlx::query_scalar(
+                "SELECT request_bytes FROM market_data_private.replay_composition_issuances_v1 WHERE request_identity=$1",
+            )
+            .bind(issuance_locator.request_identity().as_bytes().as_slice())
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            if stored_request_bytes != request_bytes {
+                return Err(ReplayCompositionBindingErrorV1::DigestMismatch);
+            }
+            return Ok(response);
+        }
 
         let registry_digest = digest_registry(&roles);
         let role_ids = roles

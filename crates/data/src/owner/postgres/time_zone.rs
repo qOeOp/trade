@@ -5,7 +5,7 @@
     reason = "C2 is intentionally not installed by global migration"
 )]
 
-use sqlx::{Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 
 use super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1;
 use crate::owner::{
@@ -25,6 +25,96 @@ use crate::owner::{
     },
 };
 
+pub(super) const TIME_ZONE_RELATIONS_V1: &[&str] = &[
+    "time_zone_state_v1",
+    "time_zone_facts_v1",
+    "time_zone_heads_v1",
+    "time_zone_cuts_v1",
+    "time_zone_cut_facts_v1",
+    "time_zone_receipts_v1",
+    "time_zone_outbox_v1",
+];
+
+const TIME_ZONE_CUSTODY_QUERY_V1: &str = "WITH expected(relation_name) AS (
+  VALUES
+    ('time_zone_state_v1'),
+    ('time_zone_facts_v1'),
+    ('time_zone_heads_v1'),
+    ('time_zone_cuts_v1'),
+    ('time_zone_cut_facts_v1'),
+    ('time_zone_receipts_v1'),
+    ('time_zone_outbox_v1')
+), relations AS (
+  SELECT expected.relation_name,
+         relation.oid,
+         relation.relowner,
+         relation.relkind,
+         relation.relpersistence,
+         relation.relrowsecurity,
+         relation.relforcerowsecurity,
+         relation.reloptions,
+         relation.relacl
+    FROM expected
+    LEFT JOIN pg_catalog.pg_namespace namespace
+      ON namespace.nspname='market_data_private'
+    LEFT JOIN pg_catalog.pg_class relation
+      ON relation.relnamespace=namespace.oid
+     AND relation.relname=expected.relation_name
+)
+SELECT (
+         SELECT count(*)=1
+            AND pg_catalog.bool_and(pg_catalog.pg_get_userbyid(namespace.nspowner)='market_data_owner')
+            AND pg_catalog.bool_and(NOT EXISTS (
+              SELECT 1
+                FROM pg_catalog.aclexplode(COALESCE(
+                  namespace.nspacl,
+                  pg_catalog.acldefault('n',namespace.nspowner)
+                )) acl
+               WHERE acl.grantee<>namespace.nspowner
+            ))
+           FROM pg_catalog.pg_namespace namespace
+          WHERE namespace.nspname='market_data_private'
+       )
+   AND count(*)=(SELECT count(*) FROM expected)
+   AND pg_catalog.bool_and(
+         relation.oid IS NOT NULL
+         AND pg_catalog.pg_get_userbyid(relation.relowner)='market_data_owner'
+         AND relation.relkind='r'
+         AND relation.relpersistence='p'
+         AND NOT relation.relrowsecurity
+         AND NOT relation.relforcerowsecurity
+         AND relation.reloptions IS NULL
+         AND NOT EXISTS (
+           SELECT 1
+             FROM pg_catalog.aclexplode(COALESCE(
+               relation.relacl,
+               pg_catalog.acldefault('r',relation.relowner)
+             )) acl
+            WHERE acl.grantee<>relation.relowner
+         )
+         AND NOT EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_attribute attribute
+             CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
+            WHERE attribute.attrelid=relation.oid
+              AND attribute.attnum>0
+              AND NOT attribute.attisdropped
+              AND acl.grantee<>relation.relowner
+         )
+         AND NOT EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_trigger trigger_entry
+            WHERE trigger_entry.tgrelid=relation.oid
+              AND NOT trigger_entry.tgisinternal
+         )
+         AND NOT EXISTS (
+           SELECT 1
+             FROM pg_catalog.pg_policy policy
+            WHERE policy.polrelid=relation.oid
+         )
+       )
+  FROM relations";
+
 pub(super) const TIME_ZONE_SCHEMA_V1: &[&str] = &[
     super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
@@ -43,6 +133,18 @@ pub(super) const TIME_ZONE_SCHEMA_V1: &[&str] = &[
     "REVOKE ALL ON TABLE market_data_private.time_zone_receipts_v1 FROM PUBLIC",
     "REVOKE ALL ON TABLE market_data_private.time_zone_outbox_v1 FROM PUBLIC",
 ];
+
+pub(super) async fn verify_time_zone_custody_v1(pool: &PgPool) -> Result<(), TimeZoneErrorV1> {
+    let exact: bool = sqlx::query_scalar(TIME_ZONE_CUSTODY_QUERY_V1)
+        .fetch_one(pool)
+        .await
+        .map_err(store_error)?;
+
+    if !exact {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    Ok(())
+}
 
 pub(super) async fn install_time_zone_schema_v1(
     transaction: &mut Transaction<'_, Postgres>,
@@ -523,15 +625,7 @@ mod tests {
         assert!(schema.contains("bootstrap schema ownership is unavailable"));
         assert!(!schema.contains("CREATE SCHEMA"));
 
-        for relation in [
-            "time_zone_state_v1",
-            "time_zone_facts_v1",
-            "time_zone_heads_v1",
-            "time_zone_cuts_v1",
-            "time_zone_cut_facts_v1",
-            "time_zone_receipts_v1",
-            "time_zone_outbox_v1",
-        ] {
+        for relation in TIME_ZONE_RELATIONS_V1 {
             assert!(schema.contains(relation));
         }
         assert_eq!(schema.matches("REVOKE ALL ON TABLE").count(), 7);
@@ -541,5 +635,9 @@ mod tests {
         assert!(implementation.contains("SAVEPOINT market_data_time_zone_v1"));
         assert!(implementation.contains("ROLLBACK TO SAVEPOINT market_data_time_zone_v1"));
         assert!(implementation.contains("pg_catalog.gen_random_uuid()"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.aclexplode"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attacl"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("trigger_entry.tgisinternal"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.pg_policy"));
     }
 }
