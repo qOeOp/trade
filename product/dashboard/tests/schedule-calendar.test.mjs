@@ -37,6 +37,20 @@ test("calendar colors resolve from the current shared theme instead of undefined
   }
 });
 
+test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
+  const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
+  for (const marker of [
+    "todayCard",
+    "monthHeading(date)",
+    "compactRange(range.start, range.end)",
+    "calendarViews.map",
+    "AnimatePresence",
+    "InterfaceIcons.calendarMonth",
+  ]) assert.ok(component.includes(marker), `missing source calendar marker: ${marker}`);
+  assert.doesNotMatch(component, /Add Event|Settings|UserSelect|CALENDAR_ITEMS_MOCK/u);
+  assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
+});
+
 function dayGroups(rows, date) {
   const { start, end } = calendarRangeV1(date, "day");
   return scheduleCalendarGroupsV1(rows, start, end);

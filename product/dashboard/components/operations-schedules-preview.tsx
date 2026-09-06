@@ -1,5 +1,6 @@
 "use client";
 
+import { AnimatePresence, motion } from "framer-motion";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseScheduleEnvelopeV1, type ScheduleEnvelopeProjectionV1, type ScheduleProjectionV1 } from "../lib/schedule-projection";
 import { calendarRangeV1, type ScheduleCalendarView } from "../lib/schedule-calendar";
@@ -13,6 +14,31 @@ import styles from "./ui/schedule-calendar.module.css";
 const today = () => new Date().toISOString().slice(0, 10);
 const timestamp = (value: string | null) => value ? new Date(value).toISOString().replace("T", " ").replace("Z", " UTC") : "Not observed";
 const cadence = (seconds: number) => seconds % 3600 === 0 ? `${seconds / 3600}h` : `${seconds / 60}m`;
+const calendarViews = [
+  ["agenda", "Agenda", InterfaceIcons.calendarAgenda],
+  ["day", "Day", InterfaceIcons.calendarDay],
+  ["week", "Week", InterfaceIcons.calendarWeek],
+  ["month", "Month", InterfaceIcons.calendarMonth],
+  ["year", "Year", InterfaceIcons.calendarYear],
+] as const;
+
+function monthHeading(date: string): string {
+  return new Date(`${date}T00:00:00.000Z`).toLocaleDateString("en", {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
+function compactRange(start: number, end: number): string {
+  const format = (value: number) => new Date(value).toLocaleDateString("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${format(start)} - ${format(end - 1)}`;
+}
 
 export function OperationsSchedulesPreview() {
   const [envelope, setEnvelope] = useState<ScheduleEnvelopeProjectionV1 | null>(null);
@@ -23,6 +49,7 @@ export function OperationsSchedulesPreview() {
   const [view, setView] = useState<ScheduleCalendarView>("month");
   const [date, setDate] = useState(today);
   const [query, setQuery] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const refresh = useCallback(async () => {
     setPending(true); setEnvelope(null); setSelectedIdentity(null); setError(null);
     try {
@@ -43,6 +70,7 @@ export function OperationsSchedulesPreview() {
     .sort((a, b) => a.next_due_at.localeCompare(b.next_due_at) || a.schedule_identity.localeCompare(b.schedule_identity)), [all, query]);
   const selected = schedules.find((row) => row.schedule_identity === selectedIdentity);
   const range = calendarRangeV1(date, view);
+  const todayDate = new Date(`${today()}T00:00:00.000Z`);
   const changeDate = (value: string, nextView: ScheduleCalendarView) => { setDate(value); setView(nextView); };
   const shift = (offset: number) => {
     const d = new Date(`${date}T00:00:00.000Z`);
@@ -63,19 +91,63 @@ export function OperationsSchedulesPreview() {
     <PanelFrameHeader title="Shadow-read schedules" description="Expected triggers and observed runs · UTC"
       actions={<button type="button" disabled={pending} onClick={() => void refresh()}><InterfaceIcons.refresh size={14} aria-hidden="true" /> Refresh</button>} />
     <PanelFrameBody>
-      <div className={styles.summary} aria-label="Schedule summary">
-        <span>Configured <b>{envelope ? all.length : "-"}</b></span>
-        <span>Due at observation <b>{envelope ? all.filter((row) => row.next_due_at <= envelope.observed_at).length : "-"}</b></span>
-        <span>Observed runs <b>{envelope ? all.filter((row) => row.last_run_identity).length : "-"}</b></span>
-      </div>
-      <div className={styles.toolbar} aria-label="Schedule controls">
-        <div role="group" aria-label="Presentation">{["calendar", "table"].map((value) => <button type="button" key={value} aria-pressed={mode === value} onClick={() => setMode(value)}>{value === "calendar" ? "Calendar" : "Table"}</button>)}</div>
-        <button type="button" onClick={() => setDate(today())}>Today</button>
-        <button type="button" aria-label="Previous range" onClick={() => shift(-1)}><InterfaceIcons.previous size={14} /></button>
-        <span className={styles.range}>{new Date(range.start).toISOString().slice(0, 10)} - {new Date(range.end - 1).toISOString().slice(0, 10)}</span>
-        <button type="button" aria-label="Next range" onClick={() => shift(1)}><InterfaceIcons.next size={14} /></button>
-        <div role="group" aria-label="Calendar view">{(["day", "week", "month", "year", "agenda"] as const).map((value) => <button type="button" key={value} aria-pressed={view === value} onClick={() => setView(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
-        <input aria-label="Search schedules" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Operation or schedule…" />
+      <div className={styles.calendarHeader} aria-label="Schedule controls">
+        <motion.div className={styles.calendarIdentity} initial={{ x: -10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+          <motion.button type="button" className={styles.todayCard} aria-label="Go to today"
+            onClick={() => setDate(today())} whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}>
+            <span>{todayDate.toLocaleDateString("en", { month: "short", timeZone: "UTC" }).toUpperCase()}</span>
+            <strong>{todayDate.getUTCDate()}</strong>
+          </motion.button>
+          <div className={styles.dateNavigator}>
+            <div className={styles.headingLine}>
+              <h3>{monthHeading(date)}</h3>
+              <AnimatePresence mode="wait">
+                <motion.span key={`${pending}-${envelope?.observed_at ?? error}`}
+                  initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}>
+                  {pending ? "Reading" : envelope ? `${all.length} schedules` : "Unavailable"}
+                </motion.span>
+              </AnimatePresence>
+            </div>
+            <div className={styles.rangeNavigator}>
+              <motion.button type="button" aria-label="Previous range" onClick={() => shift(-1)} whileTap={{ scale: 0.9 }}>
+                <InterfaceIcons.previous size={15} aria-hidden="true" />
+              </motion.button>
+              <motion.p key={`${range.start}-${range.end}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                {compactRange(range.start, range.end)}
+              </motion.p>
+              <motion.button type="button" aria-label="Next range" onClick={() => shift(1)} whileTap={{ scale: 0.9 }}>
+                <InterfaceIcons.next size={15} aria-hidden="true" />
+              </motion.button>
+            </div>
+          </div>
+        </motion.div>
+        <motion.div className={styles.calendarTools} initial={{ x: 10, opacity: 0 }} animate={{ x: 0, opacity: 1 }}>
+          <motion.label className={styles.searchControl} data-open={searchOpen || Boolean(query)}
+            animate={{ width: searchOpen || query ? 220 : 40 }}>
+            <button type="button" aria-label="Search schedules" onClick={() => setSearchOpen((value) => !value)}>
+              <InterfaceIcons.search size={16} aria-hidden="true" />
+            </button>
+            <input aria-label="Search schedules" type="search" value={query}
+              onFocus={() => setSearchOpen(true)} onChange={(event) => setQuery(event.target.value)}
+              onBlur={() => { if (!query) setSearchOpen(false); }} placeholder="Operation or schedule…" />
+          </motion.label>
+          <div className={styles.viewTabs} role="group" aria-label="Calendar view">
+            {calendarViews.map(([value, label, Icon]) => {
+              const active = mode === "calendar" && view === value;
+              return <motion.button type="button" key={value} aria-label={`${label} view`} aria-pressed={active}
+                animate={{ width: active ? 104 : 38 }} onClick={() => { setMode("calendar"); setView(value); }}>
+                <Icon size={16} aria-hidden="true" />
+                <AnimatePresence initial={false}>{active ? <motion.span initial={{ opacity: 0, scaleX: 0.8 }}
+                  animate={{ opacity: 1, scaleX: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.18 }}>{label}</motion.span> : null}</AnimatePresence>
+              </motion.button>;
+            })}
+          </div>
+          <motion.button type="button" className={styles.tableMode} aria-label="Table view" aria-pressed={mode === "table"}
+            animate={{ width: mode === "table" ? 92 : 40 }} onClick={() => setMode("table")}>
+            <InterfaceIcons.table size={16} aria-hidden="true" />
+            <AnimatePresence initial={false}>{mode === "table" ? <motion.span initial={{ opacity: 0 }} animate={{ opacity: 1 }}>Table</motion.span> : null}</AnimatePresence>
+          </motion.button>
+        </motion.div>
       </div>
       {pending ? <div className={styles.message} role="status" aria-label="Reading schedules">{Array.from({ length: 6 }, (_, i) => <div className={styles.skeleton} key={i} />)}</div>
         : error ? <div className={styles.message} role="status"><b>{scheduleAvailabilityPresentationV1(error).title}</b><p>{scheduleAvailabilityPresentationV1(error).detail}</p></div>

@@ -26,11 +26,13 @@ use crate::exploratory_replay::{
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
-    ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchGoalOwnerError,
-    ResearchGoalOwnerPortV2, ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2,
-    ResearchLineageResolutionV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
-    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
-    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    ProductEdgeResearchGoalRequestV2, ProductEdgeResolution, ResearchDirectoryCompletenessV1,
+    ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
+    ResearchDirectoryReadbackV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
+    ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
+    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
+    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
+    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -39,7 +41,8 @@ use crate::product_edge::{
 use crate::rd_owner_postgres_custody::{
     ResearchCustodyLookupV1, admit_all_research_custodies_in_transaction,
     admit_independence_basis_by_identity_in_transaction, admit_research_custody_in_transaction,
-    require_rd_owner_api_schema, resolve_verified_artifact_family,
+    admit_research_v2_custody_read_only_in_transaction, require_rd_owner_api_schema,
+    resolve_verified_artifact_family,
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_for_trial_family_formation,
@@ -2025,6 +2028,136 @@ fn identity(prefix: &str, digest: &str) -> String {
     format!("{prefix}-{}", digest.trim_start_matches("sha256:"))
 }
 
+const RESEARCH_DIRECTORY_MAX_RETURNED: u32 = 20;
+const RESEARCH_DIRECTORY_MAX_SCANNED: i64 = 60;
+
+#[async_trait]
+impl ResearchDirectoryOwnerPort for PostgresResearchGoalOwnerV1 {
+    async fn list_research(
+        &self,
+        after: Option<&ResearchDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
+        if !(1..=RESEARCH_DIRECTORY_MAX_RETURNED).contains(&limit)
+            || after.is_some_and(|cursor| {
+                !(16..=128).contains(&cursor.request_identity.len())
+                    || !cursor.request_identity.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
+                    })
+            })
+        {
+            return Err(ResearchGoalOwnerError::Storage(
+                "research directory cursor or limit is invalid".into(),
+            ));
+        }
+
+        let scan_limit = RESEARCH_DIRECTORY_MAX_SCANNED + 1;
+        let candidate_rows = if let Some(cursor) = after {
+            sqlx::query(
+                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE (committed_at_epoch_ms, request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $3",
+            )
+            .bind(i64::try_from(cursor.committed_at_epoch_ms).map_err(json_storage)?)
+            .bind(&cursor.request_identity)
+            .bind(scan_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| storage(&e))?
+        } else {
+            sqlx::query(
+                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $1",
+            )
+            .bind(scan_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| storage(&e))?
+        };
+
+        let max_scanned = usize::try_from(RESEARCH_DIRECTORY_MAX_SCANNED).map_err(json_storage)?;
+        let has_unscanned_candidate = candidate_rows.len() > max_scanned;
+        let candidates = candidate_rows
+            .into_iter()
+            .take(max_scanned)
+            .collect::<Vec<_>>();
+        let candidate_count = candidates.len();
+        let returned_limit = usize::try_from(limit).map_err(json_storage)?;
+        let mut items = Vec::with_capacity(returned_limit);
+        let mut omitted_count = 0_u32;
+        let mut last_cursor = None;
+        let mut scanned = 0_usize;
+        let read_cut_epoch_ms = current_epoch_ms()?;
+
+        for row in candidates {
+            let request_identity = row
+                .try_get::<String, _>("request_identity")
+                .map_err(|e| storage(&e))?;
+            let committed_at_epoch_ms = u64::try_from(
+                row.try_get::<i64, _>("committed_at_epoch_ms")
+                    .map_err(|e| storage(&e))?,
+            )
+            .map_err(json_storage)?;
+            last_cursor = Some(ResearchDirectoryCursorV1 {
+                committed_at_epoch_ms,
+                request_identity: request_identity.clone(),
+            });
+            scanned += 1;
+
+            let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
+            let custody = Box::pin(admit_research_v2_custody_read_only_in_transaction(
+                &mut transaction,
+                &request_identity,
+            ))
+            .await?;
+
+            if let Some(custody) = custody {
+                let result = custody.into_v2_result(read_cut_epoch_ms)?;
+                let receipt = result.owner_receipt.as_ref().ok_or_else(|| {
+                    ResearchGoalOwnerError::Storage(
+                        "verified research directory receipt missing".into(),
+                    )
+                })?;
+
+                if receipt.committed_at_epoch_ms != committed_at_epoch_ms {
+                    return Err(ResearchGoalOwnerError::Storage(
+                        "research directory candidate changed across custody cut".into(),
+                    ));
+                }
+                let view = result.research_view.as_ref();
+                items.push(ResearchDirectoryItemV1 {
+                    request_identity: receipt.request_identity.clone(),
+                    intent_identity: receipt.resulting_research_intent_identity.clone(),
+                    disposition: receipt.disposition,
+                    availability: view.map(|value| value.availability),
+                    phase: view.map(|value| value.phase),
+                    committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+                });
+            } else {
+                omitted_count = omitted_count.saturating_add(1);
+            }
+            transaction.commit().await.map_err(|e| storage(&e))?;
+
+            if items.len() == returned_limit {
+                break;
+            }
+        }
+
+        let next_cursor = (has_unscanned_candidate || scanned < candidate_count)
+            .then_some(last_cursor)
+            .flatten();
+        Ok(ResearchDirectoryReadbackV1 {
+            schema_version: 1,
+            observed_at_epoch_ms: read_cut_epoch_ms,
+            completeness: if omitted_count == 0 {
+                ResearchDirectoryCompletenessV1::Complete
+            } else {
+                ResearchDirectoryCompletenessV1::Partial
+            },
+            omitted_count,
+            next_cursor,
+            items,
+        })
+    }
+}
+
 #[async_trait]
 impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
     async fn submit_v2(
@@ -3286,6 +3419,26 @@ mod tests {
             .submit_v2(request(&request_identity, admission.clone()))
             .await
             .unwrap();
+        let directory = owner.list_research(None, 20).await.unwrap();
+        let directory_item = directory
+            .items
+            .iter()
+            .find(|item| item.request_identity == request_identity)
+            .expect("accepted V2 custody appears in the verified directory");
+        assert_eq!(
+            directory_item.intent_identity.as_deref(),
+            accepted
+                .research_view()
+                .map(|view| view.intent_identity.as_str())
+        );
+        assert_eq!(
+            directory_item.disposition,
+            crate::product_edge::ResearchRequestDisposition::Accepted
+        );
+        assert_eq!(
+            directory_item.availability,
+            Some(ResearchViewAvailability::Available)
+        );
         let historical = accepted.research_view().unwrap();
         let cut = historical.valid_through_epoch_ms;
         let family_identity = accepted

@@ -47,10 +47,10 @@ use vibe_strategy_factory::{
     develop_composer_sealed_acceptance_v2::default_unavailable_response,
     product_edge::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
-        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchGoalOwnerError,
-        ResearchGoalOwnerPortV2, SourcedResearchGoalV2, TrialFamilyProposalV1,
-        identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
-        unresolved_result_v2,
+        RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
+        ResearchDirectoryOwnerPort, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
+        SourcedResearchGoalV2, TrialFamilyProposalV1, identity_conflict_result,
+        identity_conflict_result_v2, rejected_result, unresolved_result, unresolved_result_v2,
     },
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
     trial_family::{TrialFamilyDirectResultV1, TrialFamilyError},
@@ -135,6 +135,7 @@ struct ApiState {
     artifact_owner: Arc<dyn ArtifactBuildOwnerPort>,
     artifact_source_owner: Arc<dyn ArtifactSourceOwnerPort>,
     artifact_directory_owner: Arc<dyn ArtifactDirectoryOwnerPort>,
+    research_directory_owner: Arc<dyn ResearchDirectoryOwnerPort>,
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
@@ -203,6 +204,14 @@ struct ArtifactDirectoryQueryV1 {
     limit: Option<u32>,
     after_prepared_at_epoch_ms: Option<u64>,
     after_build_request_identity: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResearchDirectoryQueryV1 {
+    limit: Option<u32>,
+    after_committed_at_epoch_ms: Option<u64>,
+    after_request_identity: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -310,6 +319,7 @@ async fn main() -> anyhow::Result<()> {
         artifact_owner: artifact_owner.clone(),
         artifact_source_owner: artifact_owner.clone(),
         artifact_directory_owner: artifact_owner,
+        research_directory_owner: owner.clone(),
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
@@ -337,6 +347,7 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     let app = Router::new()
         .route("/health", get(health))
+        .route("/v1/research-goals/directory", get(read_research_directory))
         .route(
             "/v1/research-goals/{request_identity}/resolve",
             post(resolve),
@@ -1663,6 +1674,51 @@ async fn read_artifact_directory(
     }
 }
 
+async fn read_research_directory(
+    State(state): State<ApiState>,
+    Query(query): Query<ResearchDirectoryQueryV1>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let limit = query.limit.unwrap_or(20);
+    if !(1..=20).contains(&limit) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let after = match (
+        query.after_committed_at_epoch_ms,
+        query.after_request_identity,
+    ) {
+        (None, None) => None,
+        (Some(committed_at_epoch_ms), Some(request_identity))
+            if valid_directory_identity(&request_identity) =>
+        {
+            Some(ResearchDirectoryCursorV1 {
+                committed_at_epoch_ms,
+                request_identity,
+            })
+        }
+        _ => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match state
+        .research_directory_owner
+        .list_research(after.as_ref(), limit)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+fn valid_directory_identity(value: &str) -> bool {
+    (16..=128).contains(&value.len())
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.'))
+}
+
 async fn artifact_result_response(
     state: &ApiState,
     admission: &ProductEdgeAdmissionLocatorV1,
@@ -2466,10 +2522,11 @@ mod tests {
         );
         let state = ApiState {
             product_edge,
-            owner,
+            owner: owner.clone(),
             artifact_owner: artifact_owner.clone(),
             artifact_source_owner: artifact_owner.clone(),
             artifact_directory_owner: artifact_owner,
+            research_directory_owner: owner.clone(),
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,
