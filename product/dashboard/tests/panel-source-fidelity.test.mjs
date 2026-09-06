@@ -5,6 +5,8 @@ import test from "node:test";
 const panel = await readFile(new URL("../components/ui/panel-frame.tsx", import.meta.url), "utf8");
 const animateIn = await readFile(new URL("../components/ui/animate-in.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const runtimeFoundation = await readFile(new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url), "utf8");
+const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
 const sourceLock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
 
 test("panel atoms retain the pinned Vibe source hierarchy", () => {
@@ -37,4 +39,22 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.match(css, /\.panel-frame-body-content\[data-mode="scroll"\] \{ overflow-y: auto; \}/);
   assert.match(css, /\.panel-frame-close-button[^}]+var\(--surface-card\)/);
   assert.match(css, /\.panel-frame-header\[data-layout="inline"\]/);
+  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+border-radius: var\(--panel-radius\) var\(--panel-radius\) 0 0/);
+  assert.match(css, /\.panel-frame-body \{[^}]+border-radius: calc\(var\(--panel-radius\) - 4px\)/);
+  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius:[^}]+0 0/);
+  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-footer:last-child[^}]+border-radius: 0 0/);
+});
+
+test("framed corner rules never clip flat page-title frames", () => {
+  const cornerRules = [...css.matchAll(/([^{}]+)\{[^{}]*border-radius:[^{}]+\}/gu)]
+    .map((match) => match[1].trim())
+    .filter((selector) => selector.startsWith(".panel-frame") && selector.includes("> .panel-frame-"));
+  assert.ok(cornerRules.length >= 3);
+  for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
+});
+
+test("foundation bodies stay directly joined to their frame footers", () => {
+  const joinedBodyAndFooter = /<\/PanelFrameBody>\s*<PanelFrameFooter\b/u;
+  assert.match(runtimeFoundation, joinedBodyAndFooter);
+  assert.match(dataFoundation, joinedBodyAndFooter);
 });

@@ -67,6 +67,9 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
     "refreshAction",
   ]) assert.ok(source.includes(marker), `missing source calendar marker: ${marker}`);
   assert.match(component, /<CalendarHeader/);
+  assert.match(component, /return <PanelFrame[^>]*>\s*<PanelFrameBody>\s*<CalendarHeader/u);
+  assert.doesNotMatch(component, /<PanelFrameHeader/u);
+  assert.doesNotMatch(component, /Shadow-read schedules[^\n]+Expected triggers and observed runs/u);
   assert.equal(sourceLock.components.calendarHeader.blob, "2357cf00f668de103b346a15a02918fbfc9f25c8");
   assert.equal(sourceLock.components.calendarViewTabs.blob, "b7ea515cc3670441e739c6fcf7ae2f7ba93776af");
   assert.doesNotMatch(`${component}\n${source}`, /Add Event|CALENDAR_ITEMS_MOCK/u);
