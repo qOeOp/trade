@@ -11,7 +11,7 @@ export function ViewerFileRail({ source }: { source: StrategyCodeSource | null }
           <EvidenceIcons.artifact size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>artifact</span>
         </div>
-        <div className={styles.fileItem} data-active="true">
+        <div className={styles.fileItem} data-active={source ? "true" : undefined}>
           <EvidenceIcons.inspectFile size={13} strokeWidth={1.5} aria-hidden="true" />
           <span>{source?.fileName ?? "source unavailable"}</span>
         </div>

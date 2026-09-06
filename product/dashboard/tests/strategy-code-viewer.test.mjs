@@ -166,6 +166,8 @@ test("component retains real CodeMirror read-only affordances and no execution p
   ]) {
     assert.ok(!component.includes(forbidden), `unexpected ${forbidden}`);
   }
+  assert.ok(component.includes('safeProjection.source?.fileName ?? "Source unavailable"'));
+  assert.ok(component.includes('data-active={source ? "true" : undefined}'));
   assert.equal(sourceLock.sourceSets.strategyCodeViewer.revision, "48c8315f74536d9d308347d63ac9c4e96c9a7120");
   assert.equal(sourceLock.sourceSets.strategyCodeViewer.tree, "d226b620dc699c9e8e382274434b324a5fefe0e1");
   assert.equal(sourceLock.sourceSets.strategyCodeViewer.components.contentFrame.blob, "59feee98003091a3296e70954fb8a23d0dd85f4e");

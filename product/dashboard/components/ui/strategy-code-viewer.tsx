@@ -69,9 +69,12 @@ export function StrategyCodeViewer({
             <ViewerFileRail source={safeProjection.source} />
             <section className={styles.contentFrame} data-slot="strategy-viewer-content-frame">
               <header className={styles.fileTabs} data-slot="strategy-viewer-file-tabs">
-                <div className={styles.fileTab} data-active="true">
+                <div
+                  className={styles.fileTab}
+                  data-active={safeProjection.source ? "true" : undefined}
+                >
                   <EvidenceIcons.inspectFile aria-hidden="true" size={14} strokeWidth={1.5} />
-                  <span>{safeProjection.source?.fileName ?? "strategy.rs"}</span>
+                  <span>{safeProjection.source?.fileName ?? "Source unavailable"}</span>
                 </div>
                 <span className={styles.readOnlyBadge}>
                   <EvidenceIcons.locked aria-hidden="true" size={11} strokeWidth={1.5} />
