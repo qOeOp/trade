@@ -100,6 +100,32 @@ terminalization、sandbox invocation 或数据库写入。
 在单独准入精确 sandbox preview readback 前，preview pane 明确为 `not_run`，且不携带 module、target 或 output。
 这个详情切片不创建 Artifact 列表，不证明部署可用，也不建立 Windmill replacement。
 
+## 有界准入：已验证 Artifact 目录
+
+`ArtifactDirectory` 是 `/rd/artifacts` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
+detail column 预留空间。frame header 依次包含 eyebrow、title、单行 purpose 和一个 `Refresh` action。body
+只有一行 table toolbar：左侧恰好一个 `All` filter capsule，右侧 search。表格按顺序只有四个 plain、左对齐
+column：`Artifact`、`Strategy intent`、`Verification`、`Created`。表头文字前不放装饰性 icon；不存在
+View/column chooser、registered/visible 数量、多级 filter popover 或 backend-only 字段。点击 Artifact identity
+进入精确只读 source-viewer URL。表头固定在有界 scroll viewport 内；loading、合法 empty、unavailable、
+partial 保持相同 card geometry。窄屏只横向滚动，不把 identity 折叠成编造的 mobile fact。
+
+经认证的 Owner GET `/v1/artifact-builds/directory` 每页最多返回 20 个 verified item。每页最多检查 60 个
+attempt candidate，按 `(prepared_at_epoch_ms, build_request_identity)` 降序，其中有界 ASCII identity 使用
+PostgreSQL `C` collation；并仅把同一 tuple 作为 opaque、
+stable 的 `Load older` cursor 暴露。每个 candidate 都在独立的 canonical read-committed transaction 中复用
+现有完整 Artifact custody verifier。只有 terminal `SUCCESS` receipt 的 Artifact identity 与 sealed Artifact
+Review 精确匹配时才投影；browser 只接收 build request、attempt、Artifact、strategy-intent identity、committed
+time、build target 与显式 `ADMITTED` build security state。nonterminal 或 non-success attempt 被隐藏，并使页面
+明确标为 partial。任何 malformed custody、database/verification error、未知 wire key、矛盾的
+completeness/count、非法 identity/time、超限 response 或 transport/configuration failure 都使对应 read
+unavailable，绝不能伪装成成功空页。UI 只说明存在被隐藏的未验证 candidate，不暴露其数量或 raw storage 字段。
+
+唯一 action 是 `Refresh`、local search/sort/pagination、`Load older` 与打开一个精确 Artifact。目录不 submit
+或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写
+business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
+Owner-backed preview contract 被单独准入。
+
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
 实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
@@ -1375,11 +1401,11 @@ span；绝不能改变 route order 或 drawer behavior。
 Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可实现的 component contract。以下状态
 具有规范性，防止 experimental chapter 高估当前 Dashboard 已经可以被绘制的程度：
 
-| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                      | 准入含义                                                                                                                                                                                                                                                         |
-| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer 与 authority‑resolution panel；R&D Research `/rd/research` selected‑request detail；R&D Artifacts `/rd/artifacts` selected‑artifact detail                                      | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；整个 route 不可绘制、不可实现                                                                    |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Service Logs、Audit、Event Rail、Telemetry、Alerts，以及全部四个 Portfolio route                                                                                  | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
+| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                     | 准入含义                                                                                                                                                                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`；R&D Artifacts `/rd/artifacts`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer 与 authority‑resolution panel；R&D Research `/rd/research` selected‑request detail                                                                                                                             | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；整个 route 不可绘制、不可实现                                                                    |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Service Logs、Audit、Event Rail、Telemetry、Alerts，以及全部四个 Portfolio route                                                                                                                 | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
 Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
@@ -1403,6 +1429,11 @@ disposition 以上文章首的 merged H1 回读为准：具名 source contract �
 deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server projection 暴露所需 custody 前保持
 固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
 固定的 panel、button 或 state geometry。
+
+当前准入的 `/rd/artifacts` 是一个有界只读目录；在实现层面，它覆盖下方更宽泛的未来 Artifacts registry 行。
+它没有 summary strip、分栏 detail pane、build control 或 provider control。唯一 `P` surface 是
+`ArtifactDirectory`，精确详情仍使用独立的 identity-bound URL。registry 行中的 admission、outcome、review、
+binding、replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进本切片。
 
 #### Overview 与 R&D
 
@@ -1564,15 +1595,16 @@ transport/session control。任何 viewport 都不出现 Issue/Renew authorizati
 
 ### Data display component
 
-| 组件                                                                         | 合同                                                                                              |
-| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | 白色、12 px radius、可选 expand、禁用 glass                                                       |
-| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | 灰 frame、白 body、scroll/flex mode                                                               |
-| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit、source cut、empty/unavailable state                                                         |
-| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axis、unit、locale、disclosure、no‑data                                                           |
-| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization、stable key、redaction、truncation 与 retention disclosure                         |
-| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filter、稳定 column/order、filtered‑empty、row count 与 pagination；移动端仅改变容器 |
-| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                   |
+| 组件                                                                         | 合同                                                                                                                                                                                   |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Card`, `CardHeader`, `CardBody`, `CardFooter`                               | 白色、12 px radius、可选 expand、禁用 glass                                                                                                                                            |
+| `PanelFrame`, `PanelFrameHeader`, `PanelFrameBody`, `PanelSection`           | 灰 frame、白 body、scroll/flex mode                                                                                                                                                    |
+| `StatGrid`, `StatItem`, `KVRow`, `DataList`, `DataTable`                     | unit、source cut、empty/unavailable state                                                                                                                                              |
+| `DataTableSurface`, `DataWorkspaceTable`, `ArtifactDirectory`                | TanStack headless state 配合共享 shadcn‑style table atom；单行 toolbar、sticky plain header、克制 separator、有界 Owner‑verified row，以及 fail‑closed empty/partial/unavailable state |
+| `ChartFrame`, `ChartLegend`, `ChartTooltip`, `TimeRangeControl`              | axis、unit、locale、disclosure、no‑data                                                                                                                                                |
+| `Timeline`, `EventRow`, `BoundedLogViewport`, `DiffView`, `ComparisonMatrix` | virtualization、stable key、redaction、truncation 与 retention disclosure                                                                                                              |
+| `FilterBar`, `FilterDrawer`, `DateGroup`, `TableToolbar`, `TableFooter`      | route‑backed filter、稳定 column/order、filtered‑empty、row count 与 pagination；移动端仅改变容器                                                                                      |
+| `StateBanner`, `Callout`, `AlertRow`                                         | success/pending/unknown/rejected/unavailable/protected/incident                                                                                                                        |
 
 ### Domain component
 

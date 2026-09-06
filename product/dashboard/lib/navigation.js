@@ -62,8 +62,9 @@ const exactRoutes = new Set([
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
   "/operations/workers", "/operations/workers/example", "/operations/schedules",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
+  "/rd/artifacts",
 ]);
-const detailOnlyRoutes = new Set(["/rd", "/rd/research", "/rd/artifacts"]);
+const detailOnlyRoutes = new Set(["/rd", "/rd/research"]);
 
 /** @param {string} href @returns {BlueprintMaturity} */
 export function maturityFor(href) {
@@ -90,6 +91,7 @@ export function pageFor(href) {
 }
 
 export const exactBlueprints = {
+  "/rd/artifacts": { summaries: [], primary: "VerifiedArtifactDirectory", context: null, terminal: "OwnerUnavailable", state: "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION" },
   "/operations/schedules": { summaries: ["Configured", "Due at observation", "Observed runs"], primary: "ShadowScheduleCalendarOrTable", context: "ReadOnlyScheduleDetail", terminal: "ScheduleUnavailable", state: "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS" },
   "/operations/workers": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "Independent identity-bound WorkerDetail", terminal: "WorkerStoreUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },
   "/operations/workers/example": { summaries: ["Online", "Expired", "Claimed", "Active"], primary: "ShadowWorkerTable", context: "ExactWorkerDetail", terminal: "ExactWorkerUnavailable", state: "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN" },

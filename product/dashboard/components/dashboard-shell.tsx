@@ -13,6 +13,7 @@ import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
 import { OperationsSchedulesPreview } from "./operations-schedules-preview";
+import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
@@ -111,8 +112,9 @@ export function DashboardShell({
   const operationsSchedules = current === "/operations/schedules";
   const artifactSourceDetail = current === "/rd/artifacts"
     && Boolean(artifactBuildRequestIdentity && artifactAttemptIdentity);
+  const artifactDirectory = current === "/rd/artifacts" && !artifactSourceDetail;
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
-  const connected = operationsConnected || artifactSourceDetail;
+  const connected = operationsConnected || artifactDirectory || artifactSourceDetail;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -129,9 +131,11 @@ export function DashboardShell({
             </div>
             <div className="authority-block">
               <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{artifactSourceDetail ? "Verified Artifact read" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
               <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
+                : artifactDirectory
+                ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
                 : operationsRunDetail
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD"
                 : operationsWorkers
@@ -149,6 +153,7 @@ export function DashboardShell({
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview />
+              : artifactDirectory ? <ArtifactDirectory />
               : artifactSourceDetail ? <ArtifactSourceWorkspace
                 buildRequestIdentity={artifactBuildRequestIdentity!}
                 attemptIdentity={artifactAttemptIdentity!}
@@ -158,6 +163,8 @@ export function DashboardShell({
           <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
+              : artifactDirectory
+              ? "Only terminal Artifacts with current Owner custody and sealed build review are listed. Unverified candidates remain withheld."
               : connected
                 ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
