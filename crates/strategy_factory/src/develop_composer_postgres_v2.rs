@@ -291,6 +291,7 @@ macro_rules! composer_table {
     ($name:literal, [$(($column:literal, $data_type:literal)),* $(,)?], [$($constraint:literal),* $(,)?], [$($kind:ident $keys:literal),* $(,)?]) => {
         crate::schema_materialization::PublicTableSpec {
             name: $name,
+            runtime_read_grantees: &[],
             columns: &[$(crate::schema_materialization::required($column, $data_type)),*],
             constraints: &[$($constraint),*],
             indexes: &[$(composer_table!(@index $kind $keys)),*],

@@ -24,6 +24,11 @@ use vibe_product_edge::{
     ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
     ProductEdgeInvocationClaimRequestV1, ProductEdgePostgresOwnerV1,
 };
+use vibe_rd_exploratory_replay_custody::{
+    ExploratoryReplayAvailabilityV2 as CustodyAvailabilityV2, ExploratoryReplayCustodyError,
+    SealedExploratoryReplayRequestLocatorV2,
+    lock_sealed_exploratory_replay_request_for_market_data_v1,
+};
 use vibe_strategy_factory::{
     artifact_build::{
         ARTIFACT_BUILD_OPERATION_V1, ARTIFACT_BUILD_SCHEMA_V1, ArtifactBuildCandidateV1,
@@ -200,16 +205,25 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     let mutation = fixture.database.mutation();
     let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
 
-    let sealed_catalog_is_private: bool = sqlx::query_scalar(
+    let sealed_catalog_has_exact_runtime_acl: bool = sqlx::query_scalar(
         "SELECT owner.rolname='rd_owner'
-            AND NOT EXISTS (
-              SELECT 1
+            AND (SELECT count(*)=8
+                  AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+                  AND count(*) FILTER (
+                    WHERE pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                      AND acl.grantor=relation.relowner
+                      AND acl.privilege_type='SELECT'
+                      AND NOT acl.is_grantable
+                  )=1
+                  AND bool_and(
+                    acl.grantee=relation.relowner
+                    OR (pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                        AND acl.privilege_type='SELECT')
+                  )
                 FROM pg_catalog.aclexplode(COALESCE(
                   relation.relacl,
                   pg_catalog.acldefault('r', relation.relowner)
-                )) acl
-               WHERE acl.grantee<>relation.relowner
-            )
+                )) acl)
             AND NOT pg_catalog.has_table_privilege(
               'surprise_replay_grantee',
               relation.oid,
@@ -231,7 +245,7 @@ async fn legacy_replay_table_is_preserved_while_current_custody_commits_and_read
     .fetch_one(rd_pool)
     .await
     .expect("sealed Replay table catalog");
-    assert!(sealed_catalog_is_private);
+    assert!(sealed_catalog_has_exact_runtime_acl);
 
     let internal_custody_was_renamed_without_orphaning: bool = sqlx::query_scalar(
         "SELECT pg_catalog.to_regclass('public.rd_exploratory_replay_request_custody_v1') IS NULL
@@ -612,16 +626,25 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
     .await
     .expect("Origin current Replay relation names");
     assert!(names_are_exact);
-    let sealed_is_owner_private: bool = sqlx::query_scalar(
+    let sealed_has_exact_runtime_acl: bool = sqlx::query_scalar(
         "SELECT owner.rolname='rd_owner'
-            AND NOT EXISTS (
-              SELECT 1
+            AND (SELECT count(*)=8
+                  AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+                  AND count(*) FILTER (
+                    WHERE pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                      AND acl.grantor=relation.relowner
+                      AND acl.privilege_type='SELECT'
+                      AND NOT acl.is_grantable
+                  )=1
+                  AND bool_and(
+                    acl.grantee=relation.relowner
+                    OR (pg_catalog.pg_get_userbyid(acl.grantee)='rd_exploratory_replay_api_owner'
+                        AND acl.privilege_type='SELECT')
+                  )
                 FROM pg_catalog.aclexplode(COALESCE(
                   relation.relacl,
                   pg_catalog.acldefault('r',relation.relowner)
-                )) acl
-               WHERE acl.grantee<>relation.relowner
-            )
+                )) acl)
             AND NOT EXISTS (
               SELECT 1
                 FROM pg_catalog.pg_attribute attribute
@@ -638,7 +661,7 @@ async fn origin_current_replay_table_renames_with_exact_v1_v2_read_continuity() 
     .fetch_one(rd_pool)
     .await
     .expect("Origin current sealed Replay ACL");
-    assert!(sealed_is_owner_private);
+    assert!(sealed_has_exact_runtime_acl);
 
     let locked_v1 = restarted
         .lock_exploratory_replay_request_for_backtest_v1(sealed_v1.locator())
@@ -754,7 +777,7 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND pg_catalog.strpos(facade.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
              AND pg_catalog.has_function_privilege('backtest_owner',facade.oid,'EXECUTE')
              AND NOT pg_catalog.has_function_privilege('rd_owner',facade.oid,'EXECUTE')
-             AND helper_owner.rolname='rd_owner'
+             AND helper_owner.rolname='rd_exploratory_replay_api_owner'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
              AND helper.proparallel='u'
@@ -765,7 +788,10 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>helper_owner.oid
+                  AND acl.grantee NOT IN (
+                    helper_owner.oid,
+                    (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                  )
              )
              AND recovery_owner.rolname='rd_owner'
              AND NOT recovery.prosecdef
@@ -968,6 +994,315 @@ async fn assert_rd_owner_resolves_only_prior_same_identity_replay_v2_custody() {
     assert_eq!(
         request_counts_v2(rd_pool, &legacy.locator().request_identity).await,
         [1, 1, 0]
+    );
+}
+
+async fn market_data_serializable_read(
+    pool: &PgPool,
+    locator: &SealedExploratoryReplayRequestLocatorV2,
+) -> Result<
+    vibe_rd_exploratory_replay_custody::ExploratoryReplayReadResultV2,
+    ExploratoryReplayCustodyError,
+> {
+    let mut transaction = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let result =
+        lock_sealed_exploratory_replay_request_for_market_data_v1(&mut transaction, locator).await;
+    transaction.commit().await.unwrap();
+    result
+}
+
+#[rstest]
+#[ignore = "requires the canonical disposable R&D Owner PostgreSQL route"]
+fn market_data_owner_sealed_request_port_is_exact_serializable_and_runtime_immutable() {
+    std::thread::Builder::new()
+        .name("market-data-sealed-rd-request-port".into())
+        .stack_size(16 * 1024 * 1024)
+        .spawn(|| {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(run_market_data_owner_sealed_request_port());
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn run_market_data_owner_sealed_request_port() {
+    let fixture = Box::pin(prepare_replay_fixture(3_600_000)).await;
+    let mutation = fixture.database.mutation();
+    let sealed = fixture
+        .owner
+        .commit_exploratory_replay_request_v2(fixture.proposal_v2.clone())
+        .await
+        .expect("sealed Replay V2 request");
+    let locator = SealedExploratoryReplayRequestLocatorV2 {
+        request_identity: sealed.locator().request_identity.clone(),
+        meaning_digest: sealed.locator().meaning_digest.clone(),
+        receipt_identity: sealed.locator().receipt_identity.clone(),
+        seal_digest: sealed.locator().seal_digest.clone(),
+    };
+    let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+    let market_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
+    let reader_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataReader);
+    let before = request_counts_v2(rd_pool, &locator.request_identity).await;
+    let api_owner_is_read_only: bool = sqlx::query_scalar(
+        "SELECT bool_and(
+            pg_catalog.has_table_privilege(
+              'rd_exploratory_replay_api_owner',relation_name,'SELECT'
+            )
+            AND NOT pg_catalog.has_table_privilege(
+              'rd_exploratory_replay_api_owner',relation_name,
+              'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+            )
+          )
+          FROM unnest(ARRAY[
+            'public.rd_sealed_exploratory_replay_requests_v1',
+            'public.rd_owner_outbox_v1',
+            'public.rd_research_request_receipts_v1',
+            'public.rd_trial_families_v1',
+            'public.rd_trial_family_heads_v1',
+            'public.rd_artifact_trial_family_bindings_v1',
+            'public.rd_artifact_build_attempts_v1',
+            'public.rd_strategy_artifacts_v1',
+            'public.rd_trial_family_members_v1'
+          ]) relation_name",
+    )
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    assert!(api_owner_is_read_only);
+
+    let mut read_committed = market_pool.begin().await.unwrap();
+    assert!(matches!(
+        lock_sealed_exploratory_replay_request_for_market_data_v1(&mut read_committed, &locator,)
+            .await,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+    read_committed.commit().await.unwrap();
+
+    let positive = market_data_serializable_read(market_pool, &locator)
+        .await
+        .expect("exact Market Data sealed request read");
+    assert_eq!(positive.availability(), CustodyAvailabilityV2::Available);
+    let readback = positive.readback().expect("positive sealed readback");
+    assert_eq!(positive.request_identity(), locator.request_identity);
+    assert_eq!(readback.meaning_digest(), locator.meaning_digest);
+    assert_eq!(readback.receipt_identity(), locator.receipt_identity);
+    assert_eq!(readback.seal_digest(), locator.seal_digest);
+    assert_eq!(
+        readback.canonical_request_bytes(),
+        sealed.canonical_request_bytes()
+    );
+
+    sqlx::query("REVOKE SELECT ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    let missing_select = market_data_serializable_read(market_pool, &locator).await;
+    sqlx::query("GRANT SELECT ON public.rd_owner_outbox_v1 TO rd_exploratory_replay_api_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        missing_select,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+
+    sqlx::query("GRANT UPDATE ON public.rd_owner_outbox_v1 TO rd_exploratory_replay_api_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    let excess_update = market_data_serializable_read(market_pool, &locator).await;
+    sqlx::query("REVOKE UPDATE ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        excess_update,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+
+    sqlx::query(
+        "GRANT UPDATE (event_kind) ON public.rd_owner_outbox_v1 TO rd_exploratory_replay_api_owner",
+    )
+    .execute(rd_pool)
+    .await
+    .unwrap();
+    let excess_column_update = market_data_serializable_read(market_pool, &locator).await;
+    sqlx::query(
+        "REVOKE UPDATE (event_kind) ON public.rd_owner_outbox_v1 FROM rd_exploratory_replay_api_owner",
+    )
+    .execute(rd_pool)
+    .await
+    .unwrap();
+    assert!(matches!(
+        excess_column_update,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+
+    sqlx::query("GRANT SELECT (payload_json) ON public.rd_owner_outbox_v1 TO market_data_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    let excess_market_data_column_select =
+        market_data_serializable_read(market_pool, &locator).await;
+    sqlx::query("REVOKE SELECT (payload_json) ON public.rd_owner_outbox_v1 FROM market_data_owner")
+        .execute(rd_pool)
+        .await
+        .unwrap();
+    assert!(matches!(
+        excess_market_data_column_select,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+
+    let restored = market_data_serializable_read(market_pool, &locator)
+        .await
+        .expect("canonical API Owner table ACL restored");
+    assert_eq!(restored.availability(), CustodyAvailabilityV2::Available);
+    assert_eq!(
+        restored
+            .readback()
+            .expect("restored sealed readback")
+            .canonical_request_bytes(),
+        sealed.canonical_request_bytes()
+    );
+
+    let mut lock_holder = market_pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *lock_holder)
+        .await
+        .unwrap();
+    lock_sealed_exploratory_replay_request_for_market_data_v1(&mut lock_holder, &locator)
+        .await
+        .expect("Market Data request-fenced read");
+    let writer_lock_acquired: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_try_advisory_xact_lock(
+           pg_catalog.hashtextextended($1,0)
+         )",
+    )
+    .bind(&locator.request_identity)
+    .fetch_one(rd_pool)
+    .await
+    .unwrap();
+    assert!(!writer_lock_acquired);
+    lock_holder.rollback().await.unwrap();
+
+    let mut wrong_principal = reader_pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *wrong_principal)
+        .await
+        .unwrap();
+    assert!(matches!(
+        lock_sealed_exploratory_replay_request_for_market_data_v1(&mut wrong_principal, &locator,)
+            .await,
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    ));
+    wrong_principal.commit().await.unwrap();
+
+    let mut wrong_locator = locator.clone();
+    wrong_locator.seal_digest = format!("sha256:{}", "9".repeat(64));
+    let unavailable = market_data_serializable_read(market_pool, &wrong_locator)
+        .await
+        .expect("wrong locator is a closed read");
+    assert_eq!(
+        unavailable.availability(),
+        CustodyAvailabilityV2::Unavailable
+    );
+    assert!(unavailable.readback().is_none());
+
+    for role in [
+        CanonicalOwnerTestRoleV1::RdOwner,
+        CanonicalOwnerTestRoleV1::MarketDataOwner,
+        CanonicalOwnerTestRoleV1::MarketDataReader,
+        CanonicalOwnerTestRoleV1::BacktestOwner,
+        CanonicalOwnerTestRoleV1::ProductEdgeOwner,
+        CanonicalOwnerTestRoleV1::QualificationWriter,
+        CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter,
+    ] {
+        for replacement in [
+            "CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE sql AS 'SELECT NULL::jsonb'",
+            "CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE sql AS 'SELECT NULL::jsonb'",
+            "CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(requested_request_identity text,requested_request_digest text,requested_receipt_identity text) RETURNS jsonb LANGUAGE sql AS 'SELECT NULL::jsonb'",
+        ] {
+            assert!(
+                sqlx::query(replacement)
+                    .execute(mutation.pool(role))
+                    .await
+                    .is_err()
+            );
+        }
+    }
+
+    let topology_pool = fixture.database.owner_topology_admin_pool();
+    let marker: String = sqlx::query_scalar(
+        "SELECT marker_identity FROM vibe_test_admin.dedicated_postgres_test_instance_v1
+          WHERE database_name=pg_catalog.current_database() AND test_role=SESSION_USER",
+    )
+    .fetch_one(topology_pool)
+    .await
+    .unwrap();
+    let concurrent_replacement = sqlx::query(
+        "CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path=pg_catalog AS 'BEGIN INSERT INTO vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1 VALUES (''runtime-race''); RETURN NULL; END'",
+    )
+    .execute(rd_pool);
+    let concurrent_read = market_data_serializable_read(market_pool, &locator);
+    let (replacement_result, read_result) = tokio::join!(concurrent_replacement, concurrent_read);
+    assert!(replacement_result.is_err());
+    assert_eq!(
+        read_result
+            .expect("runtime replacement cannot race the fixed facade")
+            .availability(),
+        CustodyAvailabilityV2::Available
+    );
+    let sentinel_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1",
+    )
+    .fetch_one(topology_pool)
+    .await
+    .unwrap();
+    assert_eq!(sentinel_count, 0);
+
+    for target in ["facade", "v2", "v1"] {
+        sqlx::query("SELECT vibe_test_admin.drift_rd_exploratory_replay_routine_v1($1,$2,false)")
+            .bind(&marker)
+            .bind(target)
+            .execute(topology_pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            market_data_serializable_read(market_pool, &locator).await,
+            Err(ExploratoryReplayCustodyError::Unavailable)
+        ));
+        let sentinel_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM vibe_test_admin.rd_exploratory_replay_routine_sentinel_v1",
+        )
+        .fetch_one(topology_pool)
+        .await
+        .unwrap();
+        assert_eq!(sentinel_count, 0);
+        sqlx::query("SELECT vibe_test_admin.drift_rd_exploratory_replay_routine_v1($1,$2,true)")
+            .bind(&marker)
+            .bind(target)
+            .execute(topology_pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            market_data_serializable_read(market_pool, &locator)
+                .await
+                .expect("canonical routine restored")
+                .availability(),
+            CustodyAvailabilityV2::Available
+        );
+    }
+    assert_eq!(
+        request_counts_v2(rd_pool, &locator.request_identity).await,
+        before
     );
 }
 
@@ -1451,7 +1786,7 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
                 WHERE acl.privilege_type='EXECUTE'
                   AND acl.grantee<>(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
              )
-             AND helper_owner.rolname='rd_owner'
+             AND helper_owner.rolname='rd_exploratory_replay_api_owner'
              AND NOT helper.prosecdef
              AND helper.provolatile='v'
              AND helper.proparallel='u'
@@ -1462,7 +1797,10 @@ async fn run_frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_
              AND NOT EXISTS (
                SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
                 WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee<>helper_owner.oid
+                  AND acl.grantee NOT IN (
+                    helper_owner.oid,
+                    (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                  )
              )
           FROM pg_catalog.pg_proc facade
           JOIN pg_catalog.pg_roles facade_owner ON facade_owner.oid=facade.proowner

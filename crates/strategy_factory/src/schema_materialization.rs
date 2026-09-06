@@ -19,6 +19,7 @@ pub(crate) struct IndexSpec {
 
 pub(crate) struct PublicTableSpec {
     pub(crate) name: &'static str,
+    pub(crate) runtime_read_grantees: &'static [&'static str],
     pub(crate) columns: &'static [ColumnSpec],
     /// Semantic constraint signatures produced by the catalog query below.
     pub(crate) constraints: &'static [&'static str],
@@ -136,7 +137,7 @@ pub(crate) async fn require_existing_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec).await?;
+        require_existing_public_table(pool, spec, spec.runtime_read_grantees).await?;
     }
     Ok(())
 }
@@ -152,7 +153,7 @@ pub(crate) async fn verify_materialized_public_tables(
     }
 
     for spec in specs {
-        require_existing_public_table(pool, spec).await?;
+        require_existing_public_table(pool, spec, &[]).await?;
     }
     Ok(())
 }
@@ -160,6 +161,7 @@ pub(crate) async fn verify_materialized_public_tables(
 async fn require_existing_public_table(
     pool: &PgPool,
     spec: &PublicTableSpec,
+    runtime_read_grantees: &[&str],
 ) -> Result<(), sqlx::Error> {
     let relation_is_exact: Option<bool> = sqlx::query_scalar(
         "SELECT relation.relkind='r'
@@ -172,9 +174,16 @@ async fn require_existing_public_table(
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class=relation.oid AND rewrite.rulename<>'_RETURN')
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid=relation.oid OR inheritance.inhparent=relation.oid)
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid=relation.oid)
-           AND (SELECT count(*)=7 AND count(DISTINCT acl.privilege_type)=7
-                  AND bool_and(acl.grantee=relation.relowner AND acl.grantor=relation.relowner AND NOT acl.is_grantable)
-                  AND bool_and(acl.privilege_type IN ('INSERT','SELECT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'))
+           AND (SELECT count(*)=7+cardinality($2::text[])
+                  AND count(*) FILTER (WHERE acl.grantee=relation.relowner)=7
+                  AND count(DISTINCT acl.privilege_type) FILTER (WHERE acl.grantee=relation.relowner)=7
+                  AND bool_and(acl.grantor=relation.relowner AND NOT acl.is_grantable)
+                  AND bool_and(
+                    (acl.grantee=relation.relowner AND acl.privilege_type IN ('INSERT','SELECT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'))
+                    OR (pg_catalog.pg_get_userbyid(acl.grantee)=ANY($2::text[]) AND acl.privilege_type='SELECT')
+                  )
+                  AND count(*) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
+                  AND count(DISTINCT pg_catalog.pg_get_userbyid(acl.grantee)) FILTER (WHERE acl.grantee<>relation.relowner)=cardinality($2::text[])
                   FROM pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl)
            AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid=relation.oid AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL)
           FROM pg_catalog.pg_class relation
@@ -182,6 +191,7 @@ async fn require_existing_public_table(
          WHERE namespace.nspname='public' AND relation.relname=$1",
     )
     .bind(spec.name)
+    .bind(runtime_read_grantees)
     .fetch_optional(pool)
     .await?;
 
@@ -349,6 +359,11 @@ mod tests {
     #[rstest]
     fn runtime_validation_is_read_only_and_exact() {
         let source = include_str!("schema_materialization.rs");
+        assert!(
+            source
+                .contains("require_existing_public_table(pool, spec, spec.runtime_read_grantees)")
+        );
+        assert!(source.contains("require_existing_public_table(pool, spec, &[])"));
         let runtime = source
             .split("async fn require_existing_public_table(")
             .nth(1)
@@ -363,6 +378,8 @@ mod tests {
             "constraint manifest",
             "index manifest",
             "pg_catalog.aclexplode",
+            "cardinality($2::text[])",
+            "acl.privilege_type='SELECT'",
             "attribute.attcollation=attribute_type.typcollation",
             "index_attribute.attcollation<>index_type.typcollation",
             "collation_key.collation_oid<>index_attribute.attcollation",

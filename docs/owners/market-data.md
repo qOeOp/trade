@@ -551,6 +551,18 @@ input, bearer token, cryptographic-key authority, latest/history/full scan or cr
 guarantees stable Composer evidence during the guarded window and atomic Market writes; it does not claim a shared
 XID, MVCC snapshot or cross-Owner atomic commit.
 
+**TARGET / NOT_ADMITTED, sealed R&D Replay-request read:** before selecting an EVENT, the existing
+`market_data_owner` SERIALIZABLE transaction resolves one exact request/meaning/receipt/seal locator through the
+fixed R&D `lock_sealed_exploratory_replay_request_for_market_data_v1` facade. The facade and its V2/V1 verifier
+chain are owned by the isolated `NOLOGIN`
+`rd_exploratory_replay_api_owner`; Market Data receives only facade execution, no raw R&D relation grant or role
+membership, while the routine owner has no table- or column-level mutation privilege. The caller retains a
+request-scoped transaction advisory shared fence paired with the R&D
+writer-exclusive fence, and SERIALIZABLE supplies the stable read snapshot. The returned request remains R&D
+authority and supplies no event selector. Isolated PostgreSQL acceptance must still prove exact positive bytes,
+request-fence retention, wrong-role/isolation/locator rejection, runtime replacement denial, controlled owner-drift
+rejection and zero writes.
+
 W3 issuance accepts only that untrusted R&D attestation locator plus exact Market dependency locators. Market Data
 validates the recovered attestation internally, then independently re-resolves every durable registry declaration, the
 complete observation census, unchanged V1 joined cut, V4 BAR JOINED_CUT sample projection, R0 and standalone Market Semantics record,

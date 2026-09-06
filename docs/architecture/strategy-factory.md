@@ -169,6 +169,17 @@ cryptographic-key authority, latest/history scan or raw-table access. Because th
 loss is recovered by resolving that same locator and byte-validating the same committed attestation, never by minting a
 replacement.
 
+**TARGET / NOT_ADMITTED, sealed Replay-request predecessor:** before Market Data selects any event, its
+`market_data_owner` SERIALIZABLE transaction may pass only the exact request/meaning/receipt/seal locator to the
+R&D-owned fixed facade exposed by `lock_sealed_exploratory_replay_request_for_market_data_v1`. The facade and both
+transitive verifiers are owned by the isolated `NOLOGIN`
+`rd_exploratory_replay_api_owner`; that role can read only the nine R&D relations required by the canonical verifier
+chain and has no table- or column-level mutation privilege. Market principals receive no raw R&D relation access or
+routine-owner membership. The caller retains a
+request-scoped transaction advisory shared fence paired with the R&D writer-exclusive fence, while SERIALIZABLE
+supplies the stable read snapshot. This read grants no event selector, binding, execution, deployment or trading
+authority. It remains NOT_ADMITTED until the isolated PostgreSQL positive, drift, isolation and no-write gate passes.
+
 Market Data positive Replay composition accepts only that untrusted attestation locator and the exact native dependency
 locators. Market Data validates the R&D attestation internally, but independently re-resolves its own durable binding
 registry, complete observation census, joined cut, sample projection, R0 and Market Semantics facts before atomically

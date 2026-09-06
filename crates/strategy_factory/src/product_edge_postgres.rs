@@ -296,6 +296,7 @@ pub(crate) fn reseal_current_research_artifact_evidence_for_test(
 const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     crate::schema_materialization::PublicTableSpec {
         name: "rd_research_request_receipts_v1",
+        runtime_read_grantees: &["rd_exploratory_replay_api_owner"],
         columns: &[
             crate::schema_materialization::required("request_identity", "text"),
             crate::schema_materialization::required("semantic_digest", "text"),
@@ -323,6 +324,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_independence_bases_v1",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("basis_identity", "text"),
             crate::schema_materialization::required("request_identity", "text"),
@@ -345,6 +347,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_independence_basis_admissions_v1",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("basis_identity", "text"),
             crate::schema_materialization::required("request_identity", "text"),
@@ -367,6 +370,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_independence_basis_heads_v1",
+        runtime_read_grantees: &[],
         columns: &[
             crate::schema_materialization::required("principal_scope_key", "text"),
             crate::schema_materialization::required("principal", "text"),
@@ -385,6 +389,7 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
     },
     crate::schema_materialization::PublicTableSpec {
         name: "rd_sealed_exploratory_replay_requests_v1",
+        runtime_read_grantees: &["rd_exploratory_replay_api_owner"],
         columns: &[
             crate::schema_materialization::required("request_identity", "text"),
             crate::schema_materialization::required("request_digest", "text"),

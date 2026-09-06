@@ -28,7 +28,13 @@
   receipt，只能由 R&D 根据该 canonical 请求签发，并绑定其准确 canonical bytes 与 digest Owner 请求者角色和
   请求身份。只有 R&D 提供该 locator 的固定只读 resolver 与持久 逐字节一致的 readback。locator caller 提供的
   digest 或其他 Owner 的 binding 都不能构造 反序列化 签名 替换或证明该 receipt。Market Data 只有先通过固定
-  Owner port resolve 并验证这个 R&D-native receipt 与 canonical 请求，才能独立签发任何 event-binding receipt。
+  `lock_sealed_exploratory_replay_request_for_market_data_v1` Owner port resolve 并验证这个 R&D-native receipt
+  与 canonical 请求，才能独立签发任何 event-binding receipt。
+  **TARGET / NOT_ADMITTED：** 该固定路径的三个可执行 routine 由隔离的 `NOLOGIN`
+  `rd_exploratory_replay_api_owner` 拥有；它只对 canonical verifier chain 实际遍历的九张 relation 拥有
+  `SELECT`，且没有任何 table-level 或 column-level mutation privilege。`market_data_owner` 只获得 schema
+  usage 与准确四字段 `SECURITY DEFINER` facade 的执行权，且必须
+  在其既有 SERIALIZABLE transaction 内调用。runtime role 不属于 routine owner，不能替换 facade 或任一 verifier。
 - 探索请求与结果必须在 Strategy Artifact 请求 PIT 范围 PIT Market Snapshot Universe Selection Record
   与修订规则 重放配置 Runtime 内核 模拟器 成本 滑点和容量模型身份上完全相等。只有请求相等的
   `TERMINAL_RESULT` 可以进入 Research Selection。

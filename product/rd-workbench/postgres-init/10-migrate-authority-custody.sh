@@ -33,6 +33,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_database_owner') THEN CREATE ROLE rd_database_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'replay_policy_catalog_owner') THEN CREATE ROLE replay_policy_catalog_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'composer_owner') THEN CREATE ROLE composer_owner NOLOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_exploratory_replay_api_owner') THEN CREATE ROLE rd_exploratory_replay_api_owner NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'market_data_owner') THEN CREATE ROLE market_data_owner LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'backtest_custodian') THEN CREATE ROLE backtest_custodian NOLOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'rd_owner') THEN CREATE ROLE rd_owner LOGIN; END IF;
@@ -51,6 +52,7 @@ $roles$;
 ALTER ROLE rd_database_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE replay_policy_catalog_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE composer_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE market_data_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'market_data_owner_password';
 ALTER ROLE backtest_custodian NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'rd_password';
@@ -72,7 +74,7 @@ REVOKE rd_owner, product_edge_owner, qualification_owner, operator_authorization
 DO $isolate_rd_authority_roles$
 DECLARE authority_role text; membership record;
 BEGIN
-  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','market_data_owner','backtest_custodian','backtest_owner','rd_fact_writer','market_data_reader'] LOOP
+  FOREACH authority_role IN ARRAY ARRAY['rd_database_owner','replay_policy_catalog_owner','replay_policy_catalog_admin_writer','composer_owner','rd_exploratory_replay_api_owner','market_data_owner','backtest_custodian','backtest_owner','rd_fact_writer','market_data_reader'] LOOP
     FOR membership IN
       SELECT granted.rolname AS granted_role, member.rolname AS member_role
       FROM pg_catalog.pg_auth_members edge
@@ -85,8 +87,10 @@ BEGIN
   END LOOP;
 END
 $isolate_rd_authority_roles$;
-REVOKE replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, market_data_owner, rd_database_owner FROM rd_owner, rd_fact_writer, market_data_reader;
-REVOKE rd_owner, rd_fact_writer, market_data_reader FROM replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, market_data_owner, rd_database_owner;
+REVOKE replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, rd_exploratory_replay_api_owner, market_data_owner, rd_database_owner FROM rd_owner, rd_fact_writer, market_data_reader;
+REVOKE rd_owner, rd_fact_writer, market_data_reader FROM replay_policy_catalog_owner, replay_policy_catalog_admin_writer, composer_owner, rd_exploratory_replay_api_owner, market_data_owner, rd_database_owner;
+REVOKE rd_exploratory_replay_api_owner FROM market_data_owner;
+REVOKE market_data_owner FROM rd_exploratory_replay_api_owner;
 
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 DO $database_owner$
@@ -130,6 +134,40 @@ CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
 GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer, backtest_owner;
+GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
+GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
+REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_reader;
+
+ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner;
+GRANT SELECT ON TABLE
+  public.rd_sealed_exploratory_replay_requests_v1,
+  public.rd_owner_outbox_v1,
+  public.rd_research_request_receipts_v1,
+  public.rd_trial_families_v1,
+  public.rd_trial_family_heads_v1,
+  public.rd_artifact_trial_family_bindings_v1,
+  public.rd_artifact_build_attempts_v1,
+  public.rd_strategy_artifacts_v1,
+  public.rd_trial_family_members_v1
+TO rd_exploratory_replay_api_owner;
+REVOKE ALL ON TABLE
+  public.rd_sealed_exploratory_replay_requests_v1,
+  public.rd_owner_outbox_v1,
+  public.rd_research_request_receipts_v1,
+  public.rd_trial_families_v1,
+  public.rd_trial_family_heads_v1,
+  public.rd_artifact_trial_family_bindings_v1,
+  public.rd_artifact_build_attempts_v1,
+  public.rd_strategy_artifacts_v1,
+  public.rd_trial_family_members_v1
+FROM market_data_owner, market_data_reader;
 CREATE SCHEMA IF NOT EXISTS backtest_owner_api AUTHORIZATION backtest_custodian;
 ALTER SCHEMA backtest_owner_api OWNER TO backtest_custodian;
 REVOKE ALL ON SCHEMA backtest_owner_api FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;

@@ -159,6 +159,17 @@ request、Composer aggregate 与 `StrategyDesignV2`、按规范顺序排列的�
 latest/history scan 或 raw-table access。由于 locator 在发送前已知，response loss 只能通过解析同一 locator 并逐字节
 校验同一份已提交 attestation 来恢复，绝不能铸造 replacement。
 
+**TARGET / NOT_ADMITTED，密封 Replay request 前驱：** Market Data 选择任何 event 前，其
+`market_data_owner` SERIALIZABLE transaction 只能把准确 request/meaning/receipt/seal locator 交给 R&D-owned
+`lock_sealed_exploratory_replay_request_for_market_data_v1` 固定 facade。该 facade 与两个传递 verifier 均由
+隔离的 `NOLOGIN` `rd_exploratory_replay_api_owner` 拥有；此
+role 只能读取 canonical verifier chain 所需的九张 R&D relation，且没有任何 table-level 或 column-level
+mutation privilege。Market principal 不获得 R&D raw relation
+访问或 routine-owner membership。该 read 在 caller transaction 内保持 request-scoped transaction advisory
+shared fence；它与 R&D writer-exclusive fence 配对，并由 SERIALIZABLE 提供稳定 read snapshot，且不授予 event
+selector、binding、execution、deployment 或 trading authority。在隔离 PostgreSQL positive、drift、isolation 与
+no-write gate 通过前，它保持 NOT_ADMITTED。
+
 Market Data 的 positive Replay composition 只接受该不受信 attestation locator 与准确原生 dependency locator。
 Market Data 在内部校验 R&D attestation，但在原子签发 `ReplayCompositionBindingV1` 前，仍必须独立重新解析自身的
 持久 binding registry、完整 observation census、joined cut、sample projection、R0 与 Market Semantics fact。

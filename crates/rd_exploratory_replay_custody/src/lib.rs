@@ -9,7 +9,7 @@ use std::fmt::Display;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
@@ -18,6 +18,15 @@ const RD_RESOLVE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
 const INTERNAL_VERIFY_FUNCTION_V2: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
+const INTERNAL_VERIFY_FUNCTION_V1: &str =
+    "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
+const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2: &str =
+    "bfb1b4defc7cb1d9bb75c331b1438ee783fd01b89db8a27fe963a5b5eb187f13";
+const INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1: &str =
+    "5d5de79515c40d438b8c74e423154a500c68d1ca1fa3e95462681793abffe650";
+const MARKET_DATA_LOCK_FUNCTION_V1: &str =
+    "rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)";
+const MARKET_DATA_LOCK_FUNCTION_SOURCE_V1: &str = "BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END";
 const FROZEN_EVENT_V2: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V2";
 const FROZEN_EVENT_V1: &str = "EXPLORATORY_REPLAY_REQUEST_FROZEN_V1";
 
@@ -37,6 +46,17 @@ pub struct ExploratoryReplayRecoverySelectorV2 {
     pub meaning_digest: String,
 }
 
+/// Exact locator for an already-issued sealed request. The locator is an
+/// untrusted query and cannot mint positive R&D custody.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SealedExploratoryReplayRequestLocatorV2 {
+    pub request_identity: String,
+    pub meaning_digest: String,
+    pub receipt_identity: String,
+    pub seal_digest: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum ExploratoryReplayAvailabilityV2 {
@@ -51,6 +71,13 @@ pub enum ExploratoryReplayAvailabilityV2 {
 /// ```compile_fail
 /// use vibe_rd_exploratory_replay_custody::SealedExploratoryReplayReadbackV2;
 /// let _: SealedExploratoryReplayReadbackV2 = serde_json::from_str("{}").unwrap();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_rd_exploratory_replay_custody::SealedExploratoryReplayReadbackV2;
+/// fn duplicate(readback: &SealedExploratoryReplayReadbackV2) {
+///     let _copy = (*readback).clone();
+/// }
 /// ```
 #[derive(Debug)]
 pub struct SealedExploratoryReplayReadbackV2 {
@@ -385,6 +412,239 @@ pub async fn resolve_sealed_exploratory_replay_request_v2(
     decode_owner_envelope(selector, value)
 }
 
+/// Locks and verifies one exact already-issued sealed request through the
+/// fixed `market_data_owner` PostgreSQL principal in a SERIALIZABLE transaction. The caller retains the
+/// transaction and therefore the request-scoped advisory read fence and snapshot; this port performs no write.
+pub async fn lock_sealed_exploratory_replay_request_for_market_data_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &SealedExploratoryReplayRequestLocatorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayCustodyError> {
+    if [
+        locator.request_identity.as_str(),
+        locator.meaning_digest.as_str(),
+        locator.receipt_identity.as_str(),
+        locator.seal_digest.as_str(),
+    ]
+    .iter()
+    .any(|value| value.trim().is_empty())
+    {
+        return Err(ExploratoryReplayCustodyError::Unavailable);
+    }
+    validate_market_data_call_context(transaction).await?;
+    validate_market_data_resolution_binding(transaction).await?;
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.lock_exploratory_replay_request_for_market_data_v1($1,$2,$3,$4)",
+    )
+    .bind(&locator.request_identity)
+    .bind(&locator.meaning_digest)
+    .bind(&locator.receipt_identity)
+    .bind(&locator.seal_digest)
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+    decode_market_data_envelope(locator, value)
+}
+
+async fn validate_market_data_call_context(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ExploratoryReplayCustodyError> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT session_user='market_data_owner'
+             AND current_user='market_data_owner'
+             AND pg_catalog.current_setting('transaction_isolation')='serializable'",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(storage)?;
+
+    if exact {
+        Ok(())
+    } else {
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    }
+}
+
+async fn validate_market_data_resolution_binding(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), ExploratoryReplayCustodyError> {
+    let exact: bool = sqlx::query_scalar(
+        "SELECT session_user='market_data_owner'
+             AND current_user='market_data_owner'
+             AND pg_catalog.current_setting('transaction_isolation')='serializable'
+             AND market_data.rolcanlogin
+             AND market_data.rolinherit
+             AND NOT (market_data.rolsuper OR market_data.rolcreatedb OR market_data.rolcreaterole
+                      OR market_data.rolreplication OR market_data.rolbypassrls)
+             AND owner.rolname='rd_exploratory_replay_api_owner'
+             AND NOT owner.rolcanlogin
+             AND NOT owner.rolinherit
+             AND NOT (owner.rolsuper OR owner.rolcreatedb OR owner.rolcreaterole
+                      OR owner.rolreplication OR owner.rolbypassrls)
+             AND procedure.prosecdef
+             AND procedure.provolatile='v'
+             AND procedure.proparallel='u'
+             AND procedure.proisstrict
+             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND language.lanname='plpgsql'
+             AND procedure.prosrc=$2
+             AND pg_catalog.has_schema_privilege('market_data_owner','rd_owner_api','USAGE')
+             AND NOT pg_catalog.has_schema_privilege('market_data_owner','rd_owner_api','CREATE')
+             AND pg_catalog.has_function_privilege('market_data_owner',procedure.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (owner.oid,market_data.oid)
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.pg_auth_members membership
+                WHERE membership.roleid IN (owner.oid,market_data.oid)
+                   OR membership.member IN (owner.oid,market_data.oid)
+             )
+             AND NOT EXISTS (
+               SELECT 1 FROM unnest(ARRAY[
+                   'public.rd_sealed_exploratory_replay_requests_v1',
+                   'public.rd_owner_outbox_v1',
+                   'public.rd_research_request_receipts_v1',
+                   'public.rd_trial_families_v1',
+                   'public.rd_trial_family_heads_v1',
+                   'public.rd_artifact_trial_family_bindings_v1',
+                   'public.rd_artifact_build_attempts_v1',
+                   'public.rd_strategy_artifacts_v1',
+                   'public.rd_trial_family_members_v1'
+                 ]) relation_name
+                WHERE pg_catalog.has_table_privilege(
+                  'market_data_owner',relation_name,
+                  'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                )
+                   OR EXISTS (
+                     SELECT 1 FROM pg_catalog.pg_attribute attribute
+                      WHERE attribute.attrelid=pg_catalog.to_regclass(relation_name)
+                        AND attribute.attnum>0
+                        AND NOT attribute.attisdropped
+                        AND pg_catalog.has_column_privilege(
+                              'market_data_owner',
+                              attribute.attrelid,
+                              attribute.attnum,
+                              'SELECT,INSERT,UPDATE,REFERENCES'
+                            )
+                   )
+                   OR NOT pg_catalog.has_table_privilege(
+                        'rd_exploratory_replay_api_owner',relation_name,'SELECT'
+                      )
+                   OR pg_catalog.has_table_privilege(
+                        'rd_exploratory_replay_api_owner',relation_name,
+                        'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+                      )
+                   OR EXISTS (
+                     SELECT 1 FROM pg_catalog.pg_attribute attribute
+                      WHERE attribute.attrelid=pg_catalog.to_regclass(relation_name)
+                        AND attribute.attnum>0
+                        AND NOT attribute.attisdropped
+                        AND pg_catalog.has_column_privilege(
+                              'rd_exploratory_replay_api_owner',
+                              attribute.attrelid,
+                              attribute.attnum,
+                              'INSERT,UPDATE,REFERENCES'
+                            )
+                   )
+             )
+             AND NOT pg_catalog.has_function_privilege('market_data_owner',helper.oid,'EXECUTE')
+             AND helper_owner.oid=owner.oid
+             AND NOT helper.prosecdef
+             AND helper.provolatile='v'
+             AND helper.proparallel='u'
+             AND helper.proisstrict
+             AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND helper_language.lanname='plpgsql'
+             AND pg_catalog.encode(
+                   pg_catalog.sha256(pg_catalog.convert_to(helper.prosrc,'UTF8')),
+                   'hex'
+                 )=$4
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (helper_owner.oid,rd.oid)
+             )
+             AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
+             AND NOT pg_catalog.has_function_privilege('market_data_owner',predecessor.oid,'EXECUTE')
+             AND predecessor_owner.oid=owner.oid
+             AND NOT predecessor.prosecdef
+             AND predecessor.provolatile='v'
+             AND predecessor.proparallel='u'
+             AND predecessor.proisstrict
+             AND predecessor.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND predecessor.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND predecessor.proargtypes='25 25 25'::pg_catalog.oidvector
+             AND predecessor_language.lanname='plpgsql'
+             AND pg_catalog.encode(
+                   pg_catalog.sha256(pg_catalog.convert_to(predecessor.prosrc,'UTF8')),
+                   'hex'
+                 )=$6
+             AND NOT EXISTS (
+               SELECT 1 FROM pg_catalog.aclexplode(predecessor.proacl) acl
+                WHERE acl.privilege_type='EXECUTE'
+                  AND acl.grantee NOT IN (predecessor_owner.oid,rd.oid)
+             )
+             AND pg_catalog.has_function_privilege('rd_owner',predecessor.oid,'EXECUTE')
+          FROM pg_catalog.pg_proc procedure
+          JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
+          JOIN pg_catalog.pg_roles market_data ON market_data.rolname='market_data_owner'
+          JOIN pg_catalog.pg_roles rd ON rd.rolname='rd_owner'
+          JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
+          JOIN pg_catalog.pg_proc helper ON helper.oid=pg_catalog.to_regprocedure($3)
+          JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
+          JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
+          JOIN pg_catalog.pg_proc predecessor ON predecessor.oid=pg_catalog.to_regprocedure($5)
+          JOIN pg_catalog.pg_roles predecessor_owner ON predecessor_owner.oid=predecessor.proowner
+          JOIN pg_catalog.pg_language predecessor_language ON predecessor_language.oid=predecessor.prolang
+         WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
+    )
+    .bind(MARKET_DATA_LOCK_FUNCTION_V1)
+    .bind(MARKET_DATA_LOCK_FUNCTION_SOURCE_V1)
+    .bind(INTERNAL_VERIFY_FUNCTION_V2)
+    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V2)
+    .bind(INTERNAL_VERIFY_FUNCTION_V1)
+    .bind(INTERNAL_VERIFY_FUNCTION_SOURCE_SHA256_V1)
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(storage)?
+    .unwrap_or(false);
+
+    if exact {
+        Ok(())
+    } else {
+        Err(ExploratoryReplayCustodyError::Unavailable)
+    }
+}
+
+fn decode_market_data_envelope(
+    locator: &SealedExploratoryReplayRequestLocatorV2,
+    value: Option<serde_json::Value>,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayCustodyError> {
+    let selector = ExploratoryReplayRecoverySelectorV2 {
+        request_identity: locator.request_identity.clone(),
+        meaning_digest: locator.meaning_digest.clone(),
+    };
+    let result = decode_owner_envelope(&selector, value)?;
+    let Some(readback) = result.readback() else {
+        return Ok(result);
+    };
+
+    if readback.receipt_identity() != locator.receipt_identity
+        || readback.seal_digest() != locator.seal_digest
+    {
+        return Ok(unavailable(&selector));
+    }
+    Ok(result)
+}
+
 async fn validate_resolution_binding(
     rd_pool: &PgPool,
 ) -> Result<(), ExploratoryReplayCustodyError> {
@@ -409,7 +669,7 @@ async fn validate_resolution_binding(
                SELECT 1 FROM pg_catalog.pg_proc helper
                JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
                WHERE helper.oid=pg_catalog.to_regprocedure($2)
-                 AND helper_owner.rolname='rd_owner'
+                 AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                  AND NOT helper.prosecdef
                  AND helper.provolatile='v'
                  AND helper.proparallel='u'
@@ -419,7 +679,11 @@ async fn validate_resolution_binding(
                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                  AND NOT EXISTS (
                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                    WHERE helper_acl.privilege_type='EXECUTE' AND helper_acl.grantee<>helper_owner.oid
+                    WHERE helper_acl.privilege_type='EXECUTE'
+                      AND helper_acl.grantee NOT IN (
+                        helper_owner.oid,
+                        (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                      )
                  )
              )
            FROM pg_catalog.pg_proc procedure
@@ -912,6 +1176,10 @@ fn storage(error: impl Display) -> ExploratoryReplayCustodyError {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+        ReplayModelProfilesV2, ReplayWindowV2, VersionedIdentityV2,
+    };
 
     fn sha(byte: char) -> String {
         format!("sha256:{}", byte.to_string().repeat(64))
@@ -925,6 +1193,28 @@ mod tests {
         ExploratoryReplayRecoverySelectorV2 {
             request_identity: "request-v2".to_string(),
             meaning_digest: format!("blake3:{}", "a".repeat(64)),
+        }
+    }
+
+    fn opaque(value: &str) -> OpaqueIdentityV2 {
+        OpaqueIdentityV2::try_from(value.to_string()).expect("valid test identity")
+    }
+
+    fn canonical_digest_value(value: &str) -> CanonicalDigestV2 {
+        CanonicalDigestV2::try_from(value.to_string()).expect("valid test digest")
+    }
+
+    fn content(identity: &str, digest: &str) -> ContentIdentityV2 {
+        ContentIdentityV2 {
+            identity: opaque(identity),
+            digest: canonical_digest_value(digest),
+        }
+    }
+
+    fn versioned(identity: &str, version: &str) -> VersionedIdentityV2 {
+        VersionedIdentityV2 {
+            identity: opaque(identity),
+            version: opaque(version),
         }
     }
 
@@ -1117,9 +1407,202 @@ mod tests {
         }
     }
 
+    fn valid_market_data_envelope(
+        availability: ExploratoryReplayAvailabilityV2,
+    ) -> LockedEnvelopeV2 {
+        let mut envelope = valid_base_envelope(availability);
+        let frozen: StoredFrozenCoreV2 = exact(envelope.frozen.as_ref().unwrap()).unwrap();
+        let dto = ReplayRequestDtoV2 {
+            schema_version: 2,
+            request_identity: opaque("request-v2"),
+            frozen_research_intent: content("intent-v2", &sha('a')),
+            trial_family: content("trial-v2", &sha('b')),
+            trial_family_census_frontier: content("census-v2", &sha('8')),
+            replay_authority: ReplayAuthorityClaimV2::Exploratory,
+            strategy_design: content("strategy-v2", &sha('5')),
+            strategy_plan: content("strategy-plan-v2", &sha('0')),
+            artifact: content("artifact-v2", &blake('6')),
+            resolved_owner_inputs: content("owner-input-v2", &sha('4')),
+            pit_scope: content("pit-scope-v2", &sha('2')),
+            pit_snapshot: content("pit-snapshot-v2", &sha('3')),
+            universe_selection: content("universe-v2", &sha('f')),
+            correction_rule: versioned("correction-v2", "1"),
+            market_semantics: versioned("market-semantics-v2", "1"),
+            replay_configuration: content("replay-config-v2", &sha('7')),
+            models: ReplayModelProfilesV2 {
+                runtime_kernel: versioned("runtime-v2", "1"),
+                simulator: versioned("simulator-v2", "1"),
+                cost: versioned("cost-v2", "1"),
+                slippage: versioned("slippage-v2", "1"),
+                capacity: versioned("capacity-v2", "1"),
+            },
+            runner_operational_profile: versioned("backtest-v2", "1"),
+            diagnostic_policy: versioned("diagnostic-v2", "1"),
+            deterministic_seed: 7,
+            window: ReplayWindowV2 {
+                start_event_ns: 10,
+                end_event_ns_exclusive: 20,
+            },
+            calendar: versioned("calendar-v2", "1"),
+            session: versioned("session-v2", "1"),
+            time_zone: versioned("utc-v2", "1"),
+            corporate_action_cut: content("corporate-action-v2", &sha('1')),
+            historical_membership_cut: content("membership-v2", &sha('2')),
+        };
+        let request = ReplayRequestV2::try_from(dto).expect("valid request");
+        let canonical_request_bytes = request.to_canonical_bytes().expect("canonical request");
+        let meaning_digest = request
+            .meaning_digest()
+            .expect("request meaning")
+            .as_str()
+            .to_string();
+        let seal_digest = canonical_digest(
+            "rd.exploratory-replay-request-seal.v2",
+            &(
+                2_u16,
+                request.request_identity().as_str(),
+                meaning_digest.as_str(),
+                BASE64.encode(&canonical_request_bytes),
+                frozen.request_digest.as_str(),
+                frozen.committed_at_epoch_ms,
+            ),
+        )
+        .unwrap();
+        let receipt_digest = canonical_digest(
+            "rd.exploratory-replay-request-receipt.v2",
+            &(
+                2_u16,
+                request.request_identity().as_str(),
+                meaning_digest.as_str(),
+                seal_digest.as_str(),
+                frozen.committed_at_epoch_ms,
+            ),
+        )
+        .unwrap();
+        let receipt = StoredReceiptV2 {
+            schema_version: 2,
+            receipt_identity: identity("rd-exploratory-replay-receipt-v2", &receipt_digest),
+            request_identity: request.request_identity().as_str().to_string(),
+            meaning_digest: meaning_digest.clone(),
+            seal_digest: seal_digest.clone(),
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        let payload = StoredOutboxPayloadV2 {
+            schema_version: 2,
+            request_identity: request.request_identity().as_str().to_string(),
+            meaning_digest: meaning_digest.clone(),
+            seal_digest: seal_digest.clone(),
+            receipt_identity: receipt.receipt_identity.clone(),
+            lineage_request_digest: frozen.request_digest,
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        };
+        let payload_digest = canonical_digest("rd.owner-outbox.payload.v1", &payload).unwrap();
+        envelope.v2_canonical_request_base64 = Some(BASE64.encode(canonical_request_bytes));
+        envelope.v2_meaning_digest = Some(meaning_digest);
+        envelope.v2_seal_digest = Some(seal_digest);
+        envelope.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        envelope.v2_outbox = Some(LockedOutboxV2 {
+            event_identity: identity("rd-owner-event-v1", &payload_digest),
+            aggregate_identity: "request-v2".into(),
+            event_kind: FROZEN_EVENT_V2.into(),
+            payload_digest,
+            payload_json: payload,
+            committed_at_epoch_ms: frozen.committed_at_epoch_ms,
+        });
+        envelope
+    }
+
+    fn exact_locator(envelope: &LockedEnvelopeV2) -> SealedExploratoryReplayRequestLocatorV2 {
+        let receipt: StoredReceiptV2 = exact(envelope.v2_receipt.as_ref().unwrap()).unwrap();
+        SealedExploratoryReplayRequestLocatorV2 {
+            request_identity: "request-v2".into(),
+            meaning_digest: envelope.v2_meaning_digest.clone().unwrap(),
+            receipt_identity: receipt.receipt_identity,
+            seal_digest: envelope.v2_seal_digest.clone().unwrap(),
+        }
+    }
+
     #[rstest]
     fn absent_owner_fact_is_unavailable_without_positive_token() {
         let result = decode_owner_envelope(&selector(), None).expect("absence is a valid read");
+        assert_eq!(
+            result.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(result.readback().is_none());
+    }
+
+    #[rstest]
+    fn market_data_port_requires_exact_request_receipt_and_seal_equality() {
+        let envelope = valid_market_data_envelope(ExploratoryReplayAvailabilityV2::Available);
+        let locator = exact_locator(&envelope);
+        let result =
+            decode_market_data_envelope(&locator, Some(serde_json::to_value(&envelope).unwrap()))
+                .expect("exact Owner envelope");
+        assert_eq!(
+            result.availability(),
+            ExploratoryReplayAvailabilityV2::Available
+        );
+        assert_eq!(
+            result.readback().unwrap().canonical_request_bytes(),
+            BASE64
+                .decode(envelope.v2_canonical_request_base64.as_ref().unwrap())
+                .unwrap()
+        );
+
+        for changed in [
+            SealedExploratoryReplayRequestLocatorV2 {
+                request_identity: "other-request".into(),
+                ..locator.clone()
+            },
+            SealedExploratoryReplayRequestLocatorV2 {
+                meaning_digest: blake('1'),
+                ..locator.clone()
+            },
+            SealedExploratoryReplayRequestLocatorV2 {
+                receipt_identity: "other-receipt".into(),
+                ..locator.clone()
+            },
+            SealedExploratoryReplayRequestLocatorV2 {
+                seal_digest: sha('2'),
+                ..locator
+            },
+        ] {
+            let rejected = decode_market_data_envelope(
+                &changed,
+                Some(serde_json::to_value(&envelope).unwrap()),
+            )
+            .expect("mismatch is a closed read");
+            assert_eq!(
+                rejected.availability(),
+                ExploratoryReplayAvailabilityV2::Unavailable
+            );
+            assert!(rejected.readback().is_none());
+        }
+    }
+
+    #[rstest]
+    fn market_data_port_rejects_stale_or_tampered_custody() {
+        let stale = valid_market_data_envelope(ExploratoryReplayAvailabilityV2::Stale);
+        let locator = exact_locator(&stale);
+        let stale_result =
+            decode_market_data_envelope(&locator, Some(serde_json::to_value(stale).unwrap()))
+                .expect("stale is a closed read");
+        assert_eq!(
+            stale_result.availability(),
+            ExploratoryReplayAvailabilityV2::Stale
+        );
+        assert!(stale_result.readback().is_none());
+
+        let mut tampered = valid_market_data_envelope(ExploratoryReplayAvailabilityV2::Available);
+        tampered.v2_seal_digest = Some(sha('9'));
+        let result = decode_market_data_envelope(
+            &exact_locator(&valid_market_data_envelope(
+                ExploratoryReplayAvailabilityV2::Available,
+            )),
+            Some(serde_json::to_value(tampered).unwrap()),
+        )
+        .expect("tamper is a closed read");
         assert_eq!(
             result.availability(),
             ExploratoryReplayAvailabilityV2::Unavailable
