@@ -77,26 +77,26 @@ SELECT (
        )
    AND count(*)=(SELECT count(*) FROM expected)
    AND pg_catalog.bool_and(
-         relation.oid IS NOT NULL
-         AND pg_catalog.pg_get_userbyid(relation.relowner)='market_data_owner'
-         AND relation.relkind='r'
-         AND relation.relpersistence='p'
-         AND NOT relation.relrowsecurity
-         AND NOT relation.relforcerowsecurity
-         AND relation.reloptions IS NULL
+         relations.oid IS NOT NULL
+         AND pg_catalog.pg_get_userbyid(relations.relowner)='market_data_owner'
+         AND relations.relkind='r'
+         AND relations.relpersistence='p'
+         AND NOT relations.relrowsecurity
+         AND NOT relations.relforcerowsecurity
+         AND relations.reloptions IS NULL
          AND NOT EXISTS (
            SELECT 1
              FROM pg_catalog.aclexplode(COALESCE(
-               relation.relacl,
-               pg_catalog.acldefault('r',relation.relowner)
+               relations.relacl,
+               pg_catalog.acldefault('r',relations.relowner)
              )) acl
-            WHERE acl.grantee<>relation.relowner
+            WHERE acl.grantee<>relations.relowner
          )
          AND NOT EXISTS (
            SELECT 1
              FROM pg_catalog.pg_attribute attribute
              CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
-            WHERE attribute.attrelid=relation.oid
+            WHERE attribute.attrelid=relations.oid
               AND attribute.attnum>0
               AND NOT attribute.attisdropped
               AND acl.grantee<>relation.relowner
@@ -104,13 +104,13 @@ SELECT (
          AND NOT EXISTS (
            SELECT 1
              FROM pg_catalog.pg_trigger trigger_entry
-            WHERE trigger_entry.tgrelid=relation.oid
+            WHERE trigger_entry.tgrelid=relations.oid
               AND NOT trigger_entry.tgisinternal
          )
          AND NOT EXISTS (
            SELECT 1
              FROM pg_catalog.pg_policy policy
-            WHERE policy.polrelid=relation.oid
+            WHERE policy.polrelid=relations.oid
          )
        )
   FROM relations";
