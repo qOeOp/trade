@@ -220,6 +220,14 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
             .find("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
             .expect("serializable Market transaction")
             < native_issue_body
+                .find("verify_time_zone_custody_in_transaction_v1")
+                .expect("transaction-bound Time Zone custody verification")
+    );
+    assert!(
+        native_issue_body
+            .find("verify_time_zone_custody_in_transaction_v1")
+            .expect("transaction-bound Time Zone custody verification")
+            < native_issue_body
                 .find("load_strategy_input_joined_cut_custody_v1")
                 .expect("joined-cut custody read")
     );
