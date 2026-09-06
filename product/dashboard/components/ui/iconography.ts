@@ -100,6 +100,7 @@ export const InterfaceIcons = {
   calendarMonth: Grid3X3,
   calendarYear: Grid2X2,
   table: Table2,
+  settings: Settings,
   list: List,
   close: X,
 } satisfies Record<string, DashboardIcon>;

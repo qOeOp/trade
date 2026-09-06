@@ -6,6 +6,7 @@ import {
   calendarRangeV1,
   scheduleCalendarGroupsV1,
   calendarGroupPageV1,
+  filterScheduleRowsV1,
 } from "../lib/schedule-calendar.ts";
 
 function schedule(overrides = {}) {
@@ -46,8 +47,13 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
     "calendarViews.map",
     "AnimatePresence",
     "InterfaceIcons.calendarMonth",
+    "Filter schedules",
+    "Operation scope",
+    "Calendar settings",
+    "compactCalendar",
+    "refreshAction",
   ]) assert.ok(component.includes(marker), `missing source calendar marker: ${marker}`);
-  assert.doesNotMatch(component, /Add Event|Settings|UserSelect|CALENDAR_ITEMS_MOCK/u);
+  assert.doesNotMatch(component, /Add Event|UserSelect|CALENDAR_ITEMS_MOCK/u);
   assert.doesNotMatch(component, />Calendar<|>Today<|>Agenda<|>Month</u);
 });
 
@@ -71,6 +77,21 @@ test("schedule calendar preserves empty days before the first due cut", () => {
   assert.deepEqual(dayGroups(rows, "2026-09-11"), []);
   assert.equal(dayGroups(rows, "2026-09-12")[0].first_at, "2026-09-12T09:30:00.000Z");
   assert.equal(dayGroups(rows, "2026-09-12")[0].count, 1);
+});
+
+test("source-style toolbar filters retain only real schedule rows", () => {
+  const observed = schedule({
+    schedule_identity: `dashboard-schedule-v1-${"1".repeat(64)}`,
+    last_due_at: "2026-09-01T05:00:00.000Z",
+    last_run_identity: "dashboard-run-v1-12345678-1234-4234-8234-123456789abc",
+  });
+  const pending = schedule({
+    schedule_identity: `dashboard-schedule-v1-${"2".repeat(64)}`,
+    operation_id: "source_intake.shadow_read.v1",
+  });
+  assert.deepEqual(filterScheduleRowsV1([pending, observed], "formation", "all", "observed"), [observed]);
+  assert.deepEqual(filterScheduleRowsV1([observed, pending], "", "source_intake.shadow_read.v1", "pending"), [pending]);
+  assert.deepEqual(filterScheduleRowsV1([observed, pending], "missing", "all", "all"), []);
 });
 
 test("month navigation derives exact UTC boundaries from a selected date", () => {
