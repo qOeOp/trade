@@ -78,6 +78,35 @@ Owner resolve, provider call, or business write. No Dashboard route or admitted 
 currently supplies its positive projection, so component tests and static rendering do not establish
 live data, deployed-browser acceptance, S3 availability, or Windmill replacement.
 
+## Bounded admission: read-only strategy code viewer
+
+`StrategyCodeViewer` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` presentation atom for the
+`ArtifactReviewPanel` source/Wasm region. Its source-fidelity reference is Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the CodeMirror 6 editor shell and read-only
+code surfaces under `apps/web/src/features/lab`. The Trade adaptation keeps the real CodeMirror
+line-number gutter, syntax highlighting, folding, text selection, bounded scrolling, file tab,
+editor chrome, output pane, responsive layout, reduced-motion transition, and Lucide actions. It is
+an editor-shaped **viewer**, not an editor: no content input, cursor, autocomplete, keybinding,
+insert-cell, run, save, rewrite, commit, kernel connection, WebSocket, or AI action is present.
+
+Positive rendering accepts only an exact bounded Owner projection containing artifact identity,
+canonical observation time, one source filename/language/content/digest, and one explicit Wasm preview
+state. Source is limited to 256 KiB and preview output to 64 KiB. Preview states are `not_run`,
+`succeeded`, `failed`, and `unavailable`; only succeeded/failed carries an exact module identity,
+target, canonical observation time, finite duration, bounded output, and bounded typed diagnostics.
+Unknown keys, malformed times, invalid digests, oversized text, invalid positions, contradictory state
+fields, or stale carried content fail closed to zero source and preview data. The browser never
+generates sample code, executes source, synthesizes a Wasm result, or upgrades transport success to an
+Artifact fact.
+
+The only local UI action is Copy source. Folding, selecting and scrolling are presentation state and
+cannot change the projection. The Wasm pane displays an already projected sandbox result; it has no
+Run control and performs no module instantiation, network call, Owner resolve, provider effect,
+business write, Windmill mutation, or trading action. No Dashboard route or admitted Owner resolver
+currently supplies a positive projection, so exact contract tests and static build establish the
+bounded atom only, not live Owner data, sandbox execution acceptance, or Windmill replacement.
+
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
 narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard
