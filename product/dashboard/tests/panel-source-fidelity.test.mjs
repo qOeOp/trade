@@ -41,3 +41,11 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius:[^}]+0 0/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-footer:last-child[^}]+border-radius: 0 0/);
 });
+
+test("framed corner rules never clip flat page-title frames", () => {
+  const cornerRules = [...css.matchAll(/([^{}]+)\{[^{}]*border-radius:[^{}]+\}/gu)]
+    .map((match) => match[1].trim())
+    .filter((selector) => selector.startsWith(".panel-frame") && selector.includes("> .panel-frame-"));
+  assert.ok(cornerRules.length >= 3);
+  for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
+});
