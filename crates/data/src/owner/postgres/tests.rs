@@ -2623,6 +2623,107 @@ pub(crate) struct ReplayReferenceLeafFixtureV1 {
         crate::owner::corporate_action::UntrustedCorporateActionProposalV1,
 }
 
+pub(crate) async fn advance_time_zone_head_and_verify_historical_recovery_v1(
+    owner: &MarketDataOwnerPostgres,
+    base: &ReplayCompositionMarketBaseFixtureV1,
+    leaves: &ReplayReferenceLeafFixtureV1,
+    successor_request_identity: BindingDigest,
+) {
+    let locator = crate::owner::time_zone::UntrustedTimeZoneLocatorV1 {
+        request_identity: leaves.time_zone_request.request_identity,
+        request_meaning_digest: crate::owner::time_zone::authority::request_meaning_digest_v1(
+            &leaves.time_zone_request,
+        )
+        .unwrap(),
+    };
+    let historical = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback =
+            super::time_zone::recover_time_zone_in_transaction_v1(&mut transaction, locator)
+                .await
+                .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let mut successor_claim = replay_reference_coordinates_v1(&base.native_r0)
+        .claim()
+        .clone();
+    successor_claim.source.lineage_version += 1;
+    let successor_coordinates =
+        crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1::verify(
+            successor_claim,
+        )
+        .unwrap();
+    let dependencies = crate::owner::time_zone::VerifiedTimeZoneDependenciesV1::verify(
+        successor_coordinates,
+        base.native_r0.record().identity(),
+        base.native_r0.record().digest(),
+    )
+    .unwrap();
+    let prior = &historical.facts()[0];
+    let mut proposal = crate::owner::time_zone::tests::time_zone_catalog_proposal(
+        prior.time_zone_identity(),
+        prior.ruleset_identity(),
+        prior.utc_offset_seconds(),
+        prior.correction_sequence() + 1,
+        Some(prior.catalog_entry_identity()),
+        Some(prior.identity()),
+        prior.effective_from_ns(),
+        prior.effective_until_ns(),
+        dependencies,
+    );
+    let mut request = leaves.time_zone_request.clone();
+    request.request_identity = successor_request_identity;
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        proposal.catalog_entry =
+            super::reference_fact_catalog::admit_reference_fact_catalog_entry_v1(
+                &mut transaction,
+                &proposal.catalog_entry,
+            )
+            .await
+            .unwrap();
+        proposal.catalog_locator = proposal.catalog_entry.locator();
+        super::time_zone::resolve_time_zone_in_transaction_v1(
+            &mut transaction,
+            request,
+            vec![proposal],
+            base.native_r0.cut().identity(),
+            base.native_r0.cut().digest(),
+        )
+        .await
+        .unwrap();
+        transaction.commit().await.unwrap();
+    }
+    let before: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM market_data_private.time_zone_facts_v1),
+                (SELECT count(*) FROM market_data_private.time_zone_cuts_v1),
+                (SELECT append_sequence FROM market_data_private.time_zone_state_v1 WHERE singleton)",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    let recovered = {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        let readback =
+            super::time_zone::recover_time_zone_in_transaction_v1(&mut transaction, locator)
+                .await
+                .unwrap();
+        transaction.commit().await.unwrap();
+        readback
+    };
+    let after: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM market_data_private.time_zone_facts_v1),
+                (SELECT count(*) FROM market_data_private.time_zone_cuts_v1),
+                (SELECT append_sequence FROM market_data_private.time_zone_state_v1 WHERE singleton)",
+    )
+    .fetch_one(owner.pool())
+    .await
+    .unwrap();
+    assert_eq!(historical.canonical_bytes(), recovered.canonical_bytes());
+    assert_eq!(before, after);
+}
+
 pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     owner: &MarketDataOwnerPostgres,
     base: &ReplayCompositionMarketBaseFixtureV1,

@@ -249,6 +249,29 @@ pub(super) async fn resolve_reference_fact_catalog_entry_v1(
     Ok(Some(entry))
 }
 
+pub(super) async fn verify_reference_fact_catalog_head_v1(
+    tx: &mut Transaction<'_, Postgres>,
+    entry: &ReferenceFactCatalogEntryV1,
+) -> Result<(), ReferenceFactCatalogErrorV1> {
+    let head: Option<(Vec<u8>, i64)> = sqlx::query_as(
+        "SELECT entry_identity,correction_sequence FROM market_data_private.reference_fact_catalog_heads_v1 WHERE scope_identity=$1 AND lineage_root=$2 FOR SHARE",
+    )
+    .bind(entry.scope_identity().as_bytes().as_slice())
+    .bind(entry.lineage_root().as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(store_error)?;
+    let Some((identity, sequence)) = head else {
+        return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
+    };
+    if identity != entry.identity().as_bytes().as_slice()
+        || u64::try_from(sequence).ok() != Some(entry.correction_sequence())
+    {
+        return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
+    }
+    Ok(())
+}
+
 async fn load_entry(
     tx: &mut Transaction<'_, Postgres>,
     identity: crate::owner::source_binding::BindingDigest,

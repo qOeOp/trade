@@ -587,18 +587,44 @@ fn validate_fact_graph(
         }
     }
 
+    validate_ordered_cut_fact_sequence_v1(facts)?;
+
     for pair in facts.windows(2) {
         let left = &pair[0];
         let right = &pair[1];
         if left.effective_until_ns() != Some(right.effective_from_ns())
-            || right.predecessor_identity() != Some(left.identity())
-            || right.correction_sequence()
-                != left
-                    .correction_sequence()
-                    .checked_add(1)
-                    .ok_or(TimeZoneErrorV1::CapacityExceeded)?
-            || right.lineage_root() != left.lineage_root()
             || right.source_binding_identity() != left.source_binding_identity()
+        {
+            return Err(TimeZoneErrorV1::NonCanonicalOrder);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_ordered_cut_fact_sequence_v1(
+    facts: &[TimeZoneFactV1],
+) -> Result<(), TimeZoneErrorV1> {
+    let first = facts.first().ok_or(TimeZoneErrorV1::IncompleteCoverage)?;
+    let mut seen = Vec::with_capacity(facts.len());
+    for fact in facts {
+        if seen.contains(&fact.identity())
+            || fact.lineage_root() != first.lineage_root()
+            || fact.time_zone_identity() != first.time_zone_identity()
+            || fact.ruleset_identity() != first.ruleset_identity()
+        {
+            return Err(TimeZoneErrorV1::NonCanonicalOrder);
+        }
+        seen.push(fact.identity());
+    }
+    for pair in facts.windows(2) {
+        let prior = &pair[0];
+        let current = &pair[1];
+        let correction = prior.effective_from_ns() == current.effective_from_ns()
+            && prior.effective_until_ns() == current.effective_until_ns();
+        let adjacent_regime = prior.effective_until_ns() == Some(current.effective_from_ns());
+        if current.predecessor_identity() != Some(prior.identity())
+            || prior.correction_sequence().checked_add(1) != Some(current.correction_sequence())
+            || !(correction || adjacent_regime)
         {
             return Err(TimeZoneErrorV1::NonCanonicalOrder);
         }

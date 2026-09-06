@@ -7,7 +7,9 @@
 
 use sqlx::{PgPool, Postgres, Row, Transaction};
 
-use super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1;
+use super::reference_fact_catalog::{
+    resolve_reference_fact_catalog_entry_v1, verify_reference_fact_catalog_head_v1,
+};
 use crate::owner::{
     reference_fact_catalog::{
         ReferenceFactCatalogEntryV1, ReferenceFactCatalogValueV1,
@@ -19,7 +21,7 @@ use crate::owner::{
         TimeZoneReadbackV1, UntrustedTimeZoneLocatorV1, UntrustedTimeZoneRequestV1,
         authority::{
             decode_fact_v1, prepare_resolution_v1, rejoin_stored_v1, request_meaning_digest_v1,
-            seal_readback_v1,
+            seal_readback_v1, validate_ordered_cut_fact_sequence_v1,
         },
         codec,
     },
@@ -44,6 +46,86 @@ const TIME_ZONE_CUSTODY_QUERY_V1: &str = "WITH expected(relation_name) AS (
     ('time_zone_cut_facts_v1'),
     ('time_zone_receipts_v1'),
     ('time_zone_outbox_v1')
+), expected_columns(relation_name,ordinal,column_name,column_type,not_null,default_expression) AS (
+  VALUES
+    ('time_zone_state_v1',1,'singleton','boolean',true,'true'),
+    ('time_zone_state_v1',2,'store_generation_identity','bytea',true,''),
+    ('time_zone_state_v1',3,'append_sequence','bigint',true,''),
+    ('time_zone_facts_v1',1,'fact_identity','bytea',true,''),
+    ('time_zone_facts_v1',2,'time_zone_identity','bytea',true,''),
+    ('time_zone_facts_v1',3,'ruleset_identity','bytea',true,''),
+    ('time_zone_facts_v1',4,'catalog_entry_identity','bytea',true,''),
+    ('time_zone_facts_v1',5,'lineage_root','bytea',true,''),
+    ('time_zone_facts_v1',6,'correction_sequence','bigint',true,''),
+    ('time_zone_facts_v1',7,'predecessor_identity','bytea',false,''),
+    ('time_zone_facts_v1',8,'effective_from_ns','text',true,''),
+    ('time_zone_facts_v1',9,'effective_until_ns','text',false,''),
+    ('time_zone_facts_v1',10,'fact_bytes','bytea',true,''),
+    ('time_zone_heads_v1',1,'lineage_root','bytea',true,''),
+    ('time_zone_heads_v1',2,'fact_identity','bytea',true,''),
+    ('time_zone_cuts_v1',1,'cut_identity','bytea',true,''),
+    ('time_zone_cuts_v1',2,'request_identity','bytea',true,''),
+    ('time_zone_cuts_v1',3,'request_meaning_digest','bytea',true,''),
+    ('time_zone_cuts_v1',4,'cut_bytes','bytea',true,''),
+    ('time_zone_cut_facts_v1',1,'cut_identity','bytea',true,''),
+    ('time_zone_cut_facts_v1',2,'ordinal','bigint',true,''),
+    ('time_zone_cut_facts_v1',3,'fact_identity','bytea',true,''),
+    ('time_zone_receipts_v1',1,'request_identity','bytea',true,''),
+    ('time_zone_receipts_v1',2,'request_meaning_digest','bytea',true,''),
+    ('time_zone_receipts_v1',3,'cut_identity','bytea',true,''),
+    ('time_zone_receipts_v1',4,'receipt_identity','bytea',true,''),
+    ('time_zone_receipts_v1',5,'receipt_bytes','bytea',true,''),
+    ('time_zone_receipts_v1',6,'append_sequence','bigint',true,''),
+    ('time_zone_outbox_v1',1,'outbox_identity','bytea',true,''),
+    ('time_zone_outbox_v1',2,'request_identity','bytea',true,''),
+    ('time_zone_outbox_v1',3,'receipt_bytes','bytea',true,'')
+), expected_keys(relation_name,constraint_type,columns,foreign_relation,foreign_columns) AS (
+  VALUES
+    ('time_zone_state_v1','p','singleton','',''),
+    ('time_zone_facts_v1','p','fact_identity','',''),
+    ('time_zone_facts_v1','u','catalog_entry_identity','',''),
+    ('time_zone_facts_v1','f','predecessor_identity','time_zone_facts_v1','fact_identity'),
+    ('time_zone_heads_v1','p','lineage_root','',''),
+    ('time_zone_heads_v1','u','fact_identity','',''),
+    ('time_zone_heads_v1','f','fact_identity','time_zone_facts_v1','fact_identity'),
+    ('time_zone_cuts_v1','p','cut_identity','',''),
+    ('time_zone_cuts_v1','u','request_identity','',''),
+    ('time_zone_cut_facts_v1','p','cut_identity ordinal','',''),
+    ('time_zone_cut_facts_v1','u','cut_identity fact_identity','',''),
+    ('time_zone_cut_facts_v1','f','cut_identity','time_zone_cuts_v1','cut_identity'),
+    ('time_zone_cut_facts_v1','f','fact_identity','time_zone_facts_v1','fact_identity'),
+    ('time_zone_receipts_v1','p','request_identity','',''),
+    ('time_zone_receipts_v1','u','cut_identity','',''),
+    ('time_zone_receipts_v1','u','receipt_identity','',''),
+    ('time_zone_receipts_v1','u','append_sequence','',''),
+    ('time_zone_receipts_v1','f','cut_identity','time_zone_cuts_v1','cut_identity'),
+    ('time_zone_outbox_v1','p','outbox_identity','',''),
+    ('time_zone_outbox_v1','u','request_identity','',''),
+    ('time_zone_outbox_v1','f','request_identity','time_zone_receipts_v1','request_identity')
+), expected_checks(relation_name,expression) AS (
+  VALUES
+    ('time_zone_state_v1','singleton'),
+    ('time_zone_state_v1','(octet_length(store_generation_identity) = 32)'),
+    ('time_zone_state_v1','(append_sequence >= 0)'),
+    ('time_zone_facts_v1','(octet_length(fact_identity) = 32)'),
+    ('time_zone_facts_v1','(octet_length(time_zone_identity) > 0)'),
+    ('time_zone_facts_v1','(octet_length(ruleset_identity) = 32)'),
+    ('time_zone_facts_v1','(octet_length(catalog_entry_identity) = 32)'),
+    ('time_zone_facts_v1','(octet_length(lineage_root) = 32)'),
+    ('time_zone_facts_v1','(correction_sequence > 0)'),
+    ('time_zone_facts_v1','(octet_length(fact_bytes) > 0)'),
+    ('time_zone_heads_v1','(octet_length(lineage_root) = 32)'),
+    ('time_zone_cuts_v1','(octet_length(cut_identity) = 32)'),
+    ('time_zone_cuts_v1','(octet_length(request_identity) = 32)'),
+    ('time_zone_cuts_v1','(octet_length(request_meaning_digest) = 32)'),
+    ('time_zone_cuts_v1','(octet_length(cut_bytes) > 0)'),
+    ('time_zone_cut_facts_v1','(ordinal > 0)'),
+    ('time_zone_receipts_v1','(octet_length(request_meaning_digest) = 32)'),
+    ('time_zone_receipts_v1','(octet_length(receipt_identity) = 32)'),
+    ('time_zone_receipts_v1','(octet_length(receipt_bytes) > 0)'),
+    ('time_zone_receipts_v1','(append_sequence > 0)'),
+    ('time_zone_outbox_v1','(octet_length(outbox_identity) = 32)'),
+    ('time_zone_outbox_v1','(octet_length(receipt_bytes) > 0)')
 ), relations AS (
   SELECT expected.relation_name,
          relation.oid,
@@ -76,6 +158,75 @@ SELECT (
           WHERE namespace.nspname='market_data_private'
        )
    AND count(*)=(SELECT count(*) FROM expected)
+   AND (SELECT count(*)=31 AND pg_catalog.bool_and(
+         (relations.relation_name,attribute.attnum,attribute.attname,
+          pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull,
+          COALESCE(pg_catalog.pg_get_expr(default_fact.adbin,default_fact.adrelid),'') )
+         IN (SELECT * FROM expected_columns)
+         AND attribute.attidentity=''
+         AND attribute.attgenerated=''
+         AND attribute.attacl IS NULL
+         AND attribute.attcollation=attribute_type.typcollation
+         AND attribute.attndims=0
+         AND attribute.attislocal
+         AND attribute.attinhcount=0
+       )
+       FROM relations
+       JOIN pg_catalog.pg_attribute attribute
+         ON attribute.attrelid=relations.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+       JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid
+       LEFT JOIN pg_catalog.pg_attrdef default_fact
+         ON default_fact.adrelid=relations.oid AND default_fact.adnum=attribute.attnum)
+   AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_attribute attribute
+          WHERE attribute.attrelid IN (SELECT oid FROM relations)
+            AND attribute.attnum>0 AND attribute.attisdropped
+       )
+   AND (SELECT count(*)=21 AND pg_catalog.bool_and(
+         (relations.relation_name,constraint_fact.contype::text,
+          pg_catalog.array_to_string(ARRAY(SELECT attribute.attname FROM pg_catalog.unnest(constraint_fact.conkey) WITH ORDINALITY key(attnum,ordinality) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=constraint_fact.conrelid AND attribute.attnum=key.attnum ORDER BY key.ordinality),' '),
+          COALESCE(foreign_relation.relname,''),
+          COALESCE(pg_catalog.array_to_string(ARRAY(SELECT attribute.attname FROM pg_catalog.unnest(constraint_fact.confkey) WITH ORDINALITY key(attnum,ordinality) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=constraint_fact.confrelid AND attribute.attnum=key.attnum ORDER BY key.ordinality),' '),''))
+         IN (SELECT * FROM expected_keys)
+         AND NOT constraint_fact.condeferrable
+         AND NOT constraint_fact.condeferred
+         AND constraint_fact.convalidated
+         AND constraint_fact.connoinherit
+         AND constraint_fact.conislocal
+         AND constraint_fact.coninhcount=0
+         AND (constraint_fact.contype<>'f' OR (
+           constraint_fact.confmatchtype='s' AND constraint_fact.confupdtype='a'
+           AND constraint_fact.confdeltype='a' AND constraint_fact.confdelsetcols IS NULL
+           AND foreign_relation.relnamespace=(SELECT oid FROM pg_catalog.pg_namespace WHERE nspname='market_data_private')
+         ))
+       )
+       FROM pg_catalog.pg_constraint constraint_fact
+       JOIN relations ON relations.oid=constraint_fact.conrelid
+       LEFT JOIN pg_catalog.pg_class foreign_relation ON foreign_relation.oid=constraint_fact.confrelid
+      WHERE constraint_fact.contype IN ('p','u','f'))
+   AND (SELECT count(*)=22 AND pg_catalog.bool_and(
+         (relations.relation_name,pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false))
+         IN (SELECT * FROM expected_checks)
+         AND NOT constraint_fact.condeferrable
+         AND NOT constraint_fact.condeferred
+         AND constraint_fact.convalidated
+         AND NOT constraint_fact.connoinherit
+         AND constraint_fact.conislocal
+         AND constraint_fact.coninhcount=0
+       )
+       FROM pg_catalog.pg_constraint constraint_fact
+       JOIN relations ON relations.oid=constraint_fact.conrelid
+      WHERE constraint_fact.contype='c')
+   AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
+          WHERE constraint_fact.conrelid IN (SELECT oid FROM relations)
+            AND constraint_fact.contype NOT IN ('p','u','f','c')
+       )
+   AND NOT EXISTS (
+         SELECT 1 FROM pg_catalog.pg_inherits inheritance
+          WHERE inheritance.inhrelid IN (SELECT oid FROM relations)
+             OR inheritance.inhparent IN (SELECT oid FROM relations)
+       )
    AND pg_catalog.bool_and(
          relations.oid IS NOT NULL
          AND pg_catalog.pg_get_userbyid(relations.relowner)='market_data_owner'
@@ -377,10 +528,14 @@ async fn load(
     {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
-    let fact_rows = sqlx::query("SELECT j.fact_identity FROM market_data_private.time_zone_cut_facts_v1 j WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j")
+    let fact_rows = sqlx::query("SELECT j.ordinal,j.fact_identity FROM market_data_private.time_zone_cut_facts_v1 j WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j")
         .bind(&cut_identity).fetch_all(&mut **transaction).await.map_err(store_error)?;
     let mut facts = Vec::with_capacity(fact_rows.len());
-    for row in fact_rows {
+    for (index, row) in fact_rows.into_iter().enumerate() {
+        let ordinal: i64 = row.try_get("ordinal").map_err(store_error)?;
+        if usize::try_from(ordinal).ok() != Some(index + 1) {
+            return Err(TimeZoneErrorV1::StoreUntrusted);
+        }
         let identity = digest_from_row(row.try_get("fact_identity").map_err(store_error)?)?;
         let fact = load_native_time_zone_fact_v1(transaction, identity, false)
             .await?
@@ -426,14 +581,22 @@ async fn load(
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
 
-    for fact in readback.facts() {
-        let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR SHARE")
-            .bind(fact.lineage_root().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
-        if head.as_deref() != Some(fact.identity().as_bytes().as_slice()) {
-            return Err(TimeZoneErrorV1::StoreUntrusted);
-        }
-        verify_native_time_zone_lineage_v1(transaction, fact).await?;
-    }
+    validate_ordered_cut_fact_sequence_v1(readback.facts())
+        .map_err(|_| TimeZoneErrorV1::StoreUntrusted)?;
+    let cut_last = readback
+        .facts()
+        .last()
+        .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+    let head_identity: BindingDigest = digest_from_row(
+        sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR SHARE")
+            .bind(cut_last.lineage_root().as_bytes().as_slice())
+            .fetch_optional(&mut **transaction).await.map_err(store_error)?
+            .ok_or(TimeZoneErrorV1::StoreUntrusted)?,
+    )?;
+    let head = load_native_time_zone_fact_v1(transaction, head_identity, false)
+        .await?
+        .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+    verify_native_time_zone_lineage_v1(transaction, &head, readback.facts()).await?;
     Ok(Some(readback))
 }
 
@@ -502,6 +665,7 @@ async fn load_native_time_zone_fact_v1(
 async fn verify_native_time_zone_lineage_v1(
     transaction: &mut Transaction<'_, Postgres>,
     head: &crate::owner::time_zone::TimeZoneFactV1,
+    cut_facts: &[crate::owner::time_zone::TimeZoneFactV1],
 ) -> Result<(), TimeZoneErrorV1> {
     let mut current = load_native_time_zone_fact_v1(transaction, head.identity(), false)
         .await?
@@ -509,22 +673,28 @@ async fn verify_native_time_zone_lineage_v1(
     if current.canonical_bytes() != head.canonical_bytes() {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
+    let head_catalog = load_catalog_for_fact(transaction, &current).await?;
+    verify_reference_fact_catalog_head_v1(transaction, &head_catalog)
+        .await
+        .map_err(|_| TimeZoneErrorV1::StoreUntrusted)?;
     let mut seen = Vec::new();
+    let mut backward_lineage = Vec::new();
 
     loop {
         if seen.contains(&current.identity()) {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
         seen.push(current.identity());
+        backward_lineage.push(current.identity());
         let current_catalog = load_catalog_for_fact(transaction, &current).await?;
         let Some(predecessor) = current.predecessor_identity() else {
-            return if current.correction_sequence() == 1
+            if current.correction_sequence() == 1
                 && current_catalog.predecessor_identity().is_none()
             {
-                Ok(())
+                break;
             } else {
-                Err(TimeZoneErrorV1::StoreUntrusted)
-            };
+                return Err(TimeZoneErrorV1::StoreUntrusted);
+            }
         };
         let prior = load_native_time_zone_fact_v1(transaction, predecessor, false)
             .await?
@@ -536,11 +706,43 @@ async fn verify_native_time_zone_lineage_v1(
             || prior.ruleset_identity() != current.ruleset_identity()
             || prior.correction_sequence().checked_add(1) != Some(current.correction_sequence())
             || current_catalog.predecessor_identity() != Some(prior_catalog.identity())
+            || !time_zone_effective_interval_follows(&prior, &current)
         {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
         current = prior;
     }
+
+    let last_cut_identity = cut_facts
+        .last()
+        .ok_or(TimeZoneErrorV1::StoreUntrusted)?
+        .identity();
+    let position = backward_lineage
+        .iter()
+        .position(|identity| *identity == last_cut_identity)
+        .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+    let expected = cut_facts.iter().rev().map(|fact| fact.identity());
+    if backward_lineage[position..]
+        .iter()
+        .copied()
+        .take(cut_facts.len())
+        .ne(expected)
+        || backward_lineage[..position]
+            .iter()
+            .any(|identity| cut_facts.iter().any(|fact| fact.identity() == *identity))
+    {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    Ok(())
+}
+
+fn time_zone_effective_interval_follows(
+    prior: &crate::owner::time_zone::TimeZoneFactV1,
+    current: &crate::owner::time_zone::TimeZoneFactV1,
+) -> bool {
+    (prior.effective_from_ns() == current.effective_from_ns()
+        && prior.effective_until_ns() == current.effective_until_ns())
+        || prior.effective_until_ns() == Some(current.effective_from_ns())
 }
 
 async fn load_catalog_for_fact(
@@ -637,6 +839,15 @@ mod tests {
         assert!(implementation.contains("pg_catalog.gen_random_uuid()"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.aclexplode"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attacl"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=31"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=21"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=22"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attisdropped"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attcollation=attribute_type.typcollation"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.pg_inherits"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("constraint_fact.connoinherit"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("foreign_relation.relnamespace"));
+        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("constraint_fact.confmatchtype='s'"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("trigger_entry.tgisinternal"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.pg_policy"));
     }

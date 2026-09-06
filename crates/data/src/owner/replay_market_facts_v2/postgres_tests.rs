@@ -1010,6 +1010,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .await
         .unwrap();
     let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_ok()
+    );
     sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
         .execute(market_mutation_pool)
         .await
@@ -1023,6 +1028,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .execute(market_mutation_pool)
         .await
         .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_ok()
+    );
     sqlx::query(
         "ALTER TABLE market_data_private.time_zone_receipts_v1
          RENAME TO time_zone_receipts_v1_missing",
@@ -1042,6 +1052,75 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .execute(market_mutation_pool)
     .await
     .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_ok()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_facts_v1
+         RENAME COLUMN effective_until_ns TO effective_until_ns_missing",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_facts_v1
+         RENAME COLUMN effective_until_ns_missing TO effective_until_ns",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_ok()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_state_v1
+         DROP CONSTRAINT time_zone_state_v1_append_sequence_check",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query(
+        "ALTER TABLE market_data_private.time_zone_state_v1
+         ADD CHECK(append_sequence>=0)",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_ok()
+    );
+    sqlx::query(
+        "CREATE TABLE market_data_private.time_zone_inheritance_probe_v1 ()
+         INHERITS (market_data_private.time_zone_state_v1)",
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    assert!(
+        ReplayCompositionOwnerV1::connect(owner_url, reader_url)
+            .await
+            .is_err()
+    );
+    sqlx::query("DROP TABLE market_data_private.time_zone_inheritance_probe_v1")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
     let owner = Arc::new(
         ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
@@ -1707,17 +1786,105 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
     let committed = replay_positive_state(market_mutation_pool).await;
 
+    crate::owner::postgres::tests::advance_time_zone_head_and_verify_historical_recovery_v1(
+        &market,
+        &base,
+        &leaves,
+        d(223),
+    )
+    .await;
+    let recovered_historical = fresh_owner.issue_binding_v1(&command).await.unwrap();
+    assert_eq!(
+        first.canonical_bytes(),
+        recovered_historical.canonical_bytes()
+    );
+
+    let time_zone_lineage_root: Vec<u8> = sqlx::query_scalar(
+        "SELECT lineage_root FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    let current_time_zone_head: Vec<u8> = sqlx::query_scalar(
+        "SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1",
+    )
+    .bind(&time_zone_lineage_root)
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    let current_time_zone_catalog: Vec<u8> = sqlx::query_scalar(
+        "SELECT catalog_entry_identity FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(&current_time_zone_head)
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
+    )
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .bind(&time_zone_lineage_root)
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let native_head_rollback_state = replay_positive_state(market_mutation_pool).await;
+    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
+    assert_eq!(
+        replay_positive_state(market_mutation_pool).await,
+        native_head_rollback_state
+    );
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_heads_v1 SET fact_identity=$1 WHERE lineage_root=$2",
+    )
+    .bind(&current_time_zone_head)
+    .bind(&time_zone_lineage_root)
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+
+    let time_zone_cut_identity: Vec<u8> = sqlx::query_scalar(
+        "SELECT cut_identity FROM market_data_private.time_zone_cuts_v1 WHERE request_identity=$1",
+    )
+    .bind(
+        leaves
+            .time_zone_request
+            .request_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
+    )
+    .bind(&current_time_zone_head)
+    .bind(&time_zone_cut_identity)
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let cut_splice_state = replay_positive_state(market_mutation_pool).await;
+    assert!(fresh_owner.issue_binding_v1(&command).await.is_err());
+    assert_eq!(
+        replay_positive_state(market_mutation_pool).await,
+        cut_splice_state
+    );
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_cut_facts_v1 SET fact_identity=$1 WHERE cut_identity=$2 AND ordinal=1",
+    )
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .bind(&time_zone_cut_identity)
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+
     sqlx::query(
         "UPDATE market_data_private.reference_fact_catalog_heads_v1
          SET correction_sequence=correction_sequence+1
          WHERE entry_identity=$1",
     )
-    .bind(
-        leaves
-            .time_zone_catalog_entry_identity
-            .as_bytes()
-            .as_slice(),
-    )
+    .bind(&current_time_zone_catalog)
     .execute(market_mutation_pool)
     .await
     .unwrap();
@@ -1736,13 +1903,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
          SET correction_sequence=$1
          WHERE entry_identity=$2",
     )
-    .bind(i64::try_from(leaves.time_zone_correction_sequence).unwrap())
-    .bind(
-        leaves
-            .time_zone_catalog_entry_identity
-            .as_bytes()
-            .as_slice(),
-    )
+    .bind(i64::try_from(leaves.time_zone_correction_sequence + 1).unwrap())
+    .bind(&current_time_zone_catalog)
     .execute(market_mutation_pool)
     .await
     .unwrap();
