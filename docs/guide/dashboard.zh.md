@@ -1,5 +1,94 @@
 # Trade Dashboard
 
+## 有界准入：只读影子调度日历
+
+用户准入 `/operations/schedules` 为 `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`，仅覆盖第一方
+零 effect 影子读取调度。此窄例外覆盖该路由的通用 blueprint-only 分类，不准入 Scanner due-slot
+Resolve 或 Windmill 通用调度。复用 `configuredShadowScheduleSetV1` 与 RunStore
+`readBoundScheduledReads`：配置中的身份、摘要、operation 和 dispatch binding 必须与全部已注册
+记录精确匹配（1-100 条）。配置、注册或兼容 custody 缺失时 fail closed。API 仅 GET；读取不创建
+scheduler，不注册、tick 或入队。
+
+浏览器只从成功 HTTP 响应及有效绑定投影接收正向数据。刷新得到不可用或被拒绝的证据时清除旧行与
+选中详情。全程使用 UTC。`next_due_at` 与 cadence 描述**预计触发**，不是执行事实；调度器可能跳过
+已过去的周期。只有返回的 `last_due_at` 与 `last_run_identity` 配对才是**已观测运行**，不得推断
+更早历史、完成、时长、成功或 Owner acceptance。
+
+路由只有一个标题/action header（`Shadow-read schedules`，随后 `Refresh`）和内嵌内容 body。
+紧凑摘要依次显示配置调度数、观测时已到期调度数、已观测运行引用数；不可用显示横线而不是零。
+单行工具栏依次为 Calendar/Table、Today、Previous、日期范围、Next、Day/Week/Month/Year/Agenda，
+最后为右对齐搜索。窄屏控件横向滚动，不使用下钻筛选菜单。默认当前 UTC 日期的 Month 视图；搜索
+匹配 operation 和 schedule identity。
+
+日历保留 Vibe 的日期导航、五视图、事件查看、溢出展开及克制动画。Month 使用覆盖完整周的七列网格，
+每天最多三个摘要条目及可访问的溢出按钮。Day/Week 按 UTC 小时展示零时长触发点，不伪造持续时长块。
+Year 显示十二个月块，点击进入 Month；Agenda 展示选中月份的逐日列表。密集 cadence 按调度/日或
+调度/小时以算术方式聚合；展开后每页 50 个精确预计时间戳，不物化无界事件列表。已观测记录独立标注，
+链接现有 Run Detail。日历导航不得执行调度；Today 重置日期但保留当前视图。
+
+表格列依次为 Operation、Cadence、Next expected trigger、Last observed run；默认按下次触发升序，
+再按不可变 schedule identity 排序。先搜索再分页，默认 20 行，可选 10/20/50。选中打开与日历相同的
+详情。不提供列选择器、批量选择或每列表头装饰图标。表头在有界 body 滚动区域内冻结。详情依次为
+operation/标题、cadence 与下次预计触发、上次已观测 due/run 链接、默认折叠的身份/摘要/recovery 字段。
+不提供 Run、Resolve、CRUD、拖拽或缩放操作。
+
+1280px 及以上，日历/表格与详情使用 2:1 网格、16px 间距，共享按可用视口限制在 420-760px 的 body
+高度，双方内部滚动。低于 1280px，详情在主卡片之后自然增高。低于 768px，Month/Week 保留至少
+700px 的内部滚动宽度，其他视图适配卡片。header/footer 共用主题 chrome token，配内嵌 body、弱
+分割线及克制橙色选中/焦点。图标使用 Lucide。动画 140-180ms 并遵循 reduced motion；键盘可操作
+控件、开关溢出、选中条目及访问已观测运行链接，不依赖指针手势。
+
+加载时主 body 展示六行 48px skeleton；空数据/搜索无结果使用单个 160px 提示区，不伪造事件。
+不可用、兼容失败、格式错误及拒绝访问使用同样有界提示区、简短原因与 Refresh，不保留旧正向详情。
+动态验收必须覆盖 disposable PostgreSQL 绑定读取到浏览器、失配/HTTP 失败拒绝、预计与观测区分、
+五视图、溢出、键盘、双主题与窄/宽屏布局；fixture 不能替代动态验收。
+
+## 有界准入：Backtest 收益带展示原子
+
+`BacktestReturnBand` 是已文档化 `/backtest` 与 `/backtest/compare` 表面的
+`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 只读展示原子。其源码保真基线是 Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 factor home 的日收益带图。Trade 适配保留
+quantile min/max 与 Q1/Q3 区间、选中策略的墨迹 overlay、月份色带或年份分割线、拖动聚焦时间窗口与
+reset、回撤顶部纹理、可选的显式 benchmark 及外置 hover readout；同时使用 Dashboard 共享 panel、
+主题 token、响应式测量、克制动画、reduced-motion 行为和 Lucide action。
+
+正向渲染只接受一个精确、有界、Owner 投影的 result identity：canonical UTC 时间戳、有序有限 quantile、
+严格按时间排序的 point，以及时间戳属于同一 cut 的可选 strategy/benchmark series。未知字段、错误顺序、
+series 失配、携带陈旧值或非 canonical 时间全部 fail closed 为零图表数据。只有投影显式提供 benchmark
+时才展示基准；浏览器绝不能从 band median 派生 baseline、合成收益或导入 Vibe mock factor data。
+Loading、unavailable、合法 empty 与 available 是四种独立状态。
+
+该原子不执行 Backtest dispatch、selection commit、comparison judgment、economic claim、Owner resolve、
+provider call 或业务写。当前没有 Dashboard route 或已准入 Backtest Owner resolver 为它提供正向投影，
+因此组件测试与静态渲染不能建立 live data、deployed-browser acceptance、S3 availability 或 Windmill
+replacement。
+
+## 有界准入：只读策略代码查看器
+
+`StrategyCodeViewer` 是 `ArtifactReviewPanel` source/Wasm 区域的
+`TARGET_DRAFT / IMPLEMENTATION_ADMITTED` 展示原子。其源码保真基线是 Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`、tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1` 中 `apps/web/src/features/lab` 下的 CodeMirror 6
+editor shell 与只读代码表面。Trade 适配保留真实 CodeMirror 的行号 gutter、语法高亮、折叠、文本选择、
+有界滚动、文件 tab、编辑器 chrome、output pane、响应式布局、reduced-motion 动画和 Lucide action。
+它是具有编辑器外观的**查看器**，不是编辑器：不存在内容输入、光标、自动补全、编辑快捷键、insert-cell、
+Run、保存、改写、提交、kernel 连接、WebSocket 或 AI action。
+
+正向渲染只接受一份精确且有界的 Owner 投影：artifact identity、canonical observation time、单份 source
+filename/language/content/digest，以及一个显式 Wasm preview state。Source 上限为 256 KiB，preview output
+上限为 64 KiB。Preview state 只有 `not_run`、`succeeded`、`failed`、`unavailable`；仅 succeeded/failed
+携带精确 module identity、target、canonical observation time、有限 duration、有界 output 与有界 typed
+diagnostics。未知字段、错误时间、非法 digest、超限文本、非法位置、状态字段矛盾或携带陈旧内容全部
+fail closed 为零 source 和 preview 数据。浏览器不生成示例代码、不执行 source、不合成 Wasm 结果，也不把
+transport success 提升为 Artifact fact。
+
+唯一 local UI action 是 Copy source。折叠、选择和滚动仅属于展示状态，不能修改投影。Wasm pane 只展示
+已经投影的 sandbox 结果，不提供 Run control，也不执行 module instantiation、network call、Owner resolve、
+provider effect、业务写、Windmill mutation 或交易动作。当前没有 Dashboard route 或已准入 Owner resolver
+提供正向投影，因此 exact contract test 与 static build 只能建立此有界原子，不能证明 live Owner data、
+sandbox execution acceptance 或 Windmill replacement。
+
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
 实现与打包；该准入不声称 Dashboard 服务已经合并或可用，不声称能力目录已经定稿，也不
@@ -133,6 +222,14 @@ ingestion、public/production writer composition、default/shared PostgreSQL、H
 Workbench/Dashboard/Windmill consumer、LIVE provider use、trading 或 cutover。在产品 consumer 单独准入前，
 `/data` 与 `/data/pit-catalog` 只渲染固定 foundation card，不显示 binding/snapshot count、row、
 timeline、positive badge、resolver action 或 mutation action。
+
+可以在不改变 route maturity 的前提下准备一个 `TARGET_DRAFT` 平铺 `MarketHeatmap` 展示原子。它只接受
+server 已验证且有界的 projection：stable item identity、展示 label、正数布局 weight 与 percentage change。
+它保留原源码的 squarified layout、响应式测量、搜索、键盘 focus 与 ripple hover redistribution，但明确没有
+child node、breadcrumb、drill-down、candlestick preview、synthetic series 或 runtime mock data。Loading、
+unavailable、合法 empty 与 filtered-empty 分开；unavailable 固定渲染零 tile。该原子不能 resolve Owner
+custody、读取 private PostgreSQL、认证 provider，也不能把 `/data`、`/data/pit-catalog` 或 `/market` 提升为
+available。任何 positive runtime item 进入该原子前，仍必须另行准入 Dashboard/H0 Market Data resolver。
 
 ### 2026-08-23 已合并 Portfolio R0 fail-closed readback
 

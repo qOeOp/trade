@@ -1,5 +1,112 @@
 # Trade Dashboard
 
+## Bounded admission: read-only shadow schedule calendar
+
+The user admits `/operations/schedules` as `DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED` for the
+first-party zero-effect shadow-read schedules only. This narrow exception supersedes the generic
+blueprint-only classification for this route; it does not admit Scanner due-slot resolution or
+Windmill generic schedules. Reuse `configuredShadowScheduleSetV1` and RunStore
+`readBoundScheduledReads`: exact configured identity, digest, operation and dispatch bindings must
+match every registered row (1-100). Missing configuration, registration or compatible custody fails
+closed. GET is the only API action; no scheduler, registration, tick or enqueue occurs on reading.
+
+The browser accepts positive data only from a successful HTTP response and a valid bound projection.
+Refreshing with unavailable or rejected evidence removes prior positive rows and selected details.
+Use UTC throughout. `next_due_at` and cadence describe **expected triggers**, not executions:
+the scheduler may skip elapsed slots. Only the returned `last_due_at` and `last_run_identity` pair is
+an **observed run**. Never infer older runs, completion, duration, success or Owner acceptance.
+
+The route has one title/action header (`Shadow-read schedules`, then `Refresh`) and an inset content
+body. A compact summary contains configured schedules, due-at-observation schedules and observed-run
+references, with unavailable values shown as dashes, never zero. The single-row toolbar orders
+Calendar/Table, Today, Previous, range label, Next, Day/Week/Month/Year/Agenda, then right-aligned
+search. Controls horizontally scroll on narrow screens instead of opening a nested filter menu.
+Default view is Month at the current UTC date. Search matches operation and schedule identity.
+
+Calendar fidelity preserves Vibe's date navigation, five views, event inspection, overflow expansion
+and restrained transitions. Month uses a seven-column full-week grid with at most three summary
+entries per day and an accessible overflow button. Day and Week show zero-duration trigger points
+grouped by UTC hour, not invented duration blocks. Year shows twelve month tiles opening Month;
+Agenda lists days in the selected month. Dense cadence is grouped arithmetically by schedule/day or
+schedule/hour; expanding a group pages exact expected timestamps, 50 per page, without materializing
+an unbounded event list. Observed records are separately labelled and link to existing Run Detail.
+Calendar navigation must not execute a schedule. Today resets the date but preserves the active view.
+
+Table columns are Operation, Cadence, Next expected trigger, Last observed run, in that order; default
+sort is next trigger ascending then immutable schedule identity. Search precedes pagination (20 rows;
+10/20/50 options). Selection opens the same detail as calendar selection. No column chooser, bulk
+selection or per-header decorative icons. Headers remain sticky inside the bounded body scroller.
+Details order operation/title, cadence and next expected trigger, last observed due/run link, then
+collapsed technical identity/digest/recovery fields. No Run, Resolve, CRUD, drag or resize action.
+
+At 1280px and above, calendar/table and detail use a 2:1 grid with 16px gap and a shared body height
+clamped to 420-760px from the available viewport; both scroll internally. Below 1280px details follow
+the primary card at natural height. Month and Week retain at least 700px internal scroll width below
+768px; other views fit their card. Headers and footers use the same theme chrome token, with inset
+body, subtle separators and restrained orange selection/focus. Icons use Lucide. Transitions last
+140-180ms and respect reduced motion. Keyboard users can navigate controls, open/close overflow,
+select entries and follow observed-run links without pointer gestures.
+
+Loading occupies six 48px skeleton rows in the primary body; empty/search-empty shows one 160px
+message without fabricated events. Unavailable, incompatible, malformed and denied responses use
+that same bounded message region, a concise reason and Refresh; no stale positive detail survives.
+Dynamic acceptance requires disposable PostgreSQL bound reads reaching the browser, mismatch/HTTP
+failure rejection, distinction between predicted and observed entries, all five views, overflow,
+keyboard operation, both themes and narrow/desktop layouts. Fixtures alone are not dynamic acceptance.
+
+## Bounded admission: Backtest return-band presentation atom
+
+`BacktestReturnBand` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` read-only presentation atom for
+the already documented `/backtest` and `/backtest/compare` surfaces. Its source-fidelity reference is
+Vibe Trading commit `48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the factor home daily-return band chart.
+The Trade adaptation preserves the quantile min/max and Q1/Q3 bands, selected-strategy ink overlay,
+month stripes or year dividers, draw-to-focus time window and reset, drawdown ceiling texture,
+optional explicit benchmark, and external hover readout. It uses the shared Dashboard panel and theme
+tokens, responsive measurement, restrained motion, reduced-motion behavior, and Lucide actions.
+
+Positive rendering accepts only one exact, bounded Owner-projected result identity: canonical UTC
+timestamps, ordered finite quantiles, strictly ordered points, and optional strategy and benchmark
+series whose timestamps belong to the same cut. Unknown keys, malformed ordering, mismatched series,
+stale carried values, or non-canonical time fail closed to zero chart data. A benchmark is shown only
+when the projection supplies it explicitly; the browser must never derive a baseline from the band
+median, synthesize returns, or import Vibe mock factor data. Loading, unavailable, valid empty, and
+available data are distinct states.
+
+This atom performs no Backtest dispatch, selection commit, comparison judgment, economic claim,
+Owner resolve, provider call, or business write. No Dashboard route or admitted Backtest Owner resolver
+currently supplies its positive projection, so component tests and static rendering do not establish
+live data, deployed-browser acceptance, S3 availability, or Windmill replacement.
+
+## Bounded admission: read-only strategy code viewer
+
+`StrategyCodeViewer` is a `TARGET_DRAFT / IMPLEMENTATION_ADMITTED` presentation atom for the
+`ArtifactReviewPanel` source/Wasm region. Its source-fidelity reference is Vibe Trading commit
+`48c8315f74536d9d308347d63ac9c4e96c9a7120`, tree
+`d226b620dc699c9e8e382274434b324a5fefe0e1`, specifically the CodeMirror 6 editor shell and read-only
+code surfaces under `apps/web/src/features/lab`. The Trade adaptation keeps the real CodeMirror
+line-number gutter, syntax highlighting, folding, text selection, bounded scrolling, file tab,
+editor chrome, output pane, responsive layout, reduced-motion transition, and Lucide actions. It is
+an editor-shaped **viewer**, not an editor: no content input, cursor, autocomplete, keybinding,
+insert-cell, run, save, rewrite, commit, kernel connection, WebSocket, or AI action is present.
+
+Positive rendering accepts only an exact bounded Owner projection containing artifact identity,
+canonical observation time, one source filename/language/content/digest, and one explicit Wasm preview
+state. Source is limited to 256 KiB and preview output to 64 KiB. Preview states are `not_run`,
+`succeeded`, `failed`, and `unavailable`; only succeeded/failed carries an exact module identity,
+target, canonical observation time, finite duration, bounded output, and bounded typed diagnostics.
+Unknown keys, malformed times, invalid digests, oversized text, invalid positions, contradictory state
+fields, or stale carried content fail closed to zero source and preview data. The browser never
+generates sample code, executes source, synthesizes a Wasm result, or upgrades transport success to an
+Artifact fact.
+
+The only local UI action is Copy source. Folding, selecting and scrolling are presentation state and
+cannot change the projection. The Wasm pane displays an already projected sandbox result; it has no
+Run control and performs no module instantiation, network call, Owner resolve, provider effect,
+business write, Windmill mutation, or trading action. No Dashboard route or admitted Owner resolver
+currently supplies a positive projection, so exact contract tests and static build establish the
+bounded atom only, not live Owner data, sandbox execution acceptance, or Windmill replacement.
+
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
 narrow Windmill capability set that the Dashboard may replace. The user has explicitly admitted bounded Dashboard
@@ -142,6 +249,15 @@ provider authenticity, ingestion, a public or production writer composition, def
 HTTP/JSON resolution, Workbench/Dashboard/Windmill consumption, LIVE provider use, trading, or cutover. Until one
 such product consumer is separately admitted, `/data` and `/data/pit-catalog` render the fixed foundation card and
 no binding/snapshot count, row, timeline, positive badge, resolver action, or mutation action.
+
+A `TARGET_DRAFT` flat `MarketHeatmap` presentation atom may be prepared without changing that route maturity. It
+accepts only an already verified, bounded server projection of stable item identity, display label, positive
+layout weight and percentage change. It preserves the source squarified layout, responsive measurement, search,
+keyboard focus and ripple hover redistribution, but deliberately has no child nodes, breadcrumb, drill-down,
+candlestick preview, synthetic series or runtime mock data. Loading, unavailable, valid empty and filtered-empty
+remain distinct; unavailable renders zero tiles. The atom cannot resolve Owner custody, read private PostgreSQL,
+authenticate a provider or promote `/data`, `/data/pit-catalog` or `/market` to available. A separately admitted
+Dashboard/H0 Market Data resolver remains required before any positive runtime item can reach it.
 
 ### 2026-08-23 merged Portfolio R0 fail-closed readback
 

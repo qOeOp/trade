@@ -1,0 +1,84 @@
+.calendar { min-width: 0; height: 100%; overflow: auto; background: var(--surface-panel); border-radius: var(--panel-radius); color: var(--text-primary); }
+.page { min-width: 0; }
+.page button, .page input { font: inherit; }
+.page button:focus-visible, .page input:focus-visible, .page a:focus-visible, .page summary:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.summary { display: flex; align-items: center; flex-wrap: wrap; gap: 18px; padding: 12px 16px; font-size: 12px; color: var(--text-muted); }
+.summary b { margin-left: 6px; color: var(--text-primary); }
+.toolbar { display: flex; align-items: center; gap: 8px; overflow-x: auto; padding: 12px; background: var(--panel-chrome-bg); border-radius: 16px 16px 0 0; }
+.toolbar > *, .toolbar [role="group"] { flex-shrink: 0; }
+.toolbar [role="group"] { display: flex; gap: 2px; }
+.toolbar button, .toolbar input { padding: 8px 10px; border: 1px solid var(--data-table-gridline); border-radius: 10px; color: var(--text-muted); background: var(--surface-panel); }
+.toolbar button[aria-pressed="true"] { background: var(--data-table-row-selected-bg); border-color: color-mix(in oklch, var(--primary) 25%, var(--border-default)); color: var(--text-primary); }
+.toolbar input { margin-left: auto; width: 210px; }
+.range { font-size: 11px; color: var(--text-muted); }
+.split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+.primary, .detail { min-width: 0; height: clamp(420px, calc(100dvh - 300px), 760px); overflow: auto; border-radius: 0 0 18px 18px; background: var(--surface-panel); }
+.primary > div { height: 100%; }
+.detail header { padding: 18px; background: var(--panel-chrome-bg); }
+.detail h3 { font-size: 16px; overflow-wrap: anywhere; margin: 8px 0 0; }
+.detail section, .detail details { padding: 18px; }
+.detail h4 { margin: 0 0 12px; }
+.detail p, .detail small { color: var(--text-muted); font-size: 12px; line-height: 1.6; }
+.detail a { color: var(--primary); font-size: 12px; }
+.detail dd { margin: 4px 0 12px; overflow-wrap: anywhere; font-family: var(--font-mono); font-size: 11px; }
+.facts { display: grid; gap: 16px; padding: 18px; background: var(--panel-chrome-bg); border-radius: 16px; margin: 12px; }
+.facts > div { display: grid; gap: 6px; }
+.facts time { font-size: 12px; }
+.message { display: grid; align-content: center; justify-items: center; min-height: 160px; padding: 20px; color: var(--text-muted); text-align: center; }
+.skeleton { height: 48px; width: 100%; border-radius: 8px; background: var(--panel-chrome-bg); margin-bottom: 4px; }
+.foot { padding: 14px; display: flex; justify-content: space-between; gap: 12px; background: var(--panel-chrome-bg); color: var(--text-muted); font-size: 11px; border-radius: 0 0 16px 16px; }
+.operation { border: 0; padding: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+@media (max-width: 1279px) { .split { grid-template-columns: minmax(0, 1fr); } .detail { height: auto; } }
+.transition { animation: appear 160ms ease-out; }
+.calendar button, .dialog button, .dialog select { font: inherit; color: inherit; cursor: pointer; }
+.calendar button:focus-visible, .dialog :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.month, .timeline[data-week="true"] { min-width: 700px; }
+.weekdays, .grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.weekdays, .timeHeader { position: sticky; top: 0; z-index: 1; padding: 12px 0; background: var(--panel-chrome-bg); color: var(--text-muted); text-align: center; font-size: 12px; }
+.day { min-width: 0; min-height: 130px; padding: 8px; border-right: 1px solid var(--data-table-gridline); border-bottom: 1px solid var(--data-table-gridline); }
+.day[data-outside="true"] { background: var(--panel-chrome-bg); }
+.date { border: 0; background: transparent; border-radius: 50%; width: 28px; height: 28px; }
+.date[data-today="true"] { background: var(--primary); color: var(--primary-foreground); }
+.entries { display: grid; gap: 4px; margin-top: 6px; }
+.entry { display: grid; gap: 3px; width: 100%; min-width: 0; padding: 6px 7px; text-align: left; border: 1px solid transparent; border-radius: 7px; background: var(--surface-elevated); transition: background 160ms ease; }
+.entry span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; line-height: 1.35; }
+.entry small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-muted); font-size: 10px; line-height: 1.35; }
+.entry[data-kind="observed"] { border-left: 2px solid var(--primary); }
+.entry[aria-pressed="true"] { background: var(--data-table-row-selected-bg); border-color: color-mix(in oklch, var(--primary) 25%, var(--border-default)); }
+.entry:hover { background: var(--surface-hover); }
+.more { padding: 5px; justify-self: end; border: 0; background: transparent; color: var(--text-muted); font-size: 11px; }
+.year { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; padding: 16px; }
+.monthTile { min-width: 0; padding: 16px; border: 1px solid var(--data-table-gridline); border-radius: 16px; background: var(--panel-chrome-bg); text-align: left; }
+.monthTile > small { display: block; margin-top: 12px; color: var(--text-muted); }
+.monthTitle { width: 100%; border: 0; border-radius: 8px; padding: 6px; background: transparent; text-align: left; font-weight: 600; }
+.monthTitle:hover, .miniDate:hover { background: var(--data-table-row-hover-bg); }
+.miniDate { display: grid; justify-items: center; gap: 3px; min-width: 0; padding: 3px 0; border: 0; border-radius: 6px; background: transparent; }
+.miniDate[data-today="true"] > span:first-child { color: var(--primary); font-weight: 700; }
+.outsideDate { align-self: start; padding-top: 3px; color: var(--text-muted); opacity: .45; }
+.markers { display: flex; justify-content: center; gap: 3px; min-height: 5px; }
+.markers i { width: 5px; height: 5px; border: 1px solid var(--text-muted); border-radius: 50%; }
+.markers i[data-kind="observed"] { border-color: var(--primary); background: var(--primary); }
+.miniMonth { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); text-align: center; gap: 8px 2px; font-size: 11px; margin-top: 16px; }
+.timeHeader, .hour { display: grid; }
+.hour { min-height: 66px; border-bottom: 1px solid var(--data-table-gridline); }
+.hour > div { padding: 6px; border-left: 1px solid var(--data-table-gridline); min-width: 0; }
+.hour > time { padding: 8px; font-size: 10px; color: var(--text-muted); }
+.agenda { padding: 16px; }
+.agenda section { display: grid; grid-template-columns: 110px minmax(0, 1fr); padding: 12px 0; gap: 16px; border-bottom: 1px solid var(--data-table-gridline); }
+.agenda section > button { align-self: start; border: 0; background: transparent; text-align: left; }
+.agenda small { color: var(--text-muted); }
+.dialog { width: min(580px, calc(100vw - 24px)); max-height: 85dvh; overflow: auto; padding: 20px; border-radius: 20px; background: var(--surface-panel); color: var(--text-primary); border: 1px solid var(--border-default); }
+.dialog::backdrop { background: color-mix(in srgb, var(--text-primary) 35%, transparent); }
+.dialog header, .dialog footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.dialog h3 { margin: 0; font-size: 16px; }
+.dialog label { display: grid; gap: 6px; margin-top: 16px; }
+.dialog select { width: 100%; min-width: 0; }
+.dialog button, .dialog select { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--border-default); background: var(--panel-chrome-bg); }
+.dialog button:disabled { opacity: .45; cursor: default; }
+.dialog ol { padding-left: 24px; }
+.dialog li { padding: 8px 0; font-size: 12px; }
+.dialog li a { display: inline-block; margin-left: 12px; color: var(--primary); }
+.dialog p { font-size: 12px; color: var(--text-muted); }
+@keyframes appear { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 767px) { .year { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding: 8px; } .monthTile { padding: 10px; } }
+@media (prefers-reduced-motion: reduce) { .transition { animation: none; } .entry { transition: none; } }
