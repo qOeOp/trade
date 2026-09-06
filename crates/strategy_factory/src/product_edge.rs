@@ -694,6 +694,51 @@ pub trait ResearchGoalOwnerPortV2: Send + Sync {
     ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError>;
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchDirectoryCursorV1 {
+    pub committed_at_epoch_ms: u64,
+    pub request_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchDirectoryItemV1 {
+    pub request_identity: String,
+    pub intent_identity: Option<String>,
+    pub disposition: ResearchRequestDisposition,
+    pub availability: Option<ResearchViewAvailability>,
+    pub phase: Option<ResearchViewPhase>,
+    pub committed_at_epoch_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ResearchDirectoryCompletenessV1 {
+    Complete,
+    Partial,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResearchDirectoryReadbackV1 {
+    pub schema_version: u32,
+    pub observed_at_epoch_ms: u64,
+    pub completeness: ResearchDirectoryCompletenessV1,
+    pub omitted_count: u32,
+    pub next_cursor: Option<ResearchDirectoryCursorV1>,
+    pub items: Vec<ResearchDirectoryItemV1>,
+}
+
+#[async_trait]
+pub trait ResearchDirectoryOwnerPort: Send + Sync {
+    async fn list_research(
+        &self,
+        after: Option<&ResearchDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError>;
+}
+
 pub(crate) fn semantic_digest(
     request: &ProductEdgeResearchGoalRequestV1,
 ) -> Result<String, ResearchGoalOwnerError> {
@@ -1432,6 +1477,51 @@ fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {
 mod v2_sealing_tests {
     use super::*;
     use rstest::rstest;
+
+    #[rstest]
+    fn research_directory_wire_exposes_only_verified_summary_fields() {
+        let value = serde_json::to_value(ResearchDirectoryReadbackV1 {
+            schema_version: 1,
+            observed_at_epoch_ms: 1_725_000_000_000,
+            completeness: ResearchDirectoryCompletenessV1::Partial,
+            omitted_count: 1,
+            next_cursor: Some(ResearchDirectoryCursorV1 {
+                committed_at_epoch_ms: 1_724_999_000_000,
+                request_identity: "research-request-v2-0001".into(),
+            }),
+            items: vec![ResearchDirectoryItemV1 {
+                request_identity: "research-request-v2-0002".into(),
+                intent_identity: Some("research-intent-v2-0002".into()),
+                disposition: ResearchRequestDisposition::Accepted,
+                availability: Some(ResearchViewAvailability::Available),
+                phase: Some(ResearchViewPhase::IntentFrozen),
+                committed_at_epoch_ms: 1_725_000_000_000,
+            }],
+        })
+        .unwrap();
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "schema_version": 1,
+                "observed_at_epoch_ms": 1_725_000_000_000_u64,
+                "completeness": "PARTIAL",
+                "omitted_count": 1,
+                "next_cursor": {
+                    "committed_at_epoch_ms": 1_724_999_000_000_u64,
+                    "request_identity": "research-request-v2-0001",
+                },
+                "items": [{
+                    "request_identity": "research-request-v2-0002",
+                    "intent_identity": "research-intent-v2-0002",
+                    "disposition": "ACCEPTED",
+                    "availability": "AVAILABLE",
+                    "phase": "INTENT_FROZEN",
+                    "committed_at_epoch_ms": 1_725_000_000_000_u64,
+                }],
+            })
+        );
+    }
 
     #[rstest]
     #[case(vec![RESEARCH_MUTATION_EFFECT_V1.to_string()], true)]

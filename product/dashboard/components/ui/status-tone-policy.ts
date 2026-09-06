@@ -102,6 +102,7 @@ export function actionStateTone(value: string): StatusBadgeTone {
 export function researchAvailabilityTone(value: string | null | undefined): StatusBadgeTone {
   if (value === "AVAILABLE") return "info";
   if (value === "STALE") return "warning";
+  if (value === "UNAVAILABLE") return "unavailable";
   return "neutral";
 }
 

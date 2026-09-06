@@ -31,10 +31,6 @@
   font-size: 10px;
 }
 
-.identityCell:hover strong {
-  color: var(--primary);
-}
-
 .verification {
   display: grid;
   justify-items: start;
