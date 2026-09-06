@@ -264,6 +264,7 @@ pub(super) async fn verify_reference_fact_catalog_head_v1(
     let Some((identity, sequence)) = head else {
         return Err(ReferenceFactCatalogErrorV1::StoreUntrusted);
     };
+
     if identity != entry.identity().as_bytes().as_slice()
         || u64::try_from(sequence).ok() != Some(entry.correction_sequence())
     {

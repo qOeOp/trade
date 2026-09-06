@@ -692,9 +692,9 @@ async fn verify_native_time_zone_lineage_v1(
                 && current_catalog.predecessor_identity().is_none()
             {
                 break;
-            } else {
-                return Err(TimeZoneErrorV1::StoreUntrusted);
             }
+
+            return Err(TimeZoneErrorV1::StoreUntrusted);
         };
         let prior = load_native_time_zone_fact_v1(transaction, predecessor, false)
             .await?
@@ -721,7 +721,11 @@ async fn verify_native_time_zone_lineage_v1(
         .iter()
         .position(|identity| *identity == last_cut_identity)
         .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
-    let expected = cut_facts.iter().rev().map(|fact| fact.identity());
+    let expected = cut_facts
+        .iter()
+        .rev()
+        .map(crate::owner::time_zone::TimeZoneFactV1::identity);
+
     if backward_lineage[position..]
         .iter()
         .copied()
@@ -843,7 +847,10 @@ mod tests {
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=21"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("count(*)=22"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attisdropped"));
-        assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("attribute.attcollation=attribute_type.typcollation"));
+        assert!(
+            TIME_ZONE_CUSTODY_QUERY_V1
+                .contains("attribute.attcollation=attribute_type.typcollation")
+        );
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("pg_catalog.pg_inherits"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("constraint_fact.connoinherit"));
         assert!(TIME_ZONE_CUSTODY_QUERY_V1.contains("foreign_relation.relnamespace"));

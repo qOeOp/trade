@@ -616,6 +616,7 @@ pub(crate) fn validate_ordered_cut_fact_sequence_v1(
         }
         seen.push(fact.identity());
     }
+
     for pair in facts.windows(2) {
         let prior = &pair[0];
         let current = &pair[1];

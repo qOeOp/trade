@@ -1009,7 +1009,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     ReplayCompositionOwnerV1::materialize_schema(owner_url)
         .await
         .unwrap();
-    let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
+    let leaves = Box::pin(persist_replay_reference_leaf_fixture_v1(&market, &base)).await;
     assert!(
         ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
