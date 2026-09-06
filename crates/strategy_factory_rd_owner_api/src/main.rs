@@ -1,7 +1,5 @@
 use std::{env, future::Future, sync::Arc, time::Duration};
 
-#[cfg(feature = "sealed-source-intake-composer-acceptance")]
-use axum::extract::Query;
 use axum::{
     Json, Router,
     body::Bytes,
