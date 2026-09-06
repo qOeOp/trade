@@ -407,6 +407,32 @@ async fn guarded_pools() -> (String, String, PgPool) {
     (owner_url, reader_url, admin)
 }
 
+async fn materialize_disposable_owner_schema(admin: &PgPool) {
+    sqlx::query("CREATE SCHEMA market_data_private AUTHORIZATION vibe_test_role_market_data_owner")
+        .execute(admin)
+        .await
+        .unwrap();
+    sqlx::query("ALTER SCHEMA market_data_private OWNER TO vibe_test_role_market_data_owner")
+        .execute(admin)
+        .await
+        .unwrap();
+    sqlx::query(
+        "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC, vibe_test_role_market_data_reader",
+    )
+    .execute(admin)
+    .await
+    .unwrap();
+    let admitted: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.pg_get_userbyid(namespace.nspowner)=$1 AND pg_catalog.has_schema_privilege($1,namespace.oid,'USAGE') AND pg_catalog.has_schema_privilege($1,namespace.oid,'CREATE') AND NOT pg_catalog.has_schema_privilege($2,namespace.oid,'USAGE') AND NOT pg_catalog.has_schema_privilege($2,namespace.oid,'CREATE') AND NOT EXISTS (SELECT 1 FROM pg_catalog.aclexplode(COALESCE(namespace.nspacl,pg_catalog.acldefault('n',namespace.nspowner))) privilege WHERE privilege.grantee=0 AND privilege.privilege_type IN ('USAGE','CREATE')) FROM pg_catalog.pg_namespace namespace WHERE namespace.nspname='market_data_private'",
+    )
+    .bind(OWNER_ROLE)
+    .bind(READER_ROLE)
+    .fetch_one(admin)
+    .await
+    .unwrap();
+    assert!(admitted);
+}
+
 async fn grant_reader(admin: &PgPool) {
     sqlx::query("GRANT USAGE ON SCHEMA market_data_private TO vibe_test_role_market_data_reader")
         .execute(admin)
@@ -3997,6 +4023,7 @@ fn postgres_owner_is_atomic_restart_safe_acl_sealed_and_fail_closed() {
 async fn run_postgres_owner_scenario() {
     let (owner_url, reader_url, admin) = guarded_pools().await;
     assert_legacy_sequence_five_migrates(&owner_url).await;
+    materialize_disposable_owner_schema(&admin).await;
     let owner = MarketDataOwnerPostgres::connect(&owner_url).await.unwrap();
     grant_reader(&admin).await;
     observation_census_schema_oracle(&reader_url, &admin).await;
@@ -6304,6 +6331,7 @@ async fn run_postgres_owner_scenario() {
         .execute(epoch_owner.pool())
         .await
         .unwrap();
+    materialize_disposable_owner_schema(&admin).await;
     Box::pin(instrument_master_postgres_oracle(
         &owner_url,
         &reader_url,
