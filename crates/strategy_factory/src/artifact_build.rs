@@ -693,6 +693,28 @@ pub struct ArtifactReviewV1 {
     pub allowed_next_actions: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ArtifactWasmPreviewStatusV1 {
+    NotRun,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactSourceReadbackV1 {
+    pub schema_version: u32,
+    pub build_request_identity: String,
+    pub attempt_identity: String,
+    pub artifact_identity: String,
+    pub observed_at_epoch_ms: u64,
+    pub file_name: String,
+    pub language: String,
+    pub source: String,
+    pub source_digest: String,
+    pub wasm_preview_status: ArtifactWasmPreviewStatusV1,
+    pub wasm_preview_reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ArtifactReviewActionProjectionV1 {
@@ -787,6 +809,15 @@ pub trait ArtifactBuildOwnerPort: Send + Sync {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
+}
+
+#[async_trait]
+pub trait ArtifactSourceOwnerPort: Send + Sync {
+    async fn read_source(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -1605,5 +1636,38 @@ mod tests {
         let mut tampered = canonical;
         tampered[0] ^= 1;
         assert!(verify_sandbox_source_capsule(&tampered, source).is_err());
+    }
+
+    #[rstest]
+    fn artifact_source_readback_wire_is_exact_and_never_implies_wasm_execution() {
+        let readback = ArtifactSourceReadbackV1 {
+            schema_version: 1,
+            build_request_identity: "build-1".to_string(),
+            attempt_identity: "attempt-1".to_string(),
+            artifact_identity: format!("blake3:{}", "a".repeat(64)),
+            observed_at_epoch_ms: 42,
+            file_name: "strategy.rs".to_string(),
+            language: "rust".to_string(),
+            source: "#![no_std]\n".to_string(),
+            source_digest: format!("sha256:{}", "b".repeat(64)),
+            wasm_preview_status: ArtifactWasmPreviewStatusV1::NotRun,
+            wasm_preview_reason: "WASM_PREVIEW_NOT_RUN".to_string(),
+        };
+        assert_eq!(
+            serde_json::to_value(readback).unwrap(),
+            serde_json::json!({
+                "schema_version": 1,
+                "build_request_identity": "build-1",
+                "attempt_identity": "attempt-1",
+                "artifact_identity": format!("blake3:{}", "a".repeat(64)),
+                "observed_at_epoch_ms": 42,
+                "file_name": "strategy.rs",
+                "language": "rust",
+                "source": "#![no_std]\n",
+                "source_digest": format!("sha256:{}", "b".repeat(64)),
+                "wasm_preview_status": "NOT_RUN",
+                "wasm_preview_reason": "WASM_PREVIEW_NOT_RUN",
+            })
+        );
     }
 }

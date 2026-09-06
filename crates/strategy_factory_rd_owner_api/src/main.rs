@@ -32,7 +32,7 @@ use vibe_strategy_factory::{
         ArtifactBuildError, ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction,
         ArtifactBuildOwnerPort, ArtifactBuildPreparationV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactRequestIdentityPreflightV1,
-        SANDBOX_SOCKET_DEFAULT,
+        ArtifactSourceOwnerPort, SANDBOX_SOCKET_DEFAULT,
     },
     artifact_build_postgres::PostgresArtifactBuildOwnerV1,
     develop_composer_operation_v2::DevelopComposerOperationResponseV2,
@@ -67,6 +67,7 @@ struct ApiState {
     product_edge: Arc<ProductEdgePostgresOwnerV1>,
     owner: Arc<PostgresResearchGoalOwnerV1>,
     artifact_owner: Arc<dyn ArtifactBuildOwnerPort>,
+    artifact_source_owner: Arc<dyn ArtifactSourceOwnerPort>,
     token_digest: [u8; 32],
     request_proof_digest: String,
     allow_acceptance_faults: bool,
@@ -198,7 +199,8 @@ async fn main() -> anyhow::Result<()> {
     let state = ApiState {
         product_edge: product_edge.clone(),
         owner: owner.clone(),
-        artifact_owner,
+        artifact_owner: artifact_owner.clone(),
+        artifact_source_owner: artifact_owner,
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
         allow_acceptance_faults,
@@ -270,6 +272,10 @@ async fn main() -> anyhow::Result<()> {
         .route(
             "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/resolve",
             post(resolve_artifact_build),
+        )
+        .route(
+            "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source",
+            get(read_artifact_source),
         )
         .route("/v2/develop-composer/runs", post(run_develop_composer))
         .route(
@@ -1091,6 +1097,36 @@ async fn resolve_artifact_build(
     }
 }
 
+async fn read_artifact_source(
+    State(state): State<ApiState>,
+    Path((build_request_identity, attempt_identity)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return artifact_rejection(
+            StatusCode::FORBIDDEN,
+            "AUTHORIZATION_LINEAGE_REJECTED",
+            &build_request_identity,
+            &attempt_identity,
+        );
+    }
+
+    match state
+        .artifact_source_owner
+        .read_source(&build_request_identity, &attempt_identity)
+        .await
+    {
+        Ok(Some(readback)) => (StatusCode::OK, Json(readback)).into_response(),
+        Ok(None) => artifact_rejection(
+            StatusCode::NOT_FOUND,
+            "ARTIFACT_SOURCE_UNAVAILABLE",
+            &build_request_identity,
+            &attempt_identity,
+        ),
+        Err(e) => artifact_error(&e, &build_request_identity, &attempt_identity),
+    }
+}
+
 async fn artifact_result_response(
     state: &ApiState,
     admission: &ProductEdgeAdmissionLocatorV1,
@@ -1866,7 +1902,8 @@ mod tests {
         let state = ApiState {
             product_edge,
             owner,
-            artifact_owner,
+            artifact_owner: artifact_owner.clone(),
+            artifact_source_owner: artifact_owner,
             token_digest,
             request_proof_digest,
             allow_acceptance_faults: false,

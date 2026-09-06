@@ -136,6 +136,7 @@ test("component retains real CodeMirror read-only affordances and no execution p
     "PanelFrameFooter",
     "InterfaceIcons.copy",
     "useReducedMotion",
+    "data-preview-mode",
   ]) {
     assert.ok(component.includes(required), `missing ${required}`);
   }
@@ -155,4 +156,6 @@ test("component retains real CodeMirror read-only affordances and no execution p
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b/iu);
   assert.doesNotMatch(css, /rgba?\(/iu);
   assert.doesNotMatch(css, /hsla?\(/iu);
+  assert.match(css, /\.shell\[data-preview-mode="compact"\]/u);
+  assert.match(css, /\.preview\[data-status="not_run"\]/u);
 });
