@@ -20,9 +20,12 @@ export default async function DashboardPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const { route } = await params;
-  await searchParams;
+  const query = await searchParams;
   const current = route?.length ? `/${route.join("/")}` : "/login";
   if (current === "/login") return <div className="min-h-screen bg-mine-page-bg"><AuthPage /></div>;
   if (current === "/market") return <DashboardShell current="/dashboard" />;
-  return <DashboardShell current={current} />;
+  const sourceIntakeRequestIdentity = typeof query.sourceRequestIdentity === "string"
+    ? query.sourceRequestIdentity
+    : undefined;
+  return <DashboardShell current={current} sourceIntakeRequestIdentity={sourceIntakeRequestIdentity} />;
 }
