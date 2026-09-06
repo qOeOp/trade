@@ -717,6 +717,43 @@ pub struct ArtifactSourceReadbackV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+pub struct ArtifactDirectoryCursorV1 {
+    pub prepared_at_epoch_ms: u64,
+    pub build_request_identity: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactDirectoryItemV1 {
+    pub build_request_identity: String,
+    pub attempt_identity: String,
+    pub artifact_identity: String,
+    pub intent_identity: String,
+    pub committed_at_epoch_ms: u64,
+    pub build_target: String,
+    pub build_security_state: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum ArtifactDirectoryCompletenessV1 {
+    Complete,
+    Partial,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactDirectoryReadbackV1 {
+    pub schema_version: u32,
+    pub observed_at_epoch_ms: u64,
+    pub completeness: ArtifactDirectoryCompletenessV1,
+    pub omitted_count: u32,
+    pub next_cursor: Option<ArtifactDirectoryCursorV1>,
+    pub items: Vec<ArtifactDirectoryItemV1>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ArtifactReviewActionProjectionV1 {
     pub schema_version: u32,
     pub actions: Vec<ArtifactReviewActionV1>,
@@ -818,6 +855,15 @@ pub trait ArtifactSourceOwnerPort: Send + Sync {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError>;
+}
+
+#[async_trait]
+pub trait ArtifactDirectoryOwnerPort: Send + Sync {
+    async fn list_artifacts(
+        &self,
+        after: Option<&ArtifactDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -1667,6 +1713,51 @@ mod tests {
                 "source_digest": format!("sha256:{}", "b".repeat(64)),
                 "wasm_preview_status": "NOT_RUN",
                 "wasm_preview_reason": "WASM_PREVIEW_NOT_RUN",
+            })
+        );
+    }
+
+    #[rstest]
+    fn artifact_directory_readback_wire_is_bounded_and_read_only() {
+        let readback = ArtifactDirectoryReadbackV1 {
+            schema_version: 1,
+            observed_at_epoch_ms: 84,
+            completeness: ArtifactDirectoryCompletenessV1::Partial,
+            omitted_count: 1,
+            next_cursor: Some(ArtifactDirectoryCursorV1 {
+                prepared_at_epoch_ms: 42,
+                build_request_identity: "build-1".to_string(),
+            }),
+            items: vec![ArtifactDirectoryItemV1 {
+                build_request_identity: "build-1".to_string(),
+                attempt_identity: "attempt-1".to_string(),
+                artifact_identity: format!("blake3:{}", "a".repeat(64)),
+                intent_identity: "intent-1".to_string(),
+                committed_at_epoch_ms: 43,
+                build_target: "wasm32-wasip1".to_string(),
+                build_security_state: "ADMITTED".to_string(),
+            }],
+        };
+        assert_eq!(
+            serde_json::to_value(readback).unwrap(),
+            serde_json::json!({
+                "schema_version": 1,
+                "observed_at_epoch_ms": 84,
+                "completeness": "PARTIAL",
+                "omitted_count": 1,
+                "next_cursor": {
+                    "prepared_at_epoch_ms": 42,
+                    "build_request_identity": "build-1",
+                },
+                "items": [{
+                    "build_request_identity": "build-1",
+                    "attempt_identity": "attempt-1",
+                    "artifact_identity": format!("blake3:{}", "a".repeat(64)),
+                    "intent_identity": "intent-1",
+                    "committed_at_epoch_ms": 43,
+                    "build_target": "wasm32-wasip1",
+                    "build_security_state": "ADMITTED",
+                }],
             })
         );
     }

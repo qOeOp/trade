@@ -16,6 +16,8 @@ use crate::{
         ArtifactBuildInvocationCustodyV1, ArtifactBuildNextLegalAction, ArtifactBuildOwnerPort,
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
+        ArtifactDirectoryCompletenessV1, ArtifactDirectoryCursorV1, ArtifactDirectoryItemV1,
+        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1,
         ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
         ArtifactWasmPreviewStatusV1, LegacyPreparedAttemptDrainReadbackV1,
         ReservedArtifactBuildInvocationV1, StoredArtifactBuildInvocationSnapshotV1,
@@ -1423,6 +1425,138 @@ impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
         };
         transaction.commit().await.map_err(storage)?;
         Ok(Some(readback))
+    }
+}
+
+const ARTIFACT_DIRECTORY_MAX_RETURNED: u32 = 20;
+const ARTIFACT_DIRECTORY_MAX_SCANNED: i64 = 60;
+
+#[async_trait]
+impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
+    async fn list_artifacts(
+        &self,
+        after: Option<&ArtifactDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
+        if !(1..=ARTIFACT_DIRECTORY_MAX_RETURNED).contains(&limit)
+            || after.is_some_and(|cursor| {
+                cursor.build_request_identity.is_empty()
+                    || cursor.build_request_identity.len() > 192
+                    || !cursor.build_request_identity.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
+                    })
+            })
+        {
+            return Err(ArtifactBuildError::Candidate(
+                "artifact directory cursor or limit is invalid",
+            ));
+        }
+
+        let scan_limit = ARTIFACT_DIRECTORY_MAX_SCANNED + 1;
+        let candidate_rows = if let Some(cursor) = after {
+            sqlx::query(
+                "SELECT build_request_identity, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 WHERE (prepared_at_epoch_ms, build_request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $3",
+            )
+            .bind(i64::try_from(cursor.prepared_at_epoch_ms).map_err(json_storage)?)
+            .bind(&cursor.build_request_identity)
+            .bind(scan_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage)?
+        } else {
+            sqlx::query(
+                "SELECT build_request_identity, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $1",
+            )
+            .bind(scan_limit)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(storage)?
+        };
+
+        let has_unscanned_candidate = candidate_rows.len()
+            > usize::try_from(ARTIFACT_DIRECTORY_MAX_SCANNED).map_err(json_storage)?;
+        let candidates = candidate_rows
+            .into_iter()
+            .take(usize::try_from(ARTIFACT_DIRECTORY_MAX_SCANNED).map_err(json_storage)?)
+            .collect::<Vec<_>>();
+        let candidate_count = candidates.len();
+        let mut items = Vec::with_capacity(usize::try_from(limit).map_err(json_storage)?);
+        let mut omitted_count = 0_u32;
+        let mut last_cursor = None;
+        let mut scanned = 0_usize;
+
+        for row in candidates {
+            let build_request_identity = row
+                .try_get::<String, _>("build_request_identity")
+                .map_err(storage)?;
+            let prepared_at_epoch_ms = u64::try_from(
+                row.try_get::<i64, _>("prepared_at_epoch_ms")
+                    .map_err(storage)?,
+            )
+            .map_err(json_storage)?;
+            last_cursor = Some(ArtifactDirectoryCursorV1 {
+                prepared_at_epoch_ms,
+                build_request_identity: build_request_identity.clone(),
+            });
+            scanned += 1;
+
+            let mut transaction = self.pool.begin().await.map_err(storage)?;
+            let custody = Box::pin(admit_attempt_custody_in_transaction(
+                &mut transaction,
+                &build_request_identity,
+            ))
+            .await;
+
+            match custody {
+                Ok(Some(custody)) => {
+                    let receipt = custody.attempt.receipt.as_ref();
+                    let review = custody.artifact_review.as_ref();
+                    if let (Some(receipt), Some(review)) = (receipt, review)
+                        && receipt.disposition == ArtifactBuildDisposition::Success
+                        && receipt.artifact_identity.as_deref()
+                            == Some(review.artifact_identity.artifact_digest.as_str())
+                    {
+                        items.push(ArtifactDirectoryItemV1 {
+                            build_request_identity,
+                            attempt_identity: custody.attempt.request.attempt_identity.clone(),
+                            artifact_identity: review.artifact_identity.artifact_digest.clone(),
+                            intent_identity: custody.attempt.request.intent_identity.clone(),
+                            committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+                            build_target: review.build_receipt.target.clone(),
+                            build_security_state: review.build_security_state.clone(),
+                        });
+                    } else {
+                        omitted_count = omitted_count.saturating_add(1);
+                    }
+                    transaction.commit().await.map_err(storage)?;
+                }
+                Ok(None) => {
+                    omitted_count = omitted_count.saturating_add(1);
+                    transaction.commit().await.map_err(storage)?;
+                }
+                Err(e) => return Err(e),
+            }
+
+            if items.len() == usize::try_from(limit).map_err(json_storage)? {
+                break;
+            }
+        }
+
+        let next_cursor = (has_unscanned_candidate || scanned < candidate_count)
+            .then_some(last_cursor)
+            .flatten();
+        Ok(ArtifactDirectoryReadbackV1 {
+            schema_version: 1,
+            observed_at_epoch_ms: (self.clock)()?,
+            completeness: if omitted_count == 0 {
+                ArtifactDirectoryCompletenessV1::Complete
+            } else {
+                ArtifactDirectoryCompletenessV1::Partial
+            },
+            omitted_count,
+            next_cursor,
+            items,
+        })
     }
 }
 
@@ -3577,6 +3711,33 @@ mod postgres_freshness_tests {
             .await,
             before_source_read,
             "source read must not mutate terminal custody",
+        );
+        let directory = owner.list_artifacts(None, 20).await.unwrap();
+        let directory_item = directory
+            .items
+            .iter()
+            .find(|item| {
+                item.build_request_identity == sealed_success_request.build_request_identity
+            })
+            .expect("terminal-success custody appears in the verified directory");
+        assert_eq!(
+            directory_item.attempt_identity,
+            sealed_success_request.attempt_identity
+        );
+        assert_eq!(directory_item.artifact_identity, source.artifact_identity);
+        assert_eq!(directory_item.intent_identity, intent_identity);
+        assert_eq!(directory_item.build_security_state, "ADMITTED");
+        assert_eq!(
+            state_snapshot(
+                &pool,
+                &research_request_identity,
+                &sealed_success_request,
+                &intent_identity,
+                &family_identity,
+            )
+            .await,
+            before_source_read,
+            "directory read must not mutate terminal custody",
         );
         assert_eq!(
             owner
