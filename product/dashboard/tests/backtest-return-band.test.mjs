@@ -144,12 +144,24 @@ test("strategy ink, drawdown, and time-window helpers remain deterministic", () 
       { key: 10, length: 2, widthFactor: 0.8 + (15 / 17) * 0.4 },
     ],
   );
-  assert.deepEqual(buildBacktestDrawdownRows(brushInput), []);
+  const fixedScale = (value) => 100 - value * 10;
+  assert.deepEqual(buildBacktestDrawdownRows(brushInput, fixedScale), []);
   assert.ok(buildBacktestDrawdownRows([
     { at: bandPoints[0].at, value: 3 },
     { at: bandPoints[1].at, value: 1 },
     { at: bandPoints[2].at, value: 2 },
-  ]).length > 0);
+  ], fixedScale).length > 0);
+
+  const shallowRows = buildBacktestDrawdownRows([
+    { at: bandPoints[0].at, value: 0 },
+    { at: bandPoints[1].at, value: -0.01 },
+  ], fixedScale);
+  const deepRows = buildBacktestDrawdownRows([
+    { at: bandPoints[0].at, value: 0 },
+    { at: bandPoints[1].at, value: -10 },
+  ], fixedScale);
+  assert.equal(shallowRows.length, 1);
+  assert.equal(deepRows.length, 25);
 
   assert.deepEqual(clampBacktestWindow(-20, 30, 10), { start: 0, end: 9 });
   assert.deepEqual(clampBacktestWindow(8, 3, 10), { start: 8, end: 9 });

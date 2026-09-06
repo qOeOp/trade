@@ -270,7 +270,10 @@ function BacktestReturnCanvas({
   );
   const monthLayers = useMemo(() => buildBacktestMonthLayers(visiblePoints), [visiblePoints]);
   const brushSegments = useMemo(() => buildBacktestBrushSegments(visibleStrategy), [visibleStrategy]);
-  const drawdownRows = useMemo(() => buildBacktestDrawdownRows(visibleStrategy), [visibleStrategy]);
+  const drawdownRows = useMemo(
+    () => buildBacktestDrawdownRows(visibleStrategy, geometry.yScale),
+    [geometry.yScale, visibleStrategy],
+  );
   const strategyPath = useMemo(() => buildLinePath(visibleStrategy, geometry), [geometry, visibleStrategy]);
   const benchmarkPath = useMemo(() => buildLinePath(visibleBenchmark, geometry), [geometry, visibleBenchmark]);
 
@@ -469,7 +472,7 @@ function DrawdownRows({
   points: readonly BacktestReturnValuePoint[];
   geometry: ChartGeometry;
 }) {
-  const rowStep = Math.min(4, geometry.plotHeight / Math.max(1, rows.length));
+  const rowStep = 4;
   const dashWidth = Math.max(1, geometry.xScale.step() * 0.72);
   return (
     <g className={styles.drawdownRows}>

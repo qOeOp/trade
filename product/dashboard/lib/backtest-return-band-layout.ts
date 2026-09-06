@@ -80,20 +80,22 @@ export function buildBacktestBrushSegments(
 
 export function buildBacktestDrawdownRows(
   points: readonly BacktestReturnValuePoint[],
-  rowCount = 16,
+  valueToY: (value: number) => number,
+  rowStep = 4,
 ): BacktestDrawdownRow[] {
-  if (points.length === 0 || rowCount <= 0) return [];
+  if (points.length === 0 || rowStep <= 0) return [];
   let peak = -Infinity;
-  const drawdowns = points.map((point) => {
+  const depthPixels = points.map((point) => {
     peak = Math.max(peak, point.value);
-    return Math.max(0, peak - point.value);
+    return Math.max(0, valueToY(point.value) - valueToY(peak));
   });
-  const maximum = Math.max(...drawdowns);
+  const maximum = Math.max(...depthPixels);
   if (maximum <= 0) return [];
   const rows: BacktestDrawdownRow[] = [];
+  const rowCount = Math.ceil(maximum / rowStep);
   for (let row = 0; row < rowCount; row += 1) {
-    const threshold = maximum * ((row + 1) / rowCount);
-    const indices = drawdowns.flatMap((value, index) => value >= threshold ? [index] : []);
+    const threshold = row * rowStep;
+    const indices = depthPixels.flatMap((value, index) => value > threshold ? [index] : []);
     if (indices.length > 0) rows.push({ key: row, indices });
   }
   return rows;
