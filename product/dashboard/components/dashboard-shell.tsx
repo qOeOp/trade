@@ -16,6 +16,7 @@ import { OperationsSchedulesPreview } from "./operations-schedules-preview";
 import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ResearchDirectory } from "./research-directory";
+import { SourceIntakeReadbackWorkbench } from "./source-intake-readback-workbench";
 import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-card";
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
@@ -99,12 +100,14 @@ export function DashboardShell({
   workerIdentity,
   artifactBuildRequestIdentity,
   artifactAttemptIdentity,
+  sourceIntakeRequestIdentity,
 }: {
   current: string;
   runIdentity?: string;
   workerIdentity?: string;
   artifactBuildRequestIdentity?: string;
   artifactAttemptIdentity?: string;
+  sourceIntakeRequestIdentity?: string;
 }) {
   const activeModule = moduleFor(current);
   const page = pageFor(current);
@@ -118,11 +121,12 @@ export function DashboardShell({
     && Boolean(artifactBuildRequestIdentity && artifactAttemptIdentity);
   const artifactDirectory = current === "/rd/artifacts" && !artifactSourceDetail;
   const researchDirectory = current === "/rd/research";
+  const sourceIntakeReadback = current === "/rd";
   const marketDataFoundation = current === "/data" || current === "/data/pit-catalog";
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
-  const connected = operationsConnected || researchDirectory || artifactDirectory || artifactSourceDetail || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
+  const connected = operationsConnected || sourceIntakeReadback || researchDirectory || artifactDirectory || artifactSourceDetail || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -139,13 +143,15 @@ export function DashboardShell({
             </div>
             <div className="authority-block">
               <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : sourceIntakeReadback ? "Source Intake exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
               <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
                 : researchDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
+                : sourceIntakeReadback
+                ? "IMPLEMENTATION_ADMITTED - OWNER_POINT_READ_ONLY - NO_SUBMIT_OR_RESOLVE"
                 : marketDataFoundation
                 ? "CURRENT/PARTIAL - DURABLE_MD_OWNER_POSTGRES_FOUNDATION_NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER"
                 : runtimeFoundation
@@ -169,6 +175,7 @@ export function DashboardShell({
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview />
+              : sourceIntakeReadback ? <SourceIntakeReadbackWorkbench initialRequestIdentity={sourceIntakeRequestIdentity} />
               : researchDirectory ? <ResearchDirectory />
               : artifactDirectory ? <ArtifactDirectory />
               : artifactSourceDetail ? <ArtifactSourceWorkspace
@@ -187,6 +194,8 @@ export function DashboardShell({
               ? "Only terminal Artifacts with current Owner custody and sealed build review are listed. Unverified candidates remain withheld."
               : researchDirectory
               ? "Only current V2 Research custody is listed. Payloads, legacy candidates and every submit or resolution action remain withheld."
+              : sourceIntakeReadback
+              ? "Only one exact Source Intake Owner readback is exposed. Source payload, provider details, submit and resolution actions remain withheld."
               : marketDataFoundation
               ? "Only the sealed Market Data Owner foundation geometry is shown. Product resolution, rows, timelines and actions remain unavailable."
               : runtimeFoundation

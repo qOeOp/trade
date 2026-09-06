@@ -1,0 +1,235 @@
+.panel {
+  align-self: start;
+}
+
+.body {
+  padding: 14px;
+}
+
+.lookupRail {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inputShell {
+  position: relative;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.inputShell > svg {
+  position: absolute;
+  top: 50%;
+  left: 13px;
+  color: var(--text-muted);
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+
+.inputShell input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0 14px 0 40px;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  outline: 0;
+  color: var(--text-primary);
+  background: var(--surface-panel);
+  font-size: 12px;
+  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.inputShell input::placeholder {
+  color: var(--text-muted);
+}
+
+.inputShell input:hover {
+  background: var(--surface-hover);
+}
+
+.inputShell input:focus-visible {
+  border-color: var(--border-strong);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 26%, transparent);
+}
+
+.inputShell input[aria-invalid="true"] {
+  border-color: var(--status-warning);
+}
+
+.openButton {
+  min-height: 42px;
+  padding: 0 18px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--action-primary-text);
+  background: var(--action-primary);
+  font-size: 11px;
+  font-weight: 720;
+  cursor: pointer;
+  transition: background 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+}
+
+.openButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--action-primary) 88%, var(--text-primary));
+  transform: translateY(-1px);
+}
+
+.openButton:focus-visible {
+  outline: 0;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+.openButton:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
+.validation {
+  margin: 8px 12px 0;
+  color: var(--status-warning);
+  font-size: 10px;
+}
+
+.result {
+  min-height: 122px;
+  margin-top: 14px;
+}
+
+.result :global(.empty-state),
+.result :global(.unavailable-state) {
+  min-height: 122px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: 14px;
+  background: var(--surface-panel);
+}
+
+.groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.group {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: 14px;
+  background: var(--surface-card);
+}
+
+.group h3 {
+  min-height: 38px;
+  margin: 0;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  background: var(--panel-chrome-bg);
+  font: 720 9px/1.2 var(--font-mono);
+  letter-spacing: .07em;
+  text-transform: uppercase;
+}
+
+.group dl {
+  margin: 0;
+  padding: 4px 14px 8px;
+}
+
+.fact {
+  min-height: 44px;
+  padding: 10px 0;
+  display: grid;
+  grid-template-columns: minmax(74px, .55fr) minmax(0, 1.45fr);
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+}
+
+.fact + .fact {
+  border-top: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+}
+
+.fact dt,
+.fact dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.fact dt {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.fact dd {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 9px !important;
+}
+
+.skeletonLines {
+  min-height: 132px;
+  padding: 14px;
+  display: grid;
+  align-content: start;
+  gap: 13px;
+}
+
+.skeletonLines i {
+  height: 12px;
+  border-radius: 999px;
+  background: var(--surface-panel);
+  animation: readback-pulse 1.2s ease-in-out infinite alternate;
+}
+
+.skeletonLines i:nth-child(2) {
+  width: 78%;
+}
+
+.skeletonLines i:nth-child(3) {
+  width: 58%;
+}
+
+@keyframes readback-pulse {
+  from { opacity: .5; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 900px) {
+  .groups {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .lookupRail {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .openButton {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .openButton,
+  .inputShell input,
+  .skeletonLines i {
+    animation: none;
+    transition: none;
+  }
+}
