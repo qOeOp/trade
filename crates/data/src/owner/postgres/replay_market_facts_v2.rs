@@ -1200,6 +1200,7 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
+
         if super::time_zone::verify_time_zone_custody_in_transaction_v1(&mut transaction)
             .await
             .is_err()
