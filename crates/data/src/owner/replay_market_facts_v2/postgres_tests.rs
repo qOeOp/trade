@@ -958,6 +958,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
                 persist_replay_alternate_r0_time_zone_fixture_v1,
                 persist_replay_joined_projection_fixture_v1,
                 persist_replay_reference_leaf_fixture_v1,
+                persist_replay_same_source_unbound_r0_time_zone_fixture_v1,
                 replay_composition_market_base_fixture_v1,
             },
         },
@@ -1365,10 +1366,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             )
         };
     let before = replay_positive_state(market_mutation_pool).await;
-    let alternate_time_zone =
-        persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
-            .await;
-    let alternate_time_zone_composition =
+    let composition_with_time_zone = |time_zone_locator: ReplayCompositionRequestLocatorV1| {
         ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
             command.composition().composer_locator().clone(),
             command.composition().pit_locator().clone(),
@@ -1383,14 +1381,20 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             command.composition().reference_fact_r0_locator(),
             command.composition().calendar_locator(),
             command.composition().session_locator(),
-            ReplayCompositionRequestLocatorV1::from_untrusted(
-                alternate_time_zone.request_identity,
-                alternate_time_zone.request_meaning_digest,
-            ),
+            time_zone_locator,
             command.composition().market_semantics_locator(),
             command.composition().correction_policy_locator(),
             command.composition().corporate_action_locator(),
-        );
+        )
+    };
+    let alternate_time_zone =
+        persist_replay_alternate_r0_time_zone_fixture_v1(&market, &base, d(243), d(250), d(251))
+            .await;
+    let alternate_time_zone_composition =
+        composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
+            alternate_time_zone.request_identity,
+            alternate_time_zone.request_meaning_digest,
+        ));
     let alternate_time_zone_command =
         ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(252), alternate_time_zone_composition)
             .unwrap();
@@ -1399,6 +1403,50 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
     );
     assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+    let first_invalid_sequence = leaves.time_zone_correction_sequence.checked_add(1).unwrap();
+    let (wrong_digest_time_zone, wrong_digest_fact) =
+        persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
+            &market,
+            &base,
+            d(234),
+            leaves.time_zone_fact_identity,
+            first_invalid_sequence,
+            base.native_r0.receipt().request_identity,
+            base.native_r0.receipt().request_meaning_digest,
+            base.native_r0.record().identity(),
+            d(235),
+        )
+        .await;
+    let (missing_r0_time_zone, _) = persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
+        &market,
+        &base,
+        d(236),
+        wrong_digest_fact,
+        first_invalid_sequence.checked_add(1).unwrap(),
+        d(237),
+        d(238),
+        d(239),
+        d(239),
+    )
+    .await;
+    for (issuance_identity, locator) in [
+        (d(230), wrong_digest_time_zone),
+        (d(231), missing_r0_time_zone),
+    ] {
+        let composition =
+            composition_with_time_zone(ReplayCompositionRequestLocatorV1::from_untrusted(
+                locator.request_identity,
+                locator.request_meaning_digest,
+            ));
+        let request =
+            ReplayCompositionLocatorOnlyIssuanceRequestV1::new(issuance_identity, composition)
+                .unwrap();
+        assert_eq!(
+            owner.issue_binding_v1(&request).await,
+            Err(ReplayCompositionBindingErrorV1::DependencyMismatch)
+        );
+        assert_eq!(replay_positive_state(market_mutation_pool).await, before);
+    }
     let mut cross_design_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *cross_design_tx)

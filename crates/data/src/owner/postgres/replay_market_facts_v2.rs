@@ -1468,6 +1468,13 @@ impl ReplayCompositionOwnerV1 {
         if source.locator() != request.source_binding_locator() {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
+        let native_reference_r0s = recover_native_reference_r0s_v1(
+            &mut transaction,
+            &calendar,
+            &session,
+            &time_zone,
+        )
+        .await?;
         let coordinates = coordinates_from_r0(&r0)?;
         let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
             source_binding: &source,
@@ -1638,6 +1645,7 @@ impl ReplayCompositionOwnerV1 {
             &universe,
             &instrument_master,
             &source,
+            &native_reference_r0s,
         )?;
         let composed_request =
             UntrustedReplayMarketFactsCompositionRequestV1::new(replay, binding.record().locator());
@@ -2191,29 +2199,161 @@ struct NativeReferenceFactEvidenceV1 {
     r0_coordinate_digest: crate::owner::source_binding::BindingDigest,
 }
 
+fn calendar_native_reference_evidence_v1(
+    fact: &crate::owner::calendar::CalendarFactV1,
+) -> NativeReferenceFactEvidenceV1 {
+    NativeReferenceFactEvidenceV1 {
+        source_binding_identity: fact.source_binding_identity,
+        source_binding_fact_digest: fact.source_binding_fact_digest,
+        source_binding_lineage_root: fact.source_binding_lineage_root,
+        source_binding_lineage_version: fact.source_binding_lineage_version,
+        provider_available_ns: fact.provider_available_ns,
+        retrieval_ns: fact.retrieval_ns,
+        correction_publication_ns: fact.correction_publication_ns,
+        owner_observation_ns: fact.owner_observation_ns,
+        decision_cut: fact.decision_cut,
+        r0_coordinate_identity: fact.r0_coordinate_identity,
+        r0_coordinate_digest: fact.r0_coordinate_digest,
+    }
+}
+
+fn session_native_reference_evidence_v1(
+    fact: &crate::owner::session::SessionFactV1,
+) -> NativeReferenceFactEvidenceV1 {
+    let evidence = fact.evidence();
+    NativeReferenceFactEvidenceV1 {
+        source_binding_identity: evidence.source_binding_identity,
+        source_binding_fact_digest: evidence.source_binding_fact_digest,
+        source_binding_lineage_root: evidence.source_binding_lineage_root,
+        source_binding_lineage_version: evidence.source_binding_lineage_version,
+        provider_available_ns: evidence.provider_available_ns,
+        retrieval_ns: evidence.retrieval_ns,
+        correction_publication_ns: evidence.correction_publication_ns,
+        owner_observation_ns: evidence.owner_observation_ns,
+        decision_cut: evidence.decision_cut,
+        r0_coordinate_identity: evidence.r0_coordinate_identity,
+        r0_coordinate_digest: evidence.r0_coordinate_digest,
+    }
+}
+
+fn time_zone_native_reference_evidence_v1(
+    fact: &crate::owner::time_zone::TimeZoneFactV1,
+) -> NativeReferenceFactEvidenceV1 {
+    let evidence = fact.evidence();
+    NativeReferenceFactEvidenceV1 {
+        source_binding_identity: evidence.source_binding_identity,
+        source_binding_fact_digest: evidence.source_binding_fact_digest,
+        source_binding_lineage_root: evidence.source_binding_lineage_root,
+        source_binding_lineage_version: evidence.source_binding_lineage_version,
+        provider_available_ns: evidence.provider_available_ns,
+        retrieval_ns: evidence.retrieval_ns,
+        correction_publication_ns: evidence.correction_publication_ns,
+        owner_observation_ns: evidence.owner_observation_ns,
+        decision_cut: evidence.decision_cut,
+        r0_coordinate_identity: evidence.r0_coordinate_identity,
+        r0_coordinate_digest: evidence.r0_coordinate_digest,
+    }
+}
+
+async fn recover_native_reference_r0s_v1(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    calendar: &crate::owner::calendar::CalendarReadbackV1,
+    session: &crate::owner::session::SessionReadbackV1,
+    time_zone: &crate::owner::time_zone::TimeZoneReadbackV1,
+) -> Result<
+    Vec<crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1>,
+    ReplayCompositionBindingErrorV1,
+> {
+    let evidence = calendar
+        .facts()
+        .iter()
+        .map(calendar_native_reference_evidence_v1)
+        .chain(
+            session
+                .facts()
+                .iter()
+                .map(session_native_reference_evidence_v1),
+        )
+        .chain(
+            time_zone
+                .facts()
+                .iter()
+                .map(time_zone_native_reference_evidence_v1),
+        )
+        .collect::<Vec<_>>();
+    let mut readbacks = Vec::new();
+
+    for fact in evidence {
+        if readbacks.iter().any(
+            |readback: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1| {
+                readback.record().identity() == fact.r0_coordinate_identity
+            },
+        ) {
+            continue;
+        }
+        let readback = super::reference_fact_coordinates::load_reference_fact_r0_readback_by_record_v1(
+            transaction,
+            fact.r0_coordinate_identity,
+        )
+        .await
+        .map_err(|error| match error {
+            crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ErrorV1::StoreUnavailable => {
+                ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+            }
+            _ => ReplayCompositionBindingErrorV1::DependencyMismatch,
+        })?
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+        if readback.record().digest() != fact.r0_coordinate_digest {
+            return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+        }
+        readbacks.push(readback);
+    }
+    Ok(readbacks)
+}
+
+fn exact_native_reference_r0_v1(
+    readbacks: &[crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1],
+    fact: NativeReferenceFactEvidenceV1,
+) -> Result<
+    &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    ReplayCompositionBindingErrorV1,
+> {
+    let readback = readbacks
+        .iter()
+        .find(|readback| readback.record().identity() == fact.r0_coordinate_identity)
+        .ok_or(ReplayCompositionBindingErrorV1::DependencyMismatch)?;
+    if readback.record().digest() != fact.r0_coordinate_digest {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    Ok(readback)
+}
+
 fn validate_native_reference_fact_evidence_v1(
-    r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    selected_r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
+    native_r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
     source: &crate::owner::source_binding::SourceBindingOwnerReadback,
     fact: NativeReferenceFactEvidenceV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
-    let record = r0.record();
+    let selected = selected_r0.record();
+    let native = native_r0.record();
 
     if fact.source_binding_identity != source.binding_id()
         || fact.source_binding_fact_digest != source.fact_digest()
         || fact.source_binding_lineage_root != source.lineage_root()
         || fact.source_binding_lineage_version != source.lineage_version()
-        || fact.provider_available_ns <= 0
-        || fact.retrieval_ns <= 0
-        || fact.correction_publication_ns <= 0
-        || fact.owner_observation_ns <= 0
-        || fact.provider_available_ns > fact.owner_observation_ns
-        || fact.retrieval_ns > fact.owner_observation_ns
-        || fact.correction_publication_ns > fact.owner_observation_ns
-        || fact.owner_observation_ns > record.owner_observation_ns
-        || fact.decision_cut == 0
-        || fact.decision_cut > record.decision_cut
-        || fact.r0_coordinate_identity.as_bytes() == &[0; 32]
-        || fact.r0_coordinate_digest.as_bytes() == &[0; 32]
+        || native.evidence.source_binding_identity != source.binding_id()
+        || native.evidence.source_binding_fact_digest != source.fact_digest()
+        || native.evidence.source_binding_lineage_root != source.lineage_root()
+        || native.evidence.source_binding_lineage_version != source.lineage_version()
+        || fact.r0_coordinate_identity != native.identity()
+        || fact.r0_coordinate_digest != native.digest()
+        || fact.provider_available_ns != native.provider_available_ns
+        || fact.retrieval_ns != native.retrieval_ns
+        || fact.correction_publication_ns != native.correction_publication_ns
+        || fact.owner_observation_ns != native.owner_observation_ns
+        || fact.decision_cut != native.decision_cut
+        || native.owner_observation_ns > selected.owner_observation_ns
+        || native.decision_cut > selected.decision_cut
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
@@ -2236,6 +2376,9 @@ fn build_reference_cuts(
     universe: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
     instrument_master: &crate::owner::session::InstrumentMasterReferenceV1,
     source: &crate::owner::source_binding::SourceBindingOwnerReadback,
+    native_reference_r0s: &[
+        crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1
+    ],
 ) -> Result<Vec<ReplayReferenceFactCutProposalV2>, ReplayCompositionBindingErrorV1> {
     let instrument_cut_identity = instrument_master.cut_digest;
     let r0_record = r0.record();
@@ -2298,22 +2441,12 @@ fn build_reference_cuts(
         .facts()
         .iter()
         .map(|fact| {
+            let evidence = calendar_native_reference_evidence_v1(fact);
             validate_native_reference_fact_evidence_v1(
                 r0,
+                exact_native_reference_r0_v1(native_reference_r0s, evidence)?,
                 source,
-                NativeReferenceFactEvidenceV1 {
-                    source_binding_identity: fact.source_binding_identity,
-                    source_binding_fact_digest: fact.source_binding_fact_digest,
-                    source_binding_lineage_root: fact.source_binding_lineage_root,
-                    source_binding_lineage_version: fact.source_binding_lineage_version,
-                    provider_available_ns: fact.provider_available_ns,
-                    retrieval_ns: fact.retrieval_ns,
-                    correction_publication_ns: fact.correction_publication_ns,
-                    owner_observation_ns: fact.owner_observation_ns,
-                    decision_cut: fact.decision_cut,
-                    r0_coordinate_identity: fact.r0_coordinate_identity,
-                    r0_coordinate_digest: fact.r0_coordinate_digest,
-                },
+                evidence,
             )?;
             Ok(proposal(
                 ReplayReferenceFactValueV2::Calendar {
@@ -2340,22 +2473,12 @@ fn build_reference_cuts(
         .iter()
         .map(|fact| {
             let evidence = fact.evidence();
+            let native_evidence = session_native_reference_evidence_v1(fact);
             validate_native_reference_fact_evidence_v1(
                 r0,
+                exact_native_reference_r0_v1(native_reference_r0s, native_evidence)?,
                 source,
-                NativeReferenceFactEvidenceV1 {
-                    source_binding_identity: evidence.source_binding_identity,
-                    source_binding_fact_digest: evidence.source_binding_fact_digest,
-                    source_binding_lineage_root: evidence.source_binding_lineage_root,
-                    source_binding_lineage_version: evidence.source_binding_lineage_version,
-                    provider_available_ns: evidence.provider_available_ns,
-                    retrieval_ns: evidence.retrieval_ns,
-                    correction_publication_ns: evidence.correction_publication_ns,
-                    owner_observation_ns: evidence.owner_observation_ns,
-                    decision_cut: evidence.decision_cut,
-                    r0_coordinate_identity: evidence.r0_coordinate_identity,
-                    r0_coordinate_digest: evidence.r0_coordinate_digest,
-                },
+                native_evidence,
             )?;
             Ok(proposal(
                 ReplayReferenceFactValueV2::Session {
@@ -2383,22 +2506,12 @@ fn build_reference_cuts(
         .iter()
         .map(|fact| {
             let evidence = fact.evidence();
+            let native_evidence = time_zone_native_reference_evidence_v1(fact);
             validate_native_reference_fact_evidence_v1(
                 r0,
+                exact_native_reference_r0_v1(native_reference_r0s, native_evidence)?,
                 source,
-                NativeReferenceFactEvidenceV1 {
-                    source_binding_identity: evidence.source_binding_identity,
-                    source_binding_fact_digest: evidence.source_binding_fact_digest,
-                    source_binding_lineage_root: evidence.source_binding_lineage_root,
-                    source_binding_lineage_version: evidence.source_binding_lineage_version,
-                    provider_available_ns: evidence.provider_available_ns,
-                    retrieval_ns: evidence.retrieval_ns,
-                    correction_publication_ns: evidence.correction_publication_ns,
-                    owner_observation_ns: evidence.owner_observation_ns,
-                    decision_cut: evidence.decision_cut,
-                    r0_coordinate_identity: evidence.r0_coordinate_identity,
-                    r0_coordinate_digest: evidence.r0_coordinate_digest,
-                },
+                native_evidence,
             )?;
             Ok(proposal(
                 ReplayReferenceFactValueV2::TimeZone {
@@ -2425,6 +2538,7 @@ fn build_reference_cuts(
         .iter()
         .map(|fact| {
             validate_native_reference_fact_evidence_v1(
+                r0,
                 r0,
                 source,
                 NativeReferenceFactEvidenceV1 {
@@ -2474,6 +2588,7 @@ fn build_reference_cuts(
         .collect::<Result<Vec<_>, ReplayCompositionBindingErrorV1>>()?;
     validate_native_reference_fact_evidence_v1(
         r0,
+        r0,
         source,
         NativeReferenceFactEvidenceV1 {
             source_binding_identity: correction.source_binding_identity(),
@@ -2512,6 +2627,7 @@ fn build_reference_cuts(
         .iter()
         .map(|fact| {
             validate_native_reference_fact_evidence_v1(
+                r0,
                 r0,
                 source,
                 NativeReferenceFactEvidenceV1 {

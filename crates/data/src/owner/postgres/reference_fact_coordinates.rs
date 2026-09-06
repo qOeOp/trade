@@ -250,6 +250,36 @@ pub(super) async fn load_reference_fact_r0_readback_v1(
     load_readback(tx, request).await
 }
 
+pub(super) async fn load_reference_fact_r0_readback_by_record_v1(
+    tx: &mut Transaction<'_, Postgres>,
+    record: R0IdentityV1,
+) -> Result<Option<ReferenceFactR0ReadbackV1>, ReferenceFactR0ErrorV1> {
+    let request: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT request_identity FROM market_data_private.reference_fact_r0_records_v1 WHERE record_identity=$1",
+    )
+    .bind(record.as_bytes().as_slice())
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(store_error)?;
+    let Some(request) = request else {
+        return Ok(None);
+    };
+    let request = R0IdentityV1::from_untrusted_bytes(
+        request
+            .as_slice()
+            .try_into()
+            .map_err(|_| ReferenceFactR0ErrorV1::StoreUntrusted)?,
+    );
+    advisory_lock(tx, request).await?;
+    let readback = load_readback(tx, request)
+        .await?
+        .ok_or(ReferenceFactR0ErrorV1::StoreUntrusted)?;
+    if readback.record().identity() != record {
+        return Err(ReferenceFactR0ErrorV1::StoreUntrusted);
+    }
+    Ok(Some(readback))
+}
+
 async fn load_readback(
     tx: &mut Transaction<'_, Postgres>,
     request: R0IdentityV1,
