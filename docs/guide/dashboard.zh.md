@@ -104,6 +104,41 @@ terminalization、sandbox invocation 或数据库写入。
 在单独准入精确 sandbox preview readback 前，preview pane 明确为 `not_run`，且不携带 module、target 或 output。
 这个详情切片不创建 Artifact 列表，不证明部署可用，也不建立 Windmill replacement。
 
+## 有界准入：Source Intake 精确回读工作台
+
+`SourceIntakeReadbackWorkbench` 是 `/rd` 的精确 `P` surface。它是有界的只读 recovery surface，不是未来
+Source Intake composer。route 只使用一个全宽 `PanelFrame`，没有 summary strip、分栏 detail pane、表格、
+timeline、pagination 或为无内容预留的高度。frame header 包含 `SOURCE INTAKE` eyebrow、`Source intake`
+title、单行 purpose，以及一个只有在打开过合法 identity 后才可用的 `Refresh` action。inset body 从一条
+水平 lookup rail 开始：一个自适应宽度的 `Request identity` input，后接 `Open readback`。窄屏只把该 rail
+折行为 input 再 button；信息分组仍保持文档顺序。状态或 action 需要 icon 时只能使用 Lucide，field label
+前不放装饰性 icon。
+
+初始状态是在 lookup rail 下方展示紧凑提示，不拉伸到 viewport 高度。打开合法 identity 后，内容替换为三个
+有序、轻微色差分组：`Intake` 展示精确 request identity 与 terminal resolution；`Custody` 展示 binding
+identity、terminal receipt identity 与 committed time；`Evidence` 展示 authority class，并且只在
+`RETRIEVED` 时展示 content-presence state 与 content digest。browser 不接收也不渲染 raw receipt JSON、
+DOI、interpretation、source payload、provider address、response header、policy decision、principal、
+TrialFamily field、provenance internal、outbox identity 或 storage field。长 identity 在视觉上截断，但仍可
+选择，并通过 accessible text 暴露完整值。label 使用 muted tone，value 左对齐；group title 使用标准 card
+system 中稍浅的 theme surface，border 保持低对比且不形成完全连通的网格。
+
+Loading 保留 lookup rail，并精确展示三个分组 skeleton。所有 terminal value 的 verified terminal 都保持同一
+geometry。精确 `SUBMITTED_OR_UNKNOWN` 回读显示中性的 `No verified terminal` 状态且只保留 request
+identity；它不显示也不暗示 Resolve control。非法 identity 只显示 inline validation，不发 transport。
+缺失 configuration、transport failure、malformed 或超限 Owner response、permission denial，以及任意
+identity/receipt/custody mismatch，都会用一个同高度 unavailable state 替换此前展示的全部 terminal field。
+新 lookup 或失败 refresh 后绝不保留 stale success content。
+
+Dashboard BFF 将 path identity 绑定到经认证的 Owner GET
+`/v1/source-intakes/{request_identity}/readback`，只接受现有 strict Source Intake projection，并返回只含上述
+筛选字段的有界 browser envelope。`Open readback` 与 `Refresh` 是唯一 network action，二者都执行同一个
+zero-effect point read；编辑 input 仅是本地 presentation state。不存在 Source Intake directory，也不从
+Runs、Windmill job、historical custody candidate 或 client fixture 推断数据。本切片不能 Submit 或 Resolve
+Intake、创建 successor、获取 source content、调用 provider、mutate Windmill、写 business state 或授权
+交易。route registry 中更广的 composer、TrialFamily policy、authority-resolution、draft-source 与正向
+action panel 仍是未来 blueprint，不能被推断进本工作台。
+
 ## 有界准入：已验证 Research 目录
 
 `ResearchDirectory` 是 `/rd/research` 的精确 `P` surface。route 使用一个全宽 `PanelFrame`，不为无内容的
@@ -1446,11 +1481,11 @@ span；绝不能改变 route order 或 drawer behavior。
 Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可实现的 component contract。以下状态
 具有规范性，防止 experimental chapter 高估当前 Dashboard 已经可以被绘制的程度：
 
-| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                    | 准入含义                                                                                                                                                                                                                                                         |
-| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`；R&D Research `/rd/research` 目录与 Artifacts `/rd/artifacts`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer 与 authority‑resolution panel；R&D Research `/rd/research` 已准入目录之外的 selected‑request detail                                                                                                                                           | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；整个 route 不可绘制、不可实现                                                                    |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Service Logs、Audit、Event Rail、Telemetry、Alerts，以及全部四个 Portfolio route                                                                                                                                                | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
+| 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                 | 准入含义                                                                                                                                                                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`；R&D Intake `/rd` 精确回读工作台、Research `/rd/research` 目录与 Artifacts `/rd/artifacts`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel；R&D Research `/rd/research` 已准入目录之外的 selected‑request detail                                                                                                                                             | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Service Logs、Audit、Event Rail、Telemetry、Alerts，以及全部四个 Portfolio route                                                                                                                                                                             | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
 Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
@@ -1475,11 +1510,12 @@ deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server pro
 固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
 固定的 panel、button 或 state geometry。
 
-当前准入的 `/rd/research` 与 `/rd/artifacts` 都是有界只读目录；在实现层面，它们覆盖下方更宽泛的未来
-Research 与 Artifacts registry 行。二者都没有 summary strip 或分栏 detail pane，唯一 `P` surface 分别是
-`ResearchDirectory` 与 `ArtifactDirectory`。Research 本切片没有 detail link；Artifact 精确详情仍使用独立的
-identity-bound URL。registry 行中更广的 Research detail、admission、outcome、review、binding、replay 与
-security-evidence panel 仍是未来 blueprint，不能被推断进这些切片。
+当前准入的 `/rd`、`/rd/research` 与 `/rd/artifacts` 都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的
+未来 Intake、Research 与 Artifacts registry 行。三者都没有 summary strip 或分栏 detail pane，唯一 `P`
+surface 分别是 `SourceIntakeReadbackWorkbench`、`ResearchDirectory` 与 `ArtifactDirectory`。Intake 本切片没有
+directory、composer 或正向 action；Research 本切片没有 detail link；Artifact 精确详情仍使用独立的
+identity-bound URL。registry 行中更广的 composer、Research detail、admission、outcome、review、binding、
+replay 与 security-evidence panel 仍是未来 blueprint，不能被推断进这些切片。
 
 #### Overview 与 R&D
 
