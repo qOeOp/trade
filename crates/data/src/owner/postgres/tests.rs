@@ -3039,7 +3039,7 @@ pub(crate) async fn persist_replay_alternate_r0_time_zone_fixture_v1(
     let mut r0_locator_bytes = Vec::with_capacity(64);
     r0_locator_bytes.extend_from_slice(r0_locator.request_identity.as_bytes());
     r0_locator_bytes.extend_from_slice(r0_locator.request_meaning_digest.as_bytes());
-    let (request, mut proposals) = crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
+    let (mut request, _) = crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
         request_identity,
         &independent_coordinates,
         &source_locator_bytes,
@@ -3047,6 +3047,33 @@ pub(crate) async fn persist_replay_alternate_r0_time_zone_fixture_v1(
         alternate_r0_coordinate_identity,
         alternate_r0_coordinate_digest,
     );
+    // The alternate dependency must itself be a valid positive Time Zone authority. Give it an
+    // independent business scope rather than trying to mint a second genesis on the base scope;
+    // the composition under test must reject the cross-scope substitution.
+    let alternate_ruleset_identity = d(249);
+    request.ruleset_identity = alternate_ruleset_identity;
+    let dependencies = crate::owner::time_zone::VerifiedTimeZoneDependenciesV1::verify(
+        independent_coordinates.clone(),
+        alternate_r0_coordinate_identity,
+        alternate_r0_coordinate_digest,
+    )
+    .unwrap();
+    let mut proposals = vec![crate::owner::time_zone::tests::time_zone_catalog_proposal(
+        b"Etc/UTC",
+        alternate_ruleset_identity,
+        0,
+        1,
+        None,
+        None,
+        independent_coordinates.claim().replay_start_event_ns,
+        Some(
+            independent_coordinates
+                .claim()
+                .replay_end_event_ns_exclusive
+                .saturating_add(1),
+        ),
+        dependencies,
+    )];
     let mut transaction = owner.pool().begin().await.unwrap();
 
     for proposal in &mut proposals {
