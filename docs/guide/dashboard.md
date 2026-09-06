@@ -103,9 +103,23 @@ Artifact fact.
 The only local UI action is Copy source. Folding, selecting and scrolling are presentation state and
 cannot change the projection. The Wasm pane displays an already projected sandbox result; it has no
 Run control and performs no module instantiation, network call, Owner resolve, provider effect,
-business write, Windmill mutation, or trading action. No Dashboard route or admitted Owner resolver
-currently supplies a positive projection, so exact contract tests and static build establish the
-bounded atom only, not live Owner data, sandbox execution acceptance, or Windmill replacement.
+business write, Windmill mutation, or trading action.
+
+An `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` detail slice may bind
+`/rd/artifacts/{build_request_identity}/attempts/{attempt_identity}` to the exact authenticated Owner
+GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source`. The Owner may
+return source only for one matching terminal-success custody after its stored attempt, candidate,
+receipt, Artifact identity, source capsule, build recipe, deterministic Wasm and review have passed
+the existing full custody verifier. It deterministically reconstructs the exact built Rust source,
+binds a SHA-256 content digest and committed-at cut, and otherwise returns absent or unavailable; the
+Dashboard additionally recomputes the content digest and rejects unknown fields, identity drift,
+oversize source and malformed time. Until an exact sandbox preview readback is separately admitted,
+the pane is explicitly `not_run` and carries no module, target or output.
+The dedicated read port owns no mutation method. Its canonical read-committed transaction reuses the
+existing full custody verifier, including the historical Product Edge admission read and row-lock consistency,
+but creates no new admission and performs no timeout terminalization, sandbox invocation or database
+write. This detail slice does not create an Artifact list, prove deployed availability or establish
+Windmill replacement.
 
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the

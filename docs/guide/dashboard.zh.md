@@ -85,9 +85,20 @@ transport success 提升为 Artifact fact。
 
 唯一 local UI action 是 Copy source。折叠、选择和滚动仅属于展示状态，不能修改投影。Wasm pane 只展示
 已经投影的 sandbox 结果，不提供 Run control，也不执行 module instantiation、network call、Owner resolve、
-provider effect、业务写、Windmill mutation 或交易动作。当前没有 Dashboard route 或已准入 Owner resolver
-提供正向投影，因此 exact contract test 与 static build 只能建立此有界原子，不能证明 live Owner data、
-sandbox execution acceptance 或 Windmill replacement。
+provider effect、业务写、Windmill mutation 或交易动作。
+
+一个 `ACTIVE_OBSERVATION / IMPLEMENTATION_ADMITTED` 详情切片可以把
+`/rd/artifacts/{build_request_identity}/attempts/{attempt_identity}` 绑定到精确且经过认证的 Owner GET
+`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source`。只有精确匹配且 terminal
+success 的 custody，在其 stored attempt、candidate、receipt、Artifact identity、source capsule、build recipe、
+deterministic Wasm 和 review 全部通过现有完整 custody verifier 后，Owner 才能返回源码。Owner 以确定性方式
+重建实际构建的 Rust source，并绑定 SHA-256 content digest 与 committed-at cut；其他状态只返回 absent 或
+unavailable。Dashboard 还会重新计算 content digest，并拒绝未知字段、identity 漂移、超限 source 和非法时间。
+独立 read port 不持有 mutation method。它在 canonical read-committed transaction 中复用现有完整 custody verifier，
+包括历史 Product Edge admission read 与 row-lock 一致性，但不创建新 admission，也不执行 timeout
+terminalization、sandbox invocation 或数据库写入。
+在单独准入精确 sandbox preview readback 前，preview pane 明确为 `not_run`，且不携带 module、target 或 output。
+这个详情切片不创建 Artifact 列表，不证明部署可用，也不建立 Windmill replacement。
 
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
