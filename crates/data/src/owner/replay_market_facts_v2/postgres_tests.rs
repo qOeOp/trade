@@ -1769,6 +1769,45 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .await
     .unwrap();
 
+    let native_predecessor: Option<Vec<u8>> = sqlx::query_scalar(
+        "SELECT predecessor_identity
+         FROM market_data_private.time_zone_facts_v1
+         WHERE fact_identity=$1",
+    )
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_facts_v1
+         SET predecessor_identity=fact_identity
+         WHERE fact_identity=$1",
+    )
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let native_lineage_tamper =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(226), command.composition().clone())
+            .unwrap();
+    assert!(
+        fresh_owner
+            .issue_binding_v1(&native_lineage_tamper)
+            .await
+            .is_err()
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    sqlx::query(
+        "UPDATE market_data_private.time_zone_facts_v1
+         SET predecessor_identity=$1
+         WHERE fact_identity=$2",
+    )
+    .bind(native_predecessor)
+    .bind(leaves.time_zone_fact_identity.as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+
     let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
         composer_locator,
         command.composition().pit_locator().clone(),

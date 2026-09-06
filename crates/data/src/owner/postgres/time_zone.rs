@@ -158,26 +158,21 @@ async fn resolve_inner(
     for fact in readback.facts() {
         advisory_lock(transaction, fact.identity()).await?;
         let catalog_entry = load_catalog_for_fact(transaction, fact).await?;
-        let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT catalog_entry_identity,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
-            .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
-        if let Some((catalog_entry_identity, bytes)) = existing {
-            if catalog_entry_identity != fact.catalog_entry_identity().as_bytes().as_slice()
-                || bytes != fact.canonical_bytes()
-            {
+        if let Some(existing) =
+            load_native_time_zone_fact_v1(transaction, fact.identity(), true).await?
+        {
+            if existing.canonical_bytes() != fact.canonical_bytes() {
                 return Err(TimeZoneErrorV1::StoreUntrusted);
             }
         } else {
             if let Some(predecessor) = fact.predecessor_identity() {
-                let prior: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT lineage_root,fact_identity,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR SHARE")
-                    .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
-                let Some((lineage, identity, bytes)) = prior else {
+                let Some(prior_fact) =
+                    load_native_time_zone_fact_v1(transaction, predecessor, false).await?
+                else {
                     return Err(TimeZoneErrorV1::InvalidFact);
                 };
-                let prior_fact = decode_fact_v1(&bytes)?;
                 let prior_catalog = load_catalog_for_fact(transaction, &prior_fact).await?;
                 if prior_fact.identity() != predecessor
-                    || lineage != fact.lineage_root().as_bytes().as_slice()
-                    || identity != predecessor.as_bytes().as_slice()
                     || prior_fact.lineage_root() != fact.lineage_root()
                     || prior_fact.time_zone_identity() != fact.time_zone_identity()
                     || prior_fact.ruleset_identity() != fact.ruleset_identity()
@@ -280,18 +275,15 @@ async fn load(
     {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
-    let fact_rows = sqlx::query("SELECT f.catalog_entry_identity,f.fact_bytes FROM market_data_private.time_zone_cut_facts_v1 j JOIN market_data_private.time_zone_facts_v1 f ON f.fact_identity=j.fact_identity WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j,f")
+    let fact_rows = sqlx::query("SELECT j.fact_identity FROM market_data_private.time_zone_cut_facts_v1 j WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j")
         .bind(&cut_identity).fetch_all(&mut **transaction).await.map_err(store_error)?;
     let mut facts = Vec::with_capacity(fact_rows.len());
     for row in fact_rows {
-        let catalog_entry_identity: Vec<u8> =
-            row.try_get("catalog_entry_identity").map_err(store_error)?;
-        let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
-        let fact = decode_fact_v1(&bytes)?;
-        if catalog_entry_identity != fact.catalog_entry_identity().as_bytes().as_slice() {
-            return Err(TimeZoneErrorV1::StoreUntrusted);
-        }
-        facts.push(bytes);
+        let identity = digest_from_row(row.try_get("fact_identity").map_err(store_error)?)?;
+        let fact = load_native_time_zone_fact_v1(transaction, identity, false)
+            .await?
+            .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+        facts.push(fact.canonical_bytes().to_vec());
     }
     let readback = rejoin_stored_v1(
         &facts,
@@ -333,14 +325,120 @@ async fn load(
     }
 
     for fact in readback.facts() {
-        load_catalog_for_fact(transaction, fact).await?;
         let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR SHARE")
             .bind(fact.lineage_root().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
         if head.as_deref() != Some(fact.identity().as_bytes().as_slice()) {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
+        verify_native_time_zone_lineage_v1(transaction, fact).await?;
     }
     Ok(Some(readback))
+}
+
+async fn load_native_time_zone_fact_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    identity: BindingDigest,
+    for_update: bool,
+) -> Result<Option<crate::owner::time_zone::TimeZoneFactV1>, TimeZoneErrorV1> {
+    let statement = if for_update {
+        "SELECT fact_identity,time_zone_identity,ruleset_identity,catalog_entry_identity,lineage_root,correction_sequence,predecessor_identity,effective_from_ns,effective_until_ns,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR UPDATE"
+    } else {
+        "SELECT fact_identity,time_zone_identity,ruleset_identity,catalog_entry_identity,lineage_root,correction_sequence,predecessor_identity,effective_from_ns,effective_until_ns,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR SHARE"
+    };
+    let row = sqlx::query(statement)
+        .bind(identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(store_error)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+    let fact = decode_fact_v1(&bytes)?;
+    let stored_sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
+    let stored_predecessor: Option<Vec<u8>> =
+        row.try_get("predecessor_identity").map_err(store_error)?;
+    let stored_effective_until: Option<String> =
+        row.try_get("effective_until_ns").map_err(store_error)?;
+    let canonical_predecessor = fact
+        .predecessor_identity()
+        .map(|value| value.as_bytes().to_vec());
+
+    if row
+        .try_get::<Vec<u8>, _>("fact_identity")
+        .map_err(store_error)?
+        != fact.identity().as_bytes().as_slice()
+        || row
+            .try_get::<Vec<u8>, _>("time_zone_identity")
+            .map_err(store_error)?
+            != fact.time_zone_identity()
+        || row
+            .try_get::<Vec<u8>, _>("ruleset_identity")
+            .map_err(store_error)?
+            != fact.ruleset_identity().as_bytes().as_slice()
+        || row
+            .try_get::<Vec<u8>, _>("catalog_entry_identity")
+            .map_err(store_error)?
+            != fact.catalog_entry_identity().as_bytes().as_slice()
+        || row
+            .try_get::<Vec<u8>, _>("lineage_root")
+            .map_err(store_error)?
+            != fact.lineage_root().as_bytes().as_slice()
+        || u64::try_from(stored_sequence).ok() != Some(fact.correction_sequence())
+        || stored_predecessor != canonical_predecessor
+        || row
+            .try_get::<String, _>("effective_from_ns")
+            .map_err(store_error)?
+            != fact.effective_from_ns().to_string()
+        || stored_effective_until != fact.effective_until_ns().map(|value| value.to_string())
+    {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    Ok(Some(fact))
+}
+
+async fn verify_native_time_zone_lineage_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    head: &crate::owner::time_zone::TimeZoneFactV1,
+) -> Result<(), TimeZoneErrorV1> {
+    let mut current = load_native_time_zone_fact_v1(transaction, head.identity(), false)
+        .await?
+        .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+    if current.canonical_bytes() != head.canonical_bytes() {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    let mut seen = Vec::new();
+
+    loop {
+        if seen.contains(&current.identity()) {
+            return Err(TimeZoneErrorV1::StoreUntrusted);
+        }
+        seen.push(current.identity());
+        let current_catalog = load_catalog_for_fact(transaction, &current).await?;
+        let Some(predecessor) = current.predecessor_identity() else {
+            return if current.correction_sequence() == 1
+                && current_catalog.predecessor_identity().is_none()
+            {
+                Ok(())
+            } else {
+                Err(TimeZoneErrorV1::StoreUntrusted)
+            };
+        };
+        let prior = load_native_time_zone_fact_v1(transaction, predecessor, false)
+            .await?
+            .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+        let prior_catalog = load_catalog_for_fact(transaction, &prior).await?;
+        if prior.identity() != predecessor
+            || prior.lineage_root() != current.lineage_root()
+            || prior.time_zone_identity() != current.time_zone_identity()
+            || prior.ruleset_identity() != current.ruleset_identity()
+            || prior.correction_sequence().checked_add(1) != Some(current.correction_sequence())
+            || current_catalog.predecessor_identity() != Some(prior_catalog.identity())
+        {
+            return Err(TimeZoneErrorV1::StoreUntrusted);
+        }
+        current = prior;
+    }
 }
 
 async fn load_catalog_for_fact(
