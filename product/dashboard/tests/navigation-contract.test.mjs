@@ -31,6 +31,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
   assert.deepEqual(exact, [
     "/rd/research", "/rd/artifacts",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
+    "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
     "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
@@ -44,10 +45,19 @@ test("R&D detail-only routes and all remaining pages fail closed", () => {
     "/dashboard", "/backtest", "/rd/hypotheses", "/rd/composer", "/rd/decisions",
     "/operations/service-logs", "/operations/audit",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
-    "/portfolio",
   ]) {
     assert.equal(maturityFor(href), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");
   }
+});
+
+test("Portfolio routes expose only the fixed fail-closed contract blueprint", () => {
+  for (const href of ["/portfolio", "/portfolio/exposure", "/portfolio/capacity"]) {
+    assert.equal(maturityFor(href), "DRAWABLE_EXACT");
+    assert.equal(exactBlueprints[href].context, "PortfolioViewUnavailableCard");
+    assert.match(exactBlueprints[href].state, /SOURCE_OWNER_RESOLVE_UNAVAILABLE/);
+  }
+  assert.equal(maturityFor("/portfolio/attribution"), "DRAWABLE_EXACT");
+  assert.match(exactBlueprints["/portfolio/attribution"].state, /NO_ATTRIBUTION_SURFACE/);
 });
 
 test("the run detail route binds to the Runs top tab", () => {
