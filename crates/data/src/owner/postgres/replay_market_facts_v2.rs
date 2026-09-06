@@ -754,13 +754,37 @@ impl ReplayCompositionOwnerV1 {
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
 
+        let mut transaction = owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::calendar::install_calendar_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::time_zone::install_time_zone_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::session::install_session_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::reference_fact_catalog::install_reference_fact_catalog_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::corporate_action::install_corporate_action_schema_v1(&mut transaction)
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+
         for statement in REPLAY_COMPOSITION_ISSUANCE_SCHEMA_V1 {
             sqlx::query(*statement)
-                .execute(&owner.pool)
+                .execute(&mut *transaction)
                 .await
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
         }
-        Ok(())
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
     }
 
     /// Opens the isolated Market Data owner and Composer-reader pools after custody cutover.
