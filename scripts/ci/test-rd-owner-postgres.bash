@@ -16,7 +16,7 @@ readonly guarded_roots=(
 # the database-sensitive tests still execute one at a time and fail fast.
 readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back'
-  'vibe-strategy-factory|exploratory_replay_request_owner|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity'
+  'vibe-strategy-factory|exploratory_replay_request_owner|origin_current_replay_table_preserves_exact_v1_v2_read_continuity'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::fresh_rd_owner_migrates_before_qualification_writer_validates'
   'vibe-strategy-factory|develop_composer_owner_v2|durable_owner_is_atomic_restart_exact_and_fail_closed'
@@ -27,8 +27,8 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|exploratory_replay_request_owner|frozen_exploratory_replay_request_is_sealed_for_canonical_backtest_owner'
   'vibe-strategy-factory|exploratory_replay_request_owner|replay_at_or_after_valid_through_writes_no_frozen_row_or_outbox'
   'vibe-strategy-factory|source_intake|postgres_readback_rejects_tampered_raw_payload'
-  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
 )
 readonly nextest_graph_args=(
@@ -41,7 +41,7 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -54,17 +54,17 @@ check_nextest_graph_contract() {
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]] ||
-    [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]] ||
+    [[ "${rd_owner_postgres_tests[1]}" != *'|origin_current_replay_table_preserves_exact_v1_v2_read_continuity' ]] ||
     [[ "${rd_owner_postgres_tests[8]}" != *'|postgres::tests::expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows' ]] ||
     [[ "${rd_owner_postgres_tests[11]}" != *'|postgres_readback_rejects_tampered_raw_payload' ]] ||
-    [[ "${rd_owner_postgres_tests[12]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
-    [[ "${rd_owner_postgres_tests[13]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[12]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
+    [[ "${rd_owner_postgres_tests[13]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
     [[ "${rd_owner_postgres_tests[14]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
     return 1
@@ -173,7 +173,7 @@ if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
 fi
 readonly rd_owner_postgres_features="${RD_OWNER_POSTGRES_FEATURES//[[:space:]]/}"
 case ",${rd_owner_postgres_features}," in
-  *",${nextest_archive_features},"*) ;;
+  *",vibe-strategy-factory/sealed-develop-composer-acceptance,"*) ;;
   *)
     echo "ERROR: R&D Owner PostgreSQL feature union must admit sealed Develop Composer acceptance." >&2
     exit 1
@@ -481,93 +481,10 @@ docker exec --interactive \
   --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
   "$container" sh -s < product/rd-workbench/postgres-init/00-create-rd-owner.sh
 
-RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
-  cargo run \
-  --locked \
-  --package vibe-strategy-factory-rd-owner-api \
-  --bin strategy-factory-rd-owner-api \
-  --profile "$cargo_ci_profile" \
-  -- \
-  --materialize-schema
-
-docker exec --interactive \
-  --env POSTGRES_HOST=127.0.0.1 \
-  --env "POSTGRES_DATABASE=${test_database}" \
-  --env "POSTGRES_PASSWORD=${test_password}" \
-  --env "RD_OWNER_DB_PASSWORD=${test_password}" \
-  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
-  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
-  --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
-  --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
-  --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
-  --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
-  "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
-
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" \
-  --set=test_database="$test_database" \
-  --set=test_password="$test_password" << 'SQL'
-CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
-GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
-DO $database_access$
-BEGIN
-  EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin',
-    :'test_database'
-  );
-END
-$database_access$;
-SQL
-
-readonly test_marker="rd-owner-isolated-${suffix}"
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$test_database" \
-  --set=test_database="$test_database" \
-  --set=test_marker="$test_marker" << 'SQL'
-CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
-CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
-  marker_identity text NOT NULL,
-  database_name text NOT NULL,
-  test_role text PRIMARY KEY
-);
-ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
-REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
-REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
-INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
-SELECT :'test_marker', :'test_database', role_name
-FROM unnest(ARRAY[
-  'operator_authorization_writer',
-  'product_edge_owner',
-  'rd_owner',
-  'rd_fact_writer',
-  'replay_policy_catalog_admin_writer',
-  'qualification_writer',
-  'backtest_owner',
-  'vibe_test_owner_topology_admin'
-]) AS role_name
-ON CONFLICT (test_role) DO UPDATE
-SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
-SQL
-
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname postgres \
-  --set=test_database="$test_database" \
-  --set=origin_current_database="$origin_current_database" << 'SQL'
-CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER postgres;
-REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
-GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
-SQL
-
-docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-  --username postgres --dbname "$origin_current_database" \
-  --set=origin_current_database="$origin_current_database" << 'SQL'
-UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
-   SET database_name=:'origin_current_database';
-SQL
-
+# Seed both historical Replay relation shapes while the database is still in
+# the explicit pre-cutover materialization phase. The schema materializer owns
+# the one-time rename and ACL closure; runtime Owner connections are validation
+# only and must never regain DDL authority.
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname "$test_database" << 'SQL'
 CREATE ROLE surprise_replay_grantee NOLOGIN;
@@ -678,6 +595,90 @@ INSERT INTO public.rd_exploratory_replay_request_custody_v1 (
   1700000000000,
   1
 );
+SQL
+
+RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}" \
+  cargo run \
+  --locked \
+  --package vibe-strategy-factory-rd-owner-api \
+  --bin strategy-factory-rd-owner-api \
+  --features "$nextest_archive_features" \
+  --profile "$cargo_ci_profile" \
+  -- \
+  --materialize-schema
+
+docker exec --interactive \
+  --env POSTGRES_HOST=127.0.0.1 \
+  --env "POSTGRES_DATABASE=${test_database}" \
+  --env "POSTGRES_PASSWORD=${test_password}" \
+  --env "RD_OWNER_DB_PASSWORD=${test_password}" \
+  --env "RD_FACT_WRITER_DB_PASSWORD=${test_password}" \
+  --env "REPLAY_POLICY_CATALOG_ADMIN_DB_PASSWORD=${test_password}" \
+  --env "OPERATOR_AUTHORIZATION_DB_PASSWORD=${test_password}" \
+  --env "QUALIFICATION_OWNER_DB_PASSWORD=${test_password}" \
+  --env "PRODUCT_EDGE_DB_PASSWORD=${test_password}" \
+  --env "BACKTEST_OWNER_DB_PASSWORD=${test_password}" \
+  "$container" sh -s < product/rd-workbench/postgres-init/10-migrate-authority-custody.sh
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --set=test_database="$test_database" \
+  --set=test_password="$test_password" << 'SQL'
+CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
+REVOKE CONNECT ON DATABASE :"test_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"test_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+SQL
+
+readonly test_marker="rd-owner-isolated-${suffix}"
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$test_database" \
+  --set=test_database="$test_database" \
+  --set=test_marker="$test_marker" << 'SQL'
+CREATE SCHEMA IF NOT EXISTS vibe_test_admin AUTHORIZATION postgres;
+CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
+  marker_identity text NOT NULL,
+  database_name text NOT NULL,
+  test_role text PRIMARY KEY
+);
+ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
+REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
+REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
+SELECT :'test_marker', :'test_database', role_name
+FROM unnest(ARRAY[
+  'operator_authorization_writer',
+  'product_edge_owner',
+  'rd_owner',
+  'rd_fact_writer',
+  'replay_policy_catalog_admin_writer',
+  'qualification_writer',
+  'backtest_owner',
+  'vibe_test_owner_topology_admin'
+]) AS role_name
+ON CONFLICT (test_role) DO UPDATE
+SET marker_identity=EXCLUDED.marker_identity, database_name=EXCLUDED.database_name;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname postgres \
+  --set=test_database="$test_database" \
+  --set=origin_current_database="$origin_current_database" << 'SQL'
+CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+REVOKE CONNECT ON DATABASE :"origin_current_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"origin_current_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$origin_current_database" \
+  --set=origin_current_database="$origin_current_database" << 'SQL'
+DROP TABLE public.rd_exploratory_replay_requests_v1;
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'origin_current_database';
 SQL
 
 legacy_replay_fingerprint() {
@@ -793,12 +794,24 @@ cargo nextest archive \
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
-  if [[ "$test_name" == 'origin_current_replay_table_renames_with_exact_v1_v2_read_continuity' ]]; then
+  if [[ "$test_name" == 'replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]]; then
+    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+      --username postgres --dbname "$test_database" << 'SQL'
+DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2;
+DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2;
+DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2;
+DELETE FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2;
+SQL
+  fi
+  if [[ "$test_name" == 'origin_current_replay_table_preserves_exact_v1_v2_read_continuity' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$origin_current_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
@@ -905,13 +918,16 @@ BEGIN
   END IF;
 
   FOREACH role_name IN ARRAY ARRAY['qualification_owner', 'qualification_writer'] LOOP
-    SELECT table_name INTO unexpected_source_table
-    FROM information_schema.tables
-    WHERE table_schema = 'public'
-      AND table_name LIKE 'rd_%'
+    SELECT relation.relname INTO unexpected_source_table
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace
+      ON namespace.oid = relation.relnamespace
+    WHERE namespace.nspname = 'public'
+      AND relation.relname LIKE 'rd_%'
+      AND relation.relkind IN ('r', 'p')
       AND (SELECT pg_catalog.bool_or(pg_catalog.has_table_privilege(
         role_name,
-        pg_catalog.format('public.%I', table_name),
+        relation.oid,
         checked_privilege
       )) FROM pg_catalog.unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) checked_privilege)
     LIMIT 1;
