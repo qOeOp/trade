@@ -72,10 +72,12 @@ check_nextest_graph_contract() {
 
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  if ! rg -Uq \
-    'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(CARGO_FEATURES\)"' \
+  if ! rg -Fxq \
+    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance' \
+    "$repository_root/Makefile" || ! rg -Uq \
+    'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(RD_OWNER_POSTGRES_FEATURES\)"' \
     "$repository_root/Makefile"; then
-    echo "ERROR: Makefile must pass the shared nextest graph explicitly." >&2
+    echo "ERROR: Makefile must pass the sealed Develop Composer feature union to the shared nextest graph." >&2
     return 1
   fi
   if [[ "$(rg -c 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
