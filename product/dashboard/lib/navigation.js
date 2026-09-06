@@ -62,6 +62,7 @@ const exactRoutes = new Set([
   "/operations", "/operations/runs/example", "/data", "/data/pit-catalog",
   "/operations/workers", "/operations/workers/example", "/operations/schedules",
   "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
+  "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
   "/rd/research", "/rd/artifacts",
 ]);
 const detailOnlyRoutes = new Set(["/rd"]);
@@ -104,4 +105,8 @@ export const exactBlueprints = {
   "/runtime/generations": { summaries: [], primary: "EmptyState", context: "RuntimeFoundationNotReadyCard", terminal: "EmptyState", state: "NOT_ADMITTED - no generation or application surface" },
   "/runtime/checkpoints": { summaries: [], primary: "EmptyState", context: "RuntimeFoundationNotReadyCard", terminal: "EmptyState", state: "NOT_ADMITTED - no checkpoint or restore surface" },
   "/runtime/incidents": { summaries: [], primary: "EmptyState", context: "RuntimeFoundationNotReadyCard", terminal: "EmptyState", state: "NOT_ADMITTED - no incident or Recovery surface" },
+  "/portfolio": { summaries: [], primary: "EmptyState", context: "PortfolioViewUnavailableCard", terminal: "EmptyState", state: "CURRENT/PARTIAL - SOURCE_OWNER_RESOLVE_UNAVAILABLE" },
+  "/portfolio/exposure": { summaries: [], primary: "EmptyState", context: "PortfolioViewUnavailableCard", terminal: "EmptyState", state: "CURRENT/PARTIAL - SOURCE_OWNER_RESOLVE_UNAVAILABLE" },
+  "/portfolio/capacity": { summaries: [], primary: "EmptyState", context: "PortfolioViewUnavailableCard", terminal: "EmptyState", state: "CURRENT/PARTIAL - SOURCE_OWNER_RESOLVE_UNAVAILABLE" },
+  "/portfolio/attribution": { summaries: [], primary: "EmptyState", context: "PortfolioViewUnavailableCard", terminal: "EmptyState", state: "NOT_ADMITTED - NO_ATTRIBUTION_SURFACE" },
 };

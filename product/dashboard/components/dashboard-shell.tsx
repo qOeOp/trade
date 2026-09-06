@@ -18,6 +18,7 @@ import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ResearchDirectory } from "./research-directory";
 import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-card";
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
+import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
 
@@ -119,8 +120,9 @@ export function DashboardShell({
   const researchDirectory = current === "/rd/research";
   const marketDataFoundation = current === "/data" || current === "/data/pit-catalog";
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
+  const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
-  const connected = operationsConnected || researchDirectory || artifactDirectory || artifactSourceDetail || marketDataFoundation || runtimeFoundation;
+  const connected = operationsConnected || researchDirectory || artifactDirectory || artifactSourceDetail || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
@@ -137,7 +139,7 @@ export function DashboardShell({
             </div>
             <div className="authority-block">
               <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
               <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
@@ -148,6 +150,8 @@ export function DashboardShell({
                 ? "CURRENT/PARTIAL - DURABLE_MD_OWNER_POSTGRES_FOUNDATION_NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER"
                 : runtimeFoundation
                 ? "CURRENT/PARTIAL - FOUNDATION_NOT_READY"
+                : portfolioUnavailable
+                ? exactBlueprint?.state ?? "CURRENT/PARTIAL - SOURCE_OWNER_RESOLVE_UNAVAILABLE"
                 : operationsRunDetail
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_BOUND_READ_ONLY - NO_OWNER_PAYLOAD"
                 : operationsWorkers
@@ -173,6 +177,7 @@ export function DashboardShell({
               />
               : marketDataFoundation ? <MarketDataOwnerFoundationCard />
               : runtimeFoundation ? <RuntimeFoundationNotReadyCard />
+              : portfolioUnavailable ? <PortfolioViewUnavailableCard />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
           <footer className="prototype-notice">
@@ -186,6 +191,8 @@ export function DashboardShell({
               ? "Only the sealed Market Data Owner foundation geometry is shown. Product resolution, rows, timelines and actions remain unavailable."
               : runtimeFoundation
               ? "Only the fixed non-authoritative Runtime foundation and its four revalidation dependencies are shown. Runtime custody and every application surface remain unavailable."
+              : portfolioUnavailable
+              ? "Only the fixed Portfolio request contract is shown. No Dashboard request, response instance, positive projection or domain action exists."
               : connected
                 ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
