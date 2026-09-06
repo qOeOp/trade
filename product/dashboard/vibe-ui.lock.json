@@ -19,12 +19,45 @@
     "animateIn": {
       "path": "apps/web/src/components/animation/animate-in.tsx",
       "blob": "d3503e5d76ccdc7f3cd911608040cc9d320dcc01"
+    },
+    "calendarAnimations": {
+      "path": "apps/web/src/features/journal/calendar/animations.ts",
+      "blob": "5ddde1000420eb0440d6d8f057aedfbd60d0edf7"
+    },
+    "calendarHeader": {
+      "path": "apps/web/src/features/journal/calendar/header/calendar-header.tsx",
+      "blob": "2357cf00f668de103b346a15a02918fbfc9f25c8"
+    },
+    "calendarTodayButton": {
+      "path": "apps/web/src/features/journal/calendar/header/today-button.tsx",
+      "blob": "0ca07e4817ec28bfb17e479df6a85549f1aaf144"
+    },
+    "calendarDateNavigator": {
+      "path": "apps/web/src/features/journal/calendar/header/date-navigator.tsx",
+      "blob": "7ea700f8fe5273c7482781693c989f3841e1913a"
+    },
+    "calendarFilter": {
+      "path": "apps/web/src/features/journal/calendar/header/filter.tsx",
+      "blob": "fe1778853ea54f770ecc8226b523255c5e2334aa"
+    },
+    "calendarViewTabs": {
+      "path": "apps/web/src/features/journal/calendar/header/view-tabs.tsx",
+      "blob": "b7ea515cc3670441e739c6fcf7ae2f7ba93776af"
+    },
+    "calendarUserSelect": {
+      "path": "apps/web/src/features/journal/calendar/header/user-select.tsx",
+      "blob": "ed813e635c94421a5c7bb4cd8c3e1aadadad3745"
+    },
+    "calendarSettings": {
+      "path": "apps/web/src/features/journal/calendar/settings/settings.tsx",
+      "blob": "a8958c06d18bc9e5bde691d30ed21e5a29f33f37"
     }
   },
   "adaptation": {
     "colors": "Claude semantic CSS variables only",
     "icons": "Lucide only",
     "geometry": "Source frame/header/body hierarchy retained",
-    "compatibility": "Existing static-body consumers remain source-compatible while scroll and flex modes are opt-in"
+    "compatibility": "Existing static-body consumers remain source-compatible while scroll and flex modes are opt-in",
+    "calendar": "Source header hierarchy and motion retained; user selection maps to operation scope, refresh replaces the unavailable write action, and unavailable data keeps the calendar frame without invented events"
   }
 }
