@@ -422,6 +422,10 @@ async fn main() -> anyhow::Result<()> {
             post(resolve_replay_composition),
         )
         .route(
+            "/v2/develop-composer/runs/{request_identity}/readback",
+            get(read_develop_composer),
+        )
+        .route(
             "/v2/develop-composer/runs/{request_identity}/resolve",
             post(resolve_develop_composer),
         );
@@ -803,6 +807,39 @@ async fn resolve_develop_composer(
     }
 }
 
+async fn read_develop_composer(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return composer_response(
+            StatusCode::FORBIDDEN,
+            default_unavailable_response(&request_identity),
+        );
+    }
+
+    #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
+    {
+        let _ = state;
+        composer_response(
+            StatusCode::SERVICE_UNAVAILABLE,
+            default_unavailable_response(&request_identity),
+        )
+    }
+
+    #[cfg(feature = "sealed-develop-composer-acceptance")]
+    {
+        match state.develop_composer.resolve(&request_identity).await {
+            Ok(response) => composer_operation_response(response),
+            Err(_) => composer_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                default_unavailable_response(&request_identity),
+            ),
+        }
+    }
+}
+
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 fn composer_operation_response(response: DevelopComposerOperationResponseV2) -> Response {
     let status = match response.disposition {
@@ -977,6 +1014,22 @@ mod develop_composer_api_contract_tests {
                 )
             );
         }
+    }
+
+    #[rstest]
+    fn default_readback_contract_is_unavailable_without_positive_projection() {
+        let contract = default_unavailable_response("request-1");
+        assert_eq!(contract.request_identity, "request-1");
+        assert_eq!(
+            contract.disposition,
+            vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2::Unavailable
+        );
+        assert!(contract.receipt_identity.is_none());
+        assert!(contract.artifact.is_none());
+        assert_eq!(
+            composer_response(StatusCode::SERVICE_UNAVAILABLE, contract).status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[cfg(feature = "sealed-develop-composer-acceptance")]
