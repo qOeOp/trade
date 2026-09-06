@@ -6622,6 +6622,11 @@ mod tests {
     async fn expired_manifest_recovery_rejoins_across_owners_and_preserves_old_rows() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
+        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
+        )
+        .await
+        .unwrap();
         let suffix = unique_suffix();
         let now = now_ms().unwrap();
         let expiry = now.saturating_add(500);
@@ -6706,11 +6711,6 @@ mod tests {
             .sort_by(|left, right| left.manifest_identity.cmp(&right.manifest_identity));
         let mut first_manifests = vec![first_manifest.clone(), removed_manifest];
         first_manifests.sort_by_key(|manifest| manifest.manifest_identity().unwrap());
-        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(
-            test_database.database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter),
-        )
-        .await
-        .unwrap();
         let first_authorization = issuer
             .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
                 authorization_identity: format!("recovery-authorization-1-{suffix}"),
