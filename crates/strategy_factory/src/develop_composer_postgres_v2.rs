@@ -3115,7 +3115,8 @@ fn is_record_integrity_error(error: &sqlx::Error) -> bool {
     match error {
         sqlx::Error::RowNotFound => true,
         sqlx::Error::Protocol(message) => {
-            message.starts_with("Composer ordinal mismatch:")
+            message == SEALED_READ_UNAVAILABLE_PROTOCOL_V2
+                || message.starts_with("Composer ordinal mismatch:")
                 || message.ends_with(" is not an exact 32-byte digest")
         }
         _ => false,
@@ -3130,6 +3131,17 @@ mod tests {
 
     fn sha256_hex(value: &str) -> String {
         format!("{:x}", Sha256::digest(value.as_bytes()))
+    }
+
+    #[rstest]
+    fn sealed_read_failure_is_typed_without_swallowing_unrelated_errors() {
+        assert!(super::is_record_integrity_error(&sqlx::Error::Protocol(
+            super::SEALED_READ_UNAVAILABLE_PROTOCOL_V2.to_owned()
+        )));
+        assert!(!super::is_record_integrity_error(&sqlx::Error::Protocol(
+            "unrelated protocol failure".to_owned()
+        )));
+        assert!(!super::is_record_integrity_error(&sqlx::Error::PoolClosed));
     }
 
     #[rstest]

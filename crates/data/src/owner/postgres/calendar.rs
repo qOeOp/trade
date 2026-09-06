@@ -23,7 +23,7 @@ use crate::owner::{
 };
 
 pub(super) const CALENDAR_SCHEMA_V1: &[&str] = &[
-    "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
+    super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.calendar_state_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.calendar_facts_v1 (fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),calendar_identity BYTEA NOT NULL CHECK(octet_length(calendar_identity)>0),civil_day INTEGER NOT NULL,lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),predecessor_identity BYTEA NULL REFERENCES market_data_private.calendar_facts_v1(fact_identity),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0),UNIQUE(lineage_root,correction_sequence),UNIQUE(calendar_identity,civil_day,correction_sequence))",
@@ -419,6 +419,8 @@ mod tests {
     #[rstest]
     fn schema_is_private_bounded_and_not_global_registration() {
         let joined = CALENDAR_SCHEMA_V1.join("\n");
+        assert!(joined.contains("bootstrap schema ownership is unavailable"));
+        assert!(!joined.contains("CREATE SCHEMA"));
         assert!(joined.contains("REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC"));
         assert!(joined.contains(
             "REVOKE ALL ON FUNCTION market_data_private.resolve_calendar_v1(BYTEA) FROM PUBLIC"

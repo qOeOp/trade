@@ -93,6 +93,36 @@ readback。Meaning 改变、locator 缺失/篡改、partial row、scalar/frontie
 response-loss retry mismatch 均不 append。**NOT_ADMITTED：** R0 不授予 provider authenticity、default 或
 production database write、deployment、runtime、Dashboard 或 trading authority。
 
+### ReferenceFactCatalogV1 业务值权威
+
+**TARGET：** `ReferenceFactCatalogV1` 是 Calendar、Time Zone 与 Session 业务值的唯一 Market Data Owner
+catalog。它与 R0 属于不同权威轴：catalog 拥有 typed value、business scope、业务生效半开区间、revision、
+correction lineage 与 direct predecessor；R0 只拥有解析该值时使用的准确 PIT/Source/Shared-Time observation
+evidence。R0 的 replay/effective bound 绝不能扩大、截断或创建 catalog 业务区间。
+
+闭合 value tag 为 `1 CALENDAR`、`2 TIME_ZONE` 与 `3 SESSION`。Calendar entry 绑定一个准确 civil-day 的
+open/closed 值；Time Zone entry 绑定一个准确 time-zone/ruleset/UTC-offset 值及 offset 保持不变的 UTC
+区间；Session entry 绑定一个准确 trading day、连续 interval ordinal 与带显式 fold resolution 的 local
+open/close boundary，绝不存储权威 UTC endpoint。只有 Session 能依据准确 Time Zone cut 重算 endpoint，
+并且必须证明 open 与 close 两个 instant 都被覆盖。
+
+只有已准入 bootstrap/admin source 可以 append immutable catalog entry。Runtime 只接收不受信的准确 entry
+locator，并且只能解析及逐字节验证；caller 携带的 typed proposal、latest/head 选择或仅结构有效的 bytes
+都不能铸造 positive custody。Entry 绑定准确 Source Binding identity/fact/lineage 与 source/correction
+frontier。原生 Calendar、Time Zone 与 Session fact 重复已解析 catalog identity，并保留独立 R0
+observation coordinate。Entry 缺失、meaning 改变、source splice、predecessor branch、非规范顺序、区间
+overlap/gap，或 Session boundary 位于 Time Zone coverage 外，都必须写入零 native fact、cut、receipt 与
+outbox row。
+
+Catalog key 与 entry identity 分别是
+`vibe.market-data.reference-fact-catalog-key.v1\0` 与
+`vibe.market-data.reference-fact-catalog-entry.v1\0` 加规范 big-endian bytes 的 BLAKE3-256。Key 绑定闭合
+kind、business scope、正 revision、lineage root 与完整 typed value；entry 另外绑定 command identity、
+可选 direct predecessor、正 correction sequence、业务生效区间、准确 Source provenance、administrator
+admission identity 与 stable correlation。使用前必须解码、重新 hash 并匹配准确 stored bytes。
+**NOT_ADMITTED：** 隔离验收 catalog 数据不证明 vendor authenticity，也不授予 default/production database、
+deployment、provider、Dashboard、runtime 或 trading effect。
+
 ### 共享原生边界与 custody
 
 **CURRENT：** Replay V2 已有 typed Calendar 与 Time Zone value，而 PIT 与 Instrument Master 仍只携带
@@ -105,8 +135,9 @@ projection 的 Replay V2；以及后续 BAR resolution。Session 是准确 Calen
 两个原生权威互不依赖 Session，也不复制对方 fact。不受信 private proposal 不得重新解释既有 Replay V2
 value 或铸造 positive custody。
 
-两个权威都在 caller 的 Owner transaction 中解析准确已准入 Source Binding，并且只把一个已验证
-`ReferenceFactCoordinatesV1` 用作 observation evidence。每条 fact 只有一个 lineage root、正 correction
+两个权威都在 caller 的 Owner transaction 中解析一个准确 `ReferenceFactCatalogV1` entry 与准确已准入
+Source Binding，并且只把一个已验证 `ReferenceFactCoordinatesV1` 用作 observation evidence。每条 fact
+只有一个 lineage root、正 correction
 sequence、可选 direct predecessor 与 current head。Predecessor 缺失、branch、cycle、sequence gap 或
 regression、cross-source splice、effective overlap/gap、请求 coverage 不完整、clock mismatch 或 observation
 过期，都在任何 write 前失败。Positive fact、完整 cut、receipt 与 move-only readback 没有 public
@@ -349,7 +380,9 @@ authenticity、production write、deployment 或 trading authority。
 identity/fact/lineage、correction-frontier digest identity、不同 frontier change 之间的一个半开 effective
 interval，以及第一个已准入 version 的 provider-available、retrieval、correction-publication、
 Owner-observation、decision cut、clock 和 R0 coordinate identity/digest。第一个 lineage version 建立
-availability；随后携带逐字节相同 source、stream、sequence、successor-only value 与 frontier 的 version
+availability；即使其 R0 record 使用有限 replay/evidence interval，该 correction regime 仍保持开放，只有
+不同 successor frontier 才能关闭它。随后携带逐字节相同 source、stream、sequence、successor-only value
+与 frontier 的 version
 被 coalesce 到同一 interval，且不能把 availability 提前。下一个不同 frontier 关闭前一个 interval，且
 必须是 direct、sequence-advancing successor。Gap、regression、branch、cross-source splice、stream 改变却
 无新 lineage，或 clock/coordinate mismatch，都不产生 projection。

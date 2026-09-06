@@ -1250,7 +1250,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "requires the harness-injected Backtest outbox failure"]
+    #[ignore = "requires the isolated PostgreSQL Owner topology"]
     async fn postgres_result_mid_commit_failure_rolls_back_every_aggregate_row() {
         let database = CanonicalOwnerPostgresTestDatabaseV1::admit()
             .await
@@ -1266,6 +1266,14 @@ mod tests {
         dto.request_identity = identity("rollback-request");
         let request = ReplayRequestV2::try_from(dto).expect("rollback request");
         let result = commit_owner_result(&request, draft(&request)).expect("rollback result");
+        sqlx::query(
+            "INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,'isolated-rollback-conflict-event','isolated-test-digest','isolated-rollback-conflict-receipt','isolated-rollback-conflict-seed','isolated-test-meaning','isolated-test-result','EXPLORATORY','isolated-test-payload',0,$2,'isolated-test-storage-digest')",
+        )
+        .bind(result.result_identity().as_str())
+        .bind(b"isolated rollback conflict seed".as_slice())
+        .execute(&backtest_pool)
+        .await
+        .expect("isolated outbox primary-key conflict seed");
         assert_eq!(
             owner
                 .commit_exploratory_replay_result_v2(&result)
@@ -1280,6 +1288,14 @@ mod tests {
         .await
         .expect("rollback counts");
         assert_eq!(counts, (0, 0, 0));
+        let seed_count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM public.backtest_replay_result_outbox_v1 WHERE result_identity=$1 AND request_identity='isolated-rollback-conflict-seed'",
+        )
+        .bind(result.result_identity().as_str())
+        .fetch_one(&backtest_pool)
+        .await
+        .expect("isolated conflict seed count");
+        assert_eq!(seed_count, 1, "the pre-existing conflict row must survive");
     }
 
     #[rstest]

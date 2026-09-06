@@ -20,7 +20,7 @@ use crate::owner::{
 };
 
 pub(super) const TIME_ZONE_SCHEMA_V1: &[&str] = &[
-    "CREATE SCHEMA IF NOT EXISTS market_data_private",
+    super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_state_v1(singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),time_zone_identity BYTEA NOT NULL CHECK(octet_length(time_zone_identity)>0),ruleset_identity BYTEA NOT NULL CHECK(octet_length(ruleset_identity)=32),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),predecessor_identity BYTEA NULL REFERENCES market_data_private.time_zone_facts_v1(fact_identity),effective_from_ns TEXT NOT NULL,effective_until_ns TEXT NULL,fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0))",
@@ -214,7 +214,7 @@ async fn load(
     transaction: &mut Transaction<'_, Postgres>,
     request: BindingDigest,
 ) -> Result<Option<TimeZoneReadbackV1>, TimeZoneErrorV1> {
-    let row = sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS outbox_payload FROM market_data_private.time_zone_cuts_v1 c JOIN market_data_private.time_zone_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.time_zone_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
+    let row = sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS outbox_payload FROM market_data_private.time_zone_cuts_v1 c JOIN market_data_private.time_zone_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.time_zone_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
         .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
     let Some(row) = row else {
         return Ok(None);
@@ -327,6 +327,8 @@ mod tests {
     #[rstest]
     fn schema_is_private_complete_and_unregistered() {
         let schema = TIME_ZONE_SCHEMA_V1.join("\n");
+        assert!(schema.contains("bootstrap schema ownership is unavailable"));
+        assert!(!schema.contains("CREATE SCHEMA"));
 
         for relation in [
             "time_zone_state_v1",

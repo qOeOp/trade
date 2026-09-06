@@ -24,6 +24,7 @@ pub mod universe_selection;
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
 pub(crate) mod market_semantics;
+pub(crate) mod reference_fact_catalog;
 pub(crate) mod reference_fact_coordinates;
 pub(crate) mod session;
 pub(crate) mod time_zone;

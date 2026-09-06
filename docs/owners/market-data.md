@@ -102,6 +102,37 @@ move-only readback. Changed meaning, missing/tampered locator, partial row, scal
 or response-loss retry mismatch appends nothing. **NOT_ADMITTED:** R0 grants no provider authenticity, default or
 production database write, deployment, runtime, Dashboard or trading authority.
 
+### ReferenceFactCatalogV1 business-value authority
+
+**TARGET:** `ReferenceFactCatalogV1` is the single Market Data Owner catalog for Calendar, Time Zone and Session
+business values. It is a different authority axis from R0: the catalog owns the typed value, business scope,
+business-effective half-open interval, revision, correction lineage and direct predecessor; R0 owns only the exact
+PIT/Source/Shared-Time observation evidence used when resolving that value. An R0 replay/effective bound never
+widens, truncates or creates a catalog business interval.
+
+The closed value tags are `1 CALENDAR`, `2 TIME_ZONE` and `3 SESSION`. Calendar entries bind one exact civil-day
+open/closed value. Time Zone entries bind one exact time-zone/ruleset/UTC-offset value and the UTC interval on
+which that offset is constant. Session entries bind one exact trading day, contiguous interval ordinal and local
+open/close boundaries with explicit fold resolution; they never store authoritative UTC endpoints. Session alone
+recomputes those endpoints from the exact Time Zone cut and requires coverage of both open and close instants.
+
+Only an admitted bootstrap/admin source may append an immutable catalog entry. Runtime receives an untrusted exact
+entry locator and can only resolve and byte-verify it; caller-carried typed proposals, latest/head selection and
+structurally valid bytes do not mint positive custody. The entry binds exact Source Binding identity/fact/lineage
+and source/correction frontiers. Native Calendar, Time Zone and Session facts repeat the resolved catalog identity
+and preserve independent R0 observation coordinates. Missing entry, changed meaning, source splice, predecessor
+branch, non-canonical ordering, interval overlap/gap or a Session boundary outside Time Zone coverage writes zero
+native facts, cuts, receipts and outbox rows.
+
+Catalog key and entry identities are BLAKE3-256 over respectively
+`vibe.market-data.reference-fact-catalog-key.v1\0` and
+`vibe.market-data.reference-fact-catalog-entry.v1\0` plus canonical big-endian bytes. The key binds closed kind,
+business scope, positive revision, lineage root and the complete typed value. The entry additionally binds command
+identity, optional direct predecessor, positive correction sequence, business-effective interval, exact Source
+provenance, administrator admission identity and stable correlation. Exact stored bytes are decoded, rehashed and
+matched before use. **NOT_ADMITTED:** isolated acceptance catalog data does not prove vendor authenticity and grants
+no default/production database, deployment, provider, Dashboard, runtime or trading effect.
+
 ### Shared native boundary and custody
 
 **CURRENT:** Replay V2 has typed Calendar and Time Zone values, while PIT and Instrument Master still carry
@@ -114,8 +145,9 @@ rather than strings; Replay V2, which receives deterministic projections; and la
 sole join of exact Calendar and Time Zone cuts. Neither native authority depends on Session or copies the other's
 facts. An untrusted private proposal cannot reinterpret an existing Replay V2 value or mint positive custody.
 
-Both authorities resolve the exact admitted Source Binding in the caller's Owner transaction and use one verified
-`ReferenceFactCoordinatesV1` only as observation evidence. Every fact has one lineage root, positive correction
+Both authorities resolve one exact `ReferenceFactCatalogV1` entry and the exact admitted Source Binding in the
+caller's Owner transaction, and use one verified `ReferenceFactCoordinatesV1` only as observation evidence. Every
+fact has one lineage root, positive correction
 sequence, optional direct predecessor and current head. A missing predecessor, branch, cycle, sequence gap or
 regression, cross-source splice, effective overlap/gap, incomplete requested coverage, clock mismatch or expired
 observation fails before any write. Positive facts, complete cuts, receipts and move-only readbacks have no public
@@ -350,7 +382,9 @@ The private version-1 value is exact non-empty correction-stream identity, posit
 identity/fact/lineage, correction-frontier digest identity, one half-open effective interval between distinct
 frontier changes, and the first admitted version's provider-available, retrieval, correction-publication,
 Owner-observation, decision cut, clock and R0 coordinate identity/digest. The first lineage version establishes
-availability; later versions carrying the byte-identical source, stream, sequence, successor-only value and
+availability and remains open even when its R0 record used a bounded replay/evidence interval; only a distinct
+successor frontier closes the correction regime. Later versions carrying the byte-identical source, stream,
+sequence, successor-only value and
 frontier are coalesced into the same interval and cannot move availability earlier. The next distinct frontier
 closes the prior interval and must be a direct, sequence-advancing successor. Gap, regression, branch, cross-source
 splice, changed stream without a new lineage, or clock/coordinate mismatch yields no projection.

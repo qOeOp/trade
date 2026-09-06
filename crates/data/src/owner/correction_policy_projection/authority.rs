@@ -65,10 +65,14 @@ fn seal(p: &mut Projection) -> Result<(), Error> {
 }
 
 pub(super) fn project_first_v1(inputs: Inputs<'_>) -> Result<Projection, Error> {
-    let p = candidate(inputs)?;
-    if p.source_binding_lineage_version != 1 || p.effective_until_ns.is_some() || p.sequence == 0 {
+    let mut p = candidate(inputs)?;
+    if p.source_binding_lineage_version != 1 || p.sequence == 0 {
         return Err(Error::InvalidInput);
     }
+    // R0's bounded observation evidence does not close the business correction regime.  The first
+    // distinct successor frontier owns that close and `join` seals the prior interval then.
+    p.effective_until_ns = None;
+    seal(&mut p)?;
     Ok(p)
 }
 

@@ -29,7 +29,7 @@ fn clock() -> ReferenceFactClockV1 {
 fn frontier(stream: &[u8], value: u8) -> ReferenceFactFrontierV1 {
     ReferenceFactFrontierV1 {
         stream_identity: stream.to_vec().into_boxed_slice(),
-        cut_identity: d(value),
+        cut_identity: format!("cut-{value}").into_bytes().into_boxed_slice(),
         sequence: u64::from(value),
         digest: d(value + 1),
     }
@@ -73,8 +73,16 @@ fn coordinate_claim() -> ReferenceFactCoordinateClaimV1 {
 
 #[rstest]
 fn verifies_complete_comparable_coordinates() {
-    let verified = VerifiedReferenceFactCoordinatesV1::verify(coordinate_claim()).unwrap();
+    let mut claim = coordinate_claim();
+    claim.source.frontier.cut_identity = b"source-frontier-cut".to_vec().into_boxed_slice();
+    claim.correction.cut_identity = vec![b'c'; 64].into_boxed_slice();
+    let verified = VerifiedReferenceFactCoordinatesV1::verify(claim).unwrap();
     assert_eq!(verified.claim().pit.snapshot_identity, d(3));
+    assert_eq!(
+        verified.claim().source.frontier.cut_identity.as_ref(),
+        b"source-frontier-cut"
+    );
+    assert_eq!(verified.claim().correction.cut_identity.len(), 64);
 }
 
 #[rstest]
@@ -118,9 +126,16 @@ fn rejects_unadmitted_source_and_bad_frontiers() {
     );
 
     let mut correction = coordinate_claim();
-    correction.correction.cut_identity = d(0);
+    correction.correction.cut_identity = Box::new([]);
     assert_eq!(
         VerifiedReferenceFactCoordinatesV1::verify(correction),
+        Err(ReferenceFactCoordinateErrorV1::InvalidCorrectionFrontier)
+    );
+
+    let mut oversized = coordinate_claim();
+    oversized.correction.cut_identity = vec![b'x'; MAX_IDENTITY_BYTES + 1].into_boxed_slice();
+    assert_eq!(
+        VerifiedReferenceFactCoordinatesV1::verify(oversized),
         Err(ReferenceFactCoordinateErrorV1::InvalidCorrectionFrontier)
     );
 }

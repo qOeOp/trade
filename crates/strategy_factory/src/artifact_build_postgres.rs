@@ -2674,12 +2674,15 @@ mod postgres_freshness_tests {
             .await
             .unwrap();
         }
-        let intent_identity = research_owner
+        let research_result = research_owner
             .submit_v2(research_request(&research_identity, research_admission))
             .await
-            .unwrap()
+            .unwrap();
+        let intent_identity = research_result
             .owner_receipt()
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!("legacy drain research submission unresolved: {research_result:#?}")
+            })
             .resulting_research_intent_identity
             .as_deref()
             .unwrap()
@@ -4026,8 +4029,8 @@ mod postgres_freshness_tests {
         let (start_reservation, _invocation_custody) = start_reservation.into_parts();
 
         let historical_expired = reseal_current_research_artifact_evidence_for_test(
-            original.0,
-            original.1,
+            original.0.clone(),
+            original.1.clone(),
             current_epoch_ms().unwrap(),
         )
         .unwrap();
@@ -4159,6 +4162,9 @@ mod postgres_freshness_tests {
                 .unwrap(),
             rd_attempts_before + 1
         );
+        sqlx::query("UPDATE rd_research_request_receipts_v1 SET view_json=$1, artifact_evidence_json=$2, artifact_evidence_digest=$3 WHERE request_identity=$4")
+            .bind(&original.0).bind(&original.1).bind(&original.2).bind(&research_request_identity)
+            .execute(rd_pool).await.unwrap();
     }
 
     #[derive(Debug, PartialEq)]

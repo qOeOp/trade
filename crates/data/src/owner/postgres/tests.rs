@@ -1781,7 +1781,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
             ("AAPL.CLOSE.EXCHANGE_SESSION_1D", "CLOSE", "1D", 12_299),
             ("AAPL.HIGH.1M", "HIGH", "1M", 12_401),
             ("AAPL.LOW.1M", "LOW", "1M", 12_211),
-            ("AAPL.OPEN.1M", "OPEN", "1M", 12_250),
+            ("AAPL.OPEN.1M", "OPEN", "1M", 12_251),
         ]
         .into_iter()
         .map(
@@ -2241,11 +2241,8 @@ async fn strategy_input_binding_registry_postgres_oracle(
 
 pub(crate) async fn replay_composition_market_base_fixture_v1(
     owner_url: &str,
-    reader_url: &str,
-    admin: &PgPool,
 ) -> ReplayCompositionMarketBaseFixtureV1 {
     let owner = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
-    grant_reader(admin).await;
     let clock = instrument_clock();
     let mut source_value = source_proposal(10, 100);
     source_value.time_evidence.clock_identity = clock.clock_identity.clone();
@@ -2277,7 +2274,7 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
         )
         .await
         .unwrap();
-    let read = MarketDataReadPostgres::connect(reader_url).await.unwrap();
+    let read = MarketDataReadPostgres::connect(owner_url).await.unwrap();
     let handoff = read
         .resolve_clock_head(build_head_fact(&clock, None).unwrap().handoff.locator())
         .await
@@ -2318,75 +2315,7 @@ pub(crate) async fn replay_composition_market_base_fixture_v1(
 fn replay_reference_coordinates_v1(
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
 ) -> crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1 {
-    use crate::owner::reference_fact_coordinates::{
-        AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
-        ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
-        VerifiedReferenceFactCoordinatesV1,
-    };
-    let record = r0.record();
-    let evidence = &record.evidence;
-    let digest_from_bytes =
-        |bytes: &[u8]| BindingDigest::from_untrusted_bytes(<[u8; 32]>::try_from(bytes).unwrap());
-    let clock = ReferenceFactClockV1 {
-        clock_identity: evidence.clock_identity.clone(),
-        clock_epoch: evidence.clock_epoch.clone(),
-        monotonic_sequence: evidence.clock_sequence,
-        wall_observed: evidence.clock_wall_observed,
-        decision_cut: evidence.clock_decision_cut,
-        valid_through: evidence.clock_valid_through,
-        head_identity: evidence.clock_head_identity,
-        head_digest: evidence.clock_head_digest,
-        restart_continuity_digest: evidence.restart_continuity_digest,
-        uncertainty_bound: evidence.uncertainty_bound,
-        skew_bound: evidence.skew_bound,
-        comparison_rule: 1,
-        epoch_proof_identity: None,
-        epoch_proof_digest: None,
-    };
-    VerifiedReferenceFactCoordinatesV1::verify(ReferenceFactCoordinateClaimV1 {
-        pit: ReferenceFactPitCutV1 {
-            snapshot_identity: evidence.pit_snapshot_identity,
-            fact_digest: evidence.pit_fact_digest,
-            decision_cut: evidence.clock_decision_cut,
-            observed_at: evidence.clock_wall_observed,
-            valid_through: evidence.clock_valid_through,
-            clock: clock.clone(),
-        },
-        replay_start_event_ns: record.replay_start_event_ns,
-        replay_end_event_ns_exclusive: record.replay_end_event_ns_exclusive,
-        source: AdmittedReferenceFactSourceV1 {
-            binding_identity: evidence.source_binding_identity,
-            binding_fact_digest: evidence.source_binding_fact_digest,
-            lineage_root: evidence.source_binding_lineage_root,
-            lineage_version: evidence.source_binding_lineage_version,
-            admitted: true,
-            frontier: ReferenceFactFrontierV1 {
-                stream_identity: evidence.source_frontier_stream_identity.clone(),
-                cut_identity: digest_from_bytes(&evidence.source_frontier_cut_identity),
-                sequence: evidence.source_frontier_sequence,
-                digest: evidence.source_frontier_digest,
-            },
-        },
-        correction: ReferenceFactFrontierV1 {
-            stream_identity: evidence.correction_frontier_stream_identity.clone(),
-            cut_identity: digest_from_bytes(&evidence.correction_frontier_cut_identity),
-            sequence: evidence.correction_frontier_sequence,
-            digest: evidence.correction_frontier_digest,
-        },
-        time: ReferenceFactEffectiveTimeV1 {
-            effective_from_ns: record.effective_from_ns,
-            effective_until_ns: record.effective_until_ns,
-            provider_available_ns: record.provider_available_ns,
-            retrieval_ns: record.retrieval_ns,
-            correction_publication_ns: record.correction_publication_ns,
-            owner_observation_ns: record.owner_observation_ns,
-            decision_cut: record.decision_cut,
-        },
-        fact_clock: clock,
-        predecessor_identity: record.predecessor_identity,
-        stable_correlation: record.stable_correlation,
-    })
-    .unwrap()
+    crate::owner::reference_fact_coordinates::verified_coordinates_from_r0_v1(r0).unwrap()
 }
 
 pub(crate) struct ReplayReferenceLeafFixtureV1 {
@@ -2402,6 +2331,25 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
     owner: &MarketDataOwnerPostgres,
     base: &ReplayCompositionMarketBaseFixtureV1,
 ) -> ReplayReferenceLeafFixtureV1 {
+    {
+        let mut transaction = owner.pool().begin().await.unwrap();
+        super::calendar::install_calendar_schema_v1(&mut transaction)
+            .await
+            .unwrap();
+        super::time_zone::install_time_zone_schema_v1(&mut transaction)
+            .await
+            .unwrap();
+        super::session::install_session_schema_v1(&mut transaction)
+            .await
+            .unwrap();
+        super::reference_fact_catalog::install_reference_fact_catalog_schema_v1(&mut transaction)
+            .await
+            .unwrap();
+        super::corporate_action::install_corporate_action_schema_v1(&mut transaction)
+            .await
+            .unwrap();
+        transaction.commit().await.unwrap();
+    }
     let source_locator_bytes = serde_json::to_vec(base.source.receipt().locator()).unwrap();
     let pit_locator_bytes = serde_json::to_vec(base.pit.receipt().locator()).unwrap();
     let r0_locator = base.r0.receipt();
@@ -2433,7 +2381,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         transaction.commit().await.unwrap();
         readback
     };
-    let (time_zone_request, time_zone_proposals) =
+    let (time_zone_request, mut time_zone_proposals) =
         crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
             d(202),
             base.coordinates.clone(),
@@ -2444,6 +2392,15 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         );
     let _time_zone = {
         let mut transaction = owner.pool().begin().await.unwrap();
+        for proposal in &mut time_zone_proposals {
+            proposal.catalog_entry =
+                super::reference_fact_catalog::admit_reference_fact_catalog_entry_v1(
+                    &mut transaction,
+                    &proposal.catalog_entry,
+                )
+                .await
+                .unwrap();
+        }
         let readback = super::time_zone::resolve_time_zone_in_transaction_v1(
             &mut transaction,
             time_zone_request.clone(),
@@ -2557,8 +2514,6 @@ pub(crate) struct ReplayJoinedProjectionFixtureV1 {
     pub(crate) projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) frame_projection_digests: [crate::owner::source_binding::BindingDigest; 6],
-    pub(crate) wrong_day_projection:
-        crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) cross_splice_projection:
         crate::owner::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
     pub(crate) cross_splice_receipt_digest: crate::owner::source_binding::BindingDigest,
@@ -2641,45 +2596,28 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         transaction.commit().await.unwrap();
         joined
     };
+    let mut cross_splice_join_claim = join_claim.clone();
+    cross_splice_join_claim.max_staleness_ns = 2;
+    cross_splice_join_claim.join_identity = derive_strategy_input_join_identity_v2(
+        &cross_splice_join_claim.join_semantic_id,
+        &semantic_ids,
+        &cross_splice_join_claim.alignment_semantic_id,
+        &cross_splice_join_claim.trigger_input_id,
+        cross_splice_join_claim.max_staleness_ns,
+    );
     let cross_splice_census_request =
         crate::owner::observation_census::UntrustedObservationCensusRequestV1::new(
             d(249),
             base.pit.receipt().locator().clone(),
-            join_claim.clone(),
+            cross_splice_join_claim,
             frames.last().unwrap().trigger().lifecycle().logical_time(),
             base.binding_requests[0].research_request_identity,
         );
-    let mut cross_splice_batch = base.batch.clone();
-    cross_splice_batch.digest = d(248);
-    for observation in &mut cross_splice_batch.observations {
-        observation.value_mantissa += 1;
-    }
-    let cross_splice_frames = base
-        .bindings
-        .iter()
-        .map(|binding| {
-            bind_strategy_input_event_frame(std::slice::from_ref(binding), &cross_splice_batch)
-                .unwrap()
-        })
-        .collect::<Vec<_>>();
     let cross_splice_joined = {
-        let (census, joined) =
-            crate::owner::observation_census::authority::issue_observation_census_and_joined_cut_v1(
-                &cross_splice_census_request,
-                &base.bindings,
-                cross_splice_frames.clone(),
-            )
-            .unwrap();
-        let envelope = super::observation_census::ObservationCensusWriteEnvelopeV1::from_readbacks(
-            &cross_splice_census_request,
-            &census,
-            &joined,
-        )
-        .unwrap();
         let mut transaction = owner.pool().begin().await.unwrap();
-        super::observation_census::commit_observation_census_and_joined_cut_v1(
+        let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
             &mut transaction,
-            &envelope,
+            &cross_splice_census_request,
         )
         .await
         .unwrap();
@@ -2753,29 +2691,10 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
                 day_schedule,
             ],
             &base.bindings,
-            &cross_splice_frames,
-            &cross_splice_batch,
-            &base.instrument,
-            cross_splice_joined.record().joined_cut_receipt(),
-        )
-        .await
-        .joined;
-    let wrong_day_projection =
-        super::sample_projection_v4::tests::commit_joined_bar_projection_fixture_v4(
-            owner,
-            &[
-                minute_schedule.clone(),
-                minute_schedule.clone(),
-                minute_schedule.clone(),
-                minute_schedule,
-                hour_schedule.clone(),
-                hour_schedule,
-            ],
-            &base.bindings,
             &frames,
             &base.batch,
             &base.instrument,
-            joined.record().joined_cut_receipt(),
+            cross_splice_joined.record().joined_cut_receipt(),
         )
         .await
         .joined;
@@ -2784,7 +2703,6 @@ pub(crate) async fn persist_replay_joined_projection_fixture_v1(
         joined,
         projection,
         frame_projection_digests,
-        wrong_day_projection,
         cross_splice_projection,
         cross_splice_receipt_digest: cross_splice_joined.record().joined_cut_receipt().digest(),
         join_claim,

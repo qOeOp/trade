@@ -38,7 +38,7 @@ fn clock() -> ReferenceFactClockV1 {
 fn frontier(name: &[u8], sequence: u64, value: u8) -> ReferenceFactFrontierV1 {
     ReferenceFactFrontierV1 {
         stream_identity: name.to_vec().into(),
-        cut_identity: d(value),
+        cut_identity: format!("cut-{value}").into_bytes().into_boxed_slice(),
         sequence,
         digest: d(value + 1),
     }
@@ -47,6 +47,15 @@ fn coordinates(
     start: i128,
     end: Option<i128>,
     sequence: u64,
+    predecessor: Option<SessionIdentityV1>,
+) -> VerifiedReferenceFactCoordinatesV1 {
+    coordinates_with_sequences(start, end, sequence, sequence, predecessor)
+}
+fn coordinates_with_sequences(
+    start: i128,
+    end: Option<i128>,
+    lineage_version: u64,
+    correction_sequence: u64,
     predecessor: Option<SessionIdentityV1>,
 ) -> VerifiedReferenceFactCoordinatesV1 {
     VerifiedReferenceFactCoordinatesV1::verify(ReferenceFactCoordinateClaimV1 {
@@ -64,11 +73,11 @@ fn coordinates(
             binding_identity: d(6),
             binding_fact_digest: d(7),
             lineage_root: d(8),
-            lineage_version: sequence,
+            lineage_version,
             admitted: true,
-            frontier: frontier(b"source", sequence, 9),
+            frontier: frontier(b"source", lineage_version, 9),
         },
-        correction: frontier(b"correction", sequence, 11),
+        correction: frontier(b"correction", correction_sequence, 11),
         time: ReferenceFactEffectiveTimeV1 {
             effective_from_ns: start,
             effective_until_ns: end,
@@ -91,18 +100,22 @@ fn tz_proposal(
     predecessor: Option<SessionIdentityV1>,
     offset: i32,
 ) -> TimeZoneFactProposalV1 {
-    TimeZoneFactProposalV1 {
-        time_zone_identity: b"Test/Zone".to_vec().into(),
-        ruleset_identity: d(14),
-        utc_offset_seconds: offset,
-        correction_sequence: sequence,
-        dependencies: VerifiedTimeZoneDependenciesV1::verify(
-            coordinates(start, end, sequence, predecessor),
-            d(15),
-            d(16),
-        )
-        .unwrap(),
-    }
+    let dependencies = VerifiedTimeZoneDependenciesV1::verify(
+        coordinates(start, end, sequence, predecessor),
+        d(15),
+        d(16),
+    )
+    .unwrap();
+    crate::owner::time_zone::tests::time_zone_catalog_proposal(
+        b"Test/Zone",
+        d(14),
+        offset,
+        sequence,
+        predecessor,
+        start,
+        end,
+        dependencies,
+    )
 }
 fn time_zone(before: i32, after: i32) -> time_zone::TimeZoneReadbackV1 {
     let first = tz_proposal(-10_000_000_000_000, Some(0), 1, None, before);
@@ -261,6 +274,11 @@ pub(crate) fn replay_session_fixture_v1(
     r0_coordinate_digest: SessionIdentityV1,
 ) -> (UntrustedSessionRequestV1, Vec<SessionFactProposalV1>) {
     let claim = coordinates.claim();
+    let (local_open_ns, local_close_ns) = u64::try_from(claim.replay_start_event_ns)
+        .ok()
+        .zip(u64::try_from(claim.replay_end_event_ns_exclusive).ok())
+        .filter(|(open, close)| open < close && *close < 86_400_000_000_000)
+        .unwrap_or((0, 100));
     let request = UntrustedSessionRequestV1 {
         request_identity,
         session_identity: b"XNYS-REGULAR-V1".to_vec().into(),
@@ -279,12 +297,12 @@ pub(crate) fn replay_session_fixture_v1(
         interval_ordinal: 0,
         local_open: LocalBoundaryV1 {
             day: 0,
-            nanos_of_day: 0,
+            nanos_of_day: local_open_ns,
             resolution: LocalResolutionV1::Exact,
         },
         local_close: LocalBoundaryV1 {
             day: 0,
-            nanos_of_day: 100,
+            nanos_of_day: local_close_ns,
             resolution: LocalResolutionV1::Exact,
         },
         predecessor_identity: None,
@@ -370,6 +388,36 @@ fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
         authority::issue_fact(&request(), &deps, &cross_splice),
         Err(SessionErrorV1::InvalidDependency)
     );
+}
+
+#[rstest]
+fn fact_preserves_independent_source_and_correction_frontiers() {
+    let calendar = calendar(true);
+    let time_zone = time_zone(0, 0);
+    let deps = SessionDependenciesV1 {
+        calendar: &calendar,
+        time_zone: &time_zone,
+        instrument_master: instrument(),
+        calendar_cut_locator_bytes: b"calendar",
+        time_zone_cut_locator_bytes: b"time-zone",
+        source_binding_locator_bytes: b"source",
+        r0_locator_bytes: b"r0",
+    };
+    let mut proposal = replay_session_fixture_v1(
+        d(90),
+        coordinates_with_sequences(-10_000_000_000_000, Some(10_000_000_000_000), 1, 11, None),
+        b"calendar",
+        b"time-zone",
+        b"source",
+        b"r0",
+        d(37),
+        d(38),
+    )
+    .1
+    .remove(0);
+    proposal.correction_identity = d(36);
+
+    assert!(authority::issue_fact(&request(), &deps, &proposal).is_ok());
 }
 
 #[rstest]

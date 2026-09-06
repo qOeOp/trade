@@ -1,4 +1,8 @@
 use super::*;
+use crate::owner::reference_fact_catalog::{
+    ReferenceFactCatalogSourceV1, ReferenceFactCatalogValueV1,
+    UntrustedReferenceFactCatalogProposalV1, seal_reference_fact_catalog_entry_v1,
+};
 use crate::owner::reference_fact_coordinates::{
     AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
     ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
@@ -30,7 +34,7 @@ fn clock() -> ReferenceFactClockV1 {
 fn frontier(name: &[u8], sequence: u64, value: u8) -> ReferenceFactFrontierV1 {
     ReferenceFactFrontierV1 {
         stream_identity: name.to_vec().into(),
-        cut_identity: d(value),
+        cut_identity: format!("cut-{value}").into_bytes().into_boxed_slice(),
         sequence,
         digest: d(value + 1),
     }
@@ -39,6 +43,15 @@ fn dependencies(
     start: i128,
     end: Option<i128>,
     sequence: u64,
+    predecessor: Option<TimeZoneIdentity>,
+) -> VerifiedTimeZoneDependenciesV1 {
+    dependencies_with_sequences(start, end, sequence, sequence, predecessor)
+}
+fn dependencies_with_sequences(
+    start: i128,
+    end: Option<i128>,
+    lineage_version: u64,
+    correction_sequence: u64,
     predecessor: Option<TimeZoneIdentity>,
 ) -> VerifiedTimeZoneDependenciesV1 {
     let claim = ReferenceFactCoordinateClaimV1 {
@@ -56,11 +69,11 @@ fn dependencies(
             binding_identity: d(6),
             binding_fact_digest: d(7),
             lineage_root: d(8),
-            lineage_version: sequence,
+            lineage_version,
             admitted: true,
-            frontier: frontier(b"source", sequence, 9),
+            frontier: frontier(b"source", lineage_version, 9),
         },
-        correction: frontier(b"correction", sequence, 11),
+        correction: frontier(b"correction", correction_sequence, 11),
         time: ReferenceFactEffectiveTimeV1 {
             effective_from_ns: start,
             effective_until_ns: end,
@@ -81,6 +94,15 @@ fn dependencies(
     )
     .unwrap()
 }
+
+#[rstest]
+fn fact_preserves_independent_source_and_correction_frontiers() {
+    let deps = dependencies_with_sequences(5, Some(25), 1, 11, None);
+    let proposal =
+        time_zone_catalog_proposal(b"Asia/Tokyo", d(14), 32_400, 1, None, 5, Some(25), deps);
+
+    assert!(authority::issue_fact_v1(proposal).is_ok());
+}
 fn proposal(
     start: i128,
     end: Option<i128>,
@@ -88,12 +110,61 @@ fn proposal(
     predecessor: Option<TimeZoneIdentity>,
     offset: i32,
 ) -> TimeZoneFactProposalV1 {
+    let dependencies = dependencies(start, end, sequence, predecessor);
+    time_zone_catalog_proposal(
+        b"Asia/Tokyo",
+        d(14),
+        offset,
+        sequence,
+        predecessor,
+        start,
+        end,
+        dependencies,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn time_zone_catalog_proposal(
+    time_zone_identity: &[u8],
+    ruleset_identity: TimeZoneIdentity,
+    utc_offset_seconds: i32,
+    correction_sequence: u64,
+    predecessor_identity: Option<TimeZoneIdentity>,
+    effective_from_ns: i128,
+    effective_until_ns: Option<i128>,
+    dependencies: VerifiedTimeZoneDependenciesV1,
+) -> TimeZoneFactProposalV1 {
+    let claim = dependencies.coordinates().claim();
+    let catalog_entry =
+        seal_reference_fact_catalog_entry_v1(&UntrustedReferenceFactCatalogProposalV1 {
+            command_identity: d(30_u8.wrapping_add(correction_sequence as u8)),
+            scope_identity: ruleset_identity,
+            revision: correction_sequence,
+            lineage_root: claim.source.lineage_root,
+            predecessor_identity,
+            correction_sequence,
+            effective_from_ns,
+            effective_until_ns,
+            source: ReferenceFactCatalogSourceV1 {
+                source_binding_identity: claim.source.binding_identity,
+                source_binding_fact_digest: claim.source.binding_fact_digest,
+                source_binding_lineage_root: claim.source.lineage_root,
+                source_binding_lineage_version: claim.source.lineage_version,
+                source_frontier_digest: claim.source.frontier.digest,
+                correction_frontier_digest: claim.correction.digest,
+                admission_identity: d(29),
+            },
+            value: ReferenceFactCatalogValueV1::TimeZone {
+                time_zone_identity: time_zone_identity.to_vec().into(),
+                ruleset_identity,
+                utc_offset_seconds,
+            },
+            stable_correlation: claim.stable_correlation,
+        })
+        .unwrap();
     TimeZoneFactProposalV1 {
-        time_zone_identity: b"Asia/Tokyo".to_vec().into(),
-        ruleset_identity: d(14),
-        utc_offset_seconds: offset,
-        correction_sequence: sequence,
-        dependencies: dependencies(start, end, sequence, predecessor),
+        catalog_entry,
+        dependencies,
     }
 }
 fn request() -> UntrustedTimeZoneRequestV1 {
@@ -131,7 +202,7 @@ pub(crate) fn replay_time_zone_fixture_v1(
     let request = UntrustedTimeZoneRequestV1 {
         request_identity,
         consumer: TimeZoneConsumerV1::ReplayV2,
-        time_zone_identity: b"America/New_York".to_vec().into(),
+        time_zone_identity: b"Etc/UTC".to_vec().into(),
         ruleset_identity,
         window_start_ns: claim.replay_start_event_ns,
         window_end_ns_exclusive: claim.replay_end_event_ns_exclusive,
@@ -141,18 +212,22 @@ pub(crate) fn replay_time_zone_fixture_v1(
         r0_locator_bytes: r0_locator_bytes.to_vec().into(),
         stable_correlation: claim.stable_correlation,
     };
-    let proposal = TimeZoneFactProposalV1 {
-        time_zone_identity: b"America/New_York".to_vec().into(),
+    let dependencies = VerifiedTimeZoneDependenciesV1::verify(
+        coordinates.clone(),
+        r0_coordinate_identity,
+        r0_coordinate_digest,
+    )
+    .unwrap();
+    let proposal = time_zone_catalog_proposal(
+        b"Etc/UTC",
         ruleset_identity,
-        utc_offset_seconds: -14_400,
-        correction_sequence: claim.source.lineage_version,
-        dependencies: VerifiedTimeZoneDependenciesV1::verify(
-            coordinates,
-            r0_coordinate_identity,
-            r0_coordinate_digest,
-        )
-        .unwrap(),
-    };
+        0,
+        claim.source.lineage_version,
+        None,
+        claim.replay_start_event_ns,
+        Some(claim.replay_end_event_ns_exclusive.saturating_add(1)),
+        dependencies,
+    );
     (request, vec![proposal])
 }
 
@@ -254,7 +329,19 @@ fn rejects_cross_splice_zero_and_corrupt_aggregate() {
         Err(TimeZoneErrorV1::InvalidDependency)
     );
     let mut wrong_ruleset = proposals();
-    wrong_ruleset[1].ruleset_identity = d(21);
+    let first_id = authority::issue_fact_v1(wrong_ruleset[0].clone())
+        .unwrap()
+        .identity();
+    wrong_ruleset[1] = time_zone_catalog_proposal(
+        b"Asia/Tokyo",
+        d(21),
+        36_000,
+        2,
+        Some(first_id),
+        15,
+        Some(25),
+        wrong_ruleset[1].dependencies.clone(),
+    );
     assert_eq!(
         authority::prepare_resolution_v1(request(), wrong_ruleset, d(16), d(17)),
         Err(TimeZoneErrorV1::InvalidDependency)

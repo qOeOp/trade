@@ -11,6 +11,7 @@
 use std::fmt::Display;
 
 use super::{
+    reference_fact_catalog::ReferenceFactCatalogEntryV1,
     reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1, source_binding::BindingDigest,
 };
 
@@ -89,10 +90,7 @@ impl VerifiedTimeZoneDependenciesV1 {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TimeZoneFactProposalV1 {
-    pub(crate) time_zone_identity: Box<[u8]>,
-    pub(crate) ruleset_identity: TimeZoneIdentity,
-    pub(crate) utc_offset_seconds: i32,
-    pub(crate) correction_sequence: u64,
+    pub(crate) catalog_entry: ReferenceFactCatalogEntryV1,
     pub(crate) dependencies: VerifiedTimeZoneDependenciesV1,
 }
 

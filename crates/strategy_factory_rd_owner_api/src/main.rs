@@ -2055,6 +2055,8 @@ mod tests {
     use vibe_rd_artifact_invocation_custody::{
         ArtifactInvocationReservationMeaningV1, seal_invocation_reservation,
     };
+    #[cfg(feature = "sealed-source-intake-acceptance")]
+    use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
     use vibe_strategy_factory::{
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
         product_edge::{RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchSourceV1},
@@ -2333,6 +2335,18 @@ mod tests {
     async fn same_identity_started_retry_returns_http_ok_with_exact_custody_once() {
         let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let mutation = test_database.mutation();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        {
+            let catalog_admin_pool = sqlx::PgPool::connect(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            )
+            .await
+            .unwrap();
+            ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+                .await
+                .unwrap();
+        }
         let token = "rd-owner-api-start-retry-test";
         let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
         let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));

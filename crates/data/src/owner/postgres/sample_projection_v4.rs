@@ -543,6 +543,32 @@ pub(crate) mod tests {
         pub(crate) frame_projection_digests: Vec<crate::owner::source_binding::BindingDigest>,
     }
 
+    async fn commit_or_resolve_exact_sample_fixture_v4(
+        owner: &MarketDataOwnerPostgres,
+        prepared: &crate::owner::sample_fact::PreparedSampleCommitV1,
+    ) -> crate::owner::sample_fact::StoredSampleReadbackV1 {
+        let stored = match owner
+            .resolve_prepared_sample_v1(prepared.sample_receipt_digest())
+            .await
+        {
+            Ok(stored) => stored,
+            Err(crate::owner::postgres::SampleCustodyErrorV1::UnknownReceipt) => owner
+                .commit_prepared_sample_v1(prepared)
+                .await
+                .expect("a new fixture sample must advance empty Owner heads"),
+            Err(error) => panic!("exact BAR sample resolution failed: {error}"),
+        };
+        assert_eq!(
+            stored.fact().canonical_bytes(),
+            prepared.fact_canonical_bytes()
+        );
+        assert_eq!(
+            stored.receipt().canonical_bytes(),
+            prepared.sample_receipt_canonical_bytes()
+        );
+        stored
+    }
+
     pub(crate) async fn commit_joined_bar_projection_fixture_v4(
         owner: &MarketDataOwnerPostgres,
         schedule_proposals: &[crate::owner::bar_schedule::UntrustedBarScheduleProposalV1],
@@ -603,21 +629,17 @@ pub(crate) mod tests {
         {
             let schedule = &schedules[schedule_index];
             let timeframe = prepare_bar_timeframe_projection_v1(binding, batch, schedule).unwrap();
-            let sample = owner
-                .commit_prepared_sample_v1(
-                    &prepare_sample_commit_v1(
-                        binding,
-                        batch,
-                        &timeframe,
-                        SampleFactHeadsV1 {
-                            series: None,
-                            slot: None,
-                        },
-                    )
-                    .unwrap(),
-                )
-                .await
-                .unwrap();
+            let prepared_sample = prepare_sample_commit_v1(
+                binding,
+                batch,
+                &timeframe,
+                SampleFactHeadsV1 {
+                    series: None,
+                    slot: None,
+                },
+            )
+            .unwrap();
+            let sample = commit_or_resolve_exact_sample_fixture_v4(owner, &prepared_sample).await;
             let prepared_v3 = prepare_strategy_input_sample_projection_bar_v3(
                 frame,
                 &[StrategyInputSampleProjectionSourceV3 {

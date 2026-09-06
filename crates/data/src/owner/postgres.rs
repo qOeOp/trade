@@ -13,6 +13,7 @@ mod calendar;
 mod corporate_action;
 mod market_semantics;
 mod observation_census;
+mod reference_fact_catalog;
 mod reference_fact_coordinates;
 mod replay_market_facts_v2;
 mod sample_projection_v4;
@@ -141,9 +142,10 @@ use super::{
 const MIGRATION_ID: &str = "market-data-owner-postgres-v1";
 const SHARED_TIME_MIGRATION_ID: &str = "market-data-owner-shared-time-v1";
 const OWNER_HISTORY_CENSUS_MIGRATION_ID: &str = "market-data-owner-history-census-v1";
+const OWNER_SCHEMA_GUARD_V1: &str = "DO $owner_schema$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace namespace JOIN pg_catalog.pg_roles role ON role.oid=namespace.nspowner WHERE namespace.nspname='market_data_private' AND role.rolname=current_user) THEN RAISE EXCEPTION 'Market Data bootstrap schema ownership is unavailable'; END IF; END $owner_schema$";
 
 const MIGRATION_STATEMENTS: &[&str] = &[
-    "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION CURRENT_USER",
+    OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.owner_migrations_v1 (migration_id TEXT PRIMARY KEY, installed_at TIMESTAMPTZ NOT NULL DEFAULT transaction_timestamp())",
     "CREATE TABLE IF NOT EXISTS market_data_private.clock_head_v1 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), clock_identity TEXT NOT NULL, clock_epoch TEXT NOT NULL, monotonic_sequence BIGINT NOT NULL CHECK (monotonic_sequence > 0), wall_observed BIGINT NOT NULL CHECK (wall_observed > 0), decision_cut BIGINT NOT NULL CHECK (decision_cut > 0), valid_through BIGINT NOT NULL, restart_continuity_digest BYTEA NOT NULL CHECK (octet_length(restart_continuity_digest) = 32), uncertainty_bound BIGINT NOT NULL CHECK (uncertainty_bound >= 0), skew_bound BIGINT NOT NULL CHECK (skew_bound > 0), comparison_rule SMALLINT NOT NULL CHECK (comparison_rule = 1), shared_time_materialized BOOLEAN NOT NULL DEFAULT FALSE, CHECK (uncertainty_bound <= skew_bound), CHECK (decision_cut <= wall_observed), CHECK (wall_observed < valid_through))",

@@ -398,6 +398,24 @@ fn replay_first_corpus_trigger_is_uniquely_minute_close() {
 }
 
 #[rstest]
+fn replay_first_corpus_rejects_duplicate_hour_without_session_day() {
+    assert_eq!(
+        super::ReplayCompositionOwnerV1::replay_first_corpus_set_for_test_v1(
+            &[0, 1, 2, 3, 4, 4],
+            true,
+        ),
+        Err(super::ReplayCompositionBindingErrorV1::IncompleteComposition)
+    );
+    assert_eq!(
+        super::ReplayCompositionOwnerV1::replay_first_corpus_set_for_test_v1(
+            &[0, 1, 2, 3, 4, 5],
+            true,
+        ),
+        Ok(())
+    );
+}
+
+#[rstest]
 fn owner_transactions_are_explicitly_terminal_before_reader_release() {
     let source = include_str!("../postgres/replay_market_facts_v2.rs");
     let issue_body = source
@@ -969,12 +987,24 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let reader_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataReader);
     let admin = database.owner_topology_admin_pool();
-    let base = Box::pin(replay_composition_market_base_fixture_v1(
-        owner_url, reader_url, admin,
-    ))
-    .await;
+    let can_create_schema: bool = sqlx::query_scalar(
+        "SELECT pg_catalog.has_database_privilege(current_user,current_database(),'CREATE')",
+    )
+    .fetch_one(market_mutation_pool)
+    .await
+    .expect("Market runtime database privilege");
+    assert!(!can_create_schema);
+    let wrong_owner = MarketDataOwnerPostgres::connect(reader_url).await;
+    assert!(matches!(
+        wrong_owner,
+        Err(crate::owner::source_binding::SourceBindingError::StoreUnavailable)
+    ));
+    let base = Box::pin(replay_composition_market_base_fixture_v1(owner_url)).await;
     let market = MarketDataOwnerPostgres::connect(owner_url).await.unwrap();
     let joined = Box::pin(persist_replay_joined_projection_fixture_v1(&market, &base)).await;
+    ReplayCompositionOwnerV1::materialize_schema(owner_url)
+        .await
+        .unwrap();
     let owner = Arc::new(
         ReplayCompositionOwnerV1::connect(owner_url, reader_url)
             .await
@@ -1101,20 +1131,6 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     let native_join =
         StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &native_capability)
-            .unwrap();
-    let wrong_day_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
-        UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
-            joined.wrong_day_projection.receipt_digest(),
-        ),
-        joined_digest,
-        joined_receipt_digest,
-        BindingDigest::from_untrusted_bytes(
-            joined.wrong_day_projection.schedule_dependency_set_digest(),
-        ),
-        &joined.join_claim,
-    );
-    let wrong_day_native_join =
-        StrategyDesignNativeJoinReceiptV1::from_market_owner(&role_set, &wrong_day_capability)
             .unwrap();
     let cross_splice_capability = AuthenticatedComposerNativeJoinV1::from_owner_readback(
         UntrustedStrategyInputSampleProjectionLocatorV4::from_untrusted(
@@ -1345,7 +1361,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
                 command.composition().corporate_action_locator(),
             )
         };
-    let before = replay_positive_state(admin).await;
+    let before = replay_positive_state(market_mutation_pool).await;
     let mut cross_design_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *cross_design_tx)
@@ -1371,7 +1387,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(242), command.composition().clone())
             .unwrap();
     assert!(owner.issue_binding_v1(&cross_design).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
 
     let mut cross_splice_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
@@ -1405,41 +1421,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     )
     .unwrap();
     assert!(owner.issue_binding_v1(&cross_splice).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
 
-    let mut wrong_day_tx = admin.begin().await.unwrap();
-    sqlx::query("SET LOCAL ROLE composer_owner")
-        .execute(&mut *wrong_day_tx)
-        .await
-        .unwrap();
-    sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('rd.develop.composer.commit.v2:'||$1,0))")
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *wrong_day_tx)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE composer_private.rd_develop_strategy_design_native_joins_v1 SET native_join_digest=$1,projection_receipt_digest=$2,joined_cut_digest=$3,schedule_dependency_set_digest=$4,canonical_bytes=$5 WHERE request_identity=$6")
-        .bind(wrong_day_native_join.receipt_digest().as_bytes().as_slice())
-        .bind(wrong_day_native_join.projection_receipt_digest().as_bytes().as_slice())
-        .bind(wrong_day_native_join.joined_cut_digest().as_bytes().as_slice())
-        .bind(wrong_day_native_join.schedule_dependency_set_digest().as_bytes().as_slice())
-        .bind(wrong_day_native_join.canonical_bytes())
-        .bind(&composer_locator.request_identity)
-        .execute(&mut *wrong_day_tx)
-        .await
-        .unwrap();
-    wrong_day_tx.commit().await.unwrap();
-    let wrong_day_projection_digest =
-        BindingDigest::from_untrusted_bytes(joined.wrong_day_projection.receipt_digest());
-    let wrong_day = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(
-        d(252),
-        composition_with_sample_projection(ReplayCompositionContentLocatorV1::from_untrusted(
-            wrong_day_projection_digest,
-            wrong_day_projection_digest,
-        )),
-    )
-    .unwrap();
-    assert!(owner.issue_binding_v1(&wrong_day).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
     let mut correct_day_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *correct_day_tx)
@@ -1487,7 +1470,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     let missing =
         ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(221), missing_composition).unwrap();
     assert!(owner.issue_binding_v1(&missing).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
 
     let mut splice_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
@@ -1514,7 +1497,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(223), command.composition().clone())
             .unwrap();
     assert!(owner.issue_binding_v1(&cross_spliced).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
     let mut restore_tx = admin.begin().await.unwrap();
     sqlx::query("SET LOCAL ROLE composer_owner")
         .execute(&mut *restore_tx)
@@ -1558,11 +1541,8 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .execute(market_mutation_pool)
     .await
     .unwrap();
-    let commit_fault =
-        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(224), command.composition().clone())
-            .unwrap();
-    assert!(owner.issue_binding_v1(&commit_fault).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, before);
+    assert!(owner.issue_binding_v1(&command).await.is_err());
+    assert_eq!(replay_positive_state(market_mutation_pool).await, before);
     sqlx::query(
         "DROP TRIGGER terminate_replay_composition_issuance_commit_v1
          ON market_data_private.replay_composition_issuances_v1",
@@ -1577,7 +1557,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     .await
     .unwrap();
 
-    let mut blocker = admin.begin().await.unwrap();
+    let mut blocker = market_mutation_pool.begin().await.unwrap();
     sqlx::query("SELECT 1 FROM market_data_private.reference_fact_r0_records_v1 WHERE request_identity=$1 FOR UPDATE")
         .bind(base.r0.receipt().request_identity.as_bytes().as_slice()).fetch_one(&mut *blocker).await.unwrap();
     let issue_owner = Arc::clone(&owner);
@@ -1611,22 +1591,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
         .unwrap();
     assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
-    let commit_fault_first = fresh_owner.issue_binding_v1(&commit_fault).await.unwrap();
-    let commit_fault_retry = fresh_owner.issue_binding_v1(&commit_fault).await.unwrap();
-    let commit_fault_recovered = fresh_owner
-        .recover_issuance_v1(commit_fault.issuance_locator())
-        .await
-        .unwrap();
-    assert_eq!(
-        commit_fault_first.canonical_bytes(),
-        commit_fault_retry.canonical_bytes()
-    );
-    assert_eq!(
-        commit_fault_first.canonical_bytes(),
-        commit_fault_recovered.canonical_bytes()
-    );
-
-    let committed = replay_positive_state(admin).await;
+    let committed = replay_positive_state(market_mutation_pool).await;
     let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
         composer_locator,
         command.composition().pit_locator().clone(),
@@ -1648,7 +1613,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     let bad = ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(222), bad_r0).unwrap();
     assert!(fresh_owner.issue_binding_v1(&bad).await.is_err());
-    assert_eq!(replay_positive_state(admin).await, committed);
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
 }
 
 async fn replay_positive_state(pool: &sqlx::PgPool) -> Vec<i64> {

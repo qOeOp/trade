@@ -18,7 +18,7 @@ use crate::owner::{
 use sqlx::{Postgres, Row, Transaction};
 
 pub(super) const SESSION_SCHEMA_V1: &[&str] = &[
-    "CREATE SCHEMA IF NOT EXISTS market_data_private",
+    super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_state_v1(singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),session_identity BYTEA NOT NULL CHECK(octet_length(session_identity)>0),trading_day INTEGER NOT NULL,interval_ordinal BIGINT NOT NULL CHECK(interval_ordinal>=0),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),predecessor_identity BYTEA NULL REFERENCES market_data_private.session_facts_v1(fact_identity),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0),UNIQUE(session_identity,trading_day,interval_ordinal,fact_identity))",
@@ -351,6 +351,8 @@ mod tests {
     #[rstest]
     fn schema_private_and_unregistered() {
         let s = SESSION_SCHEMA_V1.join("\n");
+        assert!(s.contains("bootstrap schema ownership is unavailable"));
+        assert!(!s.contains("CREATE SCHEMA"));
         assert_eq!(s.matches("REVOKE ALL ON TABLE").count(), 7);
 
         for r in [

@@ -879,22 +879,22 @@ struct SealedCorpusDescriptorV2 {
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 const SEALED_A0_CORPUS_V2: SealedCorpusDescriptorV2 = SealedCorpusDescriptorV2 {
     manifest_digest: hex_digest_v2(
-        "4cfc8b006fe172d687e3af56b3831147561b7ab903c973dba2aa3cbdff346cbe",
+        "bb6b75f44e95a41c9683691cd39ca7c3c083740b33974a03b13bde54387fc92a",
     ),
     capsule_digest: hex_digest_v2(
-        "5dec04f405dd8f100b6d00b67615ec527ae532d664b90963b299d27eedc07dae",
+        "2c8a39cb9a1aaf61fd9302068863c2184807982c50234136ffd8d1f7cdce0f0d",
     ),
     source_digest: hex_digest_v2(
-        "9302eb6b5bde6b794c407ceac062f34717dedf96fad990fc3185e3f9c2677cc0",
+        "66c1449e081bb1b96ae07d69a19d07b341956a06f62e5e8c547fc23cae7a13c2",
     ),
     module_digest: hex_digest_v2(
-        "c2b632d80c3c2637fd1f7ba86bbfd95a17775a0ba42cadc2e4d960cd2ac79006",
+        "427c3fe1a189e00489a912fc39fbdc412a59e4600a843a167ef8db1f5f8eddf7",
     ),
     receipt_digest: hex_digest_v2(
-        "dc6ce22cc9a1b8b06cd817f61b633afdb71a8677720e4d98beddfa9cd64050d6",
+        "d387e50a860e4980b16008262f4f782c9bcf330482881eedecba0571b7dfe046",
     ),
     receipt_bytes_digest: hex_digest_v2(
-        "cffd248b62fcb8865e9ad3d1c451d57acaacd2584596188caef249cc0fca0273",
+        "10e8eccbf32176892c530c974755639be8d006b3d3bbbe15909af9414e320b53",
     ),
     diagnostic_coordinate: SealedCorpusDiagnosticCoordinateV2::SixRole,
 };

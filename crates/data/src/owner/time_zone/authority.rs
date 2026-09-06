@@ -3,6 +3,9 @@ use super::{
     TimeZoneFactV1, TimeZoneIdentity, TimeZoneReadbackV1, TimeZoneReceiptV1,
     UntrustedTimeZoneRequestV1, codec,
 };
+use crate::owner::reference_fact_catalog::{
+    ReferenceFactCatalogKindV1, ReferenceFactCatalogValueV1,
+};
 
 pub(crate) fn prepare_resolution_v1(
     request: UntrustedTimeZoneRequestV1,
@@ -88,30 +91,43 @@ pub(crate) fn issue_fact_v1(
     proposal: TimeZoneFactProposalV1,
 ) -> Result<TimeZoneFactV1, TimeZoneErrorV1> {
     let claim = proposal.dependencies.coordinates().claim();
-    if proposal.time_zone_identity.is_empty()
-        || proposal.time_zone_identity.len() > codec::MAX_IDENTITY_BYTES
-        || !codec::nonzero(proposal.ruleset_identity)
-        || proposal.correction_sequence == 0
+    let catalog = &proposal.catalog_entry;
+    let ReferenceFactCatalogValueV1::TimeZone {
+        time_zone_identity,
+        ruleset_identity,
+        utc_offset_seconds,
+    } = catalog.value()
+    else {
+        return Err(TimeZoneErrorV1::InvalidDependency);
+    };
+    let source = catalog.source();
+    if time_zone_identity.is_empty()
+        || time_zone_identity.len() > codec::MAX_IDENTITY_BYTES
+        || !codec::nonzero(*ruleset_identity)
+        || catalog.value().kind() != ReferenceFactCatalogKindV1::TimeZone
+        || catalog.scope_identity() != *ruleset_identity
+        || catalog.correction_sequence() == 0
+        || catalog.stable_correlation() != claim.stable_correlation
+        || source.source_binding_identity != claim.source.binding_identity
+        || source.source_binding_fact_digest != claim.source.binding_fact_digest
+        || source.source_binding_lineage_root != claim.source.lineage_root
+        || source.source_binding_lineage_version != claim.source.lineage_version
+        || source.source_frontier_digest != claim.source.frontier.digest
+        || source.correction_frontier_digest != claim.correction.digest
         || claim.time.decision_cut != claim.pit.decision_cut
-        || claim.source.lineage_version != proposal.correction_sequence
-        || claim.correction.sequence != proposal.correction_sequence
     {
         return Err(TimeZoneErrorV1::InvalidFact);
     }
     let mut bytes = Vec::new();
     codec::header(&mut bytes);
-    codec::bytes(
-        &mut bytes,
-        &proposal.time_zone_identity,
-        codec::MAX_IDENTITY_BYTES,
-    )?;
-    codec::identity(&mut bytes, proposal.ruleset_identity)?;
-    bytes.extend_from_slice(&proposal.utc_offset_seconds.to_be_bytes());
+    codec::bytes(&mut bytes, time_zone_identity, codec::MAX_IDENTITY_BYTES)?;
+    codec::identity(&mut bytes, *ruleset_identity)?;
+    bytes.extend_from_slice(&utc_offset_seconds.to_be_bytes());
     codec::identity(&mut bytes, claim.source.lineage_root)?;
-    bytes.extend_from_slice(&proposal.correction_sequence.to_be_bytes());
-    encode_optional_identity(&mut bytes, claim.predecessor_identity)?;
-    bytes.extend_from_slice(&claim.time.effective_from_ns.to_be_bytes());
-    match claim.time.effective_until_ns {
+    bytes.extend_from_slice(&catalog.correction_sequence().to_be_bytes());
+    encode_optional_identity(&mut bytes, catalog.predecessor_identity())?;
+    bytes.extend_from_slice(&catalog.effective_from_ns().to_be_bytes());
+    match catalog.effective_until_ns() {
         None => bytes.push(0),
         Some(value) => {
             bytes.push(1);
@@ -141,15 +157,15 @@ pub(crate) fn issue_fact_v1(
     }
     let identity = codec::digest(codec::FACT_DOMAIN, &bytes);
     Ok(TimeZoneFactV1 {
-        time_zone_identity: proposal.time_zone_identity,
-        ruleset_identity: proposal.ruleset_identity,
-        utc_offset_seconds: proposal.utc_offset_seconds,
-        correction_sequence: proposal.correction_sequence,
+        time_zone_identity: time_zone_identity.clone(),
+        ruleset_identity: *ruleset_identity,
+        utc_offset_seconds: *utc_offset_seconds,
+        correction_sequence: catalog.correction_sequence(),
         lineage_root: claim.source.lineage_root,
         source_binding_identity: claim.source.binding_identity,
-        predecessor_identity: claim.predecessor_identity,
-        effective_from_ns: claim.time.effective_from_ns,
-        effective_until_ns: claim.time.effective_until_ns,
+        predecessor_identity: catalog.predecessor_identity(),
+        effective_from_ns: catalog.effective_from_ns(),
+        effective_until_ns: catalog.effective_until_ns(),
         owner_observation_ns: claim.time.owner_observation_ns,
         decision_cut: claim.time.decision_cut,
         identity,

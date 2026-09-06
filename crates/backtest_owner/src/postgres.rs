@@ -19,6 +19,7 @@ const OUTBOX_STORAGE_DOMAIN: &str = "vibe.backtest.result-outbox-storage.v1";
 const RECEIPT_DIGEST_DOMAIN: &str = "vibe.backtest.result-receipt.v1";
 const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.v1";
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
+const ATTEMPT_LOCK_DOMAIN: &str = "vibe.backtest.replay-result-attempt-lock.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 
 const READ_AGGREGATE: &str = "
@@ -242,7 +243,7 @@ impl PostgresReplayResultOwnerV2 {
         }
 
         let committed_at_epoch_ms: i64 = sqlx::query_scalar(
-            "SELECT (pg_catalog.extract(epoch FROM transaction_timestamp())*1000)::bigint",
+            "SELECT (EXTRACT(EPOCH FROM pg_catalog.transaction_timestamp())*1000)::bigint",
         )
         .fetch_one(&mut *transaction)
         .await
@@ -443,17 +444,57 @@ async fn lock_attempt(
     transaction: &mut Transaction<'_, Postgres>,
     result: &ReplayResultDtoV2,
 ) -> Result<(), PostgresReplayResultOwnerErrorV2> {
-    let lock_key = format!(
-        "vibe.backtest.replay-result-attempt.v2\0{}\0{}",
+    let lock_key = attempt_lock_key(
         result.request_identity.as_str(),
-        result.attempt_identity.as_str()
-    );
+        result.attempt_identity.as_str(),
+    )?;
     sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
         .bind(lock_key)
         .execute(&mut **transaction)
         .await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
     Ok(())
+}
+
+#[derive(Serialize)]
+struct ReplayAttemptLockKeyV2<'a> {
+    domain: &'static str,
+    request_identity: &'a str,
+    attempt_identity: &'a str,
+}
+
+fn attempt_lock_key(
+    request_identity: &str,
+    attempt_identity: &str,
+) -> Result<String, PostgresReplayResultOwnerErrorV2> {
+    serde_json::to_string(&ReplayAttemptLockKeyV2 {
+        domain: ATTEMPT_LOCK_DOMAIN,
+        request_identity,
+        attempt_identity,
+    })
+    .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
+}
+
+#[cfg(test)]
+mod lock_key_tests {
+    use super::attempt_lock_key;
+
+    #[test]
+    fn attempt_lock_key_is_stable_unambiguous_and_postgres_text_safe() {
+        let key = attempt_lock_key("request\0with:separator", "attempt/with:separator")
+            .expect("string-only lock preimage must serialize");
+
+        assert!(!key.contains('\0'));
+        assert_eq!(
+            key,
+            attempt_lock_key("request\0with:separator", "attempt/with:separator")
+                .expect("same lock tuple must serialize identically")
+        );
+        assert_ne!(
+            attempt_lock_key("request", "attempt:tail").expect("first tuple"),
+            attempt_lock_key("request:attempt", "tail").expect("second tuple")
+        );
+    }
 }
 
 async fn read_matching_aggregate(

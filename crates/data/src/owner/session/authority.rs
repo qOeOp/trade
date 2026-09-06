@@ -114,7 +114,6 @@ pub(super) fn issue_fact(
         || claim.time.owner_observation_ns != request.owner_observation_ns
         || claim.time.decision_cut != request.decision_cut
         || claim.source.lineage_version != proposal.correction_sequence
-        || claim.correction.sequence != proposal.correction_sequence
         || claim.predecessor_identity != proposal.predecessor_identity
     {
         return Err(SessionErrorV1::InvalidDependency);

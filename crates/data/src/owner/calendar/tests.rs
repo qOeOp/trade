@@ -52,7 +52,7 @@ fn clock() -> ReferenceFactClockV1 {
 fn frontier(name: &[u8], value: u8) -> ReferenceFactFrontierV1 {
     ReferenceFactFrontierV1 {
         stream_identity: name.into(),
-        cut_identity: d(value),
+        cut_identity: format!("cut-{value}").into_bytes().into_boxed_slice(),
         sequence: u64::from(value),
         digest: d(value + 1),
     }

@@ -126,6 +126,8 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     );
     sqlx::query(
         "TRUNCATE TABLE
+           composer_private.rd_develop_strategy_design_role_set_attestations_v1,
+           composer_private.rd_develop_strategy_design_native_joins_v1,
            composer_private.rd_develop_outbox_v2,
            composer_private.rd_develop_operations_v2,
            composer_private.rd_develop_host_receipts_v2,
@@ -191,7 +193,10 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
     let committed = first_owner.run().await.expect("durable Composer RUN");
     assert_eq!(
         committed.disposition,
-        DevelopComposerOperationDispositionV2::Success
+        DevelopComposerOperationDispositionV2::Success,
+        "Composer rejected the admitted fixture at {:?}: {:?}",
+        committed.coordinate,
+        committed.reason
     );
     assert!(committed.receipt_identity.is_some());
     assert!(committed.artifact.is_some());

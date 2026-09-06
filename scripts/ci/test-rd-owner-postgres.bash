@@ -55,7 +55,7 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -88,7 +88,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
     return 1
@@ -108,9 +108,9 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -Uq \
-    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance' \
+    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
-    echo "ERROR: rd-owner-postgres workflow must define sealed-develop-composer-acceptance feature union." >&2
+    echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1
   fi
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
@@ -257,12 +257,24 @@ runtime_census = (
 )
 if any(required not in rust for required in runtime_census):
     raise SystemExit("ERROR: Backtest Result runtime namespace census is unavailable")
-owner_api_routine_census = (
+materializer_owner_api_routine_census = (
     "pg_catalog.count(*)=1 AND pg_catalog.bool_and("
     "procedure.oid=pg_catalog.to_regprocedure("
 )
-if owner_api_routine_census not in migration or owner_api_routine_census not in rust:
+runtime_owner_api_routine_census = (
+    "WITH expected_function AS (",
+    "namespace.nspname='backtest_owner_api'",
+    "procedure.proname=$2",
+    "procedure.proargtypes=ARRAY[",
+    "procedure.oid=(SELECT oid FROM expected_function)",
+)
+if materializer_owner_api_routine_census not in migration or any(
+    required not in rust for required in runtime_owner_api_routine_census
+):
     raise SystemExit("ERROR: Backtest Owner API routine census is unavailable")
+runtime_validator = rust.split("async fn validate_topology(", 1)[1].split("#[derive", 1)[0]
+if "pg_catalog.to_regprocedure" in runtime_validator:
+    raise SystemExit("ERROR: Backtest writer topology validation requires forbidden Owner API schema resolution")
 if "GRANT USAGE ON SCHEMA backtest_owner_api TO rd_owner, backtest_owner;" in migration:
     raise SystemExit("ERROR: backtest_owner retains sibling Owner API namespace access")
 owner_api_sibling_oracle = (
@@ -335,13 +347,16 @@ if [[ -z "${RD_OWNER_POSTGRES_FEATURES:-}" ]]; then
   exit 1
 fi
 readonly rd_owner_postgres_features="${RD_OWNER_POSTGRES_FEATURES//[[:space:]]/}"
-case ",${rd_owner_postgres_features}," in
-  *",${nextest_archive_features},"*) ;;
-  *)
-    echo "ERROR: R&D Owner PostgreSQL feature union must admit sealed Develop Composer acceptance." >&2
-    exit 1
-    ;;
-esac
+IFS=',' read -r -a required_archive_features <<< "$nextest_archive_features"
+for required_feature in "${required_archive_features[@]}"; do
+  case ",${rd_owner_postgres_features}," in
+    *",${required_feature},"*) ;;
+    *)
+      echo "ERROR: R&D Owner PostgreSQL feature union omits required archive feature ${required_feature}." >&2
+      exit 1
+      ;;
+  esac
+done
 
 if [[ "$(uname -s)" != "Linux" ]]; then
   echo "ERROR: isolated R&D Owner PostgreSQL tests require Linux." >&2
@@ -362,6 +377,7 @@ readonly suffix
 readonly container="vibe-rd-owner-test-${suffix}"
 readonly volume="vibe-rd-owner-test-${suffix}"
 readonly test_database="vibe_test_${suffix//-/_}"
+readonly catalog_admin_database="vibe_test_catalog_admin_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
@@ -716,6 +732,7 @@ RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:$
   --package vibe-strategy-factory-rd-owner-api \
   --bin strategy-factory-rd-owner-api \
   --profile "$cargo_ci_profile" \
+  --features "$nextest_archive_features" \
   -- \
   --materialize-schema
 
@@ -1249,19 +1266,24 @@ SQL
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --username postgres --dbname postgres \
   --set=test_database="$test_database" \
+  --set=catalog_admin_database="$catalog_admin_database" \
   --set=origin_current_database="$origin_current_database" \
   --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
+CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
+GRANT CONNECT ON DATABASE :"catalog_admin_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'origin_current_database'), (:'legacy_replay_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -1308,6 +1330,13 @@ SELECT (
   \echo 'ERROR: cloned R&D database custody mismatch.'
   \quit 1
 \endif
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$catalog_admin_database" \
+  --set=catalog_admin_database="$catalog_admin_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'catalog_admin_database';
 SQL
 
 docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
@@ -1510,8 +1539,8 @@ SQL
 
 wait_for_authority_fixture_recovery() {
   local attempt=1
-  until docker exec "$container" pg_isready --username postgres \
-    --dbname "$test_database" > /dev/null 2>&1; do
+  until timeout 3 docker exec "$container" psql --quiet --username postgres \
+    --dbname "$test_database" --command 'SELECT 1' > /dev/null 2>&1; do
     if [[ "$attempt" -ge 30 ]]; then
       echo "ERROR: isolated PostgreSQL did not recover after an expected authority-migration rejection." >&2
       return 1
@@ -1696,7 +1725,11 @@ inject_backtest_result_fault() {
         --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
 SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
-CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text)
+CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(
+  p_result_identity text,
+  p_request_identity text,
+  p_attempt_identity text
+)
 RETURNS jsonb LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS 'SELECT NULL::jsonb';
 COMMIT;
@@ -1747,18 +1780,6 @@ SQL
       ;;
     concurrent_acl)
       ;;
-    rollback)
-      docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-        --username postgres --dbname "$test_database" << 'SQL'
-BEGIN;
-SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
-CREATE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1()
-RETURNS trigger LANGUAGE plpgsql AS $function$ BEGIN RAISE EXCEPTION 'injected Backtest outbox failure'; END $function$;
-CREATE TRIGGER reject_backtest_result_outbox_v1 BEFORE INSERT ON public.backtest_replay_result_outbox_v1
-FOR EACH ROW EXECUTE FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
-COMMIT;
-SQL
-      ;;
   esac
 }
 
@@ -1769,6 +1790,7 @@ restore_backtest_result_fault() {
     if run_authority_migration; then
       owner_api_sibling_accepted=true
     fi
+    wait_for_authority_fixture_recovery
     docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
       --username postgres --dbname "$test_database" << 'SQL'
 BEGIN;
@@ -1798,20 +1820,11 @@ LOCK TABLE pg_catalog.pg_authid, pg_catalog.pg_auth_members IN SHARE ROW EXCLUSI
 ALTER ROLE backtest_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 COMMIT;
 SQL
-  elif [[ "$fault" == rollback ]]; then
-    docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
-      --username postgres --dbname "$test_database" << 'SQL'
-BEGIN;
-SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended('vibe.backtest.result-topology.v2',0));
-DROP TRIGGER reject_backtest_result_outbox_v1 ON public.backtest_replay_result_outbox_v1;
-DROP FUNCTION vibe_test_admin.reject_backtest_result_outbox_v1();
-COMMIT;
-SQL
   fi
   run_authority_migration
 }
 
-# The two replay migration filters use separate fresh databases. The drain probe
+# The Catalog administrator and two replay migration filters use separate fresh databases. The drain probe
 # removes receipt storage needed to validate its retained legacy attempts, so it
 # follows positive consumers. Keep the malformed OA/PE schema probe last.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
@@ -1819,18 +1832,35 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
   backtest_result_fault=''
   case "$test_name" in
-    postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
-    postgres_result_rd_read_rejects_owner_api_routine_sibling) backtest_result_fault=owner_api_sibling ;;
-    postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
-    postgres_result_rd_read_rejects_inherited_owner_membership) backtest_result_fault=membership ;;
-    postgres_result_rd_read_rejects_owner_attribute_drift) backtest_result_fault=attribute ;;
-    postgres_result_topology_fence_serializes_managed_acl_drift) backtest_result_fault=concurrent_acl ;;
-    postgres_result_mid_commit_failure_rolls_back_every_aggregate_row) backtest_result_fault=rollback ;;
+    tests::postgres_result_rd_read_rejects_function_source_drift) backtest_result_fault=source ;;
+    tests::postgres_result_rd_read_rejects_owner_api_routine_sibling) backtest_result_fault=owner_api_sibling ;;
+    tests::postgres_result_rd_read_rejects_raw_table_acl_drift) backtest_result_fault=acl ;;
+    tests::postgres_result_rd_read_rejects_inherited_owner_membership) backtest_result_fault=membership ;;
+    tests::postgres_result_rd_read_rejects_owner_attribute_drift) backtest_result_fault=attribute ;;
+    tests::postgres_result_topology_fence_serializes_managed_acl_drift) backtest_result_fault=concurrent_acl ;;
   esac
   if [[ -n "$backtest_result_fault" ]]; then
     inject_backtest_result_fault "$backtest_result_fault"
   fi
-  if [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
+  if [[ "$test_name" == 'catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$catalog_admin_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'legacy_replay_table_is_preserved_while_current_custody_commits_and_reads_back' ]]; then
     env \
       VIBE_POSTGRES_TEST_DATABASE_NAME="$legacy_replay_database" \
       OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \

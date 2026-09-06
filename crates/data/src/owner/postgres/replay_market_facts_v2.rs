@@ -39,12 +39,8 @@ use crate::owner::{
     corporate_action::{CorporateActionTermsV1, UntrustedCorporateActionLocatorV1},
     correction_policy_projection::{CorrectionPolicyAuthenticatedInputsV1, project_first_v1},
     market_semantics::UntrustedMarketSemanticsLocatorV1,
+    reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
     reference_fact_coordinates::r0::UntrustedReferenceFactR0LocatorV1,
-    reference_fact_coordinates::{
-        AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
-        ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
-        VerifiedReferenceFactCoordinatesV1,
-    },
     sample_projection_v4::{
         ScheduleDependencyV4, StrategyInputSampleProjectionErrorV4,
         StrategyInputSampleProjectionKindV4, UntrustedStrategyInputSampleProjectionLocatorV4,
@@ -467,6 +463,29 @@ fn replay_first_corpus_schedule_v1(
         .flatten()
 }
 
+fn admit_replay_first_corpus_role_v1(
+    seen: &mut [bool; 6],
+    corpus_role: ReplayFirstCorpusRoleV1,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    let corpus_index = corpus_role as usize;
+    if std::mem::replace(&mut seen[corpus_index], true) {
+        Err(ReplayCompositionBindingErrorV1::IncompleteComposition)
+    } else {
+        Ok(())
+    }
+}
+
+fn verify_replay_first_corpus_complete_v1(
+    seen: [bool; 6],
+    trigger_is_minute_close: bool,
+) -> Result<(), ReplayCompositionBindingErrorV1> {
+    if seen.into_iter().all(|present| present) && trigger_is_minute_close {
+        Ok(())
+    } else {
+        Err(ReplayCompositionBindingErrorV1::IncompleteComposition)
+    }
+}
+
 #[cfg(test)]
 impl ReplayCompositionOwnerV1 {
     pub(crate) fn replay_first_corpus_coordinate_for_test_v1(
@@ -476,6 +495,26 @@ impl ReplayCompositionOwnerV1 {
         unit: BarScheduleUnitV1,
     ) -> Option<u8> {
         replay_first_corpus_coordinate_v1(field_semantic, kind, step, unit).map(|role| role as u8)
+    }
+
+    pub(crate) fn replay_first_corpus_set_for_test_v1(
+        roles: &[u8],
+        trigger_is_minute_close: bool,
+    ) -> Result<(), ReplayCompositionBindingErrorV1> {
+        let mut seen = [false; 6];
+        for role in roles {
+            let role = match role {
+                0 => ReplayFirstCorpusRoleV1::MinuteOpen,
+                1 => ReplayFirstCorpusRoleV1::MinuteHigh,
+                2 => ReplayFirstCorpusRoleV1::MinuteLow,
+                3 => ReplayFirstCorpusRoleV1::MinuteClose,
+                4 => ReplayFirstCorpusRoleV1::HourClose,
+                5 => ReplayFirstCorpusRoleV1::ExchangeSessionDayClose,
+                _ => return Err(ReplayCompositionBindingErrorV1::IncompleteComposition),
+            };
+            admit_replay_first_corpus_role_v1(&mut seen, role)?;
+        }
+        verify_replay_first_corpus_complete_v1(seen, trigger_is_minute_close)
     }
 }
 
@@ -662,10 +701,7 @@ async fn validate_replay_first_corpus_claim_v1(
         if schedule_fact.canonical_instrument() != common_instrument {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
-        let corpus_index = corpus_role as usize;
-        if std::mem::replace(&mut seen[corpus_index], true) {
-            return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-        }
+        admit_replay_first_corpus_role_v1(&mut seen, corpus_role)?;
 
         if join_role.semantic_id == claim.trigger_input_id {
             trigger_is_minute_close = corpus_role == ReplayFirstCorpusRoleV1::MinuteClose
@@ -701,10 +737,7 @@ async fn validate_replay_first_corpus_claim_v1(
         }
     }
 
-    if !seen.into_iter().all(|present| present) || !trigger_is_minute_close {
-        return Err(ReplayCompositionBindingErrorV1::IncompleteComposition);
-    }
-    Ok(())
+    verify_replay_first_corpus_complete_v1(seen, trigger_is_minute_close)
 }
 
 impl ReplayCompositionOwnerV1 {
@@ -2121,73 +2154,8 @@ async fn exact_instrument_cut_identity(
 fn coordinates_from_r0(
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
 ) -> Result<VerifiedReferenceFactCoordinatesV1, ReplayCompositionBindingErrorV1> {
-    let record = r0.record();
-    let evidence = &record.evidence;
-    let digest_from_bytes = |bytes: &[u8]| {
-        <[u8; 32]>::try_from(bytes)
-            .map(crate::owner::source_binding::BindingDigest::from_untrusted_bytes)
-            .map_err(|_| ReplayCompositionBindingErrorV1::DigestMismatch)
-    };
-    let clock = ReferenceFactClockV1 {
-        clock_identity: evidence.clock_identity.clone(),
-        clock_epoch: evidence.clock_epoch.clone(),
-        monotonic_sequence: evidence.clock_sequence,
-        wall_observed: evidence.clock_wall_observed,
-        decision_cut: evidence.clock_decision_cut,
-        valid_through: evidence.clock_valid_through,
-        head_identity: evidence.clock_head_identity,
-        head_digest: evidence.clock_head_digest,
-        restart_continuity_digest: evidence.restart_continuity_digest,
-        uncertainty_bound: evidence.uncertainty_bound,
-        skew_bound: evidence.skew_bound,
-        comparison_rule: 1,
-        epoch_proof_identity: None,
-        epoch_proof_digest: None,
-    };
-    VerifiedReferenceFactCoordinatesV1::verify(ReferenceFactCoordinateClaimV1 {
-        pit: ReferenceFactPitCutV1 {
-            snapshot_identity: evidence.pit_snapshot_identity,
-            fact_digest: evidence.pit_fact_digest,
-            decision_cut: evidence.clock_decision_cut,
-            observed_at: evidence.clock_wall_observed,
-            valid_through: evidence.clock_valid_through,
-            clock: clock.clone(),
-        },
-        replay_start_event_ns: record.replay_start_event_ns,
-        replay_end_event_ns_exclusive: record.replay_end_event_ns_exclusive,
-        source: AdmittedReferenceFactSourceV1 {
-            binding_identity: evidence.source_binding_identity,
-            binding_fact_digest: evidence.source_binding_fact_digest,
-            lineage_root: evidence.source_binding_lineage_root,
-            lineage_version: evidence.source_binding_lineage_version,
-            admitted: true,
-            frontier: ReferenceFactFrontierV1 {
-                stream_identity: evidence.source_frontier_stream_identity.clone(),
-                cut_identity: digest_from_bytes(&evidence.source_frontier_cut_identity)?,
-                sequence: evidence.source_frontier_sequence,
-                digest: evidence.source_frontier_digest,
-            },
-        },
-        correction: ReferenceFactFrontierV1 {
-            stream_identity: evidence.correction_frontier_stream_identity.clone(),
-            cut_identity: digest_from_bytes(&evidence.correction_frontier_cut_identity)?,
-            sequence: evidence.correction_frontier_sequence,
-            digest: evidence.correction_frontier_digest,
-        },
-        time: ReferenceFactEffectiveTimeV1 {
-            effective_from_ns: record.effective_from_ns,
-            effective_until_ns: record.effective_until_ns,
-            provider_available_ns: record.provider_available_ns,
-            retrieval_ns: record.retrieval_ns,
-            correction_publication_ns: record.correction_publication_ns,
-            owner_observation_ns: record.owner_observation_ns,
-            decision_cut: record.decision_cut,
-        },
-        fact_clock: clock,
-        predecessor_identity: record.predecessor_identity,
-        stable_correlation: record.stable_correlation,
-    })
-    .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)
+    crate::owner::reference_fact_coordinates::verified_coordinates_from_r0_v1(r0)
+        .map_err(|_| ReplayCompositionBindingErrorV1::DependencyMismatch)
 }
 
 #[allow(
