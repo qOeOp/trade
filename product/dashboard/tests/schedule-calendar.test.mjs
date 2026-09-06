@@ -60,6 +60,8 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
     "InterfaceIcons.calendarMonth",
     "Filter schedules",
     "Operation scope",
+    "operationMarks",
+    'active ? 120 : 32',
     "Calendar settings",
     "compactCalendar",
     "refreshAction",
