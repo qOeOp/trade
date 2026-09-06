@@ -116,6 +116,7 @@ async fn resolve_inner(
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
+    let instrument_master = recover_instrument_master_reference_v1(tx, &instrument_master).await?;
     let calendar = super::calendar::recover_calendar_v1(tx, calendar_locator)
         .await
         .map_err(map_calendar_error)?;
@@ -298,6 +299,58 @@ fn locator_bytes(identity: BindingDigest, meaning: BindingDigest) -> Vec<u8> {
     bytes.extend_from_slice(identity.as_bytes());
     bytes.extend_from_slice(meaning.as_bytes());
     bytes
+}
+async fn recover_instrument_master_reference_v1(
+    tx: &mut Transaction<'_, Postgres>,
+    untrusted: &InstrumentMasterReferenceV1,
+) -> Result<InstrumentMasterReferenceV1, SessionErrorV1> {
+    let bytes: &[u8] = &untrusted.locator_bytes;
+    if bytes.len() != 64 {
+        return Err(SessionErrorV1::InvalidDependency);
+    }
+    let request_identity = BindingDigest::from_untrusted_bytes(
+        bytes[..32]
+            .try_into()
+            .map_err(|_| SessionErrorV1::InvalidDependency)?,
+    );
+    let request_meaning_digest = BindingDigest::from_untrusted_bytes(
+        bytes[32..]
+            .try_into()
+            .map_err(|_| SessionErrorV1::InvalidDependency)?,
+    );
+    let readback = super::load_durable_instrument_readback(tx, request_identity, false)
+        .await
+        .map_err(map_instrument_master_error)?
+        .ok_or(SessionErrorV1::InvalidDependency)?;
+    if readback.request_meaning_digest != request_meaning_digest
+        || readback.facts().len() != 1
+        || readback.cut().expected_members().len() != 1
+    {
+        return Err(SessionErrorV1::InvalidDependency);
+    }
+    let canonical = InstrumentMasterReferenceV1 {
+        locator_bytes: locator_bytes(request_identity, request_meaning_digest).into_boxed_slice(),
+        readback_identity: readback.digest(),
+        fact_digest: readback.facts()[0].digest(),
+        cut_digest: readback.cut().digest(),
+    };
+    if untrusted != &canonical {
+        return Err(SessionErrorV1::InvalidDependency);
+    }
+    Ok(canonical)
+}
+fn map_instrument_master_error(
+    error: crate::owner::instrument_master::InstrumentMasterError,
+) -> SessionErrorV1 {
+    match error {
+        crate::owner::instrument_master::InstrumentMasterError::StoreUnavailable => {
+            SessionErrorV1::StoreUnavailable
+        }
+        crate::owner::instrument_master::InstrumentMasterError::StoreUntrusted => {
+            SessionErrorV1::StoreUntrusted
+        }
+        _ => SessionErrorV1::InvalidDependency,
+    }
 }
 fn map_calendar_error(error: crate::owner::calendar::CalendarErrorV1) -> SessionErrorV1 {
     match error {

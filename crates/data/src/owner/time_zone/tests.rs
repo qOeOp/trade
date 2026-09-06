@@ -97,11 +97,14 @@ fn dependencies_with_sequences(
 
 #[rstest]
 fn fact_preserves_independent_source_and_correction_frontiers() {
-    let deps = dependencies_with_sequences(5, Some(25), 1, 11, None);
+    let deps = dependencies_with_sequences(5, Some(25), 11, 1, None);
     let proposal =
         time_zone_catalog_proposal(b"Asia/Tokyo", d(14), 32_400, 1, None, 5, Some(25), deps);
 
-    assert!(authority::issue_fact_v1(&proposal).is_ok());
+    let fact = authority::issue_fact_v1(&proposal).unwrap();
+    let decoded = authority::decode_fact_v1(fact.canonical_bytes()).unwrap();
+    assert_eq!(decoded.correction_sequence(), 1);
+    assert_eq!(decoded.evidence().source_binding_lineage_version, 11);
 }
 fn proposal(
     start: i128,

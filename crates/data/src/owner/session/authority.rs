@@ -92,6 +92,9 @@ pub(crate) fn prepare_resolution_v1(
             request_meaning_digest: meaning,
             days: days.into(),
             fact_identities: fact_ids.into(),
+            instrument_master_readback_identity: dependencies.instrument_master.readback_identity,
+            instrument_master_fact_digest: dependencies.instrument_master.fact_digest,
+            instrument_master_cut_digest: dependencies.instrument_master.cut_digest,
             identity,
             canonical_bytes: bytes.into(),
         },
@@ -202,6 +205,9 @@ pub(super) fn issue_fact(
         local_close: proposal.local_close,
         utc_open_ns: utc_open,
         utc_close_ns: utc_close,
+        instrument_master_readback_identity: deps.instrument_master.readback_identity,
+        instrument_master_fact_digest: deps.instrument_master.fact_digest,
+        instrument_master_cut_digest: deps.instrument_master.cut_digest,
         lineage_root: claim.source.lineage_root,
         source_binding_identity: claim.source.binding_identity,
         source_binding_fact_digest: claim.source.binding_fact_digest,
@@ -461,7 +467,14 @@ fn build_readback(
     receipt: SessionReceiptV1,
     outbox: SessionIdentityV1,
 ) -> Result<SessionReadbackV1, SessionErrorV1> {
-    if outbox != receipt.identity || facts.len() != cut.fact_identities.len() {
+    if outbox != receipt.identity
+        || facts.len() != cut.fact_identities.len()
+        || facts.iter().any(|fact| {
+            fact.instrument_master_readback_identity != cut.instrument_master_readback_identity
+                || fact.instrument_master_fact_digest != cut.instrument_master_fact_digest
+                || fact.instrument_master_cut_digest != cut.instrument_master_cut_digest
+        })
+    {
         return Err(SessionErrorV1::StoreUntrusted);
     }
     let mut b = Vec::new();
@@ -573,9 +586,12 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         return Err(SessionErrorV1::StoreUntrusted);
     }
 
-    for _ in 0..13 {
+    for _ in 0..10 {
         let _ = d.id()?;
     }
+    let instrument_master_readback_identity = d.id()?;
+    let instrument_master_fact_digest = d.id()?;
+    let instrument_master_cut_digest = d.id()?;
     let predecessor_identity = d.opt_id()?;
     let correction_sequence = d.u64()?;
     if correction_sequence == 0 {
@@ -618,6 +634,9 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         local_close,
         utc_open_ns,
         utc_close_ns,
+        instrument_master_readback_identity,
+        instrument_master_fact_digest,
+        instrument_master_cut_digest,
         lineage_root,
         source_binding_identity,
         source_binding_fact_digest,
@@ -652,9 +671,12 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
         return Err(SessionErrorV1::StoreUntrusted);
     }
 
-    for _ in 0..7 {
+    for _ in 0..4 {
         let _ = d.id()?;
     }
+    let instrument_master_readback_identity = d.id()?;
+    let instrument_master_fact_digest = d.id()?;
+    let instrument_master_cut_digest = d.id()?;
     let _obs = d.i128()?;
     if d.u64()? == 0 {
         return Err(SessionErrorV1::StoreUntrusted);
@@ -718,6 +740,9 @@ fn decode_cut(bytes: &[u8]) -> Result<SessionCutV1, SessionErrorV1> {
         request_meaning_digest,
         days: days.into(),
         fact_identities: ids.into(),
+        instrument_master_readback_identity,
+        instrument_master_fact_digest,
+        instrument_master_cut_digest,
         identity: codec::digest(codec::CUT_DOMAIN, bytes),
         canonical_bytes: bytes.into(),
     })

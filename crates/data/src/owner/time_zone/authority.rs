@@ -384,7 +384,7 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
     decoder.finish()?;
 
     if tail_lineage_root != lineage_root
-        || lineage_version != correction_sequence
+        || lineage_version == 0
         || provider_available_ns <= 0
         || correction_publication_ns <= 0
         || provider_available_ns > correction_publication_ns

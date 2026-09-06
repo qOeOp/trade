@@ -1482,9 +1482,10 @@ impl ReplayCompositionOwnerV1 {
         {
             return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
         }
-        let instrument_cut_identity =
-            exact_instrument_cut_identity(&mut transaction, request.instrument_master_locator())
+        let instrument_master =
+            exact_instrument_reference(&mut transaction, request.instrument_master_locator())
                 .await?;
+        let instrument_cut_identity = instrument_master.cut_digest;
 
         if semantics
             .facts()
@@ -1635,7 +1636,7 @@ impl ReplayCompositionOwnerV1 {
             &correction,
             &corporate_action,
             &universe,
-            instrument_cut_identity,
+            &instrument_master,
             &source,
         )?;
         let composed_request =
@@ -2136,20 +2137,35 @@ fn digest_registry(
     crate::owner::source_binding::BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
-async fn exact_instrument_cut_identity(
+async fn exact_instrument_reference(
     transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     locator: crate::owner::replay_market_facts_v2::ReplayCompositionRequestLocatorV1,
-) -> Result<crate::owner::source_binding::BindingDigest, ReplayCompositionBindingErrorV1> {
-    let row = sqlx::query("SELECT request_meaning_digest,cut_identity FROM market_data_private.instrument_master_receipts_v1 WHERE request_identity=$1")
-        .bind(locator.request_identity().as_bytes().as_slice())
-        .fetch_optional(&mut **transaction)
-        .await
-        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?
-        .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
-    if digest_column(&row, "request_meaning_digest")? != locator.request_meaning_digest() {
+) -> Result<crate::owner::session::InstrumentMasterReferenceV1, ReplayCompositionBindingErrorV1> {
+    let readback =
+        super::load_durable_instrument_readback(transaction, locator.request_identity(), false)
+            .await
+            .map_err(|error| match error {
+                crate::owner::instrument_master::InstrumentMasterError::StoreUnavailable => {
+                    ReplayCompositionBindingErrorV1::ReplayV2Unavailable
+                }
+                _ => ReplayCompositionBindingErrorV1::DependencyMismatch,
+            })?
+            .ok_or(ReplayCompositionBindingErrorV1::IncompleteComposition)?;
+    if readback.request_meaning_digest != locator.request_meaning_digest()
+        || readback.facts().len() != 1
+        || readback.cut().expected_members().len() != 1
+    {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
-    digest_column(&row, "cut_identity")
+    let mut locator_bytes = Vec::with_capacity(64);
+    locator_bytes.extend_from_slice(locator.request_identity().as_bytes());
+    locator_bytes.extend_from_slice(locator.request_meaning_digest().as_bytes());
+    Ok(crate::owner::session::InstrumentMasterReferenceV1 {
+        locator_bytes: locator_bytes.into_boxed_slice(),
+        readback_identity: readback.digest(),
+        fact_digest: readback.facts()[0].digest(),
+        cut_digest: readback.cut().digest(),
+    })
 }
 
 fn coordinates_from_r0(
@@ -2180,23 +2196,22 @@ fn validate_native_reference_fact_evidence_v1(
     fact: NativeReferenceFactEvidenceV1,
 ) -> Result<(), ReplayCompositionBindingErrorV1> {
     let record = r0.record();
-    let evidence = &record.evidence;
-
     if fact.source_binding_identity != source.binding_id()
         || fact.source_binding_fact_digest != source.fact_digest()
         || fact.source_binding_lineage_root != source.lineage_root()
         || fact.source_binding_lineage_version != source.lineage_version()
-        || fact.source_binding_identity != evidence.source_binding_identity
-        || fact.source_binding_fact_digest != evidence.source_binding_fact_digest
-        || fact.source_binding_lineage_root != evidence.source_binding_lineage_root
-        || fact.source_binding_lineage_version != evidence.source_binding_lineage_version
-        || fact.provider_available_ns != record.provider_available_ns
-        || fact.retrieval_ns != record.retrieval_ns
-        || fact.correction_publication_ns != record.correction_publication_ns
-        || fact.owner_observation_ns != record.owner_observation_ns
-        || fact.decision_cut != record.decision_cut
-        || fact.r0_coordinate_identity != record.identity()
-        || fact.r0_coordinate_digest != record.digest()
+        || fact.provider_available_ns <= 0
+        || fact.retrieval_ns <= 0
+        || fact.correction_publication_ns <= 0
+        || fact.owner_observation_ns <= 0
+        || fact.provider_available_ns > fact.owner_observation_ns
+        || fact.retrieval_ns > fact.owner_observation_ns
+        || fact.correction_publication_ns > fact.owner_observation_ns
+        || fact.owner_observation_ns > record.owner_observation_ns
+        || fact.decision_cut == 0
+        || fact.decision_cut > record.decision_cut
+        || fact.r0_coordinate_identity.as_bytes() == &[0; 32]
+        || fact.r0_coordinate_digest.as_bytes() == &[0; 32]
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }
@@ -2217,9 +2232,10 @@ fn build_reference_cuts(
     correction: &crate::owner::correction_policy_projection::CorrectionPolicyProjectionV1,
     corporate_action: &crate::owner::corporate_action::CorporateActionReadbackV1,
     universe: &crate::owner::universe_selection::UniverseSelectionReadbackV1,
-    instrument_cut_identity: crate::owner::source_binding::BindingDigest,
+    instrument_master: &crate::owner::session::InstrumentMasterReferenceV1,
     source: &crate::owner::source_binding::SourceBindingOwnerReadback,
 ) -> Result<Vec<ReplayReferenceFactCutProposalV2>, ReplayCompositionBindingErrorV1> {
+    let instrument_cut_identity = instrument_master.cut_digest;
     let r0_record = r0.record();
     if r0_record.evidence.pit_snapshot_identity != request.pit_locator().snapshot_identity
         || r0_record.evidence.pit_fact_digest != request.pit_locator().fact_digest
@@ -2227,6 +2243,17 @@ fn build_reference_cuts(
         || r0_record.evidence.source_binding_fact_digest != source.fact_digest()
         || r0_record.evidence.source_binding_lineage_root != source.lineage_root()
         || r0_record.evidence.source_binding_lineage_version != source.lineage_version()
+    {
+        return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
+    }
+    if session.cut.instrument_master_readback_identity != instrument_master.readback_identity
+        || session.cut.instrument_master_fact_digest != instrument_master.fact_digest
+        || session.cut.instrument_master_cut_digest != instrument_master.cut_digest
+        || session.facts().iter().any(|fact| {
+            fact.instrument_master_readback_identity != instrument_master.readback_identity
+                || fact.instrument_master_fact_digest != instrument_master.fact_digest
+                || fact.instrument_master_cut_digest != instrument_master.cut_digest
+        })
     {
         return Err(ReplayCompositionBindingErrorV1::DependencyMismatch);
     }

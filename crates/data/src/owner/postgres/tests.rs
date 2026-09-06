@@ -2318,6 +2318,28 @@ fn replay_reference_coordinates_v1(
     crate::owner::reference_fact_coordinates::verified_coordinates_from_r0_v1(r0).unwrap()
 }
 
+fn earlier_replay_reference_coordinates_v1(
+    base: &ReplayCompositionMarketBaseFixtureV1,
+) -> crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1 {
+    let mut claim = base.coordinates.claim().clone();
+    let earlier_cut = claim
+        .pit
+        .decision_cut
+        .checked_sub(1)
+        .expect("fixture PIT cut has an earlier instant");
+    claim.pit.snapshot_identity = d(234);
+    claim.pit.fact_digest = d(235);
+    claim.pit.decision_cut = earlier_cut;
+    claim.pit.observed_at = earlier_cut;
+    claim.pit.clock.wall_observed = earlier_cut;
+    claim.pit.clock.decision_cut = earlier_cut;
+    claim.fact_clock = claim.pit.clock.clone();
+    claim.time.owner_observation_ns = i128::from(earlier_cut);
+    claim.time.decision_cut = earlier_cut;
+    crate::owner::reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1::verify(claim)
+        .unwrap()
+}
+
 pub(crate) struct ReplayReferenceLeafFixtureV1 {
     pub(crate) calendar_request: crate::owner::calendar::UntrustedCalendarRequestV1,
     pub(crate) time_zone_request: crate::owner::time_zone::UntrustedTimeZoneRequestV1,
@@ -2381,16 +2403,20 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         transaction.commit().await.unwrap();
         readback
     };
+    let earlier_time_zone_coordinates = earlier_replay_reference_coordinates_v1(base);
+    let mut earlier_r0_locator_bytes = Vec::with_capacity(64);
+    earlier_r0_locator_bytes.extend_from_slice(d(236).as_bytes());
+    earlier_r0_locator_bytes.extend_from_slice(d(237).as_bytes());
     let (time_zone_request, mut time_zone_proposals) =
         crate::owner::time_zone::tests::replay_time_zone_fixture_v1(
             d(202),
-            &base.coordinates,
+            &earlier_time_zone_coordinates,
             &source_locator_bytes,
-            &r0_locator_bytes,
-            base.r0.record().identity(),
-            base.r0.record().digest(),
+            &earlier_r0_locator_bytes,
+            d(236),
+            d(237),
         );
-    let _time_zone = {
+    let time_zone = {
         let mut transaction = owner.pool().begin().await.unwrap();
 
         for proposal in &mut time_zone_proposals {
@@ -2414,6 +2440,7 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         transaction.commit().await.unwrap();
         readback
     };
+    assert!(time_zone.facts()[0].evidence().decision_cut < base.r0.record().decision_cut);
     let calendar_locator = calendar_request.locator();
     let mut calendar_locator_bytes = Vec::with_capacity(64);
     calendar_locator_bytes.extend_from_slice(calendar_locator.request_identity().as_bytes());
@@ -2450,6 +2477,44 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
             &session_instrument,
         )
         .unwrap();
+    let before_session = session_positive_state_v1(owner.pool()).await;
+    for (request_identity, invalid_instrument) in [
+        {
+            let mut value = session_instrument.clone();
+            value.locator_bytes[0] ^= 1;
+            (d(238), value)
+        },
+        {
+            let mut value = session_instrument.clone();
+            value.cut_digest = d(239);
+            (d(240), value)
+        },
+    ] {
+        let mut invalid_request = session_request.clone();
+        invalid_request.request_identity = request_identity;
+        let mut transaction = owner.pool().begin().await.unwrap();
+        assert_eq!(
+            super::session::resolve_session_in_transaction_v1(
+                &mut transaction,
+                invalid_request,
+                super::session::SessionNativeResolutionV1 {
+                    calendar_locator,
+                    time_zone_locator,
+                    instrument_master: invalid_instrument,
+                    proposals: session_proposals.clone(),
+                    r0_cut_identity: base.r0.cut().identity(),
+                    r0_cut_digest: base.r0.cut().digest(),
+                },
+            )
+            .await,
+            Err(crate::owner::session::SessionErrorV1::InvalidDependency)
+        );
+        transaction.rollback().await.unwrap();
+        assert_eq!(
+            session_positive_state_v1(owner.pool()).await,
+            before_session
+        );
+    }
     {
         let mut transaction = owner.pool().begin().await.unwrap();
         super::session::resolve_session_in_transaction_v1(
@@ -2506,6 +2571,24 @@ pub(crate) async fn persist_replay_reference_leaf_fixture_v1(
         session_request_meaning_digest,
         corporate_action_request,
     }
+}
+
+async fn session_positive_state_v1(pool: &PgPool) -> Vec<i64> {
+    sqlx::query_scalar(
+        "SELECT value FROM (VALUES
+            (1, (SELECT count(*) FROM market_data_private.session_facts_v1)),
+            (2, (SELECT count(*) FROM market_data_private.session_heads_v1)),
+            (3, (SELECT count(*) FROM market_data_private.session_cuts_v1)),
+            (4, (SELECT count(*) FROM market_data_private.session_cut_facts_v1)),
+            (5, (SELECT count(*) FROM market_data_private.session_receipts_v1)),
+            (6, (SELECT count(*) FROM market_data_private.session_outbox_v1)),
+            (7, COALESCE((SELECT append_sequence FROM market_data_private.session_state_v1 WHERE singleton), 0))
+        ) AS positive_state(ordinal, value)
+        ORDER BY ordinal",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap()
 }
 
 pub(crate) async fn persist_replay_alternate_r0_time_zone_fixture_v1(

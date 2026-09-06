@@ -572,7 +572,7 @@ fn issue_reference_cut(
 
     if facts
         .iter()
-        .any(|fact| fact.time().decision_cut != scope.pit_decision_cut)
+        .any(|fact| fact.time().decision_cut > scope.pit_decision_cut)
     {
         return Err(ReplayMarketFactsErrorV2::InvalidFactCut);
     }
@@ -657,6 +657,10 @@ fn validate_reference_fact_parts(
         || time
             .effective_until_ns
             .is_some_and(|until| until <= time.effective_from_ns)
+        || time.provider_available_ns <= 0
+        || time.retrieval_ns <= 0
+        || time.correction_publication_ns <= 0
+        || time.owner_observation_ns <= 0
         || time.provider_available_ns > time.owner_observation_ns
         || time.retrieval_ns > time.owner_observation_ns
         || time.correction_publication_ns > time.owner_observation_ns
@@ -1068,7 +1072,7 @@ fn validate_stored_fact(
     if fact.kind() != cut.kind
         || fact.scope != cut.scope
         || fact.source_identity != source_binding_identity
-        || fact.time.decision_cut != context.pit_decision_cut
+        || fact.time.decision_cut > context.pit_decision_cut
         || !overlaps_window
         || !available_before_pit
         || !membership_matches
