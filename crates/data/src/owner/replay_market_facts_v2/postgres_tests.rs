@@ -1009,6 +1009,7 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     ReplayCompositionOwnerV1::materialize_schema(owner_url)
         .await
         .unwrap();
+    let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
     sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
         .execute(market_mutation_pool)
         .await
@@ -1046,7 +1047,6 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             .await
             .unwrap(),
     );
-    let leaves = persist_replay_reference_leaf_fixture_v1(&market, &base).await;
     let correction = project_first_v1(CorrectionPolicyAuthenticatedInputsV1 {
         source_binding: &base.source_readback,
         coordinates: &base.coordinates,
