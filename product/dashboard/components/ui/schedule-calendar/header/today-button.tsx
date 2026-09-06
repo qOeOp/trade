@@ -17,14 +17,14 @@ export function TodayButton({ onToday }: { onToday: () => void }) {
     transition={transition}
   >
     <motion.span
-      initial={{ y: -10, opacity: 0 }}
+      initial={false}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.1, ...transition }}
     >
       {today.toLocaleDateString("en", { month: "short", timeZone: "UTC" }).toUpperCase()}
     </motion.span>
     <motion.strong
-      initial={{ y: 10, opacity: 0 }}
+      initial={false}
       animate={{ y: 0, opacity: 1 }}
       transition={{ delay: 0.2, ...transition }}
     >
