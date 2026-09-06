@@ -38,6 +38,7 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.match(css, /\.panel-frame-close-button[^}]+var\(--surface-card\)/);
   assert.match(css, /\.panel-frame-header\[data-layout="inline"\]/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+border-radius: var\(--panel-radius\) var\(--panel-radius\) 0 0/);
+  assert.match(css, /\.panel-frame-body \{[^}]+border-radius: calc\(var\(--panel-radius\) - 4px\)/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius:[^}]+0 0/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-footer:last-child[^}]+border-radius: 0 0/);
 });
