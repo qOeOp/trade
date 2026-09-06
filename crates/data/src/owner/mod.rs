@@ -6,6 +6,7 @@ use std::sync::Arc;
 pub mod bar_schedule;
 pub mod calendar;
 pub mod instrument_master;
+pub mod instrument_master_v2;
 pub mod observation_census;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;

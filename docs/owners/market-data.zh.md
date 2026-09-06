@@ -565,6 +565,60 @@ codec，也不允许 Source Binding rule string 或通用 `version = "v2"` 标�
 
 ## Instrument Master Owner 契约
 
+### Public Fact V2 原生 projection foundation
+
+**CURRENT/PARTIAL：** `InstrumentMasterFactV2` 是 additive、无 effect 的 public-fact kernel，首个范围只
+覆盖 crypto-perpetual native projection。它不重新解释或改变任何 V1 fact、cut、receipt、readback、database
+grammar 或 stored byte。Fact 绑定规范 instrument/venue/raw-symbol identity、闭合 crypto-perpetual class、
+准确 public contract term、direct predecessor 与正 correction sequence、原始 raw-snapshot provenance、
+最新 raw-delta provenance、canonical bytes，以及 domain-separated content identity。
+
+V2 identity 是 `BLAKE3-256("VIBE_INSTRUMENT_MASTER_PUBLIC_FACT_V2" || 0x00 || bytes)`。Bytes 使用
+big-endian，依次从 schema `u16 = 2`、reserved `u16 = 0`、canonical identity、venue identity、raw symbol、
+closed class、optional predecessor fact digest、correction sequence、baseline provenance、optional latest delta
+开始，随后按声明的 struct order 编码完整 materialized term set。Text 是 `u32 length || UTF-8`，digest 为
+32 bytes，optional tag 为 `0`/`1`，`FactValue` tag 依次为 `1 VALUE`、`2 UNBOUNDED`、
+`3 NOT_APPLICABLE`、`4 UNAVAILABLE`，boolean 为 `0`/`1`，time 与 decimal mantissa 为 signed `i128`。
+Unknown tag、nonzero reserved、trailing byte、超限 text/record、无效 UTF-8、zero provenance digest 或
+non-canonical decimal 均被拒绝。
+
+每个 public term 准确使用一个 `FactValue`：`VALUE`、`UNBOUNDED`、`NOT_APPLICABLE` 或
+`UNAVAILABLE`。后三种状态互不相同，不得折叠成 `None`、zero、one、false 或其他 constructor default。
+Decimal 使用 signed `i128` mantissa 加 `u8` scale 的最小 trailing-zero 表示，不使用 floating point。
+Public fact 明确排除 maker/taker fee、initial/maintenance margin、account-specific commission schedule、
+leverage bracket 与所有 execution-profile authority。
+
+本 slice 唯一获准的 source composition 是一个 raw public `exchangeInfo` baseline，随后接零个或多个 raw
+public `!contractInfo` delta。每个 artifact 都绑定准确已准入 Source Binding identity/digest 与 raw payload
+digest。Delta 还绑定 canonical instrument、prior raw-event digest、紧邻下一 correction sequence、provider
+event time、retrieval time、Owner observation time 与 field-wise patch。省略的 patch member 保留
+baseline/materialized value；存在的 member 替换完整 `FactValue`，包括 non-value state。首版 delta grammar
+只接纳 `!contractInfo` 携带的 public contract-status member；currency、inverse semantics、executable filter、
+multiplier、lot 与 limit 仍由 baseline 拥有。Source、instrument、
+raw predecessor、sequence 或 observation-time 不匹配时拒绝 successor。Provider `serverTime` 不是 event 或
+provenance authority，不进入 fact。Price/quantity precision 与 increment 只能来自可执行 price/lot filter，
+不得使用 display-precision field。Baseline `effective_from` 是独立于 `serverTime` 的明确 Owner-admitted
+coordinate；native `ts_event` 使用该 coordinate 或最新 delta event time，`ts_init` 使用与之匹配的 Owner
+observation。
+
+`validate_native_crypto_perpetual_public_terms` 是唯一 V2 public/native validation constructor。其
+`ValidatedCryptoPerpetualPublicTermsV2` 结果没有 public constructor，并绑定准确 fact、identity mapping、
+Source Binding、baseline/latest raw provenance、correction sequence、timestamp 与完整 public structural
+term。Contract status、inverse semantics、base/quote/settlement currency、filter-derived precision/increment、
+contract multiplier、lot size 与每个 optional limit disposition 必须全部明确，否则 fail closed。
+`UNBOUNDED` 或 `NOT_APPLICABLE` 可转换为明确 absent 的 optional limit；`UNAVAILABLE` 不可转换。Filter
+precision 必须等于其准确 increment scale。Token 不含 maker/taker fee、initial/maintenance margin、
+commission、leverage bracket 或 execution-profile authority，也不调用或构造 `InstrumentAny`。
+
+Strategy Factory 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。后续 Strategy Factory composition
+可以把这个 Market Data token 与其 private sealed Instrument Owner economic provenance 及该准确 execution
+profile 组合。Market Data 不 import Strategy Factory，也不 validate、copy、hash、select 或 issue replay
+economic value。
+
+**NOT_ADMITTED：** V2 当前不声称 provider parser/call、authenticated ingestion、durable storage/migration、
+V2 cut/receipt/readback、product composition、database write、deployment、production effect 或 trading。
+本 slice 不实现或声称后续 Strategy Factory combination。
+
 ### 状态与固定消费者
 
 **CURRENT/PARTIAL：** Market Data 已实现下文描述的原生 `InstrumentMasterFactV1`、

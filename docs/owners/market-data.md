@@ -577,6 +577,64 @@ the V1 joined-cut codec with a V2 codec, and do not permit Source Binding rule s
 
 ## Instrument Master Owner contract
 
+### Public Fact V2 native-projection foundation
+
+**CURRENT/PARTIAL:** `InstrumentMasterFactV2` is an additive, effect-free public-fact kernel for the
+first crypto-perpetual native projection. It does not reinterpret or alter any V1 fact, cut, receipt,
+readback, database grammar, or stored byte. The fact carries canonical instrument/venue/raw-symbol
+identity, a closed crypto-perpetual class, exact public contract terms, direct predecessor and positive
+correction sequence, the original raw-snapshot provenance, the latest raw-delta provenance, canonical
+bytes, and a domain-separated content identity.
+
+V2 identity is `BLAKE3-256("VIBE_INSTRUMENT_MASTER_PUBLIC_FACT_V2" || 0x00 || bytes)`. Bytes are
+big-endian and begin with schema `u16 = 2`, reserved `u16 = 0`, canonical identity, venue identity,
+raw symbol, closed class, optional predecessor fact digest, correction sequence, baseline provenance,
+optional latest delta, then the complete materialized term set in declared struct order. Text is
+`u32 length || UTF-8`; digests are 32 bytes; optional tags are `0`/`1`; `FactValue` tags are respectively
+`1 VALUE`, `2 UNBOUNDED`, `3 NOT_APPLICABLE`, and `4 UNAVAILABLE`; booleans are `0`/`1`; time and
+decimal mantissas are signed `i128`. Unknown tags, nonzero reserved, trailing bytes, oversized text or
+record, invalid UTF-8, zero provenance digest, or non-canonical decimal are rejected.
+
+Each public term uses exactly one `FactValue`: `VALUE`, `UNBOUNDED`, `NOT_APPLICABLE`, or
+`UNAVAILABLE`. The latter three states are distinct and may not be collapsed into `None`, zero, one,
+false, or another constructor default. Decimal values are signed `i128` mantissa plus `u8` scale with
+minimal trailing-zero representation and no floating point. The public fact deliberately excludes
+maker/taker fees, initial/maintenance margins, account-specific commission schedules, leverage
+brackets, and every execution-profile authority.
+
+The only admitted source composition in this slice is a raw public `exchangeInfo` baseline followed by
+zero or more raw public `!contractInfo` deltas. Each artifact binds the exact admitted Source Binding
+identity/digest and raw payload digest. A delta additionally binds the canonical instrument, the prior
+raw-event digest, the immediately next correction sequence, provider event time, retrieval time, Owner
+observation time, and a field-wise patch. An omitted patch member preserves the baseline/materialized
+value; a present member replaces the complete `FactValue`, including a non-value state. This first
+delta grammar admits only the public contract-status member carried by `!contractInfo`; currencies,
+inverse semantics, executable filters, multiplier, lot, and limits remain baseline-owned. Source,
+instrument, raw predecessor, sequence, and observation-time mismatch reject the successor. Provider
+`serverTime` is not event or provenance authority and is not stored. Price and quantity precision and
+increments come from the executable price/lot filters, never display-precision fields. Baseline
+`effective_from` is an explicit Owner-admitted coordinate independent of `serverTime`; native `ts_event`
+uses that coordinate or the latest delta event time, and `ts_init` uses the matching Owner observation.
+
+`validate_native_crypto_perpetual_public_terms` is the only V2 public/native validation constructor.
+Its `ValidatedCryptoPerpetualPublicTermsV2` result has no public constructor and binds the exact fact,
+identity mapping, Source Binding, baseline/latest raw provenance, correction sequence, timestamps, and
+complete public structural terms. It fails closed unless contract status, inverse semantics,
+base/quote/settlement currency, filter-derived precision and increments, contract multiplier, lot size,
+and every optional limit disposition are explicit. `UNBOUNDED` or `NOT_APPLICABLE` may become an
+explicit absent optional limit; `UNAVAILABLE` may not. Filter precision must equal its exact increment
+scale. The token contains no maker/taker fee, initial/maintenance margin, commission, leverage bracket,
+or execution-profile authority and never calls or constructs `InstrumentAny`.
+
+Strategy Factory remains the sole owner of the one `ReplayExecutionProfileV1`. A later Strategy Factory
+composition may combine this Market Data token with its private sealed Instrument Owner economic
+provenance and that exact execution profile. Market Data neither imports Strategy Factory nor validates,
+copies, hashes, selects, or issues replay economic values.
+
+**NOT_ADMITTED:** V2 currently claims no provider parser or call, authenticated ingestion, durable
+storage/migration, V2 cut/receipt/readback, product composition, database write, deployment, production
+effect, or trading. The later Strategy Factory combination is not implemented or claimed by this slice.
+
 ### Status and fixed consumer
 
 **CURRENT/PARTIAL:** Market Data implements the native `InstrumentMasterFactV1`, `InstrumentMasterCutV1`,
