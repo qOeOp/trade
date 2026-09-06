@@ -1404,11 +1404,12 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     );
     assert_eq!(replay_positive_state(market_mutation_pool).await, before);
     let first_invalid_sequence = leaves.time_zone_correction_sequence.checked_add(1).unwrap();
-    let (wrong_digest_time_zone, wrong_digest_fact) =
+    let (wrong_digest_time_zone, wrong_digest_catalog, wrong_digest_fact) =
         persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
             &market,
             &base,
             d(234),
+            leaves.time_zone_catalog_entry_identity,
             leaves.time_zone_fact_identity,
             first_invalid_sequence,
             base.native_r0.receipt().request_identity,
@@ -1417,10 +1418,11 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
             d(235),
         )
         .await;
-    let (missing_r0_time_zone, _) = persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
+    let (missing_r0_time_zone, _, _) = persist_replay_same_source_unbound_r0_time_zone_fixture_v1(
         &market,
         &base,
         d(236),
+        wrong_digest_catalog,
         wrong_digest_fact,
         first_invalid_sequence.checked_add(1).unwrap(),
         d(237),
@@ -1677,6 +1679,101 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
     let committed = replay_positive_state(market_mutation_pool).await;
+
+    sqlx::query(
+        "UPDATE market_data_private.reference_fact_catalog_heads_v1
+         SET correction_sequence=correction_sequence+1
+         WHERE entry_identity=$1",
+    )
+    .bind(
+        leaves
+            .time_zone_catalog_entry_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let catalog_head_tamper =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(224), command.composition().clone())
+            .unwrap();
+    assert!(
+        fresh_owner
+            .issue_binding_v1(&catalog_head_tamper)
+            .await
+            .is_err()
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    sqlx::query(
+        "UPDATE market_data_private.reference_fact_catalog_heads_v1
+         SET correction_sequence=$1
+         WHERE entry_identity=$2",
+    )
+    .bind(i64::try_from(leaves.time_zone_correction_sequence).unwrap())
+    .bind(
+        leaves
+            .time_zone_catalog_entry_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+
+    let catalog_effective_from: String = sqlx::query_scalar(
+        "SELECT effective_from_ns
+         FROM market_data_private.reference_fact_catalog_entries_v1
+         WHERE entry_identity=$1",
+    )
+    .bind(
+        leaves
+            .time_zone_catalog_entry_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .fetch_one(market_mutation_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE market_data_private.reference_fact_catalog_entries_v1
+         SET effective_from_ns=(effective_from_ns::numeric+1)::text
+         WHERE entry_identity=$1",
+    )
+    .bind(
+        leaves
+            .time_zone_catalog_entry_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+    let catalog_row_tamper =
+        ReplayCompositionLocatorOnlyIssuanceRequestV1::new(d(225), command.composition().clone())
+            .unwrap();
+    assert!(
+        fresh_owner
+            .issue_binding_v1(&catalog_row_tamper)
+            .await
+            .is_err()
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    sqlx::query(
+        "UPDATE market_data_private.reference_fact_catalog_entries_v1
+         SET effective_from_ns=$1
+         WHERE entry_identity=$2",
+    )
+    .bind(catalog_effective_from)
+    .bind(
+        leaves
+            .time_zone_catalog_entry_identity
+            .as_bytes()
+            .as_slice(),
+    )
+    .execute(market_mutation_pool)
+    .await
+    .unwrap();
+
     let bad_r0 = ReplayCompositionBindingIssuanceRequestV1::from_test_fixture(
         composer_locator,
         command.composition().pit_locator().clone(),

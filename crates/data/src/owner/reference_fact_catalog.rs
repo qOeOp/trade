@@ -16,6 +16,7 @@ use super::source_binding::BindingDigest;
 
 const KEY_DOMAIN: &[u8] = b"vibe.market-data.reference-fact-catalog-key.v1\0";
 const ENTRY_DOMAIN: &[u8] = b"vibe.market-data.reference-fact-catalog-entry.v1\0";
+const BUSINESS_SCOPE_DOMAIN: &[u8] = b"vibe.market-data.reference-fact-business-scope.v1\0";
 const MAX_BYTES: usize = 64 * 1024;
 
 pub(crate) type ReferenceFactCatalogIdentityV1 = BindingDigest;
@@ -138,6 +139,9 @@ pub(crate) struct ReferenceFactCatalogEntryV1 {
 }
 
 impl ReferenceFactCatalogEntryV1 {
+    pub(crate) const fn kind(&self) -> ReferenceFactCatalogKindV1 {
+        self.value.kind()
+    }
     pub(crate) const fn identity(&self) -> ReferenceFactCatalogIdentityV1 {
         self.identity
     }
@@ -216,7 +220,6 @@ pub(crate) fn seal_reference_fact_catalog_entry_v1(
     bytes.extend_from_slice(&proposal.effective_from_ns.to_be_bytes());
     optional_i128(&mut bytes, proposal.effective_until_ns);
     encode_source(&mut bytes, proposal.source);
-    encode_value(&mut bytes, &proposal.value)?;
     identity(&mut bytes, proposal.stable_correlation);
     if bytes.len() > MAX_BYTES {
         return Err(ReferenceFactCatalogErrorV1::CapacityExceeded);
@@ -237,6 +240,43 @@ pub(crate) fn seal_reference_fact_catalog_entry_v1(
         canonical_bytes: bytes.into(),
         identity: id,
     })
+}
+
+pub(crate) fn derive_reference_fact_business_scope_identity_v1(
+    value: &ReferenceFactCatalogValueV1,
+) -> Result<ReferenceFactCatalogIdentityV1, ReferenceFactCatalogErrorV1> {
+    let mut bytes = Vec::new();
+    header(&mut bytes);
+    bytes.push(value.kind() as u8);
+    match value {
+        ReferenceFactCatalogValueV1::Calendar {
+            calendar_identity,
+            day,
+            ..
+        } => {
+            bytes_with_len(&mut bytes, calendar_identity)?;
+            bytes.extend_from_slice(&day.to_be_bytes());
+        }
+        ReferenceFactCatalogValueV1::TimeZone {
+            time_zone_identity,
+            ruleset_identity,
+            ..
+        } => {
+            bytes_with_len(&mut bytes, time_zone_identity)?;
+            identity(&mut bytes, *ruleset_identity);
+        }
+        ReferenceFactCatalogValueV1::Session {
+            session_identity,
+            trading_day,
+            interval_ordinal,
+            ..
+        } => {
+            bytes_with_len(&mut bytes, session_identity)?;
+            bytes.extend_from_slice(&trading_day.to_be_bytes());
+            bytes.extend_from_slice(&interval_ordinal.to_be_bytes());
+        }
+    }
+    Ok(digest(BUSINESS_SCOPE_DOMAIN, &bytes))
 }
 
 pub(crate) fn authenticate_reference_fact_catalog_entry_v1(
@@ -296,14 +336,9 @@ pub(crate) fn decode_reference_fact_catalog_entry_v1(
         correction_frontier_digest: d.identity()?,
         admission_identity: d.identity()?,
     };
-    let value_kind = d.kind()?;
-    let value = d.value(value_kind)?;
     let stable_correlation = d.identity()?;
     d.finish()?;
 
-    if value != key_value {
-        return Err(ReferenceFactCatalogErrorV1::NonCanonical);
-    }
     let proposal = UntrustedReferenceFactCatalogProposalV1 {
         command_identity,
         scope_identity,
@@ -314,7 +349,7 @@ pub(crate) fn decode_reference_fact_catalog_entry_v1(
         effective_from_ns,
         effective_until_ns,
         source,
-        value,
+        value: key_value,
         stable_correlation,
     };
     let entry = seal_reference_fact_catalog_entry_v1(&proposal)?;
@@ -330,8 +365,10 @@ fn validate_proposal(
     let nonzero = |v: ReferenceFactCatalogIdentityV1| v.as_bytes() != &[0; 32];
     if !nonzero(p.command_identity)
         || !nonzero(p.scope_identity)
+        || derive_reference_fact_business_scope_identity_v1(&p.value)? != p.scope_identity
         || p.revision == 0
         || !nonzero(p.lineage_root)
+        || p.lineage_root != p.source.source_binding_lineage_root
         || p.correction_sequence == 0
         || matches!(
             (p.correction_sequence, p.predecessor_identity),
@@ -654,9 +691,14 @@ mod tests {
         BindingDigest::from_untrusted_bytes([v; 32])
     }
     fn proposal() -> UntrustedReferenceFactCatalogProposalV1 {
+        let value = ReferenceFactCatalogValueV1::TimeZone {
+            time_zone_identity: b"Etc/UTC".to_vec().into(),
+            ruleset_identity: d(2),
+            utc_offset_seconds: 0,
+        };
         UntrustedReferenceFactCatalogProposalV1 {
             command_identity: d(1),
-            scope_identity: d(2),
+            scope_identity: derive_reference_fact_business_scope_identity_v1(&value).unwrap(),
             revision: 1,
             lineage_root: d(3),
             predecessor_identity: None,
@@ -666,17 +708,13 @@ mod tests {
             source: ReferenceFactCatalogSourceV1 {
                 source_binding_identity: d(4),
                 source_binding_fact_digest: d(5),
-                source_binding_lineage_root: d(6),
+                source_binding_lineage_root: d(3),
                 source_binding_lineage_version: 1,
                 source_frontier_digest: d(7),
                 correction_frontier_digest: d(8),
                 admission_identity: d(9),
             },
-            value: ReferenceFactCatalogValueV1::TimeZone {
-                time_zone_identity: b"Etc/UTC".to_vec().into(),
-                ruleset_identity: d(2),
-                utc_offset_seconds: 0,
-            },
+            value,
             stable_correlation: d(10),
         }
     }
@@ -693,7 +731,7 @@ mod tests {
                 &entry,
                 entry.locator(),
                 ReferenceFactCatalogKindV1::TimeZone,
-                d(2),
+                entry.scope_identity(),
                 entry.source()
             )
             .is_ok()
@@ -720,6 +758,22 @@ mod tests {
         assert_eq!(
             decode_reference_fact_catalog_entry_v1(&bytes),
             Err(ReferenceFactCatalogErrorV1::NonCanonical)
+        );
+    }
+
+    #[rstest]
+    fn catalog_lineage_must_be_the_source_lineage() {
+        let mut wrong_lineage = proposal();
+        wrong_lineage.lineage_root = d(11);
+        assert_eq!(
+            seal_reference_fact_catalog_entry_v1(&wrong_lineage),
+            Err(ReferenceFactCatalogErrorV1::InvalidProposal)
+        );
+        let mut wrong_scope = proposal();
+        wrong_scope.scope_identity = d(12);
+        assert_eq!(
+            seal_reference_fact_catalog_entry_v1(&wrong_scope),
+            Err(ReferenceFactCatalogErrorV1::InvalidProposal)
         );
     }
 }

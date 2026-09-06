@@ -7,13 +7,19 @@
 
 use sqlx::{Postgres, Row, Transaction};
 
+use super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1;
 use crate::owner::{
+    reference_fact_catalog::{
+        ReferenceFactCatalogEntryV1, ReferenceFactCatalogValueV1,
+        UntrustedReferenceFactCatalogLocatorV1,
+    },
     source_binding::BindingDigest,
     time_zone::{
-        TimeZoneErrorV1, TimeZoneFactProposalV1, TimeZoneReadbackV1, UntrustedTimeZoneLocatorV1,
-        UntrustedTimeZoneRequestV1,
+        ResolvedTimeZoneFactProposalV1, TimeZoneErrorV1, TimeZoneFactProposalV1,
+        TimeZoneReadbackV1, UntrustedTimeZoneLocatorV1, UntrustedTimeZoneRequestV1,
         authority::{
-            prepare_resolution_v1, rejoin_stored_v1, request_meaning_digest_v1, seal_readback_v1,
+            decode_fact_v1, prepare_resolution_v1, rejoin_stored_v1, request_meaning_digest_v1,
+            seal_readback_v1,
         },
         codec,
     },
@@ -23,7 +29,7 @@ pub(super) const TIME_ZONE_SCHEMA_V1: &[&str] = &[
     super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_state_v1(singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),time_zone_identity BYTEA NOT NULL CHECK(octet_length(time_zone_identity)>0),ruleset_identity BYTEA NOT NULL CHECK(octet_length(ruleset_identity)=32),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),predecessor_identity BYTEA NULL REFERENCES market_data_private.time_zone_facts_v1(fact_identity),effective_from_ns TEXT NOT NULL,effective_until_ns TEXT NULL,fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),time_zone_identity BYTEA NOT NULL CHECK(octet_length(time_zone_identity)>0),ruleset_identity BYTEA NOT NULL CHECK(octet_length(ruleset_identity)=32),catalog_entry_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(catalog_entry_identity)=32),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),predecessor_identity BYTEA NULL REFERENCES market_data_private.time_zone_facts_v1(fact_identity),effective_from_ns TEXT NOT NULL,effective_until_ns TEXT NULL,fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_heads_v1(lineage_root BYTEA PRIMARY KEY CHECK(octet_length(lineage_root)=32),fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.time_zone_facts_v1(fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_cuts_v1(cut_identity BYTEA PRIMARY KEY CHECK(octet_length(cut_identity)=32),request_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(request_identity)=32),request_meaning_digest BYTEA NOT NULL CHECK(octet_length(request_meaning_digest)=32),cut_bytes BYTEA NOT NULL CHECK(octet_length(cut_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.time_zone_cut_facts_v1(cut_identity BYTEA NOT NULL REFERENCES market_data_private.time_zone_cuts_v1(cut_identity),ordinal BIGINT NOT NULL CHECK(ordinal>0),fact_identity BYTEA NOT NULL REFERENCES market_data_private.time_zone_facts_v1(fact_identity),PRIMARY KEY(cut_identity,ordinal),UNIQUE(cut_identity,fact_identity))",
@@ -107,7 +113,19 @@ async fn resolve_inner(
         }
         return Ok(readback);
     }
-    let prepared = prepare_resolution_v1(request, proposals, r0_cut_identity, r0_cut_digest)?;
+    let mut resolved = Vec::with_capacity(proposals.len());
+    for proposal in proposals {
+        let catalog_entry =
+            resolve_reference_fact_catalog_entry_v1(transaction, proposal.catalog_locator)
+                .await
+                .map_err(|_| TimeZoneErrorV1::InvalidDependency)?
+                .ok_or(TimeZoneErrorV1::UnknownIdentity)?;
+        resolved.push(ResolvedTimeZoneFactProposalV1 {
+            proposal,
+            catalog_entry,
+        });
+    }
+    let prepared = prepare_resolution_v1(request, resolved, r0_cut_identity, r0_cut_digest)?;
     sqlx::query("SELECT pg_advisory_xact_lock(6075990727067795457)")
         .execute(&mut **transaction)
         .await
@@ -139,25 +157,40 @@ async fn resolve_inner(
     let readback = seal_readback_v1(prepared, generation, sequence)?;
     for fact in readback.facts() {
         advisory_lock(transaction, fact.identity()).await?;
-        let existing: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
+        let catalog_entry = load_catalog_for_fact(transaction, fact).await?;
+        let existing: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT catalog_entry_identity,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
             .bind(fact.identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
-        if let Some(bytes) = existing {
-            if bytes != fact.canonical_bytes() {
+        if let Some((catalog_entry_identity, bytes)) = existing {
+            if catalog_entry_identity != fact.catalog_entry_identity().as_bytes().as_slice()
+                || bytes != fact.canonical_bytes()
+            {
                 return Err(TimeZoneErrorV1::StoreUntrusted);
             }
         } else {
             if let Some(predecessor) = fact.predecessor_identity() {
-                let prior: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT lineage_root,fact_identity FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR SHARE")
+                let prior: Option<(Vec<u8>, Vec<u8>, Vec<u8>)> = sqlx::query_as("SELECT lineage_root,fact_identity,fact_bytes FROM market_data_private.time_zone_facts_v1 WHERE fact_identity=$1 FOR SHARE")
                     .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
-                if prior.is_none_or(|(lineage, identity)| {
-                    lineage != fact.lineage_root().as_bytes().as_slice()
-                        || identity != predecessor.as_bytes().as_slice()
-                }) {
+                let Some((lineage, identity, bytes)) = prior else {
+                    return Err(TimeZoneErrorV1::InvalidFact);
+                };
+                let prior_fact = decode_fact_v1(&bytes)?;
+                let prior_catalog = load_catalog_for_fact(transaction, &prior_fact).await?;
+                if prior_fact.identity() != predecessor
+                    || lineage != fact.lineage_root().as_bytes().as_slice()
+                    || identity != predecessor.as_bytes().as_slice()
+                    || prior_fact.lineage_root() != fact.lineage_root()
+                    || prior_fact.time_zone_identity() != fact.time_zone_identity()
+                    || prior_fact.ruleset_identity() != fact.ruleset_identity()
+                    || prior_fact.correction_sequence().checked_add(1)
+                        != Some(fact.correction_sequence())
+                    || catalog_entry.predecessor_identity() != Some(prior_catalog.identity())
+                    || prior_fact.catalog_entry_identity() != prior_catalog.identity()
+                {
                     return Err(TimeZoneErrorV1::InvalidFact);
                 }
             }
-            sqlx::query("INSERT INTO market_data_private.time_zone_facts_v1(fact_identity,time_zone_identity,ruleset_identity,lineage_root,correction_sequence,predecessor_identity,effective_from_ns,effective_until_ns,fact_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
-                .bind(fact.identity().as_bytes().as_slice()).bind(fact.time_zone_identity()).bind(fact.ruleset_identity().as_bytes().as_slice()).bind(fact.lineage_root().as_bytes().as_slice())
+            sqlx::query("INSERT INTO market_data_private.time_zone_facts_v1(fact_identity,time_zone_identity,ruleset_identity,catalog_entry_identity,lineage_root,correction_sequence,predecessor_identity,effective_from_ns,effective_until_ns,fact_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+                .bind(fact.identity().as_bytes().as_slice()).bind(fact.time_zone_identity()).bind(fact.ruleset_identity().as_bytes().as_slice()).bind(fact.catalog_entry_identity().as_bytes().as_slice()).bind(fact.lineage_root().as_bytes().as_slice())
                 .bind(i64::try_from(fact.correction_sequence()).map_err(|_| TimeZoneErrorV1::CapacityExceeded)?).bind(fact.predecessor_identity().map(|value| value.as_bytes().to_vec()))
                 .bind(fact.effective_from_ns().to_string()).bind(fact.effective_until_ns().map(|value| value.to_string())).bind(fact.canonical_bytes())
                 .execute(&mut **transaction).await.map_err(store_error)?;
@@ -217,7 +250,13 @@ async fn load(
     let row = sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS outbox_payload FROM market_data_private.time_zone_cuts_v1 c JOIN market_data_private.time_zone_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.time_zone_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o")
         .bind(request.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
     let Some(row) = row else {
-        return Ok(None);
+        let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.time_zone_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.time_zone_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.time_zone_outbox_v1 WHERE request_identity=$1)")
+            .bind(request.as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
+        return if partial {
+            Err(TimeZoneErrorV1::StoreUntrusted)
+        } else {
+            Ok(None)
+        };
     };
     let cut_identity: Vec<u8> = row.try_get("cut_identity").map_err(store_error)?;
     let cut_meaning: Vec<u8> = row.try_get("cut_meaning").map_err(store_error)?;
@@ -241,8 +280,19 @@ async fn load(
     {
         return Err(TimeZoneErrorV1::StoreUntrusted);
     }
-    let facts: Vec<Vec<u8>> = sqlx::query_scalar("SELECT f.fact_bytes FROM market_data_private.time_zone_cut_facts_v1 j JOIN market_data_private.time_zone_facts_v1 f ON f.fact_identity=j.fact_identity WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j,f")
+    let fact_rows = sqlx::query("SELECT f.catalog_entry_identity,f.fact_bytes FROM market_data_private.time_zone_cut_facts_v1 j JOIN market_data_private.time_zone_facts_v1 f ON f.fact_identity=j.fact_identity WHERE j.cut_identity=$1 ORDER BY j.ordinal FOR SHARE OF j,f")
         .bind(&cut_identity).fetch_all(&mut **transaction).await.map_err(store_error)?;
+    let mut facts = Vec::with_capacity(fact_rows.len());
+    for row in fact_rows {
+        let catalog_entry_identity: Vec<u8> =
+            row.try_get("catalog_entry_identity").map_err(store_error)?;
+        let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
+        let fact = decode_fact_v1(&bytes)?;
+        if catalog_entry_identity != fact.catalog_entry_identity().as_bytes().as_slice() {
+            return Err(TimeZoneErrorV1::StoreUntrusted);
+        }
+        facts.push(bytes);
+    }
     let readback = rejoin_stored_v1(
         &facts,
         &cut_bytes,
@@ -283,14 +333,59 @@ async fn load(
     }
 
     for fact in readback.facts() {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1)")
-            .bind(fact.lineage_root().as_bytes().as_slice()).fetch_one(&mut **transaction).await.map_err(store_error)?;
-
-        if !exists {
+        load_catalog_for_fact(transaction, fact).await?;
+        let head: Option<Vec<u8>> = sqlx::query_scalar("SELECT fact_identity FROM market_data_private.time_zone_heads_v1 WHERE lineage_root=$1 FOR SHARE")
+            .bind(fact.lineage_root().as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        if head.as_deref() != Some(fact.identity().as_bytes().as_slice()) {
             return Err(TimeZoneErrorV1::StoreUntrusted);
         }
     }
     Ok(Some(readback))
+}
+
+async fn load_catalog_for_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact: &crate::owner::time_zone::TimeZoneFactV1,
+) -> Result<ReferenceFactCatalogEntryV1, TimeZoneErrorV1> {
+    let identity = fact.catalog_entry_identity();
+    let entry = resolve_reference_fact_catalog_entry_v1(
+        transaction,
+        UntrustedReferenceFactCatalogLocatorV1::from_untrusted(identity, identity),
+    )
+    .await
+    .map_err(|error| match error {
+        crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUnavailable => {
+            TimeZoneErrorV1::StoreUnavailable
+        }
+        _ => TimeZoneErrorV1::StoreUntrusted,
+    })?
+    .ok_or(TimeZoneErrorV1::StoreUntrusted)?;
+    let source = entry.source();
+    let evidence = fact.evidence();
+    if entry.scope_identity() != fact.lineage_root()
+        || entry.correction_sequence() != fact.correction_sequence()
+        || entry.effective_from_ns() != fact.effective_from_ns()
+        || entry.effective_until_ns() != fact.effective_until_ns()
+        || source.source_binding_identity != evidence.source_binding_identity
+        || source.source_binding_fact_digest != evidence.source_binding_fact_digest
+        || source.source_binding_lineage_root != evidence.source_binding_lineage_root
+        || source.source_binding_lineage_version != evidence.source_binding_lineage_version
+        || source.source_frontier_digest != evidence.source_frontier_digest
+        || source.correction_frontier_digest != evidence.correction_frontier_digest
+        || !matches!(
+            entry.value(),
+            ReferenceFactCatalogValueV1::TimeZone {
+                time_zone_identity,
+                ruleset_identity,
+                utc_offset_seconds,
+            } if time_zone_identity.as_ref() == fact.time_zone_identity()
+                && *ruleset_identity == fact.ruleset_identity()
+                && *utc_offset_seconds == fact.utc_offset_seconds()
+        )
+    {
+        return Err(TimeZoneErrorV1::StoreUntrusted);
+    }
+    Ok(entry)
 }
 
 fn digest_from_row(bytes: Vec<u8>) -> Result<BindingDigest, TimeZoneErrorV1> {

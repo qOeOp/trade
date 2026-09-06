@@ -4,6 +4,7 @@
 
 use crate::owner::{
     calendar::UntrustedCalendarLocatorV1,
+    reference_fact_catalog::{ReferenceFactCatalogValueV1, UntrustedReferenceFactCatalogLocatorV1},
     session::{
         InstrumentMasterReferenceV1, SessionDependenciesV1, SessionErrorV1, SessionFactProposalV1,
         SessionIdentityV1, SessionReadbackV1, UntrustedSessionLocatorV1, UntrustedSessionRequestV1,
@@ -17,11 +18,13 @@ use crate::owner::{
 };
 use sqlx::{Postgres, Row, Transaction};
 
+type StoredSessionPredecessorRow = (Vec<u8>, Vec<u8>, i32, i64, Vec<u8>);
+
 pub(super) const SESSION_SCHEMA_V1: &[&str] = &[
     super::OWNER_SCHEMA_GUARD_V1,
     "REVOKE ALL ON SCHEMA market_data_private FROM PUBLIC",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_state_v1(singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK(singleton),store_generation_identity BYTEA NOT NULL CHECK(octet_length(store_generation_identity)=32),append_sequence BIGINT NOT NULL CHECK(append_sequence>=0))",
-    "CREATE TABLE IF NOT EXISTS market_data_private.session_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),session_identity BYTEA NOT NULL CHECK(octet_length(session_identity)>0),trading_day INTEGER NOT NULL,interval_ordinal BIGINT NOT NULL CHECK(interval_ordinal>=0),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),predecessor_identity BYTEA NULL REFERENCES market_data_private.session_facts_v1(fact_identity),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0),UNIQUE(session_identity,trading_day,interval_ordinal,fact_identity))",
+    "CREATE TABLE IF NOT EXISTS market_data_private.session_facts_v1(fact_identity BYTEA PRIMARY KEY CHECK(octet_length(fact_identity)=32),session_identity BYTEA NOT NULL CHECK(octet_length(session_identity)>0),trading_day INTEGER NOT NULL,interval_ordinal BIGINT NOT NULL CHECK(interval_ordinal>=0),lineage_root BYTEA NOT NULL CHECK(octet_length(lineage_root)=32),predecessor_identity BYTEA NULL REFERENCES market_data_private.session_facts_v1(fact_identity),correction_sequence BIGINT NOT NULL CHECK(correction_sequence>0),fact_bytes BYTEA NOT NULL CHECK(octet_length(fact_bytes)>0),UNIQUE(lineage_root,correction_sequence),UNIQUE(session_identity,trading_day,interval_ordinal,fact_identity))",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_heads_v1(session_identity BYTEA NOT NULL,trading_day INTEGER NOT NULL,interval_ordinal BIGINT NOT NULL CHECK(interval_ordinal>=0),fact_identity BYTEA UNIQUE NOT NULL REFERENCES market_data_private.session_facts_v1(fact_identity),PRIMARY KEY(session_identity,trading_day,interval_ordinal))",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_cuts_v1(cut_identity BYTEA PRIMARY KEY CHECK(octet_length(cut_identity)=32),request_identity BYTEA UNIQUE NOT NULL CHECK(octet_length(request_identity)=32),request_meaning_digest BYTEA NOT NULL CHECK(octet_length(request_meaning_digest)=32),cut_bytes BYTEA NOT NULL CHECK(octet_length(cut_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.session_cut_facts_v1(cut_identity BYTEA NOT NULL REFERENCES market_data_private.session_cuts_v1(cut_identity),ordinal BIGINT NOT NULL CHECK(ordinal>0),fact_identity BYTEA NOT NULL REFERENCES market_data_private.session_facts_v1(fact_identity),PRIMARY KEY(cut_identity,ordinal),UNIQUE(cut_identity,fact_identity))",
@@ -116,13 +119,23 @@ async fn resolve_inner(
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
-    let instrument_master = recover_instrument_master_reference_v1(tx, &instrument_master).await?;
+    let (instrument_master, instrument_calendar, instrument_session, instrument_time_zone) =
+        recover_instrument_master_reference_v1(tx, &instrument_master).await?;
     let calendar = super::calendar::recover_calendar_v1(tx, calendar_locator)
         .await
         .map_err(map_calendar_error)?;
     let time_zone = super::time_zone::recover_time_zone_in_transaction_v1(tx, time_zone_locator)
         .await
         .map_err(map_time_zone_error)?;
+    if request.session_identity.as_ref() != instrument_session.as_ref()
+        || calendar.cut().calendar_identity() != instrument_calendar.as_ref()
+        || time_zone
+            .facts()
+            .iter()
+            .any(|fact| fact.time_zone_identity() != instrument_time_zone.as_ref())
+    {
+        return Err(SessionErrorV1::InvalidDependency);
+    }
     let source_locator = request.source_binding_locator_bytes.to_vec();
     let r0_locator = request.r0_locator_bytes.to_vec();
     let deps = SessionDependenciesV1 {
@@ -142,8 +155,25 @@ async fn resolve_inner(
         }
         return Ok(readback);
     }
-    let prepared =
-        prepare_resolution_v1(request, &deps, proposals, r0_cut_identity, r0_cut_digest)?;
+    let mut catalog_entries = Vec::with_capacity(proposals.len());
+    for proposal in &proposals {
+        let entry = super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1(
+            tx,
+            proposal.catalog_locator,
+        )
+        .await
+        .map_err(map_catalog_error)?
+        .ok_or(SessionErrorV1::InvalidDependency)?;
+        catalog_entries.push(entry);
+    }
+    let prepared = prepare_resolution_v1(
+        request,
+        &deps,
+        proposals,
+        catalog_entries,
+        r0_cut_identity,
+        r0_cut_digest,
+    )?;
     sqlx::query("SELECT pg_advisory_xact_lock(6004799503164006721)")
         .execute(&mut **tx)
         .await
@@ -179,8 +209,30 @@ async fn resolve_inner(
             }
         } else {
             if let Some(predecessor) = fact.predecessor_identity {
-                let prior:Option<Vec<u8>>=sqlx::query_scalar("SELECT lineage_root FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR SHARE").bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
-                if prior.is_none_or(|v| v != fact.lineage_root.as_bytes().as_slice()) {
+                let prior:Option<StoredSessionPredecessorRow>=sqlx::query_as("SELECT lineage_root,session_identity,trading_day,interval_ordinal,fact_bytes FROM market_data_private.session_facts_v1 WHERE fact_identity=$1 FOR SHARE").bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
+                let Some((prior_lineage, prior_session, prior_day, prior_ordinal, prior_bytes)) =
+                    prior
+                else {
+                    return Err(SessionErrorV1::InvalidDependency);
+                };
+                let prior_fact = crate::owner::session::authority::decode_fact(&prior_bytes)?;
+                let catalog = load_catalog_for_fact(tx, fact).await?;
+                let prior_catalog = load_catalog_for_fact(tx, &prior_fact).await?;
+                if prior_lineage != fact.lineage_root.as_bytes().as_slice()
+                    || prior_session != fact.session_identity.as_ref()
+                    || prior_day != fact.trading_day
+                    || u32::try_from(prior_ordinal).ok() != Some(fact.interval_ordinal)
+                    || prior_fact.identity() != predecessor
+                    || catalog.predecessor_identity() != Some(prior_fact.catalog_entry_identity())
+                    || catalog.scope_identity() != prior_catalog.scope_identity()
+                    || catalog.source().source_binding_lineage_root
+                        != prior_catalog.source().source_binding_lineage_root
+                    || prior_catalog
+                        .source()
+                        .source_binding_lineage_version
+                        .checked_add(1)
+                        != Some(catalog.source().source_binding_lineage_version)
+                {
                     return Err(SessionErrorV1::InvalidDependency);
                 }
             }
@@ -234,7 +286,15 @@ async fn load(
     request: SessionIdentityV1,
 ) -> Result<Option<SessionReadbackV1>, SessionErrorV1> {
     let row=sqlx::query("SELECT c.cut_identity,c.request_meaning_digest AS cut_meaning,c.cut_bytes,r.request_meaning_digest AS receipt_meaning,r.cut_identity AS receipt_cut,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes AS payload FROM market_data_private.session_cuts_v1 c JOIN market_data_private.session_receipts_v1 r ON r.request_identity=c.request_identity JOIN market_data_private.session_outbox_v1 o ON o.request_identity=c.request_identity WHERE c.request_identity=$1 FOR UPDATE OF c,r,o").bind(request.as_bytes().as_slice()).fetch_optional(&mut **tx).await.map_err(store_error)?;
-    let Some(row) = row else { return Ok(None) };
+    let Some(row) = row else {
+        let partial: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.session_cuts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.session_receipts_v1 WHERE request_identity=$1) OR EXISTS(SELECT 1 FROM market_data_private.session_outbox_v1 WHERE request_identity=$1)")
+            .bind(request.as_bytes().as_slice()).fetch_one(&mut **tx).await.map_err(store_error)?;
+        return if partial {
+            Err(SessionErrorV1::StoreUntrusted)
+        } else {
+            Ok(None)
+        };
+    };
     let cut_identity: Vec<u8> = row.try_get("cut_identity").map_err(store_error)?;
     let cut_meaning: Vec<u8> = row.try_get("cut_meaning").map_err(store_error)?;
     let cut_bytes: Vec<u8> = row.try_get("cut_bytes").map_err(store_error)?;
@@ -286,12 +346,75 @@ async fn load(
     }
 
     for fact in readback.facts() {
-        let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3)").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_one(&mut **tx).await.map_err(store_error)?;
-        if !exists {
+        load_catalog_for_fact(tx, fact).await?;
+        let head:Option<Vec<u8>>=sqlx::query_scalar("SELECT fact_identity FROM market_data_private.session_heads_v1 WHERE session_identity=$1 AND trading_day=$2 AND interval_ordinal=$3 FOR SHARE").bind(&fact.session_identity).bind(fact.trading_day).bind(i64::from(fact.interval_ordinal)).fetch_optional(&mut **tx).await.map_err(store_error)?;
+        if head.as_deref() != Some(fact.identity().as_bytes().as_slice()) {
             return Err(SessionErrorV1::StoreUntrusted);
         }
     }
     Ok(Some(readback))
+}
+
+async fn load_catalog_for_fact(
+    tx: &mut Transaction<'_, Postgres>,
+    fact: &crate::owner::session::SessionFactV1,
+) -> Result<crate::owner::reference_fact_catalog::ReferenceFactCatalogEntryV1, SessionErrorV1> {
+    let identity = fact.catalog_entry_identity();
+    let entry = super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1(
+        tx,
+        UntrustedReferenceFactCatalogLocatorV1::from_untrusted(identity, identity),
+    )
+    .await
+    .map_err(map_catalog_error)?
+    .ok_or(SessionErrorV1::StoreUntrusted)?;
+    let source = entry.source();
+    let value_matches = match entry.value() {
+        ReferenceFactCatalogValueV1::Session {
+            session_identity,
+            trading_day,
+            interval_ordinal,
+            local_open,
+            local_close,
+        } => {
+            session_identity.as_ref() == fact.session_identity.as_ref()
+                && *trading_day == fact.trading_day
+                && *interval_ordinal == fact.interval_ordinal
+                && local_open.day == fact.local_open.day
+                && local_open.nanos_of_day == fact.local_open.nanos_of_day
+                && local_open.resolution as u8 == fact.local_open.resolution as u8
+                && local_close.day == fact.local_close.day
+                && local_close.nanos_of_day == fact.local_close.nanos_of_day
+                && local_close.resolution as u8 == fact.local_close.resolution as u8
+        }
+        _ => false,
+    };
+    if entry.scope_identity() != fact.lineage_root
+        || entry.correction_sequence() != fact.correction_sequence
+        || source.source_binding_identity != fact.source_binding_identity
+        || source.source_binding_fact_digest != fact.source_binding_fact_digest
+        || source.source_binding_lineage_root != fact.source_binding_lineage_root
+        || source.source_binding_lineage_version != fact.source_binding_lineage_version
+        || source.source_frontier_digest != fact.source_frontier_digest
+        || source.correction_frontier_digest != fact.correction_frontier_digest
+        || !value_matches
+    {
+        return Err(SessionErrorV1::StoreUntrusted);
+    }
+    Ok(entry)
+}
+
+fn map_catalog_error(
+    error: crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1,
+) -> SessionErrorV1 {
+    match error {
+        crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUnavailable => {
+            SessionErrorV1::StoreUnavailable
+        }
+        crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUntrusted => {
+            SessionErrorV1::StoreUntrusted
+        }
+        _ => SessionErrorV1::InvalidDependency,
+    }
 }
 
 fn locator_bytes(identity: BindingDigest, meaning: BindingDigest) -> Vec<u8> {
@@ -303,7 +426,7 @@ fn locator_bytes(identity: BindingDigest, meaning: BindingDigest) -> Vec<u8> {
 async fn recover_instrument_master_reference_v1(
     tx: &mut Transaction<'_, Postgres>,
     untrusted: &InstrumentMasterReferenceV1,
-) -> Result<InstrumentMasterReferenceV1, SessionErrorV1> {
+) -> Result<(InstrumentMasterReferenceV1, Box<[u8]>, Box<[u8]>, Box<[u8]>), SessionErrorV1> {
     let bytes: &[u8] = &untrusted.locator_bytes;
     if bytes.len() != 64 {
         return Err(SessionErrorV1::InvalidDependency);
@@ -329,6 +452,7 @@ async fn recover_instrument_master_reference_v1(
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
+    let fact = &readback.facts()[0];
     let canonical = InstrumentMasterReferenceV1 {
         locator_bytes: locator_bytes(request_identity, request_meaning_digest).into_boxed_slice(),
         readback_identity: readback.digest(),
@@ -339,7 +463,12 @@ async fn recover_instrument_master_reference_v1(
     if untrusted != &canonical {
         return Err(SessionErrorV1::InvalidDependency);
     }
-    Ok(canonical)
+    Ok((
+        canonical,
+        fact.calendar_identity().as_bytes().into(),
+        fact.session_identity().as_bytes().into(),
+        fact.time_zone_identity().as_bytes().into(),
+    ))
 }
 fn map_instrument_master_error(
     error: crate::owner::instrument_master::InstrumentMasterError,
@@ -426,6 +555,10 @@ mod tests {
         let implementation = include_str!("session.rs");
         assert!(implementation.contains("ROLLBACK TO SAVEPOINT market_data_session_v1"));
         assert!(implementation.contains("pg_catalog.gen_random_uuid()"));
+        assert!(implementation.contains("resolve_reference_fact_catalog_entry_v1"));
+        assert!(implementation.contains("fact.calendar_identity()"));
+        assert!(implementation.contains("fact.session_identity()"));
+        assert!(implementation.contains("fact.time_zone_identity()"));
         assert!(implementation.contains("recover_calendar_v1(tx, calendar_locator)"));
         assert!(
             implementation.contains("recover_time_zone_in_transaction_v1(tx, time_zone_locator)")

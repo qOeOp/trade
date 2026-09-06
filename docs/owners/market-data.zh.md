@@ -117,9 +117,21 @@ outbox row。
 Catalog key 与 entry identity 分别是
 `vibe.market-data.reference-fact-catalog-key.v1\0` 与
 `vibe.market-data.reference-fact-catalog-entry.v1\0` 加规范 big-endian bytes 的 BLAKE3-256。Key 绑定闭合
-kind、business scope、正 revision、lineage root 与完整 typed value；entry 另外绑定 command identity、
-可选 direct predecessor、正 correction sequence、业务生效区间、准确 Source provenance、administrator
-admission identity 与 stable correlation。使用前必须解码、重新 hash 并匹配准确 stored bytes。
+kind、business scope、正 revision、source lineage root 与完整 typed value。Stable catalog-head scope 准确由
+stable business-scope identity 加该 source lineage root 构成；revision 与 typed value 都不得选择另一个 head。
+Business-scope identity 是 `vibe.market-data.reference-fact-business-scope.v1\0` 加 schema `u16BE = 1`、
+reserved zero `u16BE`、闭合 kind `u8` 与准确一个 native key 的规范 bytes 的 BLAKE3-256：Calendar identity
+`u32BE length || bytes` 加 civil day `i32BE`；Time Zone identity `u32BE length || bytes` 加 ruleset identity
+`[u8; 32]`；或 Session identity `u32BE length || bytes`、trading day `i32BE` 与 interval ordinal `u32BE`。
+Entry 在完整 catalog-key bytes 之后另外依次绑定 command identity、可选 catalog predecessor、正 correction
+sequence、业务生效区间、准确 Source provenance、administrator admission identity 与 stable correlation；
+它不重复已经由该 key 绑定的 typed value。
+Catalog predecessor 始终是同一 head scope 内的前一 catalog entry identity，绝不是 native fact identity。
+Genesis 的 correction sequence 为 `1` 且没有 catalog predecessor；每个后继 entry 都绑定紧邻的前一 catalog
+entry，且 sequence 准确加一。Time Zone 后继要么修正同一个恒定 offset regime 并保留 byte-identical
+effective bounds，要么描述紧邻 regime，且其 lower bound 必须等于 predecessor 的 upper bound。Calendar
+与 Session 后继修正同一个 stable native key，因此保留 byte-identical effective bounds。使用前必须解码、
+重新 hash 并匹配准确 stored bytes。
 **NOT_ADMITTED：** 隔离验收 catalog 数据不证明 vendor authenticity，也不授予 default/production database、
 deployment、provider、Dashboard、runtime 或 trading effect。
 
@@ -135,13 +147,25 @@ projection 的 Replay V2；以及后续 BAR resolution。Session 是准确 Calen
 两个原生权威互不依赖 Session，也不复制对方 fact。不受信 private proposal 不得重新解释既有 Replay V2
 value 或铸造 positive custody。
 
-两个权威都在 caller 的 Owner transaction 中解析一个准确 `ReferenceFactCatalogV1` entry 与准确已准入
-Source Binding，并且只把一个已验证 `ReferenceFactCoordinatesV1` 用作 observation evidence。每条 fact
-只有一个 lineage root、正 correction
-sequence、可选 direct predecessor 与 current head。Predecessor 缺失、branch、cycle、sequence gap 或
-regression、cross-source splice、effective overlap/gap、请求 coverage 不完整、clock mismatch 或 observation
-过期，都在任何 write 前失败。Positive fact、完整 cut、receipt 与 move-only readback 没有 public
-constructor/deserializer。公共 caller 只能取得不受信 sealed locator；resolver 由 crate sealed。
+Calendar、Time Zone 与 Session 各权威都只接受一个不受信的准确 catalog-entry locator 来选择 catalog，
+并在 caller 的 Owner transaction 中重新解析准确 stored `ReferenceFactCatalogV1` entry，同时解析准确已准入
+Source Binding。Latest/current-head lookup 只验证已解析 entry 的 lineage position，绝不参与选择。Native
+typed business value 从该 catalog entry 派生并与之逐字节匹配；caller proposal 不能提供或覆盖该值。一个
+已验证 `ReferenceFactCoordinatesV1` 只作为 observation evidence，绝不是 business-value 或 lineage authority。
+
+每条 native fact 拥有自身 lineage root、正 native correction sequence、可选 native predecessor 与 current
+native head。Native lineage root 准确等于 catalog scope identity；该 scope 只标识一个 native fact key：
+`(calendar identity, civil day)`、`(time-zone identity, ruleset identity)` 或 `(session identity, trading day,
+interval ordinal)`。它既不从 Source Binding lineage coordinate 派生，也不与其比较。Native predecessor
+始终是同一 native fact key 与 domain 的紧邻前一 fact identity，绝不是
+catalog entry identity。Catalog 与 native correction sequence 一一对应。Genesis 时两个 sequence 均为 `1`
+且两个 predecessor 都不存在。每个 sequence 大于 `1` 的 correction 必须同时具备两个 predecessor，native
+fact 的 catalog entry 必须指明 catalog predecessor，并且前一 native fact 必须绑定该准确 catalog
+predecessor；即使属于同一 revision，catalog entry hash 与 native fact hash 仍然不同。Predecessor 缺失、
+branch、cycle、sequence gap 或 regression、cross-source splice、effective overlap/gap、请求 coverage 不完整、
+clock mismatch 或 observation 过期，都在任何 write 前失败。Positive fact、完整 cut、receipt 与 move-only
+readback 没有 public constructor/deserializer。公共 caller 只能取得不受信 sealed locator；resolver 由
+crate sealed。
 
 Version 1 整数均为 big-endian，可选 tag 准确为 `0x00`/`0x01`，boolean 为 `0x00`/`0x01`，identity/digest
 均为 32 bytes。每个 artifact identity 都是 listed NUL-terminated domain 加准确 bytes 的 BLAKE3-256。
@@ -169,11 +193,11 @@ trading。
 
 `CalendarFactV1` value 是准确 calendar identity `u32BE length || bytes`、从 `1970-01-01` 起算的 signed
 UTC civil-day ordinal `i32BE`，以及 `is_open` `u8`。Fact domain 为
-`vibe.market-data.calendar-fact.v1\0`；schema 与 reserved 之后的 bytes 是上述 value、lineage root、
-correction sequence `u64BE`、可选 predecessor、effective-from 与可选 effective-until `i128BE`、
-provider-available、retrieval、correction-publication 与 Owner-observation `i128BE`、decision cut `u64BE`、
-R0 coordinate identity/digest、Source Binding identity/fact digest/lineage root/`u64BE` version，以及
-source/correction frontier digest。
+`vibe.market-data.calendar-fact.v1\0`；schema 与 reserved 之后的 bytes 是上述从 catalog 派生的完整 value、
+准确 catalog entry identity `[u8; 32]`、native lineage root、native correction sequence `u64BE`、可选 native
+predecessor、effective-from 与可选 effective-until `i128BE`、provider-available、retrieval、
+correction-publication 与 Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、
+Source Binding identity/fact digest/lineage root/`u64BE` version，以及 source/correction frontier digest。
 
 Request-meaning domain 为 `vibe.market-data.calendar-request.v1\0`；bytes 是 schema、reserved、closed
 consumer tag（`1 PIT`、`2 INSTRUMENT_MASTER`、`3 REPLAY_V2`、`4 BAR`）、calendar identity、inclusive
@@ -193,9 +217,10 @@ range 无效。Receipt 与 readback domain 分别把 `calendar-cut` 替换为 `c
 UTC interval。Ruleset transition 是不可变 successor；相邻 before/after interval 在 offset 减小时确定
 local fold，在 offset 增大时确定 gap，因此两种情形都不得被猜测或 normalize away。
 
-Fact domain 为 `vibe.market-data.time-zone-fact.v1\0`；bytes 是 schema、reserved、上述 value、lineage
-root、correction sequence、可选 predecessor，以及按相同顺序排列的 Calendar 所定义 effective、
-observation 与准确 R0/Source Binding/frontier tail。Request-meaning domain 为
+Fact domain 为 `vibe.market-data.time-zone-fact.v1\0`；bytes 是 schema、reserved、上述从 catalog 派生的
+完整 value、准确 catalog entry identity `[u8; 32]`、native lineage root、native correction sequence、可选
+native predecessor，随后是按相同顺序排列的 Calendar 所定义 effective、observation 与准确 R0/Source
+Binding/frontier tail。Request-meaning domain 为
 `vibe.market-data.time-zone-request.v1\0`；bytes 是 schema、reserved、consumer tag、time-zone identity、
 ruleset identity、replay-window start 与 exclusive end `i128BE`、Owner-observation、decision cut、
 length-prefixed Source Binding 与 R0 locator bytes，以及 stable correlation。Cut domain 为
@@ -228,16 +253,19 @@ earlier/later choice，并依据准确 Time Zone transition 重新计算。Leap-
 均不受支持。Fact 重复 recomputed UTC open/close `i128BE`，要求 `open < close`，并绑定准确 Calendar
 fact/cut identity/digest、Time Zone open/close boundary fact identity/digest 加 cut identity/digest、Instrument
 Master reference tuple、Source Binding identity/lineage、source/correction frontier、correction identity 与完整
-R0 observation coordinate。每个 scalar 都从这些原生 fact 重新计算。
+R0 observation coordinate。从 catalog 派生的 typed business value 与准确 entry 逐字节匹配；每个派生 UTC
+与 dependency scalar 都从 join 的原生 fact 重新计算。
 
 Fact domain 为 `vibe.market-data.session-fact.v1\0`；bytes 是 schema `u16BE = 1`、reserved、session
-identity `u32BE length || bytes`、trading day、interval ordinal、local-open tuple、local-close tuple、UTC
-open、UTC close、Calendar fact identity/digest 与 cut identity/digest、Time Zone open fact identity/digest、
-close fact identity/digest 与 cut identity/digest、Instrument Master readback/fact/cut digest、可选
-predecessor、correction sequence `u64BE`、provider-available、retrieval、correction-publication 与
-Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、Source Binding identity/fact
+identity `u32BE length || bytes`、trading day、interval ordinal、local-open tuple 与 local-close tuple，作为从
+catalog 派生的完整 typed business value；随后是准确 catalog entry identity `[u8; 32]`、native lineage root、
+重算 UTC open、UTC close、Calendar fact identity/digest 与 cut identity/digest、Time Zone open fact
+identity/digest、close fact identity/digest 与 cut identity/digest、Instrument Master readback/fact/cut digest、
+可选 native predecessor、native correction sequence `u64BE`、provider-available、retrieval、
+correction-publication 与 Owner-observation `i128BE`、decision cut `u64BE`、R0 coordinate identity/digest、
+Source Binding identity/fact
 digest/lineage root/`u64BE` version、source frontier、correction frontier 与 correction identity。Correction
-是准确 `(session identity, trading day, interval ordinal)` key 的不可变 current-head direct successor。
+是准确 `(session identity, trading day, interval ordinal)` native key 的不可变 current-head direct successor。
 
 Request-meaning domain 为 `vibe.market-data.session-request.v1\0`；bytes 是 schema、reserved、固定 raw
 consumer tag `1 MARKET_DATA_OWNER_V1`、session identity、inclusive first/exclusive last trading day、准确

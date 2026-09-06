@@ -149,6 +149,7 @@ pub struct CalendarFactV1 {
     pub(crate) calendar_identity: Box<[u8]>,
     pub(crate) day: i32,
     pub(crate) is_open: bool,
+    pub(crate) catalog_entry_identity: CalendarIdentityV1,
     pub(crate) lineage_root: CalendarIdentityV1,
     pub(crate) correction_sequence: u64,
     pub(crate) predecessor_identity: Option<CalendarIdentityV1>,
@@ -180,6 +181,9 @@ impl CalendarFactV1 {
     }
     pub const fn is_open(&self) -> bool {
         self.is_open
+    }
+    pub(crate) const fn catalog_entry_identity(&self) -> CalendarIdentityV1 {
+        self.catalog_entry_identity
     }
     pub const fn lineage_root(&self) -> CalendarIdentityV1 {
         self.lineage_root

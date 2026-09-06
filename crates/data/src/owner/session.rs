@@ -8,8 +8,9 @@
 use std::fmt::Display;
 
 use super::{
-    calendar::CalendarReadbackV1, reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
-    source_binding::BindingDigest, time_zone::TimeZoneReadbackV1,
+    calendar::CalendarReadbackV1, reference_fact_catalog::UntrustedReferenceFactCatalogLocatorV1,
+    reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1, source_binding::BindingDigest,
+    time_zone::TimeZoneReadbackV1,
 };
 
 pub(crate) mod authority;
@@ -55,12 +56,8 @@ pub(crate) struct SessionDependenciesV1<'a> {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct SessionFactProposalV1 {
-    pub(crate) trading_day: i32,
-    pub(crate) interval_ordinal: u32,
-    pub(crate) local_open: LocalBoundaryV1,
-    pub(crate) local_close: LocalBoundaryV1,
-    pub(crate) predecessor_identity: Option<SessionIdentityV1>,
-    pub(crate) correction_sequence: u64,
+    pub(crate) catalog_locator: UntrustedReferenceFactCatalogLocatorV1,
+    pub(crate) native_predecessor_identity: Option<SessionIdentityV1>,
     pub(crate) correction_identity: SessionIdentityV1,
     pub(crate) coordinates: VerifiedReferenceFactCoordinatesV1,
     pub(crate) r0_coordinate_identity: SessionIdentityV1,
@@ -74,6 +71,7 @@ pub(crate) struct SessionFactV1 {
     pub(crate) interval_ordinal: u32,
     pub(crate) local_open: LocalBoundaryV1,
     pub(crate) local_close: LocalBoundaryV1,
+    pub(crate) catalog_entry_identity: SessionIdentityV1,
     pub(crate) utc_open_ns: i128,
     pub(crate) utc_close_ns: i128,
     pub(crate) instrument_master_readback_identity: SessionIdentityV1,
@@ -82,6 +80,7 @@ pub(crate) struct SessionFactV1 {
     pub(crate) lineage_root: SessionIdentityV1,
     pub(crate) source_binding_identity: SessionIdentityV1,
     pub(crate) source_binding_fact_digest: SessionIdentityV1,
+    pub(crate) source_binding_lineage_root: SessionIdentityV1,
     pub(crate) source_binding_lineage_version: u64,
     pub(crate) source_frontier_digest: SessionIdentityV1,
     pub(crate) correction_frontier_digest: SessionIdentityV1,
@@ -122,11 +121,14 @@ impl SessionFactV1 {
     pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
+    pub(crate) const fn catalog_entry_identity(&self) -> SessionIdentityV1 {
+        self.catalog_entry_identity
+    }
     pub(crate) const fn evidence(&self) -> SessionFactEvidenceV1 {
         SessionFactEvidenceV1 {
             source_binding_identity: self.source_binding_identity,
             source_binding_fact_digest: self.source_binding_fact_digest,
-            source_binding_lineage_root: self.lineage_root,
+            source_binding_lineage_root: self.source_binding_lineage_root,
             source_binding_lineage_version: self.source_binding_lineage_version,
             source_frontier_digest: self.source_frontier_digest,
             correction_frontier_digest: self.correction_frontier_digest,

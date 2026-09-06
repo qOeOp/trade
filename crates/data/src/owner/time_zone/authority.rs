@@ -1,15 +1,16 @@
 use super::{
-    PreparedTimeZoneResolutionV1, TimeZoneCutV1, TimeZoneErrorV1, TimeZoneFactProposalV1,
+    PreparedTimeZoneResolutionV1, ResolvedTimeZoneFactProposalV1, TimeZoneCutV1, TimeZoneErrorV1,
     TimeZoneFactV1, TimeZoneIdentity, TimeZoneReadbackV1, TimeZoneReceiptV1,
     UntrustedTimeZoneRequestV1, codec,
 };
 use crate::owner::reference_fact_catalog::{
     ReferenceFactCatalogKindV1, ReferenceFactCatalogValueV1,
+    authenticate_reference_fact_catalog_entry_v1,
 };
 
-pub(crate) fn prepare_resolution_v1(
+pub(crate) fn prepare_resolution_v1<T: CatalogBoundTimeZoneProposalV1>(
     request: UntrustedTimeZoneRequestV1,
-    proposals: Vec<TimeZoneFactProposalV1>,
+    mut proposals: Vec<T>,
     r0_cut_identity: TimeZoneIdentity,
     r0_cut_digest: TimeZoneIdentity,
 ) -> Result<PreparedTimeZoneResolutionV1, TimeZoneErrorV1> {
@@ -19,20 +20,31 @@ pub(crate) fn prepare_resolution_v1(
         return Err(TimeZoneErrorV1::IncompleteCoverage);
     }
 
-    for proposal in &proposals {
-        let claim = proposal.dependencies.coordinates().claim();
+    for resolved in &proposals {
+        let claim = resolved.proposal().dependencies.coordinates().claim();
+        let ReferenceFactCatalogValueV1::TimeZone {
+            time_zone_identity,
+            ruleset_identity,
+            ..
+        } = resolved.catalog_entry().value()
+        else {
+            return Err(TimeZoneErrorV1::InvalidDependency);
+        };
         if claim.stable_correlation != request.stable_correlation
             || claim.time.owner_observation_ns != request.owner_observation_ns
             || claim.time.decision_cut != request.decision_cut
+            || time_zone_identity.as_ref() != request.time_zone_identity.as_ref()
+            || *ruleset_identity != request.ruleset_identity
         {
             return Err(TimeZoneErrorV1::InvalidDependency);
         }
     }
-    let mut facts = proposals
-        .into_iter()
-        .map(|proposal| issue_fact_v1(&proposal))
+    proposals.sort_by_key(|resolved| resolved.catalog_entry().effective_from_ns());
+    let facts = proposals
+        .iter()
+        .map(issue_fact_v1)
         .collect::<Result<Vec<_>, _>>()?;
-    facts.sort_by_key(TimeZoneFactV1::effective_from_ns);
+    validate_catalog_graph(&proposals, &facts)?;
     validate_fact_graph(&request, &facts)?;
     let meaning = request_meaning_digest_v1(&request)?;
     let mut bytes = Vec::new();
@@ -87,11 +99,19 @@ pub(crate) fn prepare_resolution_v1(
     })
 }
 
-pub(crate) fn issue_fact_v1(
-    proposal: &TimeZoneFactProposalV1,
+pub(crate) fn issue_fact_v1<T: CatalogBoundTimeZoneProposalV1>(
+    resolved: &T,
 ) -> Result<TimeZoneFactV1, TimeZoneErrorV1> {
+    let proposal = resolved.proposal();
     let claim = proposal.dependencies.coordinates().claim();
-    let catalog = &proposal.catalog_entry;
+    let catalog = authenticate_reference_fact_catalog_entry_v1(
+        resolved.catalog_entry(),
+        proposal.catalog_locator,
+        ReferenceFactCatalogKindV1::TimeZone,
+        resolved.catalog_entry().scope_identity(),
+        resolved.catalog_entry().source(),
+    )
+    .map_err(|_| TimeZoneErrorV1::InvalidDependency)?;
     let ReferenceFactCatalogValueV1::TimeZone {
         time_zone_identity,
         ruleset_identity,
@@ -101,13 +121,21 @@ pub(crate) fn issue_fact_v1(
         return Err(TimeZoneErrorV1::InvalidDependency);
     };
     let source = catalog.source();
+    let native_lineage_root = catalog.scope_identity();
 
     if time_zone_identity.is_empty()
         || time_zone_identity.len() > codec::MAX_IDENTITY_BYTES
         || !codec::nonzero(*ruleset_identity)
         || catalog.value().kind() != ReferenceFactCatalogKindV1::TimeZone
-        || catalog.scope_identity() != *ruleset_identity
+        || catalog.lineage_root() != claim.source.lineage_root
         || catalog.correction_sequence() == 0
+        || matches!(
+            (
+                catalog.correction_sequence(),
+                proposal.native_predecessor_identity
+            ),
+            (1, Some(_)) | (2.., None)
+        )
         || catalog.stable_correlation() != claim.stable_correlation
         || source.source_binding_identity != claim.source.binding_identity
         || source.source_binding_fact_digest != claim.source.binding_fact_digest
@@ -124,9 +152,10 @@ pub(crate) fn issue_fact_v1(
     codec::bytes(&mut bytes, time_zone_identity, codec::MAX_IDENTITY_BYTES)?;
     codec::identity(&mut bytes, *ruleset_identity)?;
     bytes.extend_from_slice(&utc_offset_seconds.to_be_bytes());
-    codec::identity(&mut bytes, claim.source.lineage_root)?;
+    codec::identity(&mut bytes, catalog.identity())?;
+    codec::identity(&mut bytes, native_lineage_root)?;
     bytes.extend_from_slice(&catalog.correction_sequence().to_be_bytes());
-    encode_optional_identity(&mut bytes, catalog.predecessor_identity())?;
+    encode_optional_identity(&mut bytes, proposal.native_predecessor_identity)?;
     bytes.extend_from_slice(&catalog.effective_from_ns().to_be_bytes());
     match catalog.effective_until_ns() {
         None => bytes.push(0),
@@ -161,14 +190,16 @@ pub(crate) fn issue_fact_v1(
         time_zone_identity: time_zone_identity.clone(),
         ruleset_identity: *ruleset_identity,
         utc_offset_seconds: *utc_offset_seconds,
+        catalog_entry_identity: catalog.identity(),
         correction_sequence: catalog.correction_sequence(),
-        lineage_root: claim.source.lineage_root,
+        lineage_root: native_lineage_root,
+        source_binding_lineage_root: claim.source.lineage_root,
         source_binding_identity: claim.source.binding_identity,
         source_binding_fact_digest: claim.source.binding_fact_digest,
         source_binding_lineage_version: claim.source.lineage_version,
         source_frontier_digest: claim.source.frontier.digest,
         correction_frontier_digest: claim.correction.digest,
-        predecessor_identity: catalog.predecessor_identity(),
+        predecessor_identity: proposal.native_predecessor_identity,
         effective_from_ns: catalog.effective_from_ns(),
         effective_until_ns: catalog.effective_until_ns(),
         provider_available_ns: claim.time.provider_available_ns,
@@ -284,11 +315,13 @@ fn build_readback(
     if bytes.len() > codec::MAX_READBACK_BYTES {
         return Err(TimeZoneErrorV1::CapacityExceeded);
     }
+    let identity = codec::digest(codec::READBACK_DOMAIN, &bytes);
     Ok(TimeZoneReadbackV1 {
         facts,
         cut,
         receipt,
         outbox_identity,
+        identity,
         canonical_bytes: bytes.into(),
     })
 }
@@ -357,6 +390,7 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
     let time_zone_identity = decoder.bytes(codec::MAX_IDENTITY_BYTES)?;
     let ruleset_identity = decoder.identity()?;
     let utc_offset_seconds = decoder.i32()?;
+    let catalog_entry_identity = decoder.identity()?;
     let lineage_root = decoder.identity()?;
     let correction_sequence = decoder.u64()?;
     if correction_sequence == 0 {
@@ -383,7 +417,22 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
     let correction_frontier_digest = decoder.identity()?;
     decoder.finish()?;
 
-    if tail_lineage_root != lineage_root
+    if time_zone_identity.is_empty()
+        || !codec::nonzero(ruleset_identity)
+        || !codec::nonzero(catalog_entry_identity)
+        || !codec::nonzero(lineage_root)
+        || !codec::nonzero(source_binding_identity)
+        || !codec::nonzero(source_binding_fact_digest)
+        || !codec::nonzero(tail_lineage_root)
+        || !codec::nonzero(source_frontier_digest)
+        || !codec::nonzero(correction_frontier_digest)
+        || !codec::nonzero(r0_coordinate_identity)
+        || !codec::nonzero(r0_coordinate_digest)
+        || matches!(
+            (correction_sequence, predecessor_identity),
+            (1, Some(_)) | (2.., None)
+        )
+        || !codec::nonzero(lineage_root)
         || lineage_version == 0
         || provider_available_ns <= 0
         || correction_publication_ns <= 0
@@ -399,8 +448,10 @@ pub(crate) fn decode_fact_v1(bytes: &[u8]) -> Result<TimeZoneFactV1, TimeZoneErr
         time_zone_identity,
         ruleset_identity,
         utc_offset_seconds,
+        catalog_entry_identity,
         correction_sequence,
         lineage_root,
+        source_binding_lineage_root: tail_lineage_root,
         source_binding_identity,
         source_binding_fact_digest,
         source_binding_lineage_version: lineage_version,
@@ -552,6 +603,66 @@ fn validate_fact_graph(
         }
     }
     Ok(())
+}
+
+fn validate_catalog_graph<T: CatalogBoundTimeZoneProposalV1>(
+    proposals: &[T],
+    facts: &[TimeZoneFactV1],
+) -> Result<(), TimeZoneErrorV1> {
+    if proposals.len() != facts.len() {
+        return Err(TimeZoneErrorV1::InvalidFact);
+    }
+    for (resolved, fact) in proposals.iter().zip(facts) {
+        if resolved.catalog_entry().identity() != fact.catalog_entry_identity()
+            || resolved.catalog_entry().correction_sequence() != fact.correction_sequence()
+            || resolved.catalog_entry().lineage_root() != fact.source_binding_lineage_root()
+        {
+            return Err(TimeZoneErrorV1::InvalidFact);
+        }
+    }
+    for pair in proposals.windows(2) {
+        let left = pair[0].catalog_entry();
+        let right = pair[1].catalog_entry();
+        if right.predecessor_identity() != Some(left.identity())
+            || right.correction_sequence()
+                != left
+                    .correction_sequence()
+                    .checked_add(1)
+                    .ok_or(TimeZoneErrorV1::CapacityExceeded)?
+            || right.scope_identity() != left.scope_identity()
+            || right.kind() != left.kind()
+            || right.lineage_root() != left.lineage_root()
+        {
+            return Err(TimeZoneErrorV1::NonCanonicalOrder);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) trait CatalogBoundTimeZoneProposalV1 {
+    fn proposal(&self) -> &super::TimeZoneFactProposalV1;
+    fn catalog_entry(&self) -> &crate::owner::reference_fact_catalog::ReferenceFactCatalogEntryV1;
+}
+
+impl CatalogBoundTimeZoneProposalV1 for ResolvedTimeZoneFactProposalV1 {
+    fn proposal(&self) -> &super::TimeZoneFactProposalV1 {
+        &self.proposal
+    }
+
+    fn catalog_entry(&self) -> &crate::owner::reference_fact_catalog::ReferenceFactCatalogEntryV1 {
+        &self.catalog_entry
+    }
+}
+
+#[cfg(test)]
+impl CatalogBoundTimeZoneProposalV1 for super::TimeZoneFactProposalV1 {
+    fn proposal(&self) -> &super::TimeZoneFactProposalV1 {
+        self
+    }
+
+    fn catalog_entry(&self) -> &crate::owner::reference_fact_catalog::ReferenceFactCatalogEntryV1 {
+        &self.catalog_entry
+    }
 }
 
 fn encode_optional_identity(

@@ -11,8 +11,9 @@
 use std::fmt::Display;
 
 use super::{
-    reference_fact_catalog::ReferenceFactCatalogEntryV1,
-    reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1, source_binding::BindingDigest,
+    reference_fact_catalog::{ReferenceFactCatalogEntryV1, UntrustedReferenceFactCatalogLocatorV1},
+    reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
+    source_binding::BindingDigest,
 };
 
 pub(crate) mod authority;
@@ -90,8 +91,17 @@ impl VerifiedTimeZoneDependenciesV1 {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TimeZoneFactProposalV1 {
-    pub(crate) catalog_entry: ReferenceFactCatalogEntryV1,
+    pub(crate) catalog_locator: UntrustedReferenceFactCatalogLocatorV1,
+    pub(crate) native_predecessor_identity: Option<TimeZoneIdentity>,
     pub(crate) dependencies: VerifiedTimeZoneDependenciesV1,
+    #[cfg(test)]
+    pub(crate) catalog_entry: ReferenceFactCatalogEntryV1,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ResolvedTimeZoneFactProposalV1 {
+    pub(crate) proposal: TimeZoneFactProposalV1,
+    pub(crate) catalog_entry: ReferenceFactCatalogEntryV1,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,8 +109,10 @@ pub(crate) struct TimeZoneFactV1 {
     time_zone_identity: Box<[u8]>,
     ruleset_identity: TimeZoneIdentity,
     utc_offset_seconds: i32,
+    catalog_entry_identity: TimeZoneIdentity,
     correction_sequence: u64,
     lineage_root: TimeZoneIdentity,
+    source_binding_lineage_root: TimeZoneIdentity,
     source_binding_identity: TimeZoneIdentity,
     source_binding_fact_digest: TimeZoneIdentity,
     source_binding_lineage_version: u64,
@@ -147,6 +159,9 @@ impl TimeZoneFactV1 {
     pub(crate) const fn utc_offset_seconds(&self) -> i32 {
         self.utc_offset_seconds
     }
+    pub(crate) const fn catalog_entry_identity(&self) -> TimeZoneIdentity {
+        self.catalog_entry_identity
+    }
     pub(crate) const fn correction_sequence(&self) -> u64 {
         self.correction_sequence
     }
@@ -161,6 +176,9 @@ impl TimeZoneFactV1 {
     }
     pub(crate) const fn source_binding_identity(&self) -> TimeZoneIdentity {
         self.source_binding_identity
+    }
+    pub(crate) const fn source_binding_lineage_root(&self) -> TimeZoneIdentity {
+        self.source_binding_lineage_root
     }
     pub(crate) const fn predecessor_identity(&self) -> Option<TimeZoneIdentity> {
         self.predecessor_identity
@@ -181,7 +199,7 @@ impl TimeZoneFactV1 {
         TimeZoneFactEvidenceV1 {
             source_binding_identity: self.source_binding_identity,
             source_binding_fact_digest: self.source_binding_fact_digest,
-            source_binding_lineage_root: self.lineage_root,
+            source_binding_lineage_root: self.source_binding_lineage_root,
             source_binding_lineage_version: self.source_binding_lineage_version,
             source_frontier_digest: self.source_frontier_digest,
             correction_frontier_digest: self.correction_frontier_digest,
@@ -314,6 +332,7 @@ pub(crate) struct TimeZoneReadbackV1 {
     cut: TimeZoneCutV1,
     receipt: TimeZoneReceiptV1,
     outbox_identity: TimeZoneIdentity,
+    identity: TimeZoneIdentity,
     canonical_bytes: Box<[u8]>,
 }
 
@@ -329,6 +348,12 @@ impl TimeZoneReadbackV1 {
     }
     pub(crate) const fn outbox_identity(&self) -> TimeZoneIdentity {
         self.outbox_identity
+    }
+    pub(crate) const fn identity(&self) -> TimeZoneIdentity {
+        self.identity
+    }
+    pub(crate) const fn digest(&self) -> TimeZoneIdentity {
+        self.identity
     }
     pub(crate) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes

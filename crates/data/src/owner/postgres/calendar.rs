@@ -14,11 +14,13 @@ use crate::owner::{
     calendar::{
         CalendarErrorV1, CalendarIdentityV1, CalendarReadbackV1, UntrustedCalendarLocatorV1,
         authority::{
-            PreparedCalendarCutV1, build_readback, decode_fact, decode_readback,
+            CalendarAuthenticatedInputsV1, CalendarFactProposalV1, PreparedCalendarCutV1,
+            build_readback, decode_fact, decode_readback, prepare_calendar_cut_v1,
             verify_calendar_readback_v1,
         },
         codec,
     },
+    reference_fact_catalog::{ReferenceFactCatalogValueV1, UntrustedReferenceFactCatalogLocatorV1},
     source_binding::BindingDigest,
 };
 
@@ -55,6 +57,15 @@ pub(super) async fn register_calendar_v1(
 ) -> Result<CalendarReadbackV1, CalendarErrorV1> {
     let request_identity = prepared.cut.request_identity;
     let request_meaning_digest = prepared.cut.request_meaning_digest;
+    for fact in &prepared.facts {
+        let catalog = load_catalog_for_fact(transaction, fact).await?;
+        if catalog.identity() != fact.catalog_entry_identity()
+            || catalog.scope_identity() != fact.lineage_root()
+            || catalog.correction_sequence() != fact.correction_sequence()
+        {
+            return Err(CalendarErrorV1::DependencyMismatch);
+        }
+    }
     advisory_lock(transaction, request_identity).await?;
     if let Some(stored) = load_calendar_v1(transaction, request_identity, true).await? {
         if stored.cut().request_meaning_digest != request_meaning_digest
@@ -97,6 +108,60 @@ pub(super) async fn register_calendar_v1(
     }
     verify_calendar_readback_v1(&readback)?;
     Ok(readback)
+}
+
+pub(super) async fn resolve_calendar_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &crate::owner::calendar::UntrustedCalendarRequestV1,
+    proposals: Vec<CalendarFactProposalV1>,
+    authenticated: CalendarAuthenticatedInputsV1<'_>,
+) -> Result<CalendarReadbackV1, CalendarErrorV1> {
+    sqlx::query("SAVEPOINT market_data_calendar_catalog_v1")
+        .execute(&mut **transaction)
+        .await
+        .map_err(store_error)?;
+    let result = resolve_calendar_inner(transaction, request, proposals, authenticated).await;
+    match result {
+        Ok(readback) => {
+            sqlx::query("RELEASE SAVEPOINT market_data_calendar_catalog_v1")
+                .execute(&mut **transaction)
+                .await
+                .map_err(store_error)?;
+            Ok(readback)
+        }
+        Err(error) => {
+            sqlx::query("ROLLBACK TO SAVEPOINT market_data_calendar_catalog_v1")
+                .execute(&mut **transaction)
+                .await
+                .map_err(store_error)?;
+            sqlx::query("RELEASE SAVEPOINT market_data_calendar_catalog_v1")
+                .execute(&mut **transaction)
+                .await
+                .map_err(store_error)?;
+            Err(error)
+        }
+    }
+}
+
+async fn resolve_calendar_inner(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &crate::owner::calendar::UntrustedCalendarRequestV1,
+    proposals: Vec<CalendarFactProposalV1>,
+    authenticated: CalendarAuthenticatedInputsV1<'_>,
+) -> Result<CalendarReadbackV1, CalendarErrorV1> {
+    let mut catalog_entries = Vec::with_capacity(proposals.len());
+    for proposal in &proposals {
+        let entry = super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1(
+            transaction,
+            proposal.catalog_locator,
+        )
+        .await
+        .map_err(map_catalog_error)?
+        .ok_or(CalendarErrorV1::DependencyMismatch)?;
+        catalog_entries.push(entry);
+    }
+    let prepared = prepare_calendar_cut_v1(request, proposals, catalog_entries, authenticated)?;
+    register_calendar_v1(transaction, prepared).await
 }
 
 pub(super) async fn recover_calendar_v1(
@@ -150,7 +215,7 @@ async fn validate_fact_heads_and_rows(
                 {
                     return Err(CalendarErrorV1::CorrectionHeadMismatch);
                 }
-                let predecessor_row = sqlx::query("SELECT calendar_identity,civil_day,lineage_root,correction_sequence FROM market_data_private.calendar_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
+                let predecessor_row = sqlx::query("SELECT calendar_identity,civil_day,lineage_root,correction_sequence,fact_bytes FROM market_data_private.calendar_facts_v1 WHERE fact_identity=$1 FOR UPDATE")
                     .bind(predecessor.as_bytes().as_slice()).fetch_optional(&mut **transaction).await.map_err(store_error)?
                     .ok_or(CalendarErrorV1::InvalidPredecessor)?;
                 let predecessor_calendar: Vec<u8> = predecessor_row
@@ -162,6 +227,24 @@ async fn validate_fact_heads_and_rows(
                 if predecessor_calendar != fact.calendar_identity()
                     || predecessor_day != fact.day()
                     || row_digest(&predecessor_row, "lineage_root")? != fact.lineage_root()
+                {
+                    return Err(CalendarErrorV1::InvalidPredecessor);
+                }
+                let prior_bytes: Vec<u8> =
+                    predecessor_row.try_get("fact_bytes").map_err(store_error)?;
+                let prior_fact = decode_fact(&prior_bytes, predecessor)?;
+                let catalog = load_catalog_for_fact(transaction, fact).await?;
+                let prior_catalog = load_catalog_for_fact(transaction, &prior_fact).await?;
+                if catalog.predecessor_identity() != Some(prior_fact.catalog_entry_identity())
+                    || prior_catalog.identity() != prior_fact.catalog_entry_identity()
+                    || catalog.scope_identity() != prior_catalog.scope_identity()
+                    || catalog.source().source_binding_lineage_root
+                        != prior_catalog.source().source_binding_lineage_root
+                    || prior_catalog
+                        .source()
+                        .source_binding_lineage_version
+                        .checked_add(1)
+                        != Some(catalog.source().source_binding_lineage_version)
                 {
                     return Err(CalendarErrorV1::InvalidPredecessor);
                 }
@@ -177,57 +260,70 @@ async fn validate_stored_lineage(
     selected: &crate::owner::calendar::CalendarFactV1,
     owner_observation_ns: i128,
 ) -> Result<(), CalendarErrorV1> {
-    let rows = sqlx::query("SELECT fact_identity,calendar_identity,civil_day,correction_sequence,predecessor_identity,fact_bytes FROM market_data_private.calendar_facts_v1 WHERE lineage_root=$1 ORDER BY correction_sequence")
-        .bind(selected.lineage_root().as_bytes().as_slice()).fetch_all(&mut **transaction).await.map_err(store_error)?;
-
-    if rows.is_empty() {
-        return Err(CalendarErrorV1::StoreUntrusted);
-    }
-    let mut prior = None;
-    let mut selected_is_maximal = false;
-
-    for (index, row) in rows.iter().enumerate() {
-        let identity = row_digest(row, "fact_identity")?;
-        let calendar: Vec<u8> = row.try_get("calendar_identity").map_err(store_error)?;
-        let day: i32 = row.try_get("civil_day").map_err(store_error)?;
-        let sequence: i64 = row.try_get("correction_sequence").map_err(store_error)?;
-        let predecessor: Option<Vec<u8>> =
-            row.try_get("predecessor_identity").map_err(store_error)?;
-        let predecessor = predecessor
-            .map(|bytes| {
-                bytes
-                    .try_into()
-                    .map(CalendarIdentityV1::from_untrusted_bytes)
-                    .map_err(|_| CalendarErrorV1::StoreUntrusted)
-            })
-            .transpose()?;
-
-        if calendar != selected.calendar_identity()
-            || day != selected.day()
-            || u64::try_from(sequence).ok()
-                != Some(u64::try_from(index + 1).map_err(|_| CalendarErrorV1::StoreUntrusted)?)
-            || predecessor != prior
-        {
-            return Err(CalendarErrorV1::StoreUntrusted);
-        }
-        let bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
-        let fact = decode_fact(&bytes, identity)?;
-        if fact.owner_observation_ns <= owner_observation_ns {
-            selected_is_maximal = identity == selected.identity();
-        }
-        prior = Some(identity);
-    }
+    let _ = owner_observation_ns;
     let head = sqlx::query("SELECT head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2")
         .bind(selected.calendar_identity()).bind(selected.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?
         .ok_or(CalendarErrorV1::StoreUntrusted)?;
     let head_sequence: i64 = head.try_get("correction_sequence").map_err(store_error)?;
-    if row_digest(&head, "head_identity")? != prior.ok_or(CalendarErrorV1::StoreUntrusted)?
-        || usize::try_from(head_sequence).ok() != Some(rows.len())
-        || !selected_is_maximal
+    if row_digest(&head, "head_identity")? != selected.identity()
+        || u64::try_from(head_sequence).ok() != Some(selected.correction_sequence())
     {
         return Err(CalendarErrorV1::StoreUntrusted);
     }
     Ok(())
+}
+
+async fn load_catalog_for_fact(
+    transaction: &mut Transaction<'_, Postgres>,
+    fact: &crate::owner::calendar::CalendarFactV1,
+) -> Result<crate::owner::reference_fact_catalog::ReferenceFactCatalogEntryV1, CalendarErrorV1> {
+    let identity = fact.catalog_entry_identity();
+    let entry = super::reference_fact_catalog::resolve_reference_fact_catalog_entry_v1(
+        transaction,
+        UntrustedReferenceFactCatalogLocatorV1::from_untrusted(identity, identity),
+    )
+    .await
+    .map_err(map_catalog_error)?
+    .ok_or(CalendarErrorV1::StoreUntrusted)?;
+    let source = entry.source();
+    if entry.scope_identity() != fact.lineage_root
+        || entry.correction_sequence() != fact.correction_sequence
+        || entry.effective_from_ns() != fact.effective_from_ns
+        || entry.effective_until_ns() != fact.effective_until_ns
+        || source.source_binding_identity != fact.source_binding_identity
+        || source.source_binding_fact_digest != fact.source_binding_fact_digest
+        || source.source_binding_lineage_root != fact.source_binding_lineage_root
+        || source.source_binding_lineage_version != fact.source_binding_lineage_version
+        || source.source_frontier_digest != fact.source_frontier_digest
+        || source.correction_frontier_digest != fact.correction_frontier_digest
+        || !matches!(
+            entry.value(),
+            ReferenceFactCatalogValueV1::Calendar {
+                calendar_identity,
+                day,
+                is_open,
+            } if calendar_identity.as_ref() == fact.calendar_identity()
+                && *day == fact.day()
+                && *is_open == fact.is_open()
+        )
+    {
+        return Err(CalendarErrorV1::StoreUntrusted);
+    }
+    Ok(entry)
+}
+
+fn map_catalog_error(
+    error: crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1,
+) -> CalendarErrorV1 {
+    match error {
+        crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUnavailable => {
+            CalendarErrorV1::StoreUnavailable
+        }
+        crate::owner::reference_fact_catalog::ReferenceFactCatalogErrorV1::StoreUntrusted => {
+            CalendarErrorV1::StoreUntrusted
+        }
+        _ => CalendarErrorV1::DependencyMismatch,
+    }
 }
 
 async fn persist_facts_and_heads(
@@ -348,6 +444,15 @@ async fn verify_day_rows(
         {
             return Err(CalendarErrorV1::StoreUntrusted);
         }
+        load_catalog_for_fact(transaction, fact).await?;
+        let head: Option<(Vec<u8>, i64)> = sqlx::query_as("SELECT head_identity,correction_sequence FROM market_data_private.calendar_heads_v1 WHERE calendar_identity=$1 AND civil_day=$2 FOR SHARE")
+            .bind(fact.calendar_identity()).bind(fact.day()).fetch_optional(&mut **transaction).await.map_err(store_error)?;
+        if head.as_ref().is_none_or(|(identity, sequence)| {
+            identity.as_slice() != fact.identity().as_bytes().as_slice()
+                || u64::try_from(*sequence).ok() != Some(fact.correction_sequence())
+        }) {
+            return Err(CalendarErrorV1::StoreUntrusted);
+        }
     }
     Ok(())
 }
@@ -435,6 +540,13 @@ mod tests {
         assert!(joined.contains("calendar_cuts_v1"));
         assert!(joined.contains("calendar_receipts_v1"));
         assert!(joined.contains("calendar_outbox_v1"));
+        let implementation = include_str!("calendar.rs");
+        assert!(implementation.contains("resolve_reference_fact_catalog_entry_v1"));
+        assert!(implementation.contains("SAVEPOINT market_data_calendar_catalog_v1"));
+        assert!(
+            implementation.contains("head_identity")
+                && implementation.contains("selected.identity()")
+        );
         assert!(
             !super::super::MIGRATION_STATEMENTS
                 .iter()

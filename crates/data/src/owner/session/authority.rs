@@ -6,24 +6,33 @@ use super::{
     SessionFactV1, SessionIdentityV1, SessionReadbackV1, SessionReceiptV1,
     UntrustedSessionRequestV1, codec,
 };
-use crate::owner::{calendar, time_zone};
+use crate::owner::{
+    calendar,
+    reference_fact_catalog::{
+        ReferenceFactCatalogEntryV1, ReferenceFactCatalogKindV1, ReferenceFactCatalogValueV1,
+        ReferenceFactLocalBoundaryV1, ReferenceFactLocalResolutionV1,
+    },
+    time_zone,
+};
 
 pub(crate) fn prepare_resolution_v1(
     request: UntrustedSessionRequestV1,
     dependencies: &SessionDependenciesV1<'_>,
     proposals: Vec<SessionFactProposalV1>,
+    catalog_entries: Vec<ReferenceFactCatalogEntryV1>,
     r0_cut_identity: SessionIdentityV1,
     r0_cut_digest: SessionIdentityV1,
 ) -> Result<PreparedSessionResolutionV1, SessionErrorV1> {
     validate_request(&request)?;
     validate_dependencies(&request, dependencies)?;
 
-    if proposals.len() > codec::MAX_FACTS {
+    if proposals.len() > codec::MAX_FACTS || catalog_entries.len() != proposals.len() {
         return Err(SessionErrorV1::CapacityExceeded);
     }
     let mut facts = proposals
         .into_iter()
-        .map(|proposal| issue_fact(&request, dependencies, &proposal))
+        .zip(catalog_entries)
+        .map(|(proposal, catalog)| issue_fact(&request, dependencies, &proposal, &catalog))
         .collect::<Result<Vec<_>, _>>()?;
     facts.sort_by_key(|fact| (fact.trading_day, fact.interval_ordinal));
     let days = validate_census(&request, dependencies.calendar, &facts)?;
@@ -105,19 +114,51 @@ pub(super) fn issue_fact(
     request: &UntrustedSessionRequestV1,
     deps: &SessionDependenciesV1<'_>,
     proposal: &SessionFactProposalV1,
+    catalog: &ReferenceFactCatalogEntryV1,
 ) -> Result<SessionFactV1, SessionErrorV1> {
     let claim = proposal.coordinates.claim();
-    if proposal.trading_day < request.first_day
-        || proposal.trading_day >= request.last_day_exclusive
-        || proposal.correction_sequence == 0
+    let ReferenceFactCatalogValueV1::Session {
+        session_identity,
+        trading_day,
+        interval_ordinal,
+        local_open,
+        local_close,
+    } = catalog.value()
+    else {
+        return Err(SessionErrorV1::InvalidDependency);
+    };
+    let local_open = catalog_boundary(*local_open);
+    let local_close = catalog_boundary(*local_close);
+    let correction_sequence = catalog.correction_sequence();
+    let native_predecessor = proposal.native_predecessor_identity;
+    let source = catalog.source();
+    if catalog.locator() != proposal.catalog_locator
+        || catalog.value().kind() != ReferenceFactCatalogKindV1::Session
+        || session_identity.as_ref() != request.session_identity.as_ref()
+        || *trading_day < request.first_day
+        || *trading_day >= request.last_day_exclusive
+        || catalog.correction_sequence() != correction_sequence
+        || matches!(
+            (
+                correction_sequence,
+                catalog.predecessor_identity(),
+                native_predecessor
+            ),
+            (1, Some(_), _) | (1, _, Some(_)) | (2.., None, _) | (2.., _, None)
+        )
         || !codec::nonzero(proposal.correction_identity)
         || !codec::nonzero(proposal.r0_coordinate_identity)
         || !codec::nonzero(proposal.r0_coordinate_digest)
         || claim.stable_correlation != request.stable_correlation
         || claim.time.owner_observation_ns != request.owner_observation_ns
         || claim.time.decision_cut != request.decision_cut
-        || claim.source.lineage_version != proposal.correction_sequence
-        || claim.predecessor_identity != proposal.predecessor_identity
+        || catalog.stable_correlation() != claim.stable_correlation
+        || source.source_binding_identity != claim.source.binding_identity
+        || source.source_binding_fact_digest != claim.source.binding_fact_digest
+        || source.source_binding_lineage_root != claim.source.lineage_root
+        || source.source_binding_lineage_version != claim.source.lineage_version
+        || source.source_frontier_digest != claim.source.frontier.digest
+        || source.correction_frontier_digest != claim.correction.digest
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
@@ -125,27 +166,30 @@ pub(super) fn issue_fact(
         .calendar
         .facts()
         .iter()
-        .find(|fact| fact.day() == proposal.trading_day)
+        .find(|fact| fact.day() == *trading_day)
         .ok_or(SessionErrorV1::IncompleteCensus)?;
     if !calendar_fact.is_open() {
         return Err(SessionErrorV1::IncompleteCensus);
     }
-    let (utc_open, open_tz) = resolve_boundary(proposal.local_open, deps.time_zone)?;
-    let (utc_close, close_tz) = resolve_boundary(proposal.local_close, deps.time_zone)?;
-    if utc_open >= utc_close {
+    let (utc_open, open_tz) = resolve_boundary(local_open, deps.time_zone)?;
+    let (utc_close, close_tz) = resolve_boundary(local_close, deps.time_zone)?;
+    if utc_open >= utc_close
+        || catalog.effective_from_ns() >= utc_close
+        || catalog
+            .effective_until_ns()
+            .is_some_and(|until| until <= utc_open)
+    {
         return Err(SessionErrorV1::InvalidBoundary);
     }
     let mut bytes = Vec::new();
     codec::header(&mut bytes);
-    codec::bytes(
-        &mut bytes,
-        &request.session_identity,
-        codec::MAX_IDENTITY_BYTES,
-    )?;
-    bytes.extend_from_slice(&proposal.trading_day.to_be_bytes());
-    bytes.extend_from_slice(&proposal.interval_ordinal.to_be_bytes());
-    encode_boundary(&mut bytes, proposal.local_open);
-    encode_boundary(&mut bytes, proposal.local_close);
+    codec::bytes(&mut bytes, session_identity, codec::MAX_IDENTITY_BYTES)?;
+    bytes.extend_from_slice(&trading_day.to_be_bytes());
+    bytes.extend_from_slice(&interval_ordinal.to_be_bytes());
+    encode_boundary(&mut bytes, local_open);
+    encode_boundary(&mut bytes, local_close);
+    codec::id(&mut bytes, catalog.identity())?;
+    codec::id(&mut bytes, catalog.scope_identity())?;
     bytes.extend_from_slice(&utc_open.to_be_bytes());
     bytes.extend_from_slice(&utc_close.to_be_bytes());
 
@@ -166,8 +210,8 @@ pub(super) fn issue_fact(
     ] {
         codec::id(&mut bytes, value)?;
     }
-    encode_opt_id(&mut bytes, proposal.predecessor_identity)?;
-    bytes.extend_from_slice(&proposal.correction_sequence.to_be_bytes());
+    encode_opt_id(&mut bytes, native_predecessor)?;
+    bytes.extend_from_slice(&correction_sequence.to_be_bytes());
 
     for value in [
         claim.time.provider_available_ns,
@@ -198,24 +242,26 @@ pub(super) fn issue_fact(
     }
     let identity = codec::digest(codec::FACT_DOMAIN, &bytes);
     Ok(SessionFactV1 {
-        session_identity: request.session_identity.clone(),
-        trading_day: proposal.trading_day,
-        interval_ordinal: proposal.interval_ordinal,
-        local_open: proposal.local_open,
-        local_close: proposal.local_close,
+        session_identity: session_identity.clone(),
+        trading_day: *trading_day,
+        interval_ordinal: *interval_ordinal,
+        local_open,
+        local_close,
+        catalog_entry_identity: catalog.identity(),
         utc_open_ns: utc_open,
         utc_close_ns: utc_close,
         instrument_master_readback_identity: deps.instrument_master.readback_identity,
         instrument_master_fact_digest: deps.instrument_master.fact_digest,
         instrument_master_cut_digest: deps.instrument_master.cut_digest,
-        lineage_root: claim.source.lineage_root,
+        lineage_root: catalog.scope_identity(),
         source_binding_identity: claim.source.binding_identity,
         source_binding_fact_digest: claim.source.binding_fact_digest,
+        source_binding_lineage_root: claim.source.lineage_root,
         source_binding_lineage_version: claim.source.lineage_version,
         source_frontier_digest: claim.source.frontier.digest,
         correction_frontier_digest: claim.correction.digest,
-        predecessor_identity: proposal.predecessor_identity,
-        correction_sequence: proposal.correction_sequence,
+        predecessor_identity: native_predecessor,
+        correction_sequence,
         provider_available_ns: claim.time.provider_available_ns,
         retrieval_ns: claim.time.retrieval_ns,
         correction_publication_ns: claim.time.correction_publication_ns,
@@ -226,6 +272,18 @@ pub(super) fn issue_fact(
         identity,
         canonical_bytes: bytes.into(),
     })
+}
+
+fn catalog_boundary(value: ReferenceFactLocalBoundaryV1) -> LocalBoundaryV1 {
+    LocalBoundaryV1 {
+        day: value.day,
+        nanos_of_day: value.nanos_of_day,
+        resolution: match value.resolution {
+            ReferenceFactLocalResolutionV1::Exact => LocalResolutionV1::Exact,
+            ReferenceFactLocalResolutionV1::EarlierInstant => LocalResolutionV1::EarlierInstant,
+            ReferenceFactLocalResolutionV1::LaterInstant => LocalResolutionV1::LaterInstant,
+        },
+    }
 }
 
 pub(super) fn resolve_boundary(
@@ -279,10 +337,9 @@ pub(super) fn validate_census(
     let mut by_day: BTreeMap<i32, Vec<&SessionFactV1>> = BTreeMap::new();
 
     if let Some(first) = facts.first()
-        && facts.iter().any(|fact| {
-            fact.source_binding_identity != first.source_binding_identity
-                || fact.lineage_root != first.lineage_root
-        })
+        && facts
+            .iter()
+            .any(|fact| fact.source_binding_identity != first.source_binding_identity)
     {
         return Err(SessionErrorV1::InvalidDependency);
     }
@@ -573,13 +630,15 @@ pub(crate) fn rejoin_stored_v1(
     )
 }
 
-pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1> {
+pub(crate) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1> {
     let mut d = codec::Decoder::new(bytes)?;
     let session_identity = d.bytes(codec::MAX_IDENTITY_BYTES)?;
     let trading_day = d.i32()?;
     let interval_ordinal = d.u32()?;
     let local_open = decode_boundary(&mut d)?;
     let local_close = decode_boundary(&mut d)?;
+    let catalog_entry_identity = d.id()?;
+    let lineage_root = d.id()?;
     let utc_open_ns = d.i128()?;
     let utc_close_ns = d.i128()?;
     if utc_open_ns >= utc_close_ns {
@@ -617,11 +676,8 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
     let r0_coordinate_digest = d.id()?;
     let source_binding_identity = d.id()?;
     let source_binding_fact_digest = d.id()?;
-    let lineage_root = d.id()?;
+    let source_binding_lineage_root = d.id()?;
     let source_binding_lineage_version = d.u64()?;
-    if source_binding_lineage_version != correction_sequence {
-        return Err(SessionErrorV1::StoreUntrusted);
-    }
     let source_frontier_digest = d.id()?;
     let correction_frontier_digest = d.id()?;
     let _correction_identity = d.id()?;
@@ -632,6 +688,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         interval_ordinal,
         local_open,
         local_close,
+        catalog_entry_identity,
         utc_open_ns,
         utc_close_ns,
         instrument_master_readback_identity,
@@ -640,6 +697,7 @@ pub(super) fn decode_fact(bytes: &[u8]) -> Result<SessionFactV1, SessionErrorV1>
         lineage_root,
         source_binding_identity,
         source_binding_fact_digest,
+        source_binding_lineage_root,
         source_binding_lineage_version,
         source_frontier_digest,
         correction_frontier_digest,

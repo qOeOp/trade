@@ -13,6 +13,11 @@ use crate::owner::{
             build_cut, build_fact, build_readback as build_instrument_readback, build_receipt,
         },
     },
+    reference_fact_catalog::{
+        ReferenceFactCatalogEntryV1, ReferenceFactCatalogSourceV1, ReferenceFactCatalogValueV1,
+        UntrustedReferenceFactCatalogProposalV1, derive_reference_fact_business_scope_identity_v1,
+        seal_reference_fact_catalog_entry_v1,
+    },
     reference_fact_coordinates::{
         AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
         ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
@@ -201,43 +206,81 @@ fn request() -> UntrustedCalendarRequestV1 {
     )
 }
 
-fn proposals() -> Vec<CalendarFactProposalV1> {
-    vec![
-        CalendarFactProposalV1 {
-            day: 0,
-            is_open: false,
-            lineage_root: d(60),
-            correction_sequence: 1,
-            coordinates: coordinates(None),
-            r0_coordinate_identity: d(61),
-            r0_coordinate_digest: d(62),
+fn catalog_entry(
+    day: i32,
+    is_open: bool,
+    coordinates: &VerifiedReferenceFactCoordinatesV1,
+) -> ReferenceFactCatalogEntryV1 {
+    let claim = coordinates.claim();
+    let value = ReferenceFactCatalogValueV1::Calendar {
+        calendar_identity: b"XNYS-CALENDAR-V1".to_vec().into(),
+        day,
+        is_open,
+    };
+    seal_reference_fact_catalog_entry_v1(&UntrustedReferenceFactCatalogProposalV1 {
+        command_identity: d(80 + u8::try_from(day).unwrap()),
+        scope_identity: derive_reference_fact_business_scope_identity_v1(&value).unwrap(),
+        revision: 1,
+        lineage_root: claim.source.lineage_root,
+        predecessor_identity: None,
+        correction_sequence: 1,
+        effective_from_ns: claim.time.effective_from_ns,
+        effective_until_ns: claim.time.effective_until_ns,
+        source: ReferenceFactCatalogSourceV1 {
+            source_binding_identity: claim.source.binding_identity,
+            source_binding_fact_digest: claim.source.binding_fact_digest,
+            source_binding_lineage_root: claim.source.lineage_root,
+            source_binding_lineage_version: claim.source.lineage_version,
+            source_frontier_digest: claim.source.frontier.digest,
+            correction_frontier_digest: claim.correction.digest,
+            admission_identity: d(79),
         },
-        CalendarFactProposalV1 {
-            day: 1,
-            is_open: true,
-            lineage_root: d(63),
-            correction_sequence: 1,
-            coordinates: coordinates(None),
-            r0_coordinate_identity: d(64),
-            r0_coordinate_digest: d(65),
-        },
-    ]
+        value,
+        stable_correlation: claim.stable_correlation,
+    })
+    .unwrap()
+}
+
+fn proposals() -> (
+    Vec<CalendarFactProposalV1>,
+    Vec<ReferenceFactCatalogEntryV1>,
+) {
+    let inputs = [
+        (0, false, d(60), d(61), d(62)),
+        (1, true, d(63), d(64), d(65)),
+    ];
+    let mut proposals = Vec::new();
+    let mut entries = Vec::new();
+    for (day, is_open, _scope, r0_identity, r0_digest) in inputs {
+        let coordinates = coordinates(None);
+        let entry = catalog_entry(day, is_open, &coordinates);
+        proposals.push(CalendarFactProposalV1 {
+            catalog_locator: entry.locator(),
+            native_predecessor_identity: None,
+            coordinates,
+            r0_coordinate_identity: r0_identity,
+            r0_coordinate_digest: r0_digest,
+        });
+        entries.push(entry);
+    }
+    (proposals, entries)
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn replay_prepared_calendar_fixture_v1(
+pub(crate) fn replay_calendar_fixture_v1(
     request_identity: BindingDigest,
-    instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
+    _instrument: &crate::owner::instrument_master::InstrumentMasterReadbackV1,
     coordinates: VerifiedReferenceFactCoordinatesV1,
     source_locator_bytes: &[u8],
     r0_locator_bytes: &[u8],
-    r0_cut_identity: BindingDigest,
-    r0_cut_digest: BindingDigest,
+    _r0_cut_identity: BindingDigest,
+    _r0_cut_digest: BindingDigest,
     r0_coordinate_identity: BindingDigest,
     r0_coordinate_digest: BindingDigest,
 ) -> (
     UntrustedCalendarRequestV1,
-    crate::owner::calendar::authority::PreparedCalendarCutV1,
+    Vec<CalendarFactProposalV1>,
+    Vec<ReferenceFactCatalogEntryV1>,
 ) {
     let claim = coordinates.claim();
     let request = UntrustedCalendarRequestV1::new(
@@ -252,32 +295,20 @@ pub(crate) fn replay_prepared_calendar_fixture_v1(
         r0_locator_bytes.to_vec(),
         claim.stable_correlation,
     );
-    let prepared = prepare_calendar_cut_v1(
-        &request,
-        vec![CalendarFactProposalV1 {
-            day: 0,
-            is_open: true,
-            lineage_root: claim.source.lineage_root,
-            correction_sequence: claim.source.lineage_version,
-            coordinates,
-            r0_coordinate_identity,
-            r0_coordinate_digest,
-        }],
-        CalendarAuthenticatedInputsV1 {
-            instrument_master: instrument,
-            source_binding_locator_bytes: source_locator_bytes,
-            r0_locator_bytes,
-            r0_cut_identity,
-            r0_cut_digest,
-        },
-    )
-    .unwrap();
-    (request, prepared)
+    let entry = catalog_entry(0, true, &coordinates);
+    let proposal = CalendarFactProposalV1 {
+        catalog_locator: entry.locator(),
+        native_predecessor_identity: None,
+        coordinates,
+        r0_coordinate_identity,
+        r0_coordinate_digest,
+    };
+    (request, vec![proposal], vec![entry])
 }
 
 #[rstest]
 fn complete_open_closed_cut_is_canonical_and_roundtrips() {
-    let _ = replay_prepared_calendar_fixture_v1(
+    let _ = replay_calendar_fixture_v1(
         d(90),
         &instrument_readback("XNYS-CALENDAR-V1"),
         coordinates(None),
@@ -292,7 +323,8 @@ fn complete_open_closed_cut_is_canonical_and_roundtrips() {
     let instrument = instrument_readback("XNYS-CALENDAR-V1");
     let prepared = prepare_calendar_cut_v1(
         &request,
-        proposals(),
+        proposals().0,
+        proposals().1,
         CalendarAuthenticatedInputsV1 {
             instrument_master: &instrument,
             source_binding_locator_bytes: b"source-locator",
@@ -438,6 +470,7 @@ fn request_digest_covers_every_meaning_field_and_range_is_bounded() {
         prepare_calendar_cut_v1(
             &empty,
             vec![],
+            vec![],
             CalendarAuthenticatedInputsV1 {
                 instrument_master: &instrument,
                 source_binding_locator_bytes: b"s",
@@ -462,20 +495,28 @@ fn missing_duplicate_or_dependency_spliced_days_fail_closed() {
         r0_cut_digest: d(71),
     };
     assert!(matches!(
-        prepare_calendar_cut_v1(&request, vec![proposals().remove(0)], auth()),
+        prepare_calendar_cut_v1(
+            &request,
+            vec![proposals().0.remove(0)],
+            vec![proposals().1.remove(0)],
+            auth()
+        ),
         Err(CalendarErrorV1::CoverageGap)
     ));
-    let mut duplicate = proposals();
-    duplicate[1].day = 0;
+    let mut duplicate = proposals().0;
+    let mut duplicate_entries = proposals().1;
+    duplicate_entries[1] = catalog_entry(0, true, &coordinates(None));
+    duplicate[1].catalog_locator = duplicate_entries[1].locator();
     assert!(matches!(
-        prepare_calendar_cut_v1(&request, duplicate, auth()),
+        prepare_calendar_cut_v1(&request, duplicate, duplicate_entries, auth()),
         Err(CalendarErrorV1::CoverageGap)
     ));
     let wrong_instrument = instrument_readback("OTHER");
     assert!(matches!(
         prepare_calendar_cut_v1(
             &request,
-            proposals(),
+            proposals().0,
+            proposals().1,
             CalendarAuthenticatedInputsV1 {
                 instrument_master: &wrong_instrument,
                 source_binding_locator_bytes: b"source-locator",
@@ -489,7 +530,8 @@ fn missing_duplicate_or_dependency_spliced_days_fail_closed() {
     assert!(matches!(
         prepare_calendar_cut_v1(
             &request,
-            proposals(),
+            proposals().0,
+            proposals().1,
             CalendarAuthenticatedInputsV1 {
                 instrument_master: &instrument,
                 source_binding_locator_bytes: b"wrong",
@@ -506,12 +548,13 @@ fn missing_duplicate_or_dependency_spliced_days_fail_closed() {
 fn correction_shape_and_nested_tamper_are_rejected() {
     let request = request();
     let instrument = instrument_readback("XNYS-CALENDAR-V1");
-    let mut bad = proposals();
-    bad[0].correction_sequence = 2;
+    let mut bad = proposals().0;
+    bad[0].native_predecessor_identity = Some(d(99));
     assert!(matches!(
         prepare_calendar_cut_v1(
             &request,
             bad,
+            proposals().1,
             CalendarAuthenticatedInputsV1 {
                 instrument_master: &instrument,
                 source_binding_locator_bytes: b"source-locator",
@@ -524,7 +567,8 @@ fn correction_shape_and_nested_tamper_are_rejected() {
     ));
     let prepared = prepare_calendar_cut_v1(
         &request,
-        proposals(),
+        proposals().0,
+        proposals().1,
         CalendarAuthenticatedInputsV1 {
             instrument_master: &instrument,
             source_binding_locator_bytes: b"source-locator",

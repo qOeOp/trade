@@ -11,6 +11,10 @@ use super::{
 };
 use crate::owner::{
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
+    reference_fact_catalog::{
+        ReferenceFactCatalogEntryV1, ReferenceFactCatalogKindV1, ReferenceFactCatalogValueV1,
+        UntrustedReferenceFactCatalogLocatorV1,
+    },
     reference_fact_coordinates::VerifiedReferenceFactCoordinatesV1,
 };
 
@@ -18,10 +22,8 @@ const DAY_NS: i128 = 86_400_000_000_000;
 
 #[derive(Clone, Debug)]
 pub(crate) struct CalendarFactProposalV1 {
-    pub(crate) day: i32,
-    pub(crate) is_open: bool,
-    pub(crate) lineage_root: CalendarIdentityV1,
-    pub(crate) correction_sequence: u64,
+    pub(crate) catalog_locator: UntrustedReferenceFactCatalogLocatorV1,
+    pub(crate) native_predecessor_identity: Option<CalendarIdentityV1>,
     pub(crate) coordinates: VerifiedReferenceFactCoordinatesV1,
     pub(crate) r0_coordinate_identity: CalendarIdentityV1,
     pub(crate) r0_coordinate_digest: CalendarIdentityV1,
@@ -55,6 +57,7 @@ pub(crate) fn request_meaning_digest(
 pub(crate) fn prepare_calendar_cut_v1(
     request: &UntrustedCalendarRequestV1,
     proposals: Vec<CalendarFactProposalV1>,
+    catalog_entries: Vec<ReferenceFactCatalogEntryV1>,
     authenticated: CalendarAuthenticatedInputsV1<'_>,
 ) -> Result<PreparedCalendarCutV1, CalendarErrorV1> {
     validate_request(request)?;
@@ -74,17 +77,14 @@ pub(crate) fn prepare_calendar_cut_v1(
     }
 
     let expected = expected_day_count(request)?;
-    if proposals.len() != expected {
+    if proposals.len() != expected || catalog_entries.len() != expected {
         return Err(CalendarErrorV1::CoverageGap);
     }
 
     let mut by_day = BTreeMap::new();
 
-    for proposal in proposals {
-        if proposal.day < request.first_day() || proposal.day >= request.last_day_exclusive() {
-            return Err(CalendarErrorV1::CoverageGap);
-        }
-        let fact = build_fact(request, &proposal)?;
+    for (proposal, catalog_entry) in proposals.into_iter().zip(catalog_entries) {
+        let fact = build_fact(request, &proposal, &catalog_entry)?;
         if by_day.insert(fact.day, fact).is_some() {
             return Err(CalendarErrorV1::CoverageGap);
         }
@@ -131,53 +131,78 @@ pub(crate) fn prepare_calendar_cut_v1(
 fn build_fact(
     request: &UntrustedCalendarRequestV1,
     proposal: &CalendarFactProposalV1,
+    catalog: &ReferenceFactCatalogEntryV1,
 ) -> Result<CalendarFactV1, CalendarErrorV1> {
     let claim = proposal.coordinates.claim();
-    let predecessor = claim.predecessor_identity;
+    let ReferenceFactCatalogValueV1::Calendar {
+        calendar_identity,
+        day,
+        is_open,
+    } = catalog.value()
+    else {
+        return Err(CalendarErrorV1::DependencyMismatch);
+    };
+    let predecessor = proposal.native_predecessor_identity;
+    let source = catalog.source();
 
-    if !codec::nonzero(proposal.lineage_root)
-        || proposal.correction_sequence == 0
-        || (!codec::nonzero(proposal.r0_coordinate_identity))
+    if catalog.locator() != proposal.catalog_locator
+        || catalog.value().kind() != ReferenceFactCatalogKindV1::Calendar
+        || calendar_identity.as_ref() != request.calendar_identity()
+        || *day < request.first_day()
+        || *day >= request.last_day_exclusive()
+        || catalog.correction_sequence() == 0
+        || !codec::nonzero(proposal.r0_coordinate_identity)
         || (!codec::nonzero(proposal.r0_coordinate_digest))
         || matches!(
-            (proposal.correction_sequence, predecessor),
-            (1, Some(_)) | (2.., None)
+            (
+                catalog.correction_sequence(),
+                catalog.predecessor_identity(),
+                predecessor
+            ),
+            (1, Some(_), _) | (1, _, Some(_)) | (2.., None, _) | (2.., _, None)
         )
         || claim.stable_correlation != request.stable_correlation()
+        || catalog.stable_correlation() != claim.stable_correlation
         || claim.pit.decision_cut != request.decision_cut()
         || i128::from(claim.pit.observed_at) != request.owner_observation_ns()
         || claim.time.owner_observation_ns != request.owner_observation_ns()
         || claim.time.decision_cut != request.decision_cut()
         || claim.source.binding_identity.as_bytes() == &[0; 32]
         || !claim.source.admitted
+        || source.source_binding_identity != claim.source.binding_identity
+        || source.source_binding_fact_digest != claim.source.binding_fact_digest
+        || source.source_binding_lineage_root != claim.source.lineage_root
+        || source.source_binding_lineage_version != claim.source.lineage_version
+        || source.source_frontier_digest != claim.source.frontier.digest
+        || source.correction_frontier_digest != claim.correction.digest
     {
         return Err(CalendarErrorV1::DependencyMismatch);
     }
-    let day_start = i128::from(proposal.day)
+    let day_start = i128::from(*day)
         .checked_mul(DAY_NS)
         .ok_or(CalendarErrorV1::InvalidFact)?;
     let day_end = day_start
         .checked_add(DAY_NS)
         .ok_or(CalendarErrorV1::InvalidFact)?;
 
-    if claim.time.effective_from_ns >= day_end
-        || claim
-            .time
-            .effective_until_ns
+    if catalog.effective_from_ns() >= day_end
+        || catalog
+            .effective_until_ns()
             .is_some_and(|until| until <= day_start)
     {
         return Err(CalendarErrorV1::InvalidFact);
     }
 
     let mut fact = CalendarFactV1 {
-        calendar_identity: request.calendar_identity().into(),
-        day: proposal.day,
-        is_open: proposal.is_open,
-        lineage_root: proposal.lineage_root,
-        correction_sequence: proposal.correction_sequence,
+        calendar_identity: calendar_identity.clone(),
+        day: *day,
+        is_open: *is_open,
+        catalog_entry_identity: catalog.identity(),
+        lineage_root: catalog.scope_identity(),
+        correction_sequence: catalog.correction_sequence(),
         predecessor_identity: predecessor,
-        effective_from_ns: claim.time.effective_from_ns,
-        effective_until_ns: claim.time.effective_until_ns,
+        effective_from_ns: catalog.effective_from_ns(),
+        effective_until_ns: catalog.effective_until_ns(),
         provider_available_ns: claim.time.provider_available_ns,
         retrieval_ns: claim.time.retrieval_ns,
         correction_publication_ns: claim.time.correction_publication_ns,
@@ -362,6 +387,7 @@ pub(crate) fn encode_fact(fact: &CalendarFactV1) -> Result<Box<[u8]>, CalendarEr
     encoder.bytes(&fact.calendar_identity, codec::MAX_IDENTITY_BYTES)?;
     encoder.i32(fact.day);
     encoder.bool(fact.is_open);
+    encoder.identity(fact.catalog_entry_identity);
     encoder.identity(fact.lineage_root);
     encoder.u64(fact.correction_sequence);
     encoder.optional_identity(fact.predecessor_identity);
@@ -487,6 +513,7 @@ pub(crate) fn decode_fact(
         calendar_identity: d.bytes(codec::MAX_IDENTITY_BYTES)?,
         day: d.i32()?,
         is_open: d.bool()?,
+        catalog_entry_identity: d.identity()?,
         lineage_root: d.identity()?,
         correction_sequence: d.u64()?,
         predecessor_identity: d.optional_identity()?,

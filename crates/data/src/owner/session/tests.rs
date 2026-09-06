@@ -1,6 +1,12 @@
 use super::*;
 use crate::owner::{
     calendar::{CalendarCutV1, CalendarFactV1, CalendarReadbackV1, CalendarReceiptV1},
+    reference_fact_catalog::{
+        ReferenceFactCatalogEntryV1, ReferenceFactCatalogSourceV1, ReferenceFactCatalogValueV1,
+        ReferenceFactLocalBoundaryV1, ReferenceFactLocalResolutionV1,
+        UntrustedReferenceFactCatalogProposalV1, derive_reference_fact_business_scope_identity_v1,
+        seal_reference_fact_catalog_entry_v1,
+    },
     reference_fact_coordinates::{
         AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
         ReferenceFactEffectiveTimeV1, ReferenceFactFrontierV1, ReferenceFactPitCutV1,
@@ -97,11 +103,12 @@ fn tz_proposal(
     start: i128,
     end: Option<i128>,
     sequence: u64,
-    predecessor: Option<SessionIdentityV1>,
+    catalog_predecessor: Option<SessionIdentityV1>,
+    native_predecessor: Option<SessionIdentityV1>,
     offset: i32,
 ) -> TimeZoneFactProposalV1 {
     let dependencies = VerifiedTimeZoneDependenciesV1::verify(
-        coordinates(start, end, sequence, predecessor),
+        coordinates(start, end, sequence, native_predecessor),
         d(15),
         d(16),
     )
@@ -111,14 +118,16 @@ fn tz_proposal(
         d(14),
         offset,
         sequence,
-        predecessor,
+        catalog_predecessor,
+        native_predecessor,
         start,
         end,
         dependencies,
     )
 }
 fn time_zone(before: i32, after: i32) -> time_zone::TimeZoneReadbackV1 {
-    let first = tz_proposal(-10_000_000_000_000, Some(0), 1, None, before);
+    let first = tz_proposal(-10_000_000_000_000, Some(0), 1, None, None, before);
+    let first_catalog_identity = first.catalog_entry.identity();
     let first_id = time_zone::authority::issue_fact_v1(&first)
         .unwrap()
         .identity();
@@ -140,7 +149,14 @@ fn time_zone(before: i32, after: i32) -> time_zone::TimeZoneReadbackV1 {
             request,
             vec![
                 first,
-                tz_proposal(0, Some(10_000_000_000_000), 2, Some(first_id), after),
+                tz_proposal(
+                    0,
+                    Some(10_000_000_000_000),
+                    2,
+                    Some(first_catalog_identity),
+                    Some(first_id),
+                    after,
+                ),
             ],
             d(18),
             d(19),
@@ -157,6 +173,7 @@ fn calendar(open: bool) -> CalendarReadbackV1 {
         calendar_identity: b"CAL".to_vec().into(),
         day: 0,
         is_open: open,
+        catalog_entry_identity: d(39),
         lineage_root: d(21),
         correction_sequence: 1,
         predecessor_identity: None,
@@ -228,6 +245,7 @@ fn session_fact(ordinal: u32, open: u64, close: u64) -> SessionFactV1 {
             nanos_of_day: close,
             resolution: LocalResolutionV1::Exact,
         },
+        catalog_entry_identity: d(39),
         utc_open_ns: i128::from(open),
         utc_close_ns: i128::from(close),
         instrument_master_readback_identity: d(33),
@@ -236,6 +254,7 @@ fn session_fact(ordinal: u32, open: u64, close: u64) -> SessionFactV1 {
         lineage_root: d(8),
         source_binding_identity: d(6),
         source_binding_fact_digest: d(7),
+        source_binding_lineage_root: d(8),
         source_binding_lineage_version: 1,
         source_frontier_digest: d(9),
         correction_frontier_digest: d(11),
@@ -267,6 +286,54 @@ fn request() -> UntrustedSessionRequestV1 {
         stable_correlation: d(13),
     }
 }
+
+fn session_catalog_entry(
+    session_identity: &[u8],
+    trading_day: i32,
+    interval_ordinal: u32,
+    local_open_ns: u64,
+    local_close_ns: u64,
+    coordinates: &VerifiedReferenceFactCoordinatesV1,
+) -> ReferenceFactCatalogEntryV1 {
+    let claim = coordinates.claim();
+    let value = ReferenceFactCatalogValueV1::Session {
+        session_identity: session_identity.to_vec().into(),
+        trading_day,
+        interval_ordinal,
+        local_open: ReferenceFactLocalBoundaryV1 {
+            day: trading_day,
+            nanos_of_day: local_open_ns,
+            resolution: ReferenceFactLocalResolutionV1::Exact,
+        },
+        local_close: ReferenceFactLocalBoundaryV1 {
+            day: trading_day,
+            nanos_of_day: local_close_ns,
+            resolution: ReferenceFactLocalResolutionV1::Exact,
+        },
+    };
+    seal_reference_fact_catalog_entry_v1(&UntrustedReferenceFactCatalogProposalV1 {
+        command_identity: d(70),
+        scope_identity: derive_reference_fact_business_scope_identity_v1(&value).unwrap(),
+        revision: 1,
+        lineage_root: claim.source.lineage_root,
+        predecessor_identity: None,
+        correction_sequence: 1,
+        effective_from_ns: claim.time.effective_from_ns,
+        effective_until_ns: claim.time.effective_until_ns,
+        source: ReferenceFactCatalogSourceV1 {
+            source_binding_identity: claim.source.binding_identity,
+            source_binding_fact_digest: claim.source.binding_fact_digest,
+            source_binding_lineage_root: claim.source.lineage_root,
+            source_binding_lineage_version: claim.source.lineage_version,
+            source_frontier_digest: claim.source.frontier.digest,
+            correction_frontier_digest: claim.correction.digest,
+            admission_identity: d(71),
+        },
+        value,
+        stable_correlation: claim.stable_correlation,
+    })
+    .unwrap()
+}
 fn instrument() -> InstrumentMasterReferenceV1 {
     InstrumentMasterReferenceV1 {
         locator_bytes: b"instrument".to_vec().into(),
@@ -286,7 +353,11 @@ pub(crate) fn replay_session_fixture_v1(
     r0_locator_bytes: &[u8],
     r0_coordinate_identity: SessionIdentityV1,
     r0_coordinate_digest: SessionIdentityV1,
-) -> (UntrustedSessionRequestV1, Vec<SessionFactProposalV1>) {
+) -> (
+    UntrustedSessionRequestV1,
+    Vec<SessionFactProposalV1>,
+    Vec<ReferenceFactCatalogEntryV1>,
+) {
     let claim = coordinates.claim();
     let (local_open_ns, local_close_ns) = u64::try_from(claim.replay_start_event_ns)
         .ok()
@@ -306,27 +377,23 @@ pub(crate) fn replay_session_fixture_v1(
         decision_cut: claim.time.decision_cut,
         stable_correlation: claim.stable_correlation,
     };
+    let entry = session_catalog_entry(
+        b"XNYS-REGULAR-V1",
+        0,
+        0,
+        local_open_ns,
+        local_close_ns,
+        &coordinates,
+    );
     let proposal = SessionFactProposalV1 {
-        trading_day: 0,
-        interval_ordinal: 0,
-        local_open: LocalBoundaryV1 {
-            day: 0,
-            nanos_of_day: local_open_ns,
-            resolution: LocalResolutionV1::Exact,
-        },
-        local_close: LocalBoundaryV1 {
-            day: 0,
-            nanos_of_day: local_close_ns,
-            resolution: LocalResolutionV1::Exact,
-        },
-        predecessor_identity: None,
-        correction_sequence: claim.source.lineage_version,
+        catalog_locator: entry.locator(),
+        native_predecessor_identity: None,
         correction_identity: claim.correction.digest,
         coordinates,
         r0_coordinate_identity,
         r0_coordinate_digest,
     };
-    (request, vec![proposal])
+    (request, vec![proposal], vec![entry])
 }
 
 #[rstest]
@@ -369,27 +436,24 @@ fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
         source_binding_locator_bytes: b"source",
         r0_locator_bytes: b"r0",
     };
+    let coordinates = coordinates(-10_000_000_000_000, Some(10_000_000_000_000), 1, None);
+    let entry = session_catalog_entry(
+        b"SESSION",
+        0,
+        0,
+        3_600_000_000_000,
+        7_200_000_000_000,
+        &coordinates,
+    );
     let proposal = SessionFactProposalV1 {
-        trading_day: 0,
-        interval_ordinal: 0,
-        local_open: LocalBoundaryV1 {
-            day: 0,
-            nanos_of_day: 3_600_000_000_000,
-            resolution: LocalResolutionV1::Exact,
-        },
-        local_close: LocalBoundaryV1 {
-            day: 0,
-            nanos_of_day: 7_200_000_000_000,
-            resolution: LocalResolutionV1::Exact,
-        },
-        predecessor_identity: None,
-        correction_sequence: 1,
+        catalog_locator: entry.locator(),
+        native_predecessor_identity: None,
         correction_identity: d(36),
-        coordinates: coordinates(-10_000_000_000_000, Some(10_000_000_000_000), 1, None),
+        coordinates,
         r0_coordinate_identity: d(37),
         r0_coordinate_digest: d(38),
     };
-    let fact = authority::issue_fact(&request(), &deps, &proposal).unwrap();
+    let fact = authority::issue_fact(&request(), &deps, &proposal, &entry).unwrap();
     assert_eq!(fact.utc_open_ns, 3_600_000_000_000);
     assert_eq!(fact.utc_close_ns, 7_200_000_000_000);
     let expected_evidence = fact.evidence();
@@ -397,9 +461,9 @@ fn fact_recomputes_utc_and_round_trips_exact_native_evidence() {
     assert_eq!(decoded.evidence(), expected_evidence);
     assert_eq!(fact, decoded);
     let mut cross_splice = proposal;
-    cross_splice.predecessor_identity = Some(d(39));
+    cross_splice.native_predecessor_identity = Some(d(39));
     assert_eq!(
-        authority::issue_fact(&request(), &deps, &cross_splice),
+        authority::issue_fact(&request(), &deps, &cross_splice, &entry),
         Err(SessionErrorV1::InvalidDependency)
     );
 }
@@ -431,7 +495,9 @@ fn fact_preserves_independent_source_and_correction_frontiers() {
     .remove(0);
     proposal.correction_identity = d(36);
 
-    assert!(authority::issue_fact(&request(), &deps, &proposal).is_ok());
+    let entry = session_catalog_entry(b"SESSION", 0, 0, 0, 100, &proposal.coordinates);
+    proposal.catalog_locator = entry.locator();
+    assert!(authority::issue_fact(&request(), &deps, &proposal, &entry).is_ok());
 }
 
 #[rstest]

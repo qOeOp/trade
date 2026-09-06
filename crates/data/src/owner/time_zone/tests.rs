@@ -1,7 +1,8 @@
 use super::*;
 use crate::owner::reference_fact_catalog::{
     ReferenceFactCatalogSourceV1, ReferenceFactCatalogValueV1,
-    UntrustedReferenceFactCatalogProposalV1, seal_reference_fact_catalog_entry_v1,
+    UntrustedReferenceFactCatalogProposalV1, derive_reference_fact_business_scope_identity_v1,
+    seal_reference_fact_catalog_entry_v1,
 };
 use crate::owner::reference_fact_coordinates::{
     AdmittedReferenceFactSourceV1, ReferenceFactClockV1, ReferenceFactCoordinateClaimV1,
@@ -97,29 +98,69 @@ fn dependencies_with_sequences(
 
 #[rstest]
 fn fact_preserves_independent_source_and_correction_frontiers() {
-    let deps = dependencies_with_sequences(5, Some(25), 11, 1, None);
-    let proposal =
-        time_zone_catalog_proposal(b"Asia/Tokyo", d(14), 32_400, 1, None, 5, Some(25), deps);
+    let deps = dependencies_with_sequences(6, Some(24), 11, 1, None);
+    let proposal = time_zone_catalog_proposal(
+        b"Asia/Tokyo",
+        d(14),
+        32_400,
+        1,
+        None,
+        None,
+        5,
+        Some(25),
+        deps,
+    );
 
     let fact = authority::issue_fact_v1(&proposal).unwrap();
     let decoded = authority::decode_fact_v1(fact.canonical_bytes()).unwrap();
     assert_eq!(decoded.correction_sequence(), 1);
+    assert_eq!(
+        decoded.catalog_entry_identity(),
+        proposal.catalog_entry.identity()
+    );
+    assert_ne!(
+        decoded.lineage_root(),
+        decoded.evidence().source_binding_lineage_root
+    );
     assert_eq!(decoded.evidence().source_binding_lineage_version, 11);
+    assert_eq!(decoded.effective_from_ns(), 5);
+    assert_eq!(decoded.effective_until_ns(), Some(25));
+}
+
+#[rstest]
+fn catalog_and_native_predecessors_are_independent_hash_domains() {
+    let proposals = proposals();
+    let first_catalog = proposals[0].catalog_entry.identity();
+    let first_native = authority::issue_fact_v1(&proposals[0]).unwrap().identity();
+    let second = authority::issue_fact_v1(&proposals[1]).unwrap();
+
+    assert_ne!(first_catalog, first_native);
+    assert_eq!(
+        proposals[1].catalog_entry.predecessor_identity(),
+        Some(first_catalog)
+    );
+    assert_eq!(second.predecessor_identity(), Some(first_native));
+    assert_eq!(
+        second.catalog_entry_identity(),
+        proposals[1].catalog_entry.identity()
+    );
 }
 fn proposal(
     start: i128,
     end: Option<i128>,
     sequence: u64,
-    predecessor: Option<TimeZoneIdentity>,
+    catalog_predecessor: Option<TimeZoneIdentity>,
+    native_predecessor: Option<TimeZoneIdentity>,
     offset: i32,
 ) -> TimeZoneFactProposalV1 {
-    let dependencies = dependencies(start, end, sequence, predecessor);
+    let dependencies = dependencies(start, end, sequence, native_predecessor);
     time_zone_catalog_proposal(
         b"Asia/Tokyo",
         d(14),
         offset,
         sequence,
-        predecessor,
+        catalog_predecessor,
+        native_predecessor,
         start,
         end,
         dependencies,
@@ -132,19 +173,25 @@ pub(crate) fn time_zone_catalog_proposal(
     ruleset_identity: TimeZoneIdentity,
     utc_offset_seconds: i32,
     correction_sequence: u64,
-    predecessor_identity: Option<TimeZoneIdentity>,
+    catalog_predecessor_identity: Option<TimeZoneIdentity>,
+    native_predecessor_identity: Option<TimeZoneIdentity>,
     effective_from_ns: i128,
     effective_until_ns: Option<i128>,
     dependencies: VerifiedTimeZoneDependenciesV1,
 ) -> TimeZoneFactProposalV1 {
     let claim = dependencies.coordinates().claim();
+    let value = ReferenceFactCatalogValueV1::TimeZone {
+        time_zone_identity: time_zone_identity.to_vec().into(),
+        ruleset_identity,
+        utc_offset_seconds,
+    };
     let catalog_entry =
         seal_reference_fact_catalog_entry_v1(&UntrustedReferenceFactCatalogProposalV1 {
             command_identity: d(30_u8.wrapping_add(correction_sequence as u8)),
-            scope_identity: ruleset_identity,
+            scope_identity: derive_reference_fact_business_scope_identity_v1(&value).unwrap(),
             revision: correction_sequence,
             lineage_root: claim.source.lineage_root,
-            predecessor_identity,
+            predecessor_identity: catalog_predecessor_identity,
             correction_sequence,
             effective_from_ns,
             effective_until_ns,
@@ -157,15 +204,13 @@ pub(crate) fn time_zone_catalog_proposal(
                 correction_frontier_digest: claim.correction.digest,
                 admission_identity: d(29),
             },
-            value: ReferenceFactCatalogValueV1::TimeZone {
-                time_zone_identity: time_zone_identity.to_vec().into(),
-                ruleset_identity,
-                utc_offset_seconds,
-            },
+            value,
             stable_correlation: claim.stable_correlation,
         })
         .unwrap();
     TimeZoneFactProposalV1 {
+        catalog_locator: catalog_entry.locator(),
+        native_predecessor_identity,
         catalog_entry,
         dependencies,
     }
@@ -186,9 +231,20 @@ fn request() -> UntrustedTimeZoneRequestV1 {
     }
 }
 fn proposals() -> Vec<TimeZoneFactProposalV1> {
-    let first = proposal(5, Some(15), 1, None, 32_400);
+    let first = proposal(5, Some(15), 1, None, None, 32_400);
+    let first_catalog_id = first.catalog_entry.identity();
     let first_id = authority::issue_fact_v1(&first).unwrap().identity();
-    vec![first, proposal(15, Some(25), 2, Some(first_id), 36_000)]
+    vec![
+        first,
+        proposal(
+            15,
+            Some(25),
+            2,
+            Some(first_catalog_id),
+            Some(first_id),
+            36_000,
+        ),
+    ]
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -225,7 +281,8 @@ pub(crate) fn replay_time_zone_fixture_v1(
         b"Etc/UTC",
         ruleset_identity,
         0,
-        claim.source.lineage_version,
+        1,
+        None,
         None,
         claim.replay_start_event_ns,
         Some(claim.replay_end_event_ns_exclusive.saturating_add(1)),
@@ -275,31 +332,41 @@ fn receipt_is_generation_bound() {
 
 #[rstest]
 fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
-    let first = proposal(5, Some(14), 1, None, 0);
+    let first = proposal(5, Some(14), 1, None, None, 0);
+    let first_catalog_id = first.catalog_entry.identity();
     let first_id = authority::issue_fact_v1(&first).unwrap().identity();
     assert_eq!(
         authority::prepare_resolution_v1(
             request(),
-            vec![first, proposal(15, Some(25), 2, Some(first_id), 1)],
+            vec![
+                first,
+                proposal(15, Some(25), 2, Some(first_catalog_id), Some(first_id), 1)
+            ],
             d(16),
             d(17)
         ),
         Err(TimeZoneErrorV1::NonCanonicalOrder)
     );
-    let first = proposal(5, Some(16), 1, None, 0);
+    let first = proposal(5, Some(16), 1, None, None, 0);
+    let first_catalog_id = first.catalog_entry.identity();
     let first_id = authority::issue_fact_v1(&first).unwrap().identity();
     assert_eq!(
         authority::prepare_resolution_v1(
             request(),
-            vec![first, proposal(15, Some(25), 2, Some(first_id), 1)],
+            vec![
+                first,
+                proposal(15, Some(25), 2, Some(first_catalog_id), Some(first_id), 1)
+            ],
             d(16),
             d(17)
         ),
         Err(TimeZoneErrorV1::NonCanonicalOrder)
     );
+    let first = proposal(5, Some(15), 1, None, None, 0);
+    let first_catalog_id = first.catalog_entry.identity();
     let broken = vec![
-        proposal(5, Some(15), 1, None, 0),
-        proposal(15, Some(25), 2, Some(d(20)), 1),
+        first,
+        proposal(15, Some(25), 2, Some(first_catalog_id), Some(d(20)), 1),
     ];
     assert_eq!(
         authority::prepare_resolution_v1(request(), broken, d(16), d(17)),
@@ -308,7 +375,7 @@ fn rejects_gap_overlap_bad_predecessor_and_incomplete_window() {
     assert_eq!(
         authority::prepare_resolution_v1(
             request(),
-            vec![proposal(11, Some(25), 1, None, 0)],
+            vec![proposal(11, Some(25), 1, None, None, 0)],
             d(16),
             d(17)
         ),
@@ -340,6 +407,7 @@ fn rejects_cross_splice_zero_and_corrupt_aggregate() {
         d(21),
         36_000,
         2,
+        Some(wrong_ruleset[0].catalog_entry.identity()),
         Some(first_id),
         15,
         Some(25),

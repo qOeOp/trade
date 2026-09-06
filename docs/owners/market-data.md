@@ -127,10 +127,23 @@ native facts, cuts, receipts and outbox rows.
 Catalog key and entry identities are BLAKE3-256 over respectively
 `vibe.market-data.reference-fact-catalog-key.v1\0` and
 `vibe.market-data.reference-fact-catalog-entry.v1\0` plus canonical big-endian bytes. The key binds closed kind,
-business scope, positive revision, lineage root and the complete typed value. The entry additionally binds command
-identity, optional direct predecessor, positive correction sequence, business-effective interval, exact Source
-provenance, administrator admission identity and stable correlation. Exact stored bytes are decoded, rehashed and
-matched before use. **NOT_ADMITTED:** isolated acceptance catalog data does not prove vendor authenticity and grants
+business scope, positive revision, source lineage root and the complete typed value. The stable catalog-head scope is
+exactly the stable business-scope identity plus that source lineage root; neither revision nor typed value may select
+a different head. Business-scope identity is BLAKE3-256 over
+`vibe.market-data.reference-fact-business-scope.v1\0` plus schema `u16BE = 1`, reserved zero `u16BE`, closed kind
+`u8`, and exactly one native key: Calendar identity `u32BE length || bytes` plus civil day `i32BE`; Time Zone
+identity `u32BE length || bytes` plus ruleset identity `[u8; 32]`; or Session identity `u32BE length || bytes`,
+trading day `i32BE` and interval ordinal `u32BE`. The entry additionally binds command identity, optional catalog
+predecessor, positive correction sequence, business-effective interval, exact Source provenance, administrator
+admission identity and stable correlation, in that order after the complete catalog-key bytes; it does not repeat
+the typed value already bound by that key. A catalog predecessor is always the prior catalog
+entry identity in that same head scope, never a native fact identity. Genesis has correction sequence `1` and no
+catalog predecessor; every later entry has the immediately prior catalog entry and sequence increased by exactly
+one. A Time Zone successor either corrects the same constant-offset regime and retains byte-identical effective
+bounds, or describes the immediately adjacent regime whose lower bound equals the predecessor's upper bound.
+Calendar and Session successors correct one stable native key and therefore retain byte-identical effective bounds.
+Exact stored bytes are decoded, rehashed and matched before use. **NOT_ADMITTED:** isolated acceptance catalog
+data does not prove vendor authenticity and grants
 no default/production database, deployment, provider, Dashboard, runtime or trading effect.
 
 ### Shared native boundary and custody
@@ -145,13 +158,26 @@ rather than strings; Replay V2, which receives deterministic projections; and la
 sole join of exact Calendar and Time Zone cuts. Neither native authority depends on Session or copies the other's
 facts. An untrusted private proposal cannot reinterpret an existing Replay V2 value or mint positive custody.
 
-Both authorities resolve one exact `ReferenceFactCatalogV1` entry and the exact admitted Source Binding in the
-caller's Owner transaction, and use one verified `ReferenceFactCoordinatesV1` only as observation evidence. Every
-fact has one lineage root, positive correction
-sequence, optional direct predecessor and current head. A missing predecessor, branch, cycle, sequence gap or
-regression, cross-source splice, effective overlap/gap, incomplete requested coverage, clock mismatch or expired
-observation fails before any write. Positive facts, complete cuts, receipts and move-only readbacks have no public
-constructor/deserializer. Public callers receive only an untrusted sealed locator; the resolver is crate-sealed.
+Each Calendar, Time Zone and Session authority accepts only an untrusted exact catalog-entry locator for catalog
+selection and re-resolves the exact stored `ReferenceFactCatalogV1` entry inside the caller's Owner transaction,
+together with the exact admitted Source Binding. Latest/current-head lookup is verification of the resolved entry's
+lineage position only and is never selection. The native typed business value is derived from and byte-matched to
+that catalog entry; a caller proposal cannot supply or override it. One verified `ReferenceFactCoordinatesV1` is
+observation evidence only and never business-value or lineage authority.
+
+Every native fact has its own lineage root, positive native correction sequence, optional native predecessor and
+current native head. The native lineage root is exactly the catalog scope identity, and that scope identifies one
+native fact key: `(calendar identity, civil day)`, `(time-zone identity, ruleset identity)`, or `(session identity,
+trading day, interval ordinal)`. It is neither derived from nor compared with Source Binding lineage coordinates.
+The native predecessor is always the immediately prior fact identity for the same native fact key and domain,
+never a catalog entry identity. Catalog and native correction sequences correspond one-to-one. At
+genesis both sequences are `1` and neither predecessor is present. For every correction with sequence greater than
+`1`, both predecessors are required, the native fact's catalog entry names the catalog predecessor, and the prior
+native fact must bind that exact catalog predecessor; catalog entry and native fact hashes remain distinct even for
+the same revision. A missing predecessor, branch, cycle, sequence gap or regression, cross-source splice, effective
+overlap/gap, incomplete requested coverage, clock mismatch or expired observation fails before any write. Positive
+facts, complete cuts, receipts and move-only readbacks have no public constructor/deserializer. Public callers
+receive only an untrusted sealed locator; the resolver is crate-sealed.
 
 Version-1 integers are big-endian, optional tags are exactly `0x00`/`0x01`, booleans are `0x00`/`0x01`, and
 identities/digests are 32 bytes. Every artifact identity is BLAKE3-256 over its listed NUL-terminated domain plus
@@ -178,10 +204,11 @@ composition, provider authenticity, production/default writes, deployment, Dashb
 
 `CalendarFactV1` value is exact calendar identity `u32BE length || bytes`, signed UTC civil-day ordinal `i32BE`
 from `1970-01-01`, and `is_open` `u8`. Fact domain is `vibe.market-data.calendar-fact.v1\0`; after schema and
-reserved its bytes are that value, lineage root, correction sequence `u64BE`, optional predecessor, effective-from
-and optional effective-until `i128BE`, provider-available, retrieval, correction-publication and Owner-observation
-`i128BE`, decision cut `u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/
-`u64BE` version, and source/correction frontier digests.
+reserved its bytes are that complete catalog-derived value, exact catalog entry identity `[u8; 32]`, native lineage
+root, native correction sequence `u64BE`, optional native predecessor, effective-from and optional effective-until
+`i128BE`, provider-available, retrieval, correction-publication and Owner-observation `i128BE`, decision cut
+`u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/`u64BE` version, and
+source/correction frontier digests.
 
 Request-meaning domain is `vibe.market-data.calendar-request.v1\0`; bytes are schema, reserved, closed consumer tag
 (`1 PIT`, `2 INSTRUMENT_MASTER`, `3 REPLAY_V2`, `4 BAR`), calendar identity, inclusive first and exclusive last
@@ -201,9 +228,10 @@ plus signed UTC offset seconds `i32BE`. Its half-open effective interval is the 
 constant. A ruleset transition is an immutable successor; the adjacent before/after intervals determine the local
 fold when offset decreases and gap when it increases, so neither condition is guessed or normalized away.
 
-Fact domain is `vibe.market-data.time-zone-fact.v1\0`; bytes are schema, reserved, that value, lineage root,
-correction sequence, optional predecessor, the effective and observation fields and exact R0/Source Binding/
-frontier tail defined for Calendar, in the same order. Request-meaning domain is
+Fact domain is `vibe.market-data.time-zone-fact.v1\0`; bytes are schema, reserved, that complete catalog-derived
+value, exact catalog entry identity `[u8; 32]`, native lineage root, native correction sequence, optional native
+predecessor, then the effective and observation fields and exact R0/Source Binding/frontier tail defined for
+Calendar, in the same order. Request-meaning domain is
 `vibe.market-data.time-zone-request.v1\0`; bytes are schema, reserved, consumer tag, time-zone identity, ruleset
 identity, replay-window start and exclusive end `i128BE`, Owner-observation, decision cut, length-prefixed Source
 Binding and R0 locator bytes, and stable correlation. Cut domain is `vibe.market-data.time-zone-cut.v1\0`; bytes
@@ -235,16 +263,19 @@ earlier/later choice and recomputation against the exact Time Zone transition. L
 boundary are unsupported. The fact repeats recomputed UTC open/close `i128BE`, requires `open < close`, and binds
 exact Calendar fact/cut identities/digests, Time Zone open- and close-boundary fact identities/digests plus cut
 identity/digest, Instrument Master reference tuple, Source Binding identity/lineage, source/correction frontiers,
-correction identity and complete R0 observation coordinates. Every scalar is recomputed from those native facts.
+correction identity and complete R0 observation coordinates. The catalog-derived typed business value byte-matches
+the exact entry; every derived UTC and dependency scalar is recomputed from the joined native facts.
 
 Fact domain is `vibe.market-data.session-fact.v1\0`; bytes are schema `u16BE = 1`, reserved, session identity
-`u32BE length || bytes`, trading day, interval ordinal, local-open tuple, local-close tuple, UTC open, UTC close,
-Calendar fact identity/digest and cut identity/digest, Time Zone open fact identity/digest, close fact identity/
-digest and cut identity/digest, Instrument Master readback/fact/cut digests, optional predecessor, correction
-sequence `u64BE`, provider-available, retrieval, correction-publication and Owner-observation `i128BE`, decision
-cut `u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/`u64BE` version,
-source frontier, correction frontier and correction identity. A correction is an immutable current-head direct
-successor for the exact `(session identity, trading day, interval ordinal)` key.
+`u32BE length || bytes`, trading day, interval ordinal, local-open tuple and local-close tuple as the complete
+catalog-derived typed business value, then exact catalog entry identity `[u8; 32]`, native lineage root, recomputed
+UTC open, UTC close, Calendar fact identity/digest and cut identity/digest, Time Zone open fact identity/digest,
+close fact identity/digest and cut identity/digest, Instrument Master readback/fact/cut digests, optional native
+predecessor, native correction sequence `u64BE`, provider-available, retrieval, correction-publication and
+Owner-observation `i128BE`,
+decision cut `u64BE`, R0 coordinate identity/digest, Source Binding identity/fact digest/lineage root/`u64BE`
+version, source frontier, correction frontier and correction identity. A correction is an immutable current-head
+direct successor for the exact `(session identity, trading day, interval ordinal)` native key.
 
 Request-meaning domain is `vibe.market-data.session-request.v1\0`; bytes are schema, reserved, fixed raw consumer
 tag `1 MARKET_DATA_OWNER_V1`, session identity, inclusive first/exclusive last trading day, exact Calendar and Time
