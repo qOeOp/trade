@@ -167,6 +167,42 @@ invoke a provider, mutate Windmill, write business state, or authorize trading. 
 TrialFamily policy, authority-resolution, draft-source, and positive-action panels in the route registry remain
 future blueprint content and are not inferred into this workbench.
 
+## Bounded admission: Develop Composer exact-readback workbench
+
+`DevelopComposerReadbackWorkbench` is the exact `P` surface for `/rd/composer`. It is a bounded point-read of one
+previously submitted Develop Composer request, not a composer, editor, runner, resolver, or Artifact source view.
+The route uses one full-width `PanelFrame` with no summary strip, table, split pane, timeline, pagination, or
+reserved empty height. Its frame header contains the `DEVELOP COMPOSER` eyebrow, `Composer readback` title,
+one-line purpose, and one `Refresh` action disabled until a valid request identity has been opened. The inset body
+starts with one horizontal lookup rail containing one flexible `Request identity` input and `Open readback`.
+Only that rail wraps at narrow widths. Icons are Lucide only and do not decorate field labels.
+
+The initial state is a compact prompt. Loading keeps the lookup rail and shows exactly three softly grouped
+skeletons. A verified response replaces them with three ordered groups: `Request` contains the exact request
+identity and disposition; `Custody` contains the operation receipt identity when present; `Artifact` contains the
+Artifact locator, Artifact digest, canonical plan digest, and design digest only when all four fields are present
+under `SUCCESS`. For a non-success terminal, `Artifact` instead contains the exact coordinate and bounded reason
+when present and never retains fields from an earlier success. Group-title surfaces are slightly lighter than the
+body, labels and values are left aligned, long identities remain selectable, and separators are subtle rather
+than a connected grid. The header/body color relationship follows the standard card system.
+
+The authenticated Owner GET `/v2/develop-composer/runs/{request_identity}/readback` performs the existing sealed
+same-identity resolution as a zero-effect read. It accepts no request body and returns the existing strict
+`DevelopComposerOperationResponseV2`; the Dashboard BFF path-binds the identity and filters it to the fields above.
+`SUCCESS` requires an operation receipt plus the complete four-field Artifact projection. Every other disposition
+must carry no receipt or Artifact projection. Unknown keys, identity drift, contradictory disposition fields,
+malformed digests, oversized response, missing configuration, permission denial, transport failure, or failed
+sealed-custody verification fail closed to one unavailable state and erase stale success content.
+
+`Open readback` and `Refresh` are the only network actions and perform the same GET. Input editing is local
+presentation state. No source, design bytes, canonical plan bytes, Wasm/module bytes, receipt bytes, request
+payload, binding request, plugin capsule, principal, policy, outbox, or storage fields cross this boundary. The
+workbench has no `Run`, `Resolve`, `Edit`, `Save`, `Compile`, `Preview`, or provider action and does not render the
+read-only code viewer because this contract carries no source text. Artifact source remains available only through
+its separately admitted exact Artifact source route and identities; an Artifact locator alone is not converted
+into those identities. This slice cannot mutate Windmill, write business state, invoke a provider, or authorize
+trading. The broader Intake composer and authority-resolution panels remain future blueprint content.
+
 ## Bounded admission: verified Research directory
 
 `ResearchDirectory` is the exact `P` surface for `/rd/research`. The route uses one full-width `PanelFrame` and
@@ -1585,11 +1621,11 @@ A route name, an `S/P/Q/T` slot assignment, or a PascalCase label is not by itse
 contract. The following status is normative and prevents the experimental chapter from overstating how much of the
 Dashboard can already be drawn:
 
-| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                | Admission meaning                                                                                                                                                                                                                                                                                      |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; R&D Intake `/rd` exact‑readback workbench, Research `/rd/research` directory and Artifacts `/rd/artifacts`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
-| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                                                                                                  | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
+| Completeness status                   | Current pages or surfaces                                                                                                                                                                                                                                                                                                                                      | Admission meaning                                                                                                                                                                                                                                                                                      |
+| ------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`, Run Detail `/operations/runs/:runId`, Workers `/operations/workers` and `/operations/workers/:workerId`; R&D Intake `/rd` and Develop Composer `/rd/composer` exact‑readback workbenches, Research `/rd/research` directory and Artifacts `/rd/artifacts`; Market Data `/data` and `/data/pit-catalog`; all four Runtime routes | The chapter fixes route slots, internal field/column order, dimensions or responsive transformation, state geometry, and button order. Fail‑closed routes are drawable with fixed unavailable/not‑ready values; this status does not make their backend or Dashboard consumer available                |
+| `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` composer and authority‑resolution panels beyond the admitted exact‑readback workbench; R&D Research `/rd/research` selected‑request detail beyond the admitted directory                                                                                                                                                                      | The named content/detail region is exact, but its enclosing route list still lacks one or more of summary labels, table columns, row actions, sort, pagination or loading‑row geometry; the broader surface is not drawable or implementable                                                           |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Every other complete route in the registry, explicitly including Service Logs, Audit, Event Rail, Telemetry, and Alerts, plus all four Portfolio routes                                                                                                                                                                                                        | The registry fixes navigation position, route slots, named page‑local composites, and button intent only. An unattended agent must not infer missing list behavior, timeline rows, responsive table transformation, or internal geometry from a component‑like name or excluded Windmill/native layout |
 
 Names referenced by a route but absent from the reusable component inventory are page-local composite labels, not
 hidden reusable atoms. Promoting one blueprint to `DRAWABLE_EXACT` requires this chapter to specify, in both
@@ -1616,11 +1652,12 @@ source contracts are `CURRENT/PARTIAL`, their exact default-Web deployment remai
 custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolves status only; it does not change
 the fixed panel, button, or state geometry in the registry.
 
-The currently admitted `/rd`, `/rd/research`, and `/rd/artifacts` routes are bounded read-only surfaces and
+The currently admitted `/rd`, `/rd/composer`, `/rd/research`, and `/rd/artifacts` routes are bounded read-only surfaces and
 supersede the broader future Intake, Research, and Artifacts registry rows below for implementation. None has a
 summary strip or split detail pane. Their only `P` surfaces are `SourceIntakeReadbackWorkbench`,
-`ResearchDirectory`, and `ArtifactDirectory`. Intake has no directory, composer, or positive action in its
-admitted slice; Research has no detail link; Artifact detail remains a separate identity-bound URL. The broader
+`DevelopComposerReadbackWorkbench`, `ResearchDirectory`, and `ArtifactDirectory`. Intake has no directory,
+editable composer, or positive action in its admitted slice; Research has no detail link; Artifact detail remains
+a separate identity-bound URL. The broader
 composer, Research detail, admission, outcome, review, binding, replay, and security-evidence panels in the
 registry stay future blueprint content and are not inferred into these slices.
 
