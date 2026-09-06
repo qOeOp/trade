@@ -1200,6 +1200,20 @@ impl ReplayCompositionOwnerV1 {
                 .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
             return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
         };
+        if super::time_zone::verify_time_zone_custody_in_transaction_v1(&mut transaction)
+            .await
+            .is_err()
+        {
+            transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            reader_transaction
+                .rollback()
+                .await
+                .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+            return Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable);
+        }
         let market_challenge_key =
             owner_challenge_key_v1(issuance_locator.request_identity(), "market");
         let Ok(market_challenge) =

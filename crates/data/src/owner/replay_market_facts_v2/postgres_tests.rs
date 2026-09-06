@@ -247,6 +247,29 @@ fn locator_only_issuance_is_durable_and_cannot_accept_caller_role_authority() {
                 .find("persist_strategy_input_sample_projection_in_transaction_v4")
                 .expect("same-transaction V4 write")
     );
+    let binding_issue_body = source
+        .split("pub async fn issue_binding_v1")
+        .nth(1)
+        .expect("production binding issuance entry")
+        .split("async fn verify_composer_cut_contract_v1")
+        .next()
+        .expect("bounded production binding issuance");
+    assert!(
+        binding_issue_body
+            .find("BEGIN TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .expect("serializable binding transaction")
+            < binding_issue_body
+                .find("verify_time_zone_custody_in_transaction_v1")
+                .expect("transaction-bound Time Zone custody verification")
+    );
+    assert!(
+        binding_issue_body
+            .find("verify_time_zone_custody_in_transaction_v1")
+            .expect("transaction-bound Time Zone custody verification")
+            < binding_issue_body
+                .find("recover_time_zone_in_transaction_v1")
+                .expect("Time Zone business-fact consumption")
+    );
     assert!(
         native_issue_body
             .find("persist_strategy_input_sample_projection_in_transaction_v4")
@@ -1827,6 +1850,25 @@ async fn postgres_replay_composition_owner_is_atomic_exact_and_observes_reader_m
     assert_eq!(first.canonical_bytes(), retry.canonical_bytes());
     assert_eq!(first.canonical_bytes(), recovered.canonical_bytes());
     let committed = replay_positive_state(market_mutation_pool).await;
+
+    sqlx::query("GRANT SELECT ON market_data_private.time_zone_facts_v1 TO PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        fresh_owner.issue_binding_v1(&command).await,
+        Err(ReplayCompositionBindingErrorV1::ReplayV2Unavailable)
+    );
+    assert_eq!(replay_positive_state(market_mutation_pool).await, committed);
+    sqlx::query("REVOKE SELECT ON market_data_private.time_zone_facts_v1 FROM PUBLIC")
+        .execute(market_mutation_pool)
+        .await
+        .unwrap();
+    let recovered_after_topology_restore = fresh_owner.issue_binding_v1(&command).await.unwrap();
+    assert_eq!(
+        first.canonical_bytes(),
+        recovered_after_topology_restore.canonical_bytes()
+    );
 
     crate::owner::postgres::tests::advance_time_zone_head_and_verify_historical_recovery_v1(
         &market,

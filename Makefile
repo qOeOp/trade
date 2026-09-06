@@ -169,7 +169,7 @@ CARGO_FEATURES := $(BASE_FEATURES),$(EXTRA_FEATURES)
 else
 CARGO_FEATURES := $(BASE_FEATURES)
 endif
-RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance
+RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance
 CORE_SELECTED_FEATURE_LIST := $(filter-out hypersync,$(subst $(comma),$(space),$(CARGO_FEATURES)))
 CORE_SELECTED_FEATURES := $(subst $(space),$(comma),$(strip $(CORE_SELECTED_FEATURE_LIST))),vibe-serialization/sbe,vibe-infrastructure/postgres
 
