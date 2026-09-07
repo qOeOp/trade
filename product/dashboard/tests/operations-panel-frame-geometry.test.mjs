@@ -37,6 +37,13 @@ test("Bento unavailable content uses the same inset-card geometry as populated c
   assert.doesNotMatch(css, /\.panel-frame\.bento-page-frame \{[^}]*overflow: (?:auto|hidden|scroll);/u);
   assert.match(
     css,
-    /\.bento-page-frame > \.panel-frame-body > \.unavailable-state \{[^}]*border-radius: 14px;[^}]*box-shadow: var\(--elevation-base\);/u,
+    /\.bento-page-frame > \.panel-frame-body > \.unavailable-state \{[^}]*border-radius: var\(--panel-inner-radius\);[^}]*box-shadow: var\(--elevation-base\);/u,
   );
+});
+
+test("Visible nested surfaces share one inner radius while structural joins stay flat", () => {
+  assert.match(css, /\.insight-summary \{[^}]*border-radius: var\(--panel-inner-radius\);/u);
+  assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);[^}]*border-radius: var\(--panel-inner-radius\);/u);
+  assert.match(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
+  assert.match(css, /\.operations-run-table-surface > \.panel-frame-footer \{[^}]*border-radius: 0;/u);
 });
