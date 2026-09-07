@@ -92,9 +92,16 @@ async function openBrowser(executable) {
       if (message.error) reject(new Error(message.error.message));
       else resolve(message.result);
     });
-    const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const send = (method, params = {}, timeoutMs = 5_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
-      pending.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error(`calendar browser command timed out: ${method}`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
     return { child, profile, close: () => socket.close(), send };
@@ -120,6 +127,25 @@ async function readBrowserValue(browser, expression) {
   const result = await browser.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? "browser expression failed");
   return result.result?.value;
+}
+
+async function dispatchBrowserKey(browser, key) {
+  const keys = {
+    Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+    Escape: { code: "Escape", windowsVirtualKeyCode: 27, text: "" },
+  };
+  const descriptor = keys[key];
+  assert.ok(descriptor, `unsupported browser key ${key}`);
+  for (const type of ["keyDown", "keyUp"]) {
+    await browser.send("Input.dispatchKeyEvent", {
+      type, key, code: descriptor.code,
+      windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+      nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+      ...(type === "keyDown" && descriptor.text
+        ? { text: descriptor.text, unmodifiedText: descriptor.text }
+        : {}),
+    });
+  }
 }
 
 test(testName, { skip: !url }, async () => {
@@ -214,6 +240,8 @@ test(testName, { skip: !url }, async () => {
       assert.equal(browserEnvelope.schedules.length, descriptors.length);
       browser = await openBrowser(browserExecutable);
       await browser.send("Page.enable");
+      await browser.send("Page.bringToFront");
+      await browser.send("Input.setIgnoreInputEvents", { ignore: false });
       await browser.send("Page.navigate", { url: `${origin}/operations/schedules/` });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
@@ -247,15 +275,14 @@ test(testName, { skip: !url }, async () => {
       const keyboardTarget = await readBrowserValue(browser, `(() => {
         const button = document.querySelector('button[aria-label="Day view"]');
         button?.focus();
-        const result = {
+        return {
           focused: document.activeElement === button,
           tagName: button?.tagName,
           tabIndex: button?.tabIndex,
         };
-        button?.click();
-        return result;
       })()`);
       assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
+      await dispatchBrowserKey(browser, "Enter");
       await waitForBrowserExpression(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
           && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
@@ -285,18 +312,29 @@ test(testName, { skip: !url }, async () => {
 
       const overflowOpened = await readBrowserValue(browser, `(() => {
         const button = document.querySelector('button[aria-label^="Show "][aria-label*=" more schedule groups on "]');
-        button?.click();
-        return Boolean(button);
+        button?.focus();
+        return Boolean(button && document.activeElement === button);
       })()`);
-      assert.equal(overflowOpened, true, "dense schedule days expose the retained overflow inspection");
+      assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
+      await dispatchBrowserKey(browser, "Enter");
       await waitForBrowserExpression(browser,
         "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
-      const inspectionText = await readBrowserValue(browser,
-        "document.querySelector('dialog[open]')?.innerText ?? ''");
-      assert.match(inspectionText, /Expected triggers|Observed run reference/);
-      await readBrowserValue(browser,
-        `document.querySelector('button[aria-label="Close schedule inspection"]')?.click()`);
+      const inspection = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        return {
+          text: dialog?.innerText ?? '',
+          modal: dialog?.matches(':modal') ?? false,
+          focusInside: Boolean(dialog?.contains(document.activeElement)),
+        };
+      })()`);
+      assert.match(inspection.text, /Expected triggers|Observed run reference/);
+      assert.equal(inspection.modal, true);
+      assert.equal(inspection.focusInside, true);
+      await dispatchBrowserKey(browser, "Escape");
       await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      assert.equal(await readBrowserValue(browser,
+        `document.activeElement?.matches('button[aria-label^="Show "][aria-label*=" more schedule groups on "]') ?? false`),
+      true, "closing schedule inspection returns focus to the overflow trigger");
 
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 760, height: 900, deviceScaleFactor: 1, mobile: false,
