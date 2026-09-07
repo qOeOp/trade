@@ -3,7 +3,7 @@ use vibe_data::owner::{
     instrument_master::InstrumentMasterReadbackV1,
     sample_projection::StrategyInputSampleProjectionReadbackV2,
     sealed_replay_input::SealedReplayInput, strategy_input_binding::StrategyInputBindingReceipt,
-    strategy_input_event_corpus_v1::StrategyInputEventCorpusV1,
+    strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 use vibe_strategy_factory::{
@@ -45,8 +45,7 @@ type OwnerEventCorpusIssuerV2 =
         &SealedDevelopComposerReadbackV2,
         InstrumentMasterReadbackV1,
         Vec<StrategyInputBindingReceipt>,
-        SealedReplayInput,
-        StrategyInputEventCorpusV1,
+        StrategyInputEventReplayPackageV1,
     ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2>;
 
 fn accepts_exact_backtest_consumer(_: ExactBacktestConsumerV2) {}

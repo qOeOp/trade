@@ -15,7 +15,9 @@ use vibe_data::owner::{
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
     strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
-    strategy_input_event_corpus_v1::StrategyInputEventCorpusV1,
+    strategy_input_event_corpus_v1::{
+        StrategyInputEventCorpusV1, StrategyInputEventReplayPackageV1,
+    },
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
@@ -141,7 +143,7 @@ impl PreparedProgramHostCapabilityV2 {
             input_bindings,
             joined_cut: Some(joined_cut),
             sample_projection: Some(sample_projection),
-            event_corpus: None,
+            event_package: None,
             binding,
         })
     }
@@ -154,8 +156,7 @@ pub struct PreparedProgramHostEventCorpusCapabilityV2 {
     request: ReplayRequestV2,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
-    replay_input: SealedReplayInput,
-    event_corpus: StrategyInputEventCorpusV1,
+    event_package: StrategyInputEventReplayPackageV1,
     binding: PreparedProgramBindingV2,
 }
 
@@ -176,14 +177,13 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
             request,
             instrument_master,
             input_bindings,
-            replay_input,
-            event_corpus,
+            event_package,
             binding,
         } = self;
 
-        if !event_corpus.has_valid_digest()
-            || binding.event_corpus_digest != event_corpus.digest()
-            || binding.event_corpus_count != event_corpus.expected_count()
+        if !event_package.has_valid_digest()
+            || binding.event_corpus_digest != event_package.corpus().digest()
+            || binding.event_corpus_count != event_package.corpus().expected_count()
         {
             return Err(ProgramHostV2Error::InputCoverage);
         }
@@ -191,12 +191,12 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
         Ok(PreparedProgramHostHandoffV2 {
             host,
             request,
-            replay_input: Some(replay_input),
+            replay_input: None,
             instrument_master,
             input_bindings,
             joined_cut: None,
             sample_projection: None,
-            event_corpus: Some(event_corpus),
+            event_package: Some(event_package),
             binding,
         })
     }
@@ -268,7 +268,7 @@ pub struct PreparedProgramHostHandoffV2 {
     input_bindings: Vec<StrategyInputBindingReceipt>,
     joined_cut: Option<StrategyInputJoinedCutReceiptV1>,
     sample_projection: Option<StrategyInputSampleProjectionReadbackV2>,
-    event_corpus: Option<StrategyInputEventCorpusV1>,
+    event_package: Option<StrategyInputEventReplayPackageV1>,
     binding: PreparedProgramBindingV2,
 }
 
@@ -310,9 +310,9 @@ impl PreparedProgramHostHandoffV2 {
     pub(crate) fn host_and_event_corpus_mut_v1(
         &mut self,
     ) -> Option<(&mut ProgramHostV2, &StrategyInputEventCorpusV1)> {
-        self.event_corpus
+        self.event_package
             .as_ref()
-            .map(|corpus| (&mut self.host, corpus))
+            .map(|package| (&mut self.host, package.corpus()))
     }
 }
 
@@ -409,21 +409,23 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
     composer: &SealedDevelopComposerReadbackV2,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
-    replay_input: SealedReplayInput,
-    event_corpus: StrategyInputEventCorpusV1,
+    event_package: StrategyInputEventReplayPackageV1,
 ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2> {
-    if !verify_instrument_master_readback(&instrument_master) || !event_corpus.has_valid_digest() {
+    if !event_package.has_valid_digest() {
+        return Err(ProgramPreparationFaultV2::Unavailable);
+    }
+    if !verify_instrument_master_readback(&instrument_master) {
         return Err(ProgramPreparationFaultV2::Unavailable);
     }
     let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
         replay,
         composer,
-        &replay_input,
+        event_package.replay_input(),
         &instrument_master,
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
     let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
-    for member in event_corpus.members() {
+    for member in event_package.corpus().members() {
         validate_joined_cut_plan_admission_v2(&plan, member.joined_cut())?;
         validate_sample_projection_admission_v2(
             member.projection(),
@@ -431,16 +433,15 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
             plan.input_bindings(),
         )?;
     }
-    binding.event_corpus_digest = event_corpus.digest();
-    binding.event_corpus_count = event_corpus.expected_count();
+    binding.event_corpus_digest = event_package.corpus().digest();
+    binding.event_corpus_count = event_package.corpus().expected_count();
     Ok(PreparedProgramHostEventCorpusCapabilityV2 {
         plan,
         artifact,
         request: claims.request,
         instrument_master,
         input_bindings,
-        replay_input,
-        event_corpus,
+        event_package,
         binding,
     })
 }

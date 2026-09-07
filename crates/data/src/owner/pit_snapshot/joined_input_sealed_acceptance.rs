@@ -17,7 +17,12 @@ use super::{
         prepare_observation_batch, refresh_request_claims, verify_observation_batch,
     },
 };
+use crate::owner::sample_projection::joined_cut_readback_for_event_corpus_acceptance_v2;
 use crate::owner::{
+    research_pit_terminal::derive_snapshot_correction_rule_digest,
+    sealed_replay_input::{
+        SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
+    },
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -25,17 +30,21 @@ use crate::owner::{
         UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingLocator,
         UntrustedSourceBindingProposal, UntrustedTrustPolicy,
         authority::{
-            OwnerSourceBindingDecision, TestOnlyInMemorySourceBindingOwner, derive_binding_id,
-            derive_time_evidence_identity,
+            OwnerLineage, OwnerSourceBindingDecision, TestOnlyInMemorySourceBindingOwner,
+            build_stored_aggregate, derive_binding_id, derive_time_evidence_identity,
         },
     },
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputChannel, StrategyInputUnit, UntrustedStrategyInputBindingRequest,
-        UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
+        UntrustedStrategyInputScope, bind_complete_strategy_input_event_frame,
+        bind_strategy_input_event_corpus, bind_strategy_input_event_frame,
+        bind_strategy_input_role, split_strategy_input_event_frames_by_role,
     },
     strategy_input_event_corpus_v1::{
-        StrategyInputEventSourceV1, issue_strategy_input_event_source_v1,
+        StrategyInputEventCorpusCandidateV1, StrategyInputEventCorpusUnavailableV1,
+        StrategyInputEventReplayPackageV1, StrategyInputEventSourceV1,
+        issue_strategy_input_event_replay_package_v1, issue_strategy_input_event_source_v1,
     },
     strategy_input_joined_cut::{
         StrategyInputJoinRoleClaimV1, StrategyInputJoinedCutReceiptV1,
@@ -114,6 +123,84 @@ impl From<StrategyInputJoinedCutUnavailable> for JoinedInputSealedAcceptanceErro
     }
 }
 
+impl From<StrategyInputEventCorpusUnavailableV1> for JoinedInputSealedAcceptanceError {
+    fn from(value: StrategyInputEventCorpusUnavailableV1) -> Self {
+        Self::StrategyInput(match value {
+            StrategyInputEventCorpusUnavailableV1::IncompleteCensus => {
+                StrategyInputBindingUnavailable::MissingLifecycleCoordinate
+            }
+            StrategyInputEventCorpusUnavailableV1::UnsupportedLifecycle
+            | StrategyInputEventCorpusUnavailableV1::NonCanonicalOrder
+            | StrategyInputEventCorpusUnavailableV1::Duplicate
+            | StrategyInputEventCorpusUnavailableV1::CrossSplice => {
+                StrategyInputBindingUnavailable::NonUniqueResolution
+            }
+        })
+    }
+}
+
+/// Feature-gated, zero-effect package for downstream behavioral acceptance tests.
+///
+/// The package carries only real Owner-issued receipts. It exposes no constructor and grants no
+/// production, persistence, provider, deployment, or trading capability.
+#[derive(Debug)]
+pub struct SealedAcceptanceStrategyInputEventReplayPackageV1 {
+    bindings: Box<[StrategyInputBindingReceipt]>,
+    package: StrategyInputEventReplayPackageV1,
+}
+
+impl SealedAcceptanceStrategyInputEventReplayPackageV1 {
+    pub fn bindings(&self) -> &[StrategyInputBindingReceipt] {
+        &self.bindings
+    }
+
+    pub fn into_parts(
+        self,
+    ) -> (
+        Box<[StrategyInputBindingReceipt]>,
+        StrategyInputEventReplayPackageV1,
+    ) {
+        (self.bindings, self.package)
+    }
+}
+
+/// Issues a complete three-EVENT corpus through the real Source Binding, PIT, binding, join, and
+/// sample-projection Owner paths without external effects.
+///
+/// # Errors
+///
+/// Returns the first fail-closed Owner rejection without a partial package.
+pub fn issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()
+-> Result<SealedAcceptanceStrategyInputEventReplayPackageV1, JoinedInputSealedAcceptanceError> {
+    issue_event_corpus_package(issue_strategy_input_event_join_corpus_v1()?)
+}
+
+fn issue_event_corpus_package(
+    mut joined: SealedAcceptanceStrategyInputJoinCorpus,
+) -> Result<SealedAcceptanceStrategyInputEventReplayPackageV1, JoinedInputSealedAcceptanceError> {
+    let candidates = joined
+        .events()
+        .iter()
+        .map(|event| {
+            Ok(StrategyInputEventCorpusCandidateV1::new(
+                event.clone(),
+                joined_cut_readback_for_event_corpus_acceptance_v2(event)
+                    .map_err(|_| StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, StrategyInputBindingUnavailable>>()?;
+    let source = joined
+        .take_event_source()
+        .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
+    let replay_input = joined
+        .take_event_replay_input()
+        .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
+    let bindings = joined.bindings().to_vec().into_boxed_slice();
+    let package =
+        issue_strategy_input_event_replay_package_v1(replay_input, source, &bindings, candidates)?;
+    Ok(SealedAcceptanceStrategyInputEventReplayPackageV1 { bindings, package })
+}
+
 #[allow(
     dead_code,
     reason = "EVENT-only fields are consumed by the feature-gated in-crate acceptance oracle"
@@ -126,6 +213,8 @@ pub struct SealedAcceptanceStrategyInputJoinCorpus {
     alternate_join_claim_for_negative_test: StrategyInputJoinedCutReceiptV1,
     stale_selection_basis_for_negative_test: Option<StrategyInputJoinedCutReceiptV1>,
     event_source: Option<StrategyInputEventSourceV1>,
+    event_replay_input: Option<SealedReplayInput>,
+    nonterminal_event_replay_input: Option<SealedReplayInput>,
     equal_value_cross_snapshot_source: Option<StrategyInputEventSourceV1>,
     missing: StrategyInputJoinedCutUnavailable,
     stale: StrategyInputJoinedCutUnavailable,
@@ -165,6 +254,18 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
         self.event_source.take()
     }
 
+    pub(crate) fn take_event_replay_input(&mut self) -> Option<SealedReplayInput> {
+        self.event_replay_input.take()
+    }
+
+    #[allow(
+        dead_code,
+        reason = "consumed by the in-crate terminal-anchor rejection oracle"
+    )]
+    pub(crate) fn take_nonterminal_event_replay_input(&mut self) -> Option<SealedReplayInput> {
+        self.nonterminal_event_replay_input.take()
+    }
+
     #[allow(dead_code, reason = "consumed only by the EVENT acceptance oracle")]
     pub(crate) fn take_equal_value_cross_snapshot_source(
         &mut self,
@@ -199,7 +300,7 @@ pub fn issue_strategy_input_join_corpus()
         ("MSFT.XNAS", "1H", MarketDataFieldSemantic::BarClosePrice),
         ("QQQ.XNAS", "1D", MarketDataFieldSemantic::BarClosePrice),
     ];
-    issue_strategy_input_join_corpus_with_specs(specs, 500, false)
+    issue_strategy_input_join_corpus_with_specs(specs, 500, false, 0)
 }
 
 /// Issues the acceptance-only three-EVENT variant through the same real Owner authorities.
@@ -209,22 +310,312 @@ pub fn issue_strategy_input_join_corpus()
 )]
 pub(crate) fn issue_strategy_input_event_join_corpus_v1()
 -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
-    issue_strategy_input_join_corpus_with_specs(
-        [
-            ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteBidPrice),
-            ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteAskPrice),
-            ("MSFT.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
-            ("QQQ.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
-        ],
-        3_000_000_000,
-        true,
-    )
+    issue_event_join_corpus_from_batches(0, true)
+}
+
+fn issue_event_join_corpus_from_batches(
+    authority_seed_offset: u8,
+    include_foreign_source: bool,
+) -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
+    let specs = [
+        ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteBidPrice),
+        ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteAskPrice),
+        ("MSFT.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
+        ("QQQ.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
+    ];
+    let event_times = [1_000_000_000_u64, 3_000_000_000, 5_000_000_000];
+    let seed = 61_u8.wrapping_add(authority_seed_offset);
+    let clock = clock();
+    let source_owner = TestOnlyInMemorySourceBindingOwner::default();
+    let source_proposal = source_proposal(seed);
+    let source_identity = derive_binding_id(&source_proposal);
+    let stored_source = build_stored_aggregate(
+        source_proposal.clone(),
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        OwnerLineage {
+            root: source_identity,
+            version: 1,
+            predecessor_binding_id: None,
+            predecessor_fact_digest: None,
+        },
+    );
+    let source = source_owner.commit_initial(
+        source_proposal,
+        OwnerSourceBindingDecision {
+            blockers: BTreeSet::new(),
+        },
+        &clock,
+    )?;
+    let mut aggregates = Vec::new();
+    let mut batches = Vec::new();
+    for (event_index, logical_time) in event_times.into_iter().enumerate() {
+        let time_evidence = UntrustedPitSnapshotTimeEvidence {
+            event_effective: UntrustedEventEffectiveTime::from_untrusted(
+                logical_time,
+                CLOCK_IDENTITY,
+                CLOCK_EPOCH,
+            ),
+            provider_available: UntrustedProviderAvailableTime::from_untrusted(
+                logical_time,
+                CLOCK_IDENTITY,
+                CLOCK_EPOCH,
+            ),
+            retrieval: UntrustedRetrievalTime::from_untrusted(
+                logical_time + 1,
+                CLOCK_IDENTITY,
+                CLOCK_EPOCH,
+            ),
+            correction_publication: Some(UntrustedCorrectionPublicationTime::from_untrusted(
+                logical_time,
+                CLOCK_IDENTITY,
+                CLOCK_EPOCH,
+            )),
+            decision_cut: UntrustedSnapshotDecisionCut::from_untrusted(
+                DECISION_CUT,
+                CLOCK_IDENTITY,
+                CLOCK_EPOCH,
+            ),
+            monotonic_sequence: 1,
+            restart_continuity_digest: digest_byte(7),
+            skew_bound: 2,
+            uncertainty_bound: 1,
+            observed_at: DECISION_CUT,
+            valid_through: VALID_THROUGH,
+        };
+        let mut request = UntrustedPitSnapshotRequest {
+            claimed_request_identity: digest_byte(0),
+            claimed_request_digest: digest_byte(0),
+            correlation_identity: digest_byte(
+                seed.wrapping_add(u8::try_from(event_index + 1).expect("bounded event fixture")),
+            ),
+            requester_identity: digest_byte(0xb1),
+            scope_digest: digest_byte(0xd1),
+            source_binding: source.receipt().locator().clone(),
+            instrument_master_digest: digest_byte(0xc1),
+            universe_selection_digest: digest_byte(0xc2),
+            market_semantics_identity: digest_byte(0xc3),
+            time_evidence,
+        };
+        refresh_request_claims(&mut request);
+        let evidence = UntrustedPitSnapshotEvidence {
+            normalized_records_digest: digest_byte(0),
+            source_frontier: source.receipt().locator().source_frontier.clone(),
+            correction_frontier: source.receipt().locator().correction_frontier.clone(),
+            coverage_complete: true,
+            semantics_compatible: true,
+            source_available: true,
+        };
+        let mut proposal = UntrustedPitSnapshotProposal { request, evidence };
+        let mut rows = specs
+            .iter()
+            .enumerate()
+            .map(
+                |(role_index, (instrument, timeframe, field))| UntrustedPitObservation {
+                    symbolic_key: format!("{instrument}.{timeframe}.{}", field_name(*field)),
+                    member_key: (*instrument).into(),
+                    instrument: (*instrument).into(),
+                    channel: "MARKET".into(),
+                    data_kind: data_kind(*field).into(),
+                    timeframe: (*timeframe).into(),
+                    field: field_name(*field).into(),
+                    value_mantissa: 16_101
+                        + i128::try_from(role_index * 10 + event_index).expect("bounded fixture"),
+                    value_scale: SCALE,
+                    event_effective: logical_time,
+                    provider_available: logical_time,
+                    retrieval: logical_time + 1,
+                    correction_publication: logical_time,
+                    source_binding_identity: proposal.request.source_binding.binding_id,
+                    source_frontier_digest: proposal.evidence.source_frontier.digest,
+                    instrument_master_digest: proposal.request.instrument_master_digest,
+                    universe_selection_digest: proposal.request.universe_selection_digest,
+                    market_semantics_identity: proposal.request.market_semantics_identity,
+                    correction_stream_identity: proposal
+                        .evidence
+                        .correction_frontier
+                        .stream_identity
+                        .clone(),
+                    correction_sequence: proposal.evidence.correction_frontier.sequence,
+                    correction_frontier_digest: proposal.evidence.correction_frontier.digest,
+                },
+            )
+            .collect::<Vec<_>>();
+        rows.sort_by(|left, right| {
+            (left.symbolic_key.as_str(), left.member_key.as_str())
+                .cmp(&(right.symbolic_key.as_str(), right.member_key.as_str()))
+        });
+        let observations = UntrustedPitObservationBatchProposal { rows };
+        proposal.evidence.normalized_records_digest =
+            derive_observation_batch_digest(&observations)?;
+        let prepared = prepare_observation_batch(&proposal, &observations)?;
+        let basis = TestOnlyCanonicalBasisResolver::seal_for_test(
+            proposal.request.clone(),
+            proposal.evidence.clone(),
+            clock.clone(),
+        );
+        let aggregate = TestOnlyPitSnapshotOwner::default().commit_initial(
+            proposal,
+            &basis,
+            &source_owner,
+            &clock,
+        )?;
+        let native_rows = prepared.native_rows()?;
+        let verified = verify_observation_batch(
+            &aggregate,
+            aggregate.fact().source_binding_identity(),
+            aggregate.fact().source_binding_lineage_root(),
+            aggregate.fact().source_binding_lineage_version(),
+            prepared.digest(),
+            prepared.bytes(),
+            &native_rows,
+        )?;
+        aggregates.push(aggregate);
+        batches.push(verified);
+    }
+    let requests = specs
+        .iter()
+        .enumerate()
+        .map(|(index, (instrument, timeframe, field))| {
+            binding_request(
+                &batches[0],
+                BindingDigest::from_untrusted_bytes(JOIN_DESIGN_IDENTITY),
+                BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[index]),
+                instrument,
+                timeframe,
+                *field,
+            )
+        })
+        .collect::<Vec<_>>();
+    let (bindings, first_frame) = bind_strategy_input_event_corpus(&requests, &batches[0])?;
+    let mut frames = vec![first_frame];
+    for batch in &batches[1..] {
+        frames.push(bind_complete_strategy_input_event_frame(&bindings, batch)?);
+    }
+    let join_frames = split_strategy_input_event_frames_by_role(&frames);
+    let claim = join_claim(3_000_000_000);
+    let mut cumulative = Vec::new();
+    let mut events = Vec::new();
+    for (index, event_time) in event_times.into_iter().enumerate() {
+        cumulative.extend(
+            join_frames
+                .iter()
+                .filter(|frame| frame.trigger().lifecycle().logical_time() == event_time)
+                .cloned(),
+        );
+        events.push(issue_strategy_input_joined_cut_v1(
+            &claim,
+            &bindings,
+            &seal_strategy_input_join_census_v1(cumulative.clone())?,
+            event_times[index],
+        )?);
+    }
+    let repeated_first = issue_strategy_input_joined_cut_v1(
+        &claim,
+        &bindings,
+        &seal_strategy_input_join_census_v1(
+            join_frames
+                .iter()
+                .filter(|frame| frame.trigger().lifecycle().logical_time() == event_times[0])
+                .cloned()
+                .collect(),
+        )?,
+        event_times[0],
+    )?;
+    let alternate_join_claim_for_negative_test = issue_strategy_input_joined_cut_v1(
+        &alternate_join_claim_for_negative_test(3_000_000_000),
+        &bindings,
+        &seal_strategy_input_join_census_v1(cumulative.clone())?,
+        event_times[2],
+    )?;
+    let stale_selection_basis_for_negative_test = Some(issue_strategy_input_joined_cut_v1(
+        &claim,
+        &bindings,
+        &seal_strategy_input_join_census_v1(
+            join_frames
+                .iter()
+                .filter(|frame| {
+                    frame.trigger().lifecycle().logical_time() < event_times[2]
+                        || frame.values()[0].input_role_identity()
+                            != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[0])
+                })
+                .cloned()
+                .collect(),
+        )?,
+        event_times[2],
+    )?);
+    let event_source = issue_strategy_input_event_source_v1(&bindings, &batches)?;
+    let aggregate = aggregates.last().expect("three EVENT aggregates");
+    let verified = batches.last().expect("three EVENT batches");
+    let event_replay_input = seal_event_replay_input(aggregate, &stored_source, verified)?;
+    let nonterminal_event_replay_input =
+        seal_event_replay_input(&aggregates[1], &stored_source, &batches[1])?;
+    let equal_value_cross_snapshot_source = if include_foreign_source {
+        issue_event_join_corpus_from_batches(20, false)?.event_source
+    } else {
+        None
+    };
+    Ok(SealedAcceptanceStrategyInputJoinCorpus {
+        bindings,
+        events: events.into_boxed_slice(),
+        repeated_first,
+        alternate_join_claim_for_negative_test,
+        stale_selection_basis_for_negative_test,
+        event_source: Some(event_source),
+        event_replay_input: Some(event_replay_input),
+        nonterminal_event_replay_input: Some(nonterminal_event_replay_input),
+        equal_value_cross_snapshot_source,
+        missing: StrategyInputJoinedCutUnavailable::IncompleteCensus,
+        stale: StrategyInputJoinedCutUnavailable::StaleComponent,
+        cross_splice: StrategyInputJoinedCutUnavailable::CrossDesign,
+    })
+}
+
+fn seal_event_replay_input(
+    aggregate: &super::PitSnapshotCommitAggregate,
+    source: &crate::owner::source_binding::authority::SourceBindingStoredAggregate,
+    batch: &VerifiedPitObservationBatch,
+) -> Result<SealedReplayInput, JoinedInputSealedAcceptanceError> {
+    let fact = aggregate.fact();
+    let semantics = &source.commit().fact().proposal().semantics;
+    let replay_request = UntrustedSealedReplayInputRequest {
+        consumer_role: "STRATEGY_FACTORY_RD_OWNER_API_V1".into(),
+        locator: aggregate.receipt().locator().clone(),
+        request_identity: fact.request_identity(),
+        request_digest: fact.request_digest(),
+        scope_digest: fact.request().scope_digest,
+        source_binding_identity: fact.source_binding_identity(),
+        source_binding_lineage_root: fact.source_binding_lineage_root(),
+        source_binding_lineage_version: fact.source_binding_lineage_version(),
+        source_frontier: fact.evidence().source_frontier.clone(),
+        correction_frontier: fact.evidence().correction_frontier.clone(),
+        instrument_master_digest: fact.request().instrument_master_digest,
+        universe_selection_digest: fact.request().universe_selection_digest,
+        market_semantics_identity: fact.request().market_semantics_identity,
+        snapshot_correction_rule_digest: derive_snapshot_correction_rule_digest(
+            fact.request(),
+            fact.evidence().correction_frontier.clone(),
+        )?,
+        calendar_rules: semantics.calendar_rules.clone(),
+        session_rules: semantics.session_rules.clone(),
+        time_zone_rules: semantics.timezone_rules.clone(),
+        corporate_action_rules: semantics.corporate_action_rules.clone(),
+        historical_membership_rules: semantics.membership_rules.clone(),
+    };
+    Ok(seal_replay_input(
+        aggregate,
+        source,
+        batch,
+        &replay_request,
+    )?)
 }
 
 fn issue_strategy_input_join_corpus_with_specs(
     specs: [(&str, &str, MarketDataFieldSemantic); 4],
     max_staleness_ns: u64,
     include_stale_selection_negative: bool,
+    authority_seed_offset: u8,
 ) -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
     let event_times = [1_000_000_000_u64, 3_000_000_000, 5_000_000_000];
     let mut bindings = Vec::with_capacity(specs.len());
@@ -236,7 +627,9 @@ fn issue_strategy_input_join_corpus_with_specs(
     let mut equal_value_foreign_position = None;
 
     for (role_index, (instrument, timeframe, field)) in specs.into_iter().enumerate() {
-        let role_seed = u8::try_from(role_index + 61).expect("fixed role seed");
+        let role_seed = u8::try_from(role_index + 61)
+            .expect("fixed role seed")
+            .wrapping_add(authority_seed_offset);
         let clock = clock();
         let source_owner = TestOnlyInMemorySourceBindingOwner::default();
         let source = source_owner.commit_initial(
@@ -463,6 +856,8 @@ fn issue_strategy_input_join_corpus_with_specs(
         alternate_join_claim_for_negative_test,
         stale_selection_basis_for_negative_test,
         event_source,
+        event_replay_input: None,
+        nonterminal_event_replay_input: None,
         equal_value_cross_snapshot_source,
         missing,
         stale,

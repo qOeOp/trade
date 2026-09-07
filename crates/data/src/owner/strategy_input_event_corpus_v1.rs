@@ -17,11 +17,12 @@ use super::{
     sample_projection::{
         StrategyInputSampleProjectionKindV2, StrategyInputSampleProjectionReadbackV2,
     },
+    sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
     strategy_input_binding::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
         StrategyInputEventFrameReceipt, StrategyInputEventKind, StrategyInputEventValueReceipt,
-        StrategyInputLifecycleProjection, bind_strategy_input_event_frame,
+        StrategyInputLifecycleProjection, bind_complete_strategy_input_event_frame,
     },
     strategy_input_joined_cut::{
         StrategyInputJoinedCutComponentV1, StrategyInputJoinedCutReceiptV1,
@@ -30,6 +31,7 @@ use super::{
 
 const CORPUS_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-event-corpus.v1\0";
 const SOURCE_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-event-source.v1\0";
+const PACKAGE_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-event-replay-package.v1\0";
 
 /// Move-only Owner source for the complete native EVENT census.
 ///
@@ -37,7 +39,26 @@ const SOURCE_DOMAIN: &[u8] = b"vibe.market-data.strategy-input-event-source.v1\0
 /// receipts that were themselves resolved from verified PIT observation batches.
 pub struct StrategyInputEventSourceV1 {
     frames: Box<[StrategyInputEventFrameReceipt]>,
+    authorities: Box<[StrategyInputEventAuthorityV1]>,
     digest: BindingDigest,
+}
+
+struct StrategyInputEventAuthorityV1 {
+    request_identity: BindingDigest,
+    request_digest: BindingDigest,
+    snapshot_identity: BindingDigest,
+    snapshot_fact_digest: BindingDigest,
+    observation_batch_digest: BindingDigest,
+    source_binding_identity: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    source_binding_lineage_version: u64,
+    source_frontier_digest: BindingDigest,
+    correction_frontier_digest: BindingDigest,
+    correction_stream_identity: String,
+    instrument_master_digest: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    observation_count: usize,
 }
 
 impl Debug for StrategyInputEventSourceV1 {
@@ -59,29 +80,21 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
     bindings: &[StrategyInputBindingReceipt],
     batches: &[VerifiedPitObservationBatch],
 ) -> Result<StrategyInputEventSourceV1, StrategyInputBindingUnavailable> {
+    if batches.len() < 2 || bindings.len() != 4 {
+        return Err(StrategyInputBindingUnavailable::MissingLifecycleCoordinate);
+    }
     let mut frames = Vec::with_capacity(batches.len());
-
+    let mut authorities = Vec::with_capacity(batches.len());
     for batch in batches {
-        if let Ok(frame) = bind_strategy_input_event_frame(bindings, batch) {
-            frames.push(frame);
-            continue;
-        }
-        let resolved = bindings
-            .iter()
-            .filter_map(|binding| {
-                bind_strategy_input_event_frame(std::slice::from_ref(binding), batch).ok()
-            })
-            .collect::<Vec<_>>();
-        let [frame] = resolved.as_slice() else {
-            return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
-        };
-        frames.push(frame.clone());
+        frames.push(bind_complete_strategy_input_event_frame(bindings, batch)?);
+        authorities.push(event_authority(batch)?);
     }
 
     if frames.is_empty()
         || frames.iter().any(|frame| {
             frame.trigger().lifecycle().kind() != StrategyInputEventKind::Event
                 || frame.values().is_empty()
+                || frame.values().len() != 4
                 || frame.values().iter().any(|value| {
                     value.trigger_digest() != frame.trigger().digest()
                         || value.observation_batch_digest()
@@ -91,16 +104,6 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
     {
         return Err(StrategyInputBindingUnavailable::MissingLifecycleCoordinate);
     }
-    frames.sort_by_key(|frame| {
-        let lifecycle = frame.trigger().lifecycle();
-        (
-            lifecycle.logical_time(),
-            lifecycle.event_time(),
-            lifecycle.owner_sequence(),
-            lifecycle.event_identity(),
-            frame.trigger().digest(),
-        )
-    });
     let mut prior = None;
     let mut trigger_digests = BTreeSet::new();
 
@@ -121,10 +124,59 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
         }
         prior = Some(key);
     }
+    let first = &authorities[0];
+    if authorities.iter().any(|authority| {
+        authority.source_binding_identity != first.source_binding_identity
+            || authority.source_binding_lineage_root != first.source_binding_lineage_root
+            || authority.source_binding_lineage_version != first.source_binding_lineage_version
+            || authority.source_frontier_digest != first.source_frontier_digest
+            || authority.correction_frontier_digest != first.correction_frontier_digest
+            || authority.correction_stream_identity != first.correction_stream_identity
+            || authority.instrument_master_digest != first.instrument_master_digest
+            || authority.universe_selection_digest != first.universe_selection_digest
+            || authority.market_semantics_identity != first.market_semantics_identity
+    }) {
+        return Err(StrategyInputBindingUnavailable::StaleBatch);
+    }
     let digest = event_source_digest(&frames);
     Ok(StrategyInputEventSourceV1 {
         frames: frames.into_boxed_slice(),
+        authorities: authorities.into_boxed_slice(),
         digest,
+    })
+}
+
+fn event_authority(
+    batch: &VerifiedPitObservationBatch,
+) -> Result<StrategyInputEventAuthorityV1, StrategyInputBindingUnavailable> {
+    let correction_stream_identity = batch
+        .observations()
+        .first()
+        .map(|row| row.correction_stream_identity().to_owned())
+        .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
+    if batch
+        .observations()
+        .iter()
+        .any(|row| row.correction_stream_identity() != correction_stream_identity)
+    {
+        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+    }
+    Ok(StrategyInputEventAuthorityV1 {
+        request_identity: batch.request_identity(),
+        request_digest: batch.request_digest(),
+        snapshot_identity: batch.snapshot_identity(),
+        snapshot_fact_digest: batch.fact_digest(),
+        observation_batch_digest: batch.digest(),
+        source_binding_identity: batch.source_binding_identity(),
+        source_binding_lineage_root: batch.source_binding_lineage_root(),
+        source_binding_lineage_version: batch.source_binding_lineage_version(),
+        source_frontier_digest: batch.source_frontier_digest(),
+        correction_frontier_digest: batch.correction_frontier_digest(),
+        correction_stream_identity,
+        instrument_master_digest: batch.instrument_master_digest(),
+        universe_selection_digest: batch.universe_selection_digest(),
+        market_semantics_identity: batch.market_semantics_identity(),
+        observation_count: batch.observations().len(),
     })
 }
 
@@ -254,8 +306,166 @@ impl StrategyInputEventCorpusV1 {
     #[must_use]
     pub fn has_valid_digest(&self) -> bool {
         self.source.digest == event_source_digest(&self.source.frames)
+            && self.source.frames.len() >= 2
+            && self.source.frames.len() == self.source.authorities.len()
+            && self
+                .source
+                .frames
+                .iter()
+                .zip(&self.source.authorities)
+                .all(|(frame, authority)| {
+                    frame.values().len() == 4
+                        && frame.trigger().observation_batch_digest()
+                            == authority.observation_batch_digest
+                        && frame.trigger().snapshot_identity() == authority.snapshot_identity
+                        && frame.trigger().snapshot_fact_digest() == authority.snapshot_fact_digest
+                })
             && self.digest == corpus_digest(&self.source, &self.members)
     }
+}
+
+/// Move-only Market Data package atomically binding replay authority to its complete EVENT corpus.
+///
+/// The package has no public constructor, implements neither `Clone` nor a Serde trait, and cannot
+/// be assembled from independently obtained values outside Market Data ownership.
+///
+/// ```compile_fail
+/// use vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<StrategyInputEventReplayPackageV1>();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1;
+/// fn requires_deserialize<T: for<'de> serde::Deserialize<'de>>() {}
+/// requires_deserialize::<StrategyInputEventReplayPackageV1>();
+/// ```
+pub struct StrategyInputEventReplayPackageV1 {
+    replay_input: SealedReplayInput,
+    corpus: StrategyInputEventCorpusV1,
+    digest: BindingDigest,
+}
+
+impl Debug for StrategyInputEventReplayPackageV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(StrategyInputEventReplayPackageV1))
+            .field("corpus_digest", &self.corpus.digest())
+            .field("digest", &self.digest)
+            .finish_non_exhaustive()
+    }
+}
+
+impl StrategyInputEventReplayPackageV1 {
+    #[must_use]
+    pub const fn digest(&self) -> BindingDigest {
+        self.digest
+    }
+
+    #[must_use]
+    pub fn has_valid_digest(&self) -> bool {
+        self.corpus.has_valid_digest()
+            && self.digest == event_replay_package_digest(&self.replay_input, &self.corpus)
+    }
+
+    /// Borrows the inseparable replay anchor for downstream validation.
+    #[must_use]
+    pub const fn replay_input(&self) -> &SealedReplayInput {
+        &self.replay_input
+    }
+
+    /// Borrows the inseparable complete corpus for downstream validation and observation.
+    #[must_use]
+    pub const fn corpus(&self) -> &StrategyInputEventCorpusV1 {
+        &self.corpus
+    }
+}
+
+/// Atomically seals the terminal replay anchor and its complete ordered EVENT corpus.
+///
+/// The source is itself move-only Owner authority, so callers cannot combine independently
+/// selected raw batches or frames. The replay anchor must identify the source's unique terminal
+/// batch exactly.
+///
+/// # Errors
+///
+/// Returns a fail-closed corpus category without issuing a package.
+pub fn issue_strategy_input_event_replay_package_v1(
+    replay_input: SealedReplayInput,
+    source: StrategyInputEventSourceV1,
+    bindings: &[StrategyInputBindingReceipt],
+    candidates: Vec<StrategyInputEventCorpusCandidateV1>,
+) -> Result<StrategyInputEventReplayPackageV1, StrategyInputEventCorpusUnavailableV1> {
+    if !replay_matches_event_authority(&replay_input, &source) {
+        return Err(StrategyInputEventCorpusUnavailableV1::CrossSplice);
+    }
+    let corpus = issue_strategy_input_event_corpus_v1(source, bindings, candidates)?;
+    let digest = event_replay_package_digest(&replay_input, &corpus);
+    Ok(StrategyInputEventReplayPackageV1 {
+        replay_input,
+        corpus,
+        digest,
+    })
+}
+
+fn replay_matches_event_authority(
+    replay: &SealedReplayInput,
+    source: &StrategyInputEventSourceV1,
+) -> bool {
+    let Some(authority) = source.authorities.last() else {
+        return false;
+    };
+    if source
+        .authorities
+        .iter()
+        .filter(|candidate| {
+            candidate.snapshot_identity == replay.snapshot_identity()
+                && candidate.snapshot_fact_digest == replay.snapshot_fact_digest()
+                && candidate.observation_batch_digest == replay.normalized_records_digest()
+        })
+        .count()
+        != 1
+    {
+        return false;
+    }
+    replay.request_identity() == authority.request_identity
+        && replay.request_digest() == authority.request_digest
+        && replay.snapshot_identity() == authority.snapshot_identity
+        && replay.snapshot_fact_digest() == authority.snapshot_fact_digest
+        && replay.normalized_records_digest() == authority.observation_batch_digest
+        && replay.source_binding_identity() == authority.source_binding_identity
+        && replay.source_binding_lineage_root() == authority.source_binding_lineage_root
+        && replay.source_binding_lineage_version() == authority.source_binding_lineage_version
+        && replay.source_frontier().digest == authority.source_frontier_digest
+        && replay.correction_frontier().digest == authority.correction_frontier_digest
+        && replay.correction_frontier().stream_identity == authority.correction_stream_identity
+        && replay.instrument_master_digest() == authority.instrument_master_digest
+        && replay.universe_selection_digest() == authority.universe_selection_digest
+        && replay.market_semantics_identity() == authority.market_semantics_identity
+        && replay.observation_start_event_time()
+            == source
+                .frames
+                .last()
+                .map_or(0, |frame| frame.trigger().lifecycle().event_time())
+        && replay.observation_end_event_time() == replay.observation_start_event_time()
+        && replay.frames().len() == authority.observation_count
+}
+
+fn event_replay_package_digest(
+    replay: &SealedReplayInput,
+    corpus: &StrategyInputEventCorpusV1,
+) -> BindingDigest {
+    let mut hasher = Sha256::new();
+    hasher.update(PACKAGE_DOMAIN);
+    hasher.update(replay.request_identity().as_bytes());
+    hasher.update(replay.request_digest().as_bytes());
+    hasher.update(replay.snapshot_identity().as_bytes());
+    hasher.update(replay.snapshot_fact_digest().as_bytes());
+    hasher.update(replay.normalized_records_digest().as_bytes());
+    hasher.update(replay.frame_census_digest().as_bytes());
+    hasher.update(corpus.source_digest().as_bytes());
+    hasher.update(corpus.digest().as_bytes());
+    BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
 /// Fail-closed issuance categories. No error contains a partial corpus.
@@ -292,7 +502,11 @@ pub fn issue_strategy_input_event_corpus_v1(
         .map(|binding| (binding.locator().input_role_identity(), binding))
         .collect::<BTreeMap<_, _>>();
 
-    if bindings.is_empty() || binding_by_role.len() != bindings.len() {
+    if bindings.len() != 4
+        || binding_by_role.len() != 4
+        || source.frames.len() < 2
+        || source.frames.iter().any(|frame| frame.values().len() != 4)
+    {
         return Err(StrategyInputEventCorpusUnavailableV1::CrossSplice);
     }
     let first_candidate = candidates
@@ -374,10 +588,13 @@ pub fn issue_strategy_input_event_corpus_v1(
             || usize::try_from(projection.component_count()).ok()
                 != Some(joined_cut.components().len())
             || joined_cut.components().len() != bindings.len()
-            || !source
-                .frames
-                .iter()
-                .any(|frame| frame == trigger_component.frame())
+            || !source.frames.iter().any(|frame| {
+                frame.trigger() == trigger_component.frame().trigger()
+                    && frame
+                        .values()
+                        .iter()
+                        .any(|source_value| source_value == &trigger_component.frame().values()[0])
+            })
             || !projection_components_match(&projection, &joined_cut)
             || !joined_cut.components().iter().all(|component| {
                 let [value] = component.frame().values() else {
@@ -488,7 +705,7 @@ fn source_component_is_latest_for_cut(
         && lifecycle.logical_time() == latest_time
         && lifecycle.event_time() == selected_frame.trigger().lifecycle().event_time()
         && lifecycle.owner_sequence() == selected_frame.trigger().lifecycle().owner_sequence()
-        && selected_frame == &component.frame()
+        && selected_frame.trigger() == component.frame().trigger()
         && selected_value == &value
         && value.source_binding_lineage_root() == locator.source_binding_lineage_root()
         && value.correction_stream_identity() == locator.correction_stream_identity()
@@ -590,6 +807,7 @@ mod tests {
     use crate::owner::{
         pit_snapshot::joined_input_sealed_acceptance::{
             SealedAcceptanceStrategyInputJoinCorpus, issue_strategy_input_event_join_corpus_v1,
+            issue_strategy_input_event_replay_package_for_sealed_acceptance_v1,
         },
         sample_projection::joined_cut_readback_for_event_corpus_acceptance_v2,
     };
@@ -653,7 +871,88 @@ mod tests {
     }
 
     #[rstest]
+    fn atomic_replay_package_accepts_only_the_unique_terminal_anchor() {
+        let sealed = issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()
+            .expect("atomic terminal EVENT replay package");
+        let (bindings, package) = sealed.into_parts();
+        assert_eq!(bindings.len(), 4);
+        assert!(package.has_valid_digest());
+        let package_digest = package.digest();
+        assert_ne!(package_digest, BindingDigest::from_untrusted_bytes([0; 32]));
+        assert_eq!(package.corpus().expected_count(), 3);
+        assert_eq!(
+            package.replay_input().observation_end_event_time(),
+            package
+                .corpus()
+                .members()
+                .last()
+                .expect("terminal corpus member")
+                .order_key()
+                .event_time()
+        );
+
+        let mut nonterminal =
+            issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
+        let nonterminal_candidates = candidates(&nonterminal);
+        let nonterminal_source = nonterminal
+            .take_event_source()
+            .expect("complete EVENT source");
+        let nonterminal_anchor = nonterminal
+            .take_nonterminal_event_replay_input()
+            .expect("nonterminal replay anchor");
+        assert!(matches!(
+            issue_strategy_input_event_replay_package_v1(
+                nonterminal_anchor,
+                nonterminal_source,
+                nonterminal.bindings(),
+                nonterminal_candidates,
+            ),
+            Err(StrategyInputEventCorpusUnavailableV1::CrossSplice)
+        ));
+    }
+
+    #[rstest]
     fn omission_duplicate_reorder_and_cross_splice_fail_closed() {
+        let mut singular_joined =
+            issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
+        let singular_candidates = candidates(&singular_joined);
+        let mut singular_source = singular_joined
+            .take_event_source()
+            .expect("complete EVENT source");
+        singular_source.frames = Vec::from(singular_source.frames)
+            .into_iter()
+            .take(1)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        singular_source.authorities = Vec::from(singular_source.authorities)
+            .into_iter()
+            .take(1)
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        assert!(matches!(
+            issue_strategy_input_event_corpus_v1(
+                singular_source,
+                singular_joined.bindings(),
+                singular_candidates,
+            ),
+            Err(StrategyInputEventCorpusUnavailableV1::CrossSplice)
+        ));
+
+        let mut three_role_joined =
+            issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
+        let three_role_candidates = candidates(&three_role_joined);
+        let three_role_source = three_role_joined
+            .take_event_source()
+            .expect("complete EVENT source");
+        assert!(matches!(
+            issue_strategy_input_event_corpus_v1(
+                three_role_source,
+                &three_role_joined.bindings()[..3],
+                three_role_candidates,
+            ),
+            Err(StrategyInputEventCorpusUnavailableV1::CrossSplice)
+        ));
+
         let mut omission_joined =
             issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
         let mut omission = candidates(&omission_joined);
@@ -669,6 +968,16 @@ mod tests {
                 .expect("duplicate projection"),
         );
         assert!(issue(&mut duplicate_joined, duplicate).is_err());
+
+        let mut extra_joined =
+            issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
+        let mut extra = candidates(&extra_joined);
+        extra.push(StrategyInputEventCorpusCandidateV1::new(
+            extra_joined.repeated_first().clone(),
+            joined_cut_readback_for_event_corpus_acceptance_v2(extra_joined.repeated_first())
+                .expect("extra projection"),
+        ));
+        assert!(issue(&mut extra_joined, extra).is_err());
 
         let mut reorder_joined =
             issue_strategy_input_event_join_corpus_v1().expect("Owner EVENT cuts");
@@ -744,7 +1053,8 @@ mod tests {
                 snapshot_splice_joined.bindings(),
                 snapshot_splice_candidates,
             ),
-            Err(StrategyInputEventCorpusUnavailableV1::CrossSplice)
+            Err(StrategyInputEventCorpusUnavailableV1::CrossSplice
+                | StrategyInputEventCorpusUnavailableV1::IncompleteCensus)
         ));
     }
 }
