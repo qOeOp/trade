@@ -304,11 +304,16 @@ test(testName, { skip: !url }, async () => {
             selected: selected ? getComputedStyle(selected).backgroundColor : null,
             idle: idle ? getComputedStyle(idle).backgroundColor : null,
             selectedToken,
+            selectedCustomToken: selected ? getComputedStyle(selected).getPropertyValue('--data-table-row-selected-bg') : null,
+            ariaSelected: selected?.getAttribute('aria-selected') ?? null,
+            dataSelected: selected?.getAttribute('data-selected') ?? null,
+            matchesAriaSelector: selected?.matches('.workspace-table-row[aria-selected="true"]') ?? false,
+            matchesDataSelector: selected?.matches('.workspace-table-row[data-selected="true"]') ?? false,
             header: table?.querySelector('th') ? getComputedStyle(table.querySelector('th')).backgroundColor : null,
             headerToken,
           };
         })()`);
-        assert.equal(palette.selected, palette.selectedToken, `${theme} selected token`);
+        assert.equal(palette.selected, palette.selectedToken, `${theme} selected token: ${JSON.stringify(palette)}`);
         assert.notEqual(palette.selected, palette.idle, `${theme} selected contrast`);
         assert.equal(palette.header, palette.headerToken, `${theme} header token`);
       }
