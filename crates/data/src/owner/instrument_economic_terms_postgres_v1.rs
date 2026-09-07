@@ -81,15 +81,21 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .await
             .map_err(store_error)?;
 
-        if let Some(row) = sqlx::query(
-            "SELECT f.fact_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.meaning_identity=$1",
-        ).bind(fact.meaning_identity().as_slice()).fetch_optional(&mut *tx).await.map_err(store_error)? {
+        assert_complete_ledger_in_transaction(&mut tx).await?;
+
+        let rows = sqlx::query(
+            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity",
+        ).fetch_all(&mut *tx).await.map_err(store_error)?;
+
+        for row in rows {
             let readback = decode_row(&row)?;
-            if readback.fact().canonical_bytes() != fact.canonical_bytes() {
-                return Err(InstrumentEconomicTermsPostgresErrorV1::MeaningConflict);
+            if readback.fact().meaning_identity() == fact.meaning_identity() {
+                if readback.fact().canonical_bytes() != fact.canonical_bytes() {
+                    return Err(InstrumentEconomicTermsPostgresErrorV1::MeaningConflict);
+                }
+                tx.commit().await.map_err(store_error)?;
+                return Ok(readback);
             }
-            tx.commit().await.map_err(store_error)?;
-            return Ok(readback);
         }
 
         let receipt = InstrumentEconomicTermsReceiptV1::issue(fact);
@@ -116,13 +122,21 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         &self,
         locator: InstrumentEconomicTermsLocatorV1,
     ) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
-        self.assert_acl().await?;
+        let mut tx = self.pool.begin().await.map_err(store_error)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            .execute(&mut *tx)
+            .await
+            .map_err(store_error)?;
+        assert_acl_in_transaction(&mut tx).await?;
+        assert_complete_ledger_in_transaction(&mut tx).await?;
         let row = sqlx::query(
-            "SELECT f.fact_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.fact_identity=$1 AND r.receipt_identity=$2",
+            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.fact_identity=$1 AND r.receipt_identity=$2",
         ).bind(locator.fact_identity().as_slice()).bind(locator.receipt_identity().as_slice())
-            .fetch_optional(&self.pool).await.map_err(store_error)?
+            .fetch_optional(&mut *tx).await.map_err(store_error)?
             .ok_or(InstrumentEconomicTermsPostgresErrorV1::UnknownLocator)?;
-        decode_row(&row)
+        let readback = decode_row(&row)?;
+        tx.commit().await.map_err(store_error)?;
+        Ok(readback)
     }
 
     async fn assert_acl(&self) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
@@ -235,10 +249,28 @@ async fn assert_acl_in_transaction(
     }
 }
 
+async fn assert_complete_ledger_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
+    let has_orphan: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM instrument_owner_private.economic_terms_facts_v1 f FULL OUTER JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.fact_identity IS NULL OR r.receipt_identity IS NULL)",
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(store_error)?;
+
+    if has_orphan {
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+    } else {
+        Ok(())
+    }
+}
+
 fn decode_row(
     row: &sqlx::postgres::PgRow,
 ) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
     let fact_identity: Vec<u8> = row.try_get("fact_identity").map_err(store_error)?;
+    let meaning_identity: Vec<u8> = row.try_get("meaning_identity").map_err(store_error)?;
     let fact_bytes: Vec<u8> = row.try_get("fact_bytes").map_err(store_error)?;
     let fact_custody: Vec<u8> = row.try_get("custody_digest").map_err(store_error)?;
     let receipt_identity: Vec<u8> = row.try_get("receipt_identity").map_err(store_error)?;
@@ -249,6 +281,7 @@ fn decode_row(
     let custody = custody_digest(&fact_bytes, &receipt_bytes);
 
     if fact_identity.as_slice() != fact.identity().as_slice()
+        || meaning_identity.as_slice() != fact.meaning_identity().as_slice()
         || receipt_identity.as_slice() != receipt.identity().as_slice()
         || fact_custody.as_slice() != custody.as_slice()
         || receipt_custody.as_slice() != custody.as_slice()
