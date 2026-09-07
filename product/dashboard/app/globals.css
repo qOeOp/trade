@@ -953,7 +953,7 @@ button.rd-research-item { cursor: pointer; }
 .summary-metric > b { margin-top: 7px; color: var(--text-primary); font-size: 17px; font-weight: 680; line-height: 1.1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
 .summary-metric > small { margin-top: 5px; color: var(--text-muted); font-size: 9px; }
 .summary-metric-status { margin-top: 7px; }
-.aggregate-summary { min-width: 0; display: grid; grid-template-columns: 1.02fr 1.02fr 1.35fr; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent); border-radius: 20px; background: var(--surface-card); box-shadow: var(--elevation-summary); }
+.aggregate-summary { min-width: 0; display: grid; grid-template-columns: 1.02fr 1.02fr 1.35fr; overflow: hidden; border: 1px solid color-mix(in srgb, var(--border-default) 70%, transparent); border-radius: var(--panel-inner-radius); background: var(--surface-card); box-shadow: var(--elevation-summary); }
 .aggregate-summary-group { min-width: 0; padding: 20px 22px; display: grid; grid-template-columns: minmax(116px, .82fr) minmax(0, 1.35fr); grid-template-rows: auto 1fr; column-gap: 22px; }
 .aggregate-summary-group + .aggregate-summary-group { border-left: 1px solid var(--border-default); }
 .aggregate-summary-eyebrow { grid-column: 1 / -1; margin-bottom: 14px; color: var(--text-muted); font-size: 10px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; }
