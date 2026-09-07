@@ -50,9 +50,14 @@ test("Visible nested surfaces share one inner radius while structural joins stay
 
 test("Run result fields and actions reflow from their actual card width before the frame clips them", () => {
   assert.match(css, /\.run-detail-result \{[^}]*container: run-detail-result \/ inline-size;/u);
+  assert.match(css, /\.evidence-strip\[data-layout="result"\] \{ grid-template-columns: minmax\(150px, 1\.1fr\) repeat\(4, minmax\(110px, \.8fr\)\); \}/u);
   assert.match(
     css,
-    /@container run-detail-result \(max-width: 980px\) \{[\s\S]*?\.evidence-strip\[data-layout="result"\] \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\.evidence-strip\[data-layout="result"\] \.evidence-actions \{ grid-column: 1 \/ -1; justify-content: flex-start; flex-wrap: wrap; \}[\s\S]*?\}/u,
+    /\.evidence-strip\[data-layout="result"\] \.evidence-actions \{ grid-column: 1 \/ -1; justify-content: flex-start; flex-wrap: wrap; \}/u,
+  );
+  assert.match(
+    css,
+    /@container run-detail-result \(max-width: 980px\) \{[\s\S]*?\.evidence-strip\[data-layout="result"\] \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}[\s\S]*?\}/u,
   );
   assert.match(
     css,
