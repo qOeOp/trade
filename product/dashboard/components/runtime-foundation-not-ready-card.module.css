@@ -8,7 +8,7 @@
 }
 
 .body {
-  padding: 12px;
+  padding: var(--panel-content-padding);
   display: grid;
   gap: 12px;
   background: var(--surface-card);
@@ -239,10 +239,6 @@
 }
 
 @media (max-width: 620px) {
-  .body {
-    padding: 8px;
-  }
-
   .headerActions {
     align-items: flex-start;
     flex-direction: column;

@@ -12,7 +12,7 @@
 }
 
 .body {
-  padding: 12px;
+  padding: var(--panel-content-padding);
   background: var(--surface-card);
 }
 
@@ -151,10 +151,6 @@
 }
 
 @media (max-width: 620px) {
-  .body {
-    padding: 8px;
-  }
-
   .groupHeader {
     grid-template-columns: auto minmax(0, 1fr);
   }
