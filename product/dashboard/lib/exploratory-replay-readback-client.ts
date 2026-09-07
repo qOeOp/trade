@@ -4,10 +4,19 @@ import {
   ownerOperationUrlV1,
 } from "./operation-registry.ts";
 import { validOperationalRunReferenceV1 } from "./operational-run-reference.ts";
+import { validExploratoryReplayOpaqueIdentityV2 } from "./exploratory-replay-identity.ts";
+import {
+  isLosslessNumber,
+  isSafeNumber,
+  LosslessNumber,
+  parse as parseLosslessJson,
+  stringify as stringifyLosslessJson,
+} from "lossless-json";
 
 const MAX_OWNER_RESPONSE_BYTES = 1_048_576;
-const IDENTITY = /^[A-Za-z0-9._:/-]{1,256}$/;
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
+const MAX_U64 = 18_446_744_073_709_551_615n;
+const UNSIGNED_DECIMAL = /^(?:0|[1-9][0-9]*)$/;
 
 type Json = Record<string, unknown>;
 type Fetcher = typeof fetch;
@@ -23,9 +32,9 @@ export type ExploratoryReplayReadbackProjectionV2 = {
     committedAtEpochMs: number;
     ownerCutEpochMs: number;
     namespace: "EXPLORATORY";
-    deterministicSeed: number;
-    startEventNs: number;
-    endEventNsExclusive: number;
+    deterministicSeed: string;
+    startEventNs: string;
+    endEventNsExclusive: string;
     trialFamilyIdentity: string;
     artifactIdentity: string;
     strategyDesignIdentity: string;
@@ -63,15 +72,60 @@ function exactKeys(value: Json, expected: string[]): boolean {
 }
 
 function identity(value: unknown): value is string {
-  return typeof value === "string" && IDENTITY.test(value);
+  return validExploratoryReplayOpaqueIdentityV2(value);
 }
 
 function digest(value: unknown): value is string {
   return typeof value === "string" && DIGEST.test(value);
 }
 
-function safeUnsigned(value: unknown): value is number {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
+function unsignedDecimal(value: unknown): string | null {
+  const decimal = typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? String(value)
+    : isLosslessNumber(value) && UNSIGNED_DECIMAL.test(value.value)
+      ? value.value
+      : null;
+  if (decimal === null) return null;
+  try {
+    return BigInt(decimal) <= MAX_U64 ? decimal : null;
+  } catch {
+    return null;
+  }
+}
+
+function safeUnsigned(value: unknown): boolean {
+  return unsignedDecimal(value) !== null;
+}
+
+function safeUnsignedNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function validU64String(value: unknown): value is string {
+  if (typeof value !== "string" || !UNSIGNED_DECIMAL.test(value)) return false;
+  try {
+    return BigInt(value) <= MAX_U64;
+  } catch {
+    return false;
+  }
+}
+
+function increasingUnsigned(start: unknown, end: unknown): boolean {
+  const startDecimal = unsignedDecimal(start);
+  const endDecimal = unsignedDecimal(end);
+  return startDecimal !== null && endDecimal !== null
+    && BigInt(startDecimal) < BigInt(endDecimal);
+}
+
+function parseOwnerJson(text: string): unknown {
+  return parseLosslessJson(text, undefined, {
+    parseNumber: (value) => isSafeNumber(value, { approx: false })
+      ? Number(value)
+      : new LosslessNumber(value),
+    onDuplicateKey: ({ key }) => {
+      throw new SyntaxError(`Duplicate Owner response key: ${key}`);
+    },
+  });
 }
 
 function contentIdentity(value: unknown): value is { identity: string; digest: string } {
@@ -114,8 +168,7 @@ function replayRequest(value: unknown, requestIdentity: string): value is Json {
     || !MODEL_FIELDS.every((field) => versionedIdentity((value.models as Json)[field]))
     || !safeUnsigned(value.deterministic_seed)
     || !object(value.window) || !exactKeys(value.window, ["start_event_ns", "end_event_ns_exclusive"])
-    || !safeUnsigned(value.window.start_event_ns) || !safeUnsigned(value.window.end_event_ns_exclusive)
-    || Number(value.window.start_event_ns) >= Number(value.window.end_event_ns_exclusive)) return false;
+    || !increasingUnsigned(value.window.start_event_ns, value.window.end_event_ns_exclusive)) return false;
   return true;
 }
 
@@ -124,10 +177,10 @@ function canonicalRequestMatches(bytes: unknown, request: Json): boolean {
     || !bytes.every((entry) => Number.isInteger(entry) && entry >= 0 && entry <= 255)) return false;
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(bytes));
-    const decoded: unknown = JSON.parse(text);
+    const decoded: unknown = parseOwnerJson(text);
     return replayRequest(decoded, String(request.request_identity))
-      && text === JSON.stringify(decoded)
-      && JSON.stringify(decoded) === JSON.stringify(request);
+      && text === stringifyLosslessJson(decoded)
+      && stringifyLosslessJson(decoded) === stringifyLosslessJson(request);
   } catch {
     return false;
   }
@@ -172,8 +225,8 @@ export function parseExploratoryReplayOwnerV2(
     ]) || readback.receipt.schema_version !== 2 || !identity(readback.receipt.receipt_identity)
     || readback.receipt.request_identity !== expectedRequestIdentity
     || readback.receipt.meaning_digest !== expectedMeaningDigest
-    || !digest(readback.receipt.seal_digest) || !safeUnsigned(readback.receipt.committed_at_epoch_ms)
-    || !safeUnsigned(readback.owner_cut_epoch_ms)
+    || !digest(readback.receipt.seal_digest) || !safeUnsignedNumber(readback.receipt.committed_at_epoch_ms)
+    || !safeUnsignedNumber(readback.owner_cut_epoch_ms)
     || Number(readback.owner_cut_epoch_ms) < Number(readback.receipt.committed_at_epoch_ms)) return null;
 
   const request = readback.request;
@@ -190,9 +243,9 @@ export function parseExploratoryReplayOwnerV2(
       committedAtEpochMs: Number(readback.receipt.committed_at_epoch_ms),
       ownerCutEpochMs: Number(readback.owner_cut_epoch_ms),
       namespace: "EXPLORATORY",
-      deterministicSeed: Number(request.deterministic_seed),
-      startEventNs: Number(window.start_event_ns),
-      endEventNsExclusive: Number(window.end_event_ns_exclusive),
+      deterministicSeed: unsignedDecimal(request.deterministic_seed)!,
+      startEventNs: unsignedDecimal(window.start_event_ns)!,
+      endEventNsExclusive: unsignedDecimal(window.end_event_ns_exclusive)!,
       trialFamilyIdentity: String((request.trial_family as Json).identity),
       artifactIdentity: String((request.artifact as Json).identity),
       strategyDesignIdentity: String((request.strategy_design as Json).identity),
@@ -265,7 +318,7 @@ export async function resolveExploratoryReplayShadowV2({
       return unavailable(requestIdentity, meaningDigest, "OWNER_RESPONSE_UNAVAILABLE", 502);
     }
     let raw: unknown;
-    try { raw = JSON.parse(body); } catch {
+    try { raw = parseOwnerJson(body); } catch {
       return unavailable(requestIdentity, meaningDigest, "OWNER_RESPONSE_UNAVAILABLE", 502);
     }
     const projection = parseExploratoryReplayOwnerV2(raw, requestIdentity, meaningDigest);
@@ -322,10 +375,10 @@ export function parseExploratoryReplayShadowEnvelopeV2(
     "simulatorIdentity",
   ]) || readback.meaningDigest !== value.meaning_digest || !digest(readback.meaningDigest)
     || !identity(readback.receiptIdentity) || !digest(readback.sealDigest)
-    || readback.namespace !== "EXPLORATORY" || !safeUnsigned(readback.deterministicSeed)
-    || !safeUnsigned(readback.startEventNs) || !safeUnsigned(readback.endEventNsExclusive)
-    || Number(readback.startEventNs) >= Number(readback.endEventNsExclusive)
-    || !safeUnsigned(readback.committedAtEpochMs) || !safeUnsigned(readback.ownerCutEpochMs)
+    || readback.namespace !== "EXPLORATORY" || !validU64String(readback.deterministicSeed)
+    || !validU64String(readback.startEventNs) || !validU64String(readback.endEventNsExclusive)
+    || BigInt(readback.startEventNs) >= BigInt(readback.endEventNsExclusive)
+    || !safeUnsignedNumber(readback.committedAtEpochMs) || !safeUnsignedNumber(readback.ownerCutEpochMs)
     || Number(readback.ownerCutEpochMs) < Number(readback.committedAtEpochMs)
     || !identity(readback.trialFamilyIdentity) || !identity(readback.artifactIdentity)
     || !identity(readback.strategyDesignIdentity) || !identity(readback.pitSnapshotIdentity)

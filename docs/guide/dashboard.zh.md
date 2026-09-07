@@ -86,9 +86,9 @@ text 暴露完整值，只在视觉上截断。browser 不接收 canonical reque
 Product Edge admission、protected diagnostic、source、result bytes 或 storage field。
 
 经过认证的 Owner route 精确为
-`GET /v2/exploratory-replay-requests/{request_identity}/readback?meaning_digest={meaning_digest}`。它不接受
+`GET /v2/exploratory-replay-requests/readback?request_identity={request_identity}&meaning_digest={meaning_digest}`。它不接受
 body，只调用现有 sealed R&D Owner Replay V2 read port。Owner 只读取既有 custody；不创建 request、
-admission、attempt、timeout transition、outbox row 或 effect。Dashboard BFF 对 path/query 中两个 selector
+admission、attempt、timeout transition、outbox row 或 effect。Dashboard BFF 通过不受 path 归一化影响的 query 对两个 selector
 field 做绑定，验证完整 canonical Owner response，依据 typed request 校验 canonical request bytes，再仅投影
 上述字段。非法 selector 产生零次 Owner call。未知字段、错误 canonical bytes、identity/digest 漂移、
 availability 矛盾、超限 response、permission denial 或 transport failure 都会清除旧的正向状态并 fail closed。

@@ -36,6 +36,7 @@ export type OperationDescriptorV1 = {
     method: "GET" | "POST";
     path_template: string;
     identity_fields: readonly string[];
+    query_fields?: readonly string[];
     body_schema: null | "empty-object-v1";
   };
   timeout_class: {
@@ -216,8 +217,9 @@ export const operationRegistryV1 = [
     dependency_operation_ids: [RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION],
     owner_route: {
       method: "GET",
-      path_template: "/v2/exploratory-replay-requests/{request_identity}/readback?meaning_digest={meaning_digest}",
+      path_template: "/v2/exploratory-replay-requests/readback",
       identity_fields: ["request_identity", "meaning_digest"],
+      query_fields: ["request_identity", "meaning_digest"],
       body_schema: null,
     },
     timeout_class: { identity: "owner-read-8s", milliseconds: 8_000 },
@@ -414,13 +416,20 @@ export function ownerOperationUrlV1({
     if (!["http:", "https:"].includes(base.protocol) || base.username || base.password
       || base.search || base.hash) return null;
     let path = operation.owner_route.path_template;
-    for (const field of operation.owner_route.identity_fields) {
+    const queryFields = new Set(operation.owner_route.query_fields ?? []);
+    for (const field of operation.owner_route.identity_fields.filter((name) => !queryFields.has(name))) {
       const value = identities[field];
       if (!value) return null;
       path = path.replace(`{${field}}`, encodeURIComponent(value));
     }
     if (path.includes("{")) return null;
-    return new URL(path, base);
+    const endpoint = new URL(path, base);
+    for (const field of operation.owner_route.query_fields ?? []) {
+      const value = identities[field];
+      if (!value) return null;
+      endpoint.searchParams.append(field, value);
+    }
+    return endpoint;
   } catch {
     return null;
   }
