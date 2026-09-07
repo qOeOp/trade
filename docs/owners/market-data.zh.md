@@ -621,14 +621,25 @@ contract multiplier、lot size 与每个 optional limit disposition 必须全部
 precision 必须等于其准确 increment scale。Token 不含 maker/taker fee、initial/maintenance margin、
 commission、leverage bracket 或 execution-profile authority，也不调用或构造 `InstrumentAny`。
 
-Strategy Factory 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。后续 Strategy Factory composition
-可以把这个 Market Data token 与其 private sealed Instrument Owner economic provenance 及该准确 execution
-profile 组合。Market Data 不 import Strategy Factory，也不 validate、copy、hash、select 或 issue replay
-economic value。
+Strategy Factory 仍是唯一 `ReplayExecutionProfileV1` 的 sole owner。逻辑 Instrument Owner 现在另行拥有
+private `InstrumentEconomicTermsFactV1` PostgreSQL 路径。该 fact 绑定准确 public instrument
+identity/digest、venue、margin-account scope、半开 validity、source 与 provenance、正 revision、quote/fee
+currency、正且准确的 maker/taker rate、正且准确的 initial/maintenance rate，以及封闭的
+`STANDARD_NOTIONAL_RATE` 语义。该语义明确为不经 leverage 的 `notional * rate`，只可映射到原生
+`StandardMarginModel`；V1 不猜测 `LeveragedMarginModel`。
 
-**NOT_ADMITTED：** V2 当前不声称 provider parser/call、authenticated ingestion、durable storage/migration、
-V2 cut/receipt/readback、product composition、database write、deployment、production effect 或 trading。
-本 slice 不实现或声称后续 Strategy Factory combination。
+Fact 与 deterministic receipt 原子提交。完全相同的 meaning 与 bytes 重放不写入，并返回相同 locator 与
+bytes。恢复只接受准确 fact-and-receipt locator，重新校验 canonical bytes、custody 与 ACL closure；任何
+missing、partial、conflicting、cross-spliced 或 tampered storage 都在返回 move-only readback 前失败。该
+private fact 不是通用 public Instrument Master truth，也不改变任何 V1 或 public V2 bytes。
+
+Strategy Factory 只能从该 verified Owner readback 铸造其 move-only economic provenance，并且还必须匹配
+venue、account scope、event time、currency 与全部可见 economic profile value。Market Data public-fact
+module 仍不 import Strategy Factory，也不 validate、copy、select 或 issue replay economic value。
+
+**NOT_ADMITTED：** public V2 仍不声称 provider parser/call、authenticated ingestion、durable public-fact
+storage/migration、V2 cut/receipt/readback、deployment、production effect 或 trading。private economic 路径
+不会提升这些 public-fact 声称，也不构造原生 instrument。
 
 ### 状态与固定消费者
 

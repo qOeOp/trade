@@ -861,10 +861,15 @@ instance、cache 与 subsystem field。两者都使用严格 canonical codec、�
 model enum，且没有隐藏 default、floating-point、environment 或 caller fallback。
 
 永久 TrialFamily binding 与 R&D-owned request binding 都重复准确的两个 seal digest，并交叉绑定相同 family
-identity/digest。maker/taker fee 与 initial/maintenance margin 只有在独立、不可伪造的 Instrument Owner
-provenance value 绑定准确 instrument fact、receipt 与 term bytes 后才可使用；可见 economic configuration
-不能自行证明这些值，缺失值也绝不变成零或原生 default。任一 family、request、profile 或 Instrument Owner
-binding 缺失、非规范、mismatch 或 cross-splice，都必须在 `ProgramHostV2` 或 Backtest state 产生前失败。
+identity/digest。maker/taker fee 与 initial/maintenance margin 只有通过 Instrument Owner verified
+exact-locator readback 铸造的独立、不可伪造 provenance value 才可使用。private fact 与 atomic receipt 绑定
+public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
+quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
+value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断
+`LeveragedMarginModel`。可见 economic configuration 不能自证这些值，missing value 也绝不会变为零或原生
+default。错误 fact、receipt、terms、venue、account 或 time，以及 noncanonical、partial、extra、
+cross-spliced、tampered 或 ACL-drifted custody 都会在 `ProgramHostV2` 或 Backtest state 存在前失败。既有
+profile canonical bytes 与 digest 保持不变。
 
 原生 engine materialization 保持 `UNAVAILABLE`。V1 只把 liquidation 表示为 disabled，不携带 numeric ratio；
 adapter 必须另行证明原生 float-only inactive liquidation field 不会被读取，或在 policy meaning 之外绑定

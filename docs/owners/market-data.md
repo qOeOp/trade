@@ -638,14 +638,28 @@ explicit absent optional limit; `UNAVAILABLE` may not. Filter precision must equ
 scale. The token contains no maker/taker fee, initial/maintenance margin, commission, leverage bracket,
 or execution-profile authority and never calls or constructs `InstrumentAny`.
 
-Strategy Factory remains the sole owner of the one `ReplayExecutionProfileV1`. A later Strategy Factory
-composition may combine this Market Data token with its private sealed Instrument Owner economic
-provenance and that exact execution profile. Market Data neither imports Strategy Factory nor validates,
-copies, hashes, selects, or issues replay economic values.
+Strategy Factory remains the sole owner of the one `ReplayExecutionProfileV1`. The logical Instrument
+Owner now separately owns a private `InstrumentEconomicTermsFactV1` PostgreSQL path. Its fact binds the
+exact public instrument identity/digest, venue, margin-account scope, half-open validity, source and
+provenance, positive revision, quote/fee currency, positive exact maker/taker rates, positive exact
+initial/maintenance rates, and the closed `STANDARD_NOTIONAL_RATE` meaning. That meaning is explicitly
+`notional * rate` without leverage and may map only to native `StandardMarginModel`; V1 never guesses
+`LeveragedMarginModel`.
 
-**NOT_ADMITTED:** V2 currently claims no provider parser or call, authenticated ingestion, durable
-storage/migration, V2 cut/receipt/readback, product composition, database write, deployment, production
-effect, or trading. The later Strategy Factory combination is not implemented or claimed by this slice.
+Fact and deterministic receipt are committed atomically. Repeating identical meaning and bytes performs
+no write and returns the same locator and bytes. Recovery accepts only the exact fact-and-receipt locator,
+revalidates canonical bytes, custody and ACL closure, and rejects missing, partial, conflicting,
+cross-spliced or tampered storage before returning a move-only readback. This private fact is not generic
+public Instrument Master truth and does not alter any V1 or public V2 bytes.
+
+Strategy Factory may mint its move-only economic provenance only from that verified Owner readback and
+must additionally match venue, account scope, event time, currencies and all visible economic profile
+values. Market Data's public-fact module still neither imports Strategy Factory nor validates, copies,
+selects, or issues replay economic values.
+
+**NOT_ADMITTED:** public V2 still claims no provider parser or call, authenticated ingestion, durable
+public-fact storage/migration, V2 cut/receipt/readback, deployment, production effect, or trading. The
+private economic path does not elevate those public-fact claims or construct a native instrument.
 
 ### Status and fixed consumer
 
