@@ -180,6 +180,7 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
             event_corpus,
             binding,
         } = self;
+
         if !event_corpus.has_valid_digest()
             || binding.event_corpus_digest != event_corpus.digest()
             || binding.event_corpus_count != event_corpus.expected_count()

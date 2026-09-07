@@ -20,8 +20,8 @@ use super::{
     source_binding::BindingDigest,
     strategy_input_binding::{
         StrategyInputBindingReceipt, StrategyInputBindingUnavailable,
-        StrategyInputEventFrameReceipt, StrategyInputEventKind, StrategyInputLifecycleProjection,
-        bind_strategy_input_event_frame,
+        StrategyInputEventFrameReceipt, StrategyInputEventKind, StrategyInputEventValueReceipt,
+        StrategyInputLifecycleProjection, bind_strategy_input_event_frame,
     },
     strategy_input_joined_cut::{
         StrategyInputJoinedCutComponentV1, StrategyInputJoinedCutReceiptV1,
@@ -57,10 +57,11 @@ impl Debug for StrategyInputEventSourceV1 {
 )]
 pub(in crate::owner) fn issue_strategy_input_event_source_v1(
     bindings: &[StrategyInputBindingReceipt],
-    batches: Vec<VerifiedPitObservationBatch>,
+    batches: &[VerifiedPitObservationBatch],
 ) -> Result<StrategyInputEventSourceV1, StrategyInputBindingUnavailable> {
     let mut frames = Vec::with_capacity(batches.len());
-    for batch in &batches {
+
+    for batch in batches {
         if let Ok(frame) = bind_strategy_input_event_frame(bindings, batch) {
             frames.push(frame);
             continue;
@@ -76,6 +77,7 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
         };
         frames.push(frame.clone());
     }
+
     if frames.is_empty()
         || frames.iter().any(|frame| {
             frame.trigger().lifecycle().kind() != StrategyInputEventKind::Event
@@ -101,6 +103,7 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
     });
     let mut prior = None;
     let mut trigger_digests = BTreeSet::new();
+
     for frame in &frames {
         let lifecycle = frame.trigger().lifecycle();
         let key = (
@@ -110,6 +113,7 @@ pub(in crate::owner) fn issue_strategy_input_event_source_v1(
             lifecycle.event_identity(),
             frame.trigger().digest(),
         );
+
         if prior.is_some_and(|previous| previous >= key)
             || !trigger_digests.insert(frame.trigger().digest())
         {
@@ -287,6 +291,7 @@ pub fn issue_strategy_input_event_corpus_v1(
         .iter()
         .map(|binding| (binding.locator().input_role_identity(), binding))
         .collect::<BTreeMap<_, _>>();
+
     if bindings.is_empty() || binding_by_role.len() != bindings.len() {
         return Err(StrategyInputEventCorpusUnavailableV1::CrossSplice);
     }
@@ -301,12 +306,13 @@ pub fn issue_strategy_input_event_corpus_v1(
             component.role_semantic_id() == first_candidate.joined_cut.trigger_input_id()
         })
         .and_then(|component| component.frame().values().first())
-        .map(|value| value.input_role_identity())
+        .map(StrategyInputEventValueReceipt::input_role_identity)
         .ok_or(StrategyInputEventCorpusUnavailableV1::CrossSplice)?;
     let trigger_binding = binding_by_role
         .get(&trigger_role)
         .ok_or(StrategyInputEventCorpusUnavailableV1::CrossSplice)?;
     let mut expected = BTreeSet::new();
+
     for frame in &source.frames {
         if frame.values().iter().any(|value| {
             value.input_role_identity() == trigger_role
@@ -320,6 +326,7 @@ pub fn issue_strategy_input_event_corpus_v1(
             ));
         }
     }
+
     if expected.is_empty() || expected.len() != candidates.len() {
         return Err(StrategyInputEventCorpusUnavailableV1::IncompleteCensus);
     }
@@ -357,6 +364,7 @@ pub fn issue_strategy_input_event_corpus_v1(
         if order_key.kind() != StrategyInputEventKind::Event {
             return Err(StrategyInputEventCorpusUnavailableV1::UnsupportedLifecycle);
         }
+
         if comparable_key != expected_key
             || trigger.digest() != joined_cut.trigger_digest()
             || !joined_cut.has_valid_digest()
@@ -403,10 +411,12 @@ pub fn issue_strategy_input_event_corpus_v1(
             order_key.owner_sequence(),
             order_key.event_identity(),
         );
+
         if prior_key.is_some_and(|prior| prior >= full_key) {
             return Err(StrategyInputEventCorpusUnavailableV1::NonCanonicalOrder);
         }
         prior_key = Some(full_key);
+
         if !joined_digests.insert(joined_cut.digest())
             || !projection_digests.insert(projection.receipt_digest())
             || !native_digests.insert(trigger.digest())
@@ -527,6 +537,7 @@ fn corpus_digest(
             .unwrap_or(u64::MAX)
             .to_be_bytes(),
     );
+
     for member in members {
         let key = member.order_key;
         hasher.update(key.logical_time().to_be_bytes());
@@ -548,6 +559,7 @@ fn event_source_digest(frames: &[StrategyInputEventFrameReceipt]) -> BindingDige
             .unwrap_or(u64::MAX)
             .to_be_bytes(),
     );
+
     for frame in frames {
         let trigger = frame.trigger();
         hasher.update(trigger.snapshot_identity().as_bytes());
@@ -559,6 +571,7 @@ fn event_source_digest(frames: &[StrategyInputEventFrameReceipt]) -> BindingDige
                 .unwrap_or(u64::MAX)
                 .to_be_bytes(),
         );
+
         for value in frame.values() {
             hasher.update(value.input_role_identity().as_bytes());
             hasher.update(value.binding_receipt_digest().as_bytes());

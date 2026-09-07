@@ -988,8 +988,8 @@ Owner-native event identity before any resolver can be issued.
 **CURRENT/PARTIAL, complete ordered EVENT corpus V1:** `StrategyInputEventCorpusV1` is the additive
 Market Data boundary for continuous replay. Its new move-only `StrategyInputEventSourceV1` is issued only from
 Owner event frames resolved from verified PIT batches; it retains each frame's snapshot identity, snapshot-fact
-digest, observation-batch digest, binding/value coordinates, and source/correction provenance. That source—not
-`SealedReplayInput` V1—determines the complete trigger set, so the caller cannot select a subset. Every member binds the canonical native order key
+digest, observation-batch digest, binding/value coordinates, and source/correction provenance. That source - not
+`SealedReplayInput` V1 - determines the complete trigger set, so the caller cannot select a subset. Every member binds the canonical native order key
 `(logical_time, event_time, owner_sequence, event_identity)`, joined-cut digest, projection receipt digest, and
 native trigger identity/digest. The corpus additionally binds the complete source digest, expected count, and a
 domain-separated corpus digest. Empty, missing, duplicate, reordered, BAR,

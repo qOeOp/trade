@@ -237,6 +237,7 @@ pub(crate) fn joined_cut_readback_for_event_corpus_acceptance_v2(
     canonical_bytes.push(JOINED_CUT_KIND);
     canonical_bytes.extend_from_slice(joined_cut.digest().as_bytes());
     put_u32(&mut canonical_bytes, component_count);
+
     for (component, value) in components {
         let frame = component.frame();
         let frame_evidence = prepare_frame_evidence(frame)?;

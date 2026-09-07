@@ -191,10 +191,6 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
 ///
 /// Fails closed if any Source Binding, PIT, role-binding, or event-frame Owner check rejects.
 ///
-/// # Panics
-///
-/// Panics only if this module's fixed four-role/three-event corpus exceeds its compile-time numeric
-/// seeds or fails to create the first role binding before issuing its remaining fixed frames.
 pub fn issue_strategy_input_join_corpus()
 -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
     let specs = [
@@ -289,6 +285,7 @@ fn issue_strategy_input_join_corpus_with_specs(
                 std::slice::from_ref(role_binding.as_ref().expect("role binding exists")),
                 &verified,
             )?);
+
             if include_stale_selection_negative && role_index == 0 && event_index == 2 {
                 let foreign = verified_batch(
                     &source_owner,
@@ -398,7 +395,7 @@ fn issue_strategy_input_join_corpus_with_specs(
         event_times[2],
     )?;
     let event_source = include_stale_selection_negative
-        .then(|| issue_strategy_input_event_source_v1(&bindings, source_batches.clone()))
+        .then(|| issue_strategy_input_event_source_v1(&bindings, &source_batches))
         .transpose()?;
     let equal_value_cross_snapshot_source = if include_stale_selection_negative {
         let foreign = equal_value_foreign_batch
@@ -407,7 +404,7 @@ fn issue_strategy_input_join_corpus_with_specs(
             .expect("fixed EVENT source retains the substituted batch coordinate");
         let mut batches = source_batches;
         batches[position] = foreign;
-        Some(issue_strategy_input_event_source_v1(&bindings, batches)?)
+        Some(issue_strategy_input_event_source_v1(&bindings, &batches)?)
     } else {
         None
     };
