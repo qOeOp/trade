@@ -286,7 +286,7 @@ test(testName, { skip: !url }, async () => {
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${expiredWorker}/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes('Exact worker readback')
+      `document.body?.innerText.toLowerCase().includes('exact worker readback')
         && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})`);
     await pool.query("DELETE FROM dashboard_shadow_workers_v1 WHERE worker_identity = $1", [expiredWorker]);
     assert.equal((await fetch(`${origin}/api/operations/workers/${expiredWorker}/`)).status, 404);
@@ -294,7 +294,7 @@ test(testName, { skip: !url }, async () => {
     await clickRefresh(browser);
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('WORKER_NOT_FOUND')
-        && !document.body?.innerText.includes('Registered operations')`);
+        && !document.body?.innerText.toLowerCase().includes('registered operations')`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
