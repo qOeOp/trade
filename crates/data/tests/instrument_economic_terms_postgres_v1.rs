@@ -231,6 +231,53 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         first.locator()
     );
 
+    let counts_before_suppressed_receipt: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE FUNCTION instrument_owner_private.suppress_economic_receipt_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN RETURN NULL; END'",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "CREATE TRIGGER suppress_economic_receipt_v1 BEFORE INSERT ON instrument_owner_private.economic_terms_receipts_v1 FOR EACH ROW EXECUTE FUNCTION instrument_owner_private.suppress_economic_receipt_v1()",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    let mut suppressed_receipt_input = fact.input().clone();
+    suppressed_receipt_input.instrument_identity = "XRPUSDT-PERP".into();
+    assert_eq!(
+        restarted
+            .issue(&InstrumentEconomicTermsFactV1::seal(suppressed_receipt_input).unwrap())
+            .await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+    );
+    let counts_after_suppressed_receipt: (i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        counts_before_suppressed_receipt,
+        counts_after_suppressed_receipt
+    );
+    sqlx::query(
+        "DROP TRIGGER suppress_economic_receipt_v1 ON instrument_owner_private.economic_terms_receipts_v1",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("DROP FUNCTION instrument_owner_private.suppress_economic_receipt_v1()")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     sqlx::query("CREATE ROLE instrument_economic_intruder LOGIN NOSUPERUSER")
         .execute(&pool)
         .await

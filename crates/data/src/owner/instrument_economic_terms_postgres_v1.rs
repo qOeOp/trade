@@ -100,17 +100,27 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
 
         let receipt = InstrumentEconomicTermsReceiptV1::issue(fact);
         let custody = custody_digest(fact.canonical_bytes(), receipt.canonical_bytes());
-        sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+        let fact_insert = sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
             .bind(fact.identity().as_slice()).bind(fact.meaning_identity().as_slice())
             .bind(fact.canonical_bytes()).bind(custody.as_slice())
             .execute(&mut *tx).await.map_err(classify_insert)?;
-        sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+        let receipt_insert = sqlx::query("INSERT INTO instrument_owner_private.economic_terms_receipts_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
             .bind(receipt.identity().as_slice()).bind(fact.identity().as_slice())
             .bind(receipt.canonical_bytes()).bind(custody.as_slice())
             .execute(&mut *tx).await.map_err(classify_insert)?;
+
+        if fact_insert.rows_affected() != 1 || receipt_insert.rows_affected() != 1 {
+            return Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback);
+        }
+        assert_complete_ledger_in_transaction(&mut tx).await?;
+        let readback = resolve_in_transaction(
+            &mut tx,
+            InstrumentEconomicTermsLocatorV1::from_identities(fact.identity(), receipt.identity())
+                .map_err(corrupt)?,
+        )
+        .await?;
         tx.commit().await.map_err(store_error)?;
-        InstrumentEconomicTermsReadbackV1::from_parts(fact.clone(), receipt)
-            .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+        Ok(readback)
     }
 
     /// Resolves only one exact fact-and-receipt locator and validates all durable bytes.
@@ -129,12 +139,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .map_err(store_error)?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger_in_transaction(&mut tx).await?;
-        let row = sqlx::query(
-            "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.fact_identity=$1 AND r.receipt_identity=$2",
-        ).bind(locator.fact_identity().as_slice()).bind(locator.receipt_identity().as_slice())
-            .fetch_optional(&mut *tx).await.map_err(store_error)?
-            .ok_or(InstrumentEconomicTermsPostgresErrorV1::UnknownLocator)?;
-        let readback = decode_row(&row)?;
+        let readback = resolve_in_transaction(&mut tx, locator).await?;
         tx.commit().await.map_err(store_error)?;
         Ok(readback)
     }
@@ -144,6 +149,18 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
         assert_acl_in_transaction(&mut tx).await?;
         tx.rollback().await.map_err(store_error)
     }
+}
+
+async fn resolve_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+    locator: InstrumentEconomicTermsLocatorV1,
+) -> Result<InstrumentEconomicTermsReadbackV1, InstrumentEconomicTermsPostgresErrorV1> {
+    let row = sqlx::query(
+        "SELECT f.fact_identity,f.meaning_identity,f.fact_bytes,f.custody_digest,r.receipt_identity,r.receipt_bytes,r.custody_digest AS receipt_custody_digest FROM instrument_owner_private.economic_terms_facts_v1 f JOIN instrument_owner_private.economic_terms_receipts_v1 r ON r.fact_identity=f.fact_identity WHERE f.fact_identity=$1 AND r.receipt_identity=$2",
+    ).bind(locator.fact_identity().as_slice()).bind(locator.receipt_identity().as_slice())
+        .fetch_optional(&mut **tx).await.map_err(store_error)?
+        .ok_or(InstrumentEconomicTermsPostgresErrorV1::UnknownLocator)?;
+    decode_row(&row)
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
