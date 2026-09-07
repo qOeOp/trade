@@ -538,10 +538,9 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires INSTRUMENT_OWNER_DATABASE_URL"]
     async fn verified_owner_readback_mints_provenance_and_wrong_coordinates_fail() {
-        if std::env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err() {
-            return;
-        }
+        std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
         let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
             .await
             .unwrap();

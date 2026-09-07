@@ -47,10 +47,9 @@ fn fact() -> InstrumentEconomicTermsFactV1 {
 }
 
 #[tokio::test]
+#[ignore = "requires INSTRUMENT_OWNER_DATABASE_URL"]
 async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
-    let Ok(url) = std::env::var("INSTRUMENT_OWNER_DATABASE_URL") else {
-        return;
-    };
+    let url = std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .connect(&url)
