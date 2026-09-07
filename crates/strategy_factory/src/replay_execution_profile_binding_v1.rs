@@ -411,8 +411,10 @@ mod tests {
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
     use rstest::rstest;
+    use sqlx::postgres::PgPoolOptions;
     use vibe_data::owner::{
         instrument_economic_terms_postgres_owner_from_environment_v1,
+        instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresErrorV1,
         instrument_economic_terms_v1::{
             InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
             InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
@@ -628,5 +630,58 @@ mod tests {
                 Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
             ));
         }
+
+        let url = std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        sqlx::query(
+            "CREATE FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN DELETE FROM instrument_owner_private.economic_terms_receipts_v1 WHERE receipt_identity=NEW.receipt_identity; RETURN NULL; END'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "CREATE CONSTRAINT TRIGGER defer_delete_economic_receipt_v1 AFTER INSERT ON instrument_owner_private.economic_terms_receipts_v1 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1()",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let row_counts_before: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let mut deferred_input = fact.input().clone();
+        deferred_input.instrument_identity = "SOLUSDT-PERP".into();
+        let deferred_fact = InstrumentEconomicTermsFactV1::seal(deferred_input).unwrap();
+        assert_eq!(
+            owner.issue(&deferred_fact).await,
+            Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+        );
+        let row_counts_after: (i64, i64) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(row_counts_before, row_counts_after);
+        sqlx::query(
+            "DROP TRIGGER defer_delete_economic_receipt_v1 ON instrument_owner_private.economic_terms_receipts_v1",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("DROP FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1()")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            owner.resolve(readback.locator()).await.unwrap().locator(),
+            readback.locator()
+        );
     }
 }

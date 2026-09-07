@@ -74,6 +74,12 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .execute(&mut *tx)
             .await
             .map_err(store_error)?;
+        sqlx::query(
+            "LOCK TABLE instrument_owner_private.economic_terms_facts_v1, instrument_owner_private.economic_terms_receipts_v1 IN SHARE ROW EXCLUSIVE MODE",
+        )
+        .execute(&mut *tx)
+        .await
+        .map_err(store_error)?;
         assert_acl_in_transaction(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(ADVISORY_LOCK_KEY)
@@ -226,6 +232,14 @@ async fn assert_acl_in_transaction(
               AND column_acl.attnum>0
               AND NOT column_acl.attisdropped
               AND a.grantee<>c.relowner
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_trigger protected_trigger
+            JOIN pg_class c ON c.oid=protected_trigger.tgrelid
+            WHERE c.relnamespace=n.oid
+              AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
+              AND NOT protected_trigger.tgisinternal
           )
           AND NOT EXISTS (
             SELECT 1

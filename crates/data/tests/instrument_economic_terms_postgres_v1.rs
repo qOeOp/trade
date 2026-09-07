@@ -296,7 +296,7 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         restarted
             .issue(&InstrumentEconomicTermsFactV1::seal(suppressed_receipt_input).unwrap())
             .await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
     );
     let counts_after_suppressed_receipt: (i64, i64) = sqlx::query_as(
         "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
