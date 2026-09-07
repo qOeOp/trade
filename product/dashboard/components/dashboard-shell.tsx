@@ -136,6 +136,7 @@ export function DashboardShell({
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
+  const suppressShellPageHeader = operationsSchedules;
   const connected = operationsConnected || sourceIntakeReadback || composerReadback
     || exploratoryReplayReadback || researchDirectory || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
@@ -147,7 +148,7 @@ export function DashboardShell({
       <main className="main-column">
         <TopBar current={current} />
         <div className="page-viewport">
-          <header className="page-header">
+          {suppressShellPageHeader ? <h1 className="sr-only">{page.label}</h1> : <header className="page-header">
             <div>
               <p>{activeModule.label} / {page.label}</p>
               <h1>{page.label}</h1>
@@ -186,7 +187,7 @@ export function DashboardShell({
                 ? exactBlueprint?.state ?? "IMPLEMENTATION_ADMITTED - FAIL_CLOSED_UNAVAILABLE"
                 : "No Dashboard consumer or action is connected."}</small>
             </div>
-          </header>
+          </header>}
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />

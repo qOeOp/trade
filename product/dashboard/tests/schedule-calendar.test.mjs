@@ -39,7 +39,10 @@ test("calendar colors resolve from the current shared theme instead of undefined
 });
 
 test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
-  const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
+  const [component, shell] = await Promise.all([
+    readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+  ]);
   const sourceFiles = await Promise.all([
     "calendar-header.tsx",
     "today-button.tsx",
@@ -68,6 +71,8 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   ]) assert.ok(source.includes(marker), `missing source calendar marker: ${marker}`);
   assert.match(component, /<CalendarHeader/);
   assert.match(component, /return <PanelFrame[^>]*>\s*<PanelFrameBody>\s*<CalendarHeader/u);
+  assert.match(shell, /const suppressShellPageHeader = operationsSchedules;/u);
+  assert.match(shell, /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u);
   assert.doesNotMatch(component, /<PanelFrameHeader/u);
   assert.doesNotMatch(component, /Shadow-read schedules[^\n]+Expected triggers and observed runs/u);
   assert.equal(sourceLock.components.calendarHeader.blob, "2357cf00f668de103b346a15a02918fbfc9f25c8");
