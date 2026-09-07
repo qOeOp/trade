@@ -251,14 +251,10 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.equal(keyboardTarget, true);
       await browser.send("Input.dispatchKeyEvent", {
-        type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+        type: "rawKeyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
       });
       await browser.send("Input.dispatchKeyEvent", {
-        type: "char", text: "\r", unmodifiedText: "\r", key: "Enter", code: "Enter",
-        windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
-      });
-      await browser.send("Input.dispatchKeyEvent", {
-        type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+        type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
       });
       await waitForBrowserExpression(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
