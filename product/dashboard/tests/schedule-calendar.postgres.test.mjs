@@ -116,6 +116,12 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
   throw new Error(`calendar browser condition timed out: ${expression}`);
 }
 
+async function readBrowserValue(browser, expression) {
+  const result = await browser.send("Runtime.evaluate", { expression, returnByValue: true });
+  if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? "browser expression failed");
+  return result.result?.value;
+}
+
 test(testName, { skip: !url }, async () => {
   const parsed = new URL(url);
   assert.equal(parsed.hostname, "127.0.0.1");
@@ -141,15 +147,24 @@ test(testName, { skip: !url }, async () => {
     await store.assertSchema();
     const now = Date.now();
     const fixture = compatibleEnvironmentV1({ nowEpochMs: now });
-    const descriptors = operationRegistryV1.filter((operation) => operation.effect_set.length === 0).map((operation, index) => ({
-      schema_version: 1,
-      operation_id: operation.operation_id,
-      recovery_identity: Object.fromEntries(operation.recovery_identity_fields.map((field) => [
-        field, field === "meaning_digest" ? `sha256:${"1".repeat(64)}` : `calendar-${field}`,
-      ])),
-      cadence_seconds: 120,
-      anchor_epoch_ms: Math.floor(now / 60000) * 60000 - (5 + index) * 60000,
-    })).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const zeroEffectOperations = operationRegistryV1.filter((operation) => operation.effect_set.length === 0);
+    assert.ok(zeroEffectOperations.length > 0);
+    const descriptorCount = browserAcceptance ? 30 : zeroEffectOperations.length;
+    const descriptors = Array.from({ length: descriptorCount }, (_, index) => {
+      const operation = zeroEffectOperations[index % zeroEffectOperations.length];
+      return {
+        schema_version: 1,
+        operation_id: operation.operation_id,
+        recovery_identity: Object.fromEntries(operation.recovery_identity_fields.map((field) => [
+          field,
+          field === "meaning_digest"
+            ? `sha256:${createHash("sha256").update(`calendar-${field}-${index}`).digest("hex")}`
+            : `calendar-${field}-${index}`,
+        ])),
+        cadence_seconds: 120,
+        anchor_epoch_ms: Math.floor(now / 60000) * 60000 - (5 + index) * 60000,
+      };
+    }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     // The configured-set parser owns canonical descriptor ordering.
     const canonical = JSON.stringify(descriptors);
     const environment = {
@@ -208,6 +223,95 @@ test(testName, { skip: !url }, async () => {
       });
       assert.match(visible.result.value, /observed/);
       assert.match(visible.result.value, /expected/);
+      const tableOpened = await readBrowserValue(browser, `(() => {
+        const settings = document.querySelector('summary[aria-label="Calendar settings"]');
+        settings?.click();
+        const table = document.querySelector('button[aria-label="Table view"]');
+        table?.click();
+        return Boolean(settings && table);
+      })()`);
+      assert.equal(tableOpened, true);
+      await waitForBrowserExpression(browser, "Boolean(document.querySelector('table[aria-label=\"Shadow-read schedules\"]'))");
+      const tableGeometry = await readBrowserValue(browser, `(() => {
+        const table = document.querySelector('table[aria-label="Shadow-read schedules"]');
+        const viewport = table?.closest('.data-workspace-viewport');
+        const primary = table?.closest('[class*="primary"]');
+        const heads = [...(table?.querySelectorAll('th') ?? [])];
+        const cells = [...(table?.querySelectorAll('tbody td') ?? [])];
+        const rows = [...(table?.querySelectorAll('tbody tr') ?? [])];
+        const pseudo = cells[1] ? getComputedStyle(cells[1], '::before') : null;
+        return {
+          heads: heads.length,
+          rows: rows.length,
+          allLeft: [...heads, ...cells].every((cell) => getComputedStyle(cell).textAlign === 'left'),
+          allSticky: heads.every((head) => getComputedStyle(head).position === 'sticky'),
+          separatorWidth: pseudo?.width,
+          separatorTop: pseudo?.top,
+          separatorBottom: pseudo?.bottom,
+          primaryScrollHeight: primary?.scrollHeight,
+          primaryClientHeight: primary?.clientHeight,
+          viewportScrollHeight: viewport?.scrollHeight,
+          viewportClientHeight: viewport?.clientHeight,
+        };
+      })()`);
+      assert.equal(tableGeometry.heads, 4);
+      assert.equal(tableGeometry.rows, 20);
+      assert.equal(tableGeometry.allLeft, true);
+      assert.equal(tableGeometry.allSticky, true);
+      assert.equal(tableGeometry.separatorWidth, "0.5px");
+      assert.equal(tableGeometry.separatorTop, "10px");
+      assert.equal(tableGeometry.separatorBottom, "10px");
+      assert.ok(tableGeometry.viewportScrollHeight > tableGeometry.viewportClientHeight,
+        `table viewport must own vertical scrolling: ${JSON.stringify(tableGeometry)}`);
+      const stickyGeometry = await readBrowserValue(browser, `(() => {
+        const viewport = document.querySelector('table[aria-label="Shadow-read schedules"]')?.closest('.data-workspace-viewport');
+        const head = viewport?.querySelector('th');
+        if (!viewport || !head) return null;
+        viewport.scrollTop = 240;
+        return new Promise((resolve) => requestAnimationFrame(() => resolve({
+          scrollTop: viewport.scrollTop,
+          viewportTop: viewport.getBoundingClientRect().top,
+          headTop: head.getBoundingClientRect().top,
+        })));
+      })()`);
+      assert.ok(stickyGeometry.scrollTop >= 200, JSON.stringify(stickyGeometry));
+      assert.ok(Math.abs(stickyGeometry.headTop - stickyGeometry.viewportTop) <= 1, JSON.stringify(stickyGeometry));
+      const selectedRow = await readBrowserValue(browser, `(() => {
+        const row = document.querySelector('table[aria-label="Shadow-read schedules"] tbody tr');
+        row?.click();
+        return Boolean(row);
+      })()`);
+      assert.equal(selectedRow, true);
+      await waitForBrowserExpression(browser,
+        "document.querySelector('table[aria-label=\"Shadow-read schedules\"] tbody tr')?.getAttribute('aria-selected') === 'true'");
+      for (const theme of ["dark", "light"]) {
+        await readBrowserValue(browser, `(() => {
+          document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+          return document.documentElement.dataset.theme;
+        })()`);
+        const palette = await readBrowserValue(browser, `(() => {
+          const table = document.querySelector('table[aria-label="Shadow-read schedules"]');
+          const selected = table?.querySelector('tbody tr[aria-selected="true"]');
+          const idle = table?.querySelector('tbody tr:not([aria-selected="true"])');
+          const probe = document.createElement('i');
+          probe.style.cssText = 'position:absolute;background:var(--data-table-row-selected-bg)';
+          document.body.append(probe);
+          const selectedToken = getComputedStyle(probe).backgroundColor;
+          probe.style.background = 'var(--data-table-header-bg)';
+          const headerToken = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return {
+            selected: selected ? getComputedStyle(selected).backgroundColor : null,
+            idle: idle ? getComputedStyle(idle).backgroundColor : null,
+            selectedToken,
+            header: table?.querySelector('th') ? getComputedStyle(table.querySelector('th')).backgroundColor : null,
+            headerToken,
+          };
+        })()`);
+        assert.equal(palette.selected, palette.selectedToken, `${theme} selected token`);
+        assert.notEqual(palette.selected, palette.idle, `${theme} selected contrast`);
+        assert.equal(palette.header, palette.headerToken, `${theme} header token`);
+      }
       const browserSchedule = cut.schedules[0];
       try {
         await pool.query(`UPDATE dashboard_shadow_read_schedules_v1
