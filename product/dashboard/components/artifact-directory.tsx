@@ -297,6 +297,7 @@ export function ArtifactDirectory() {
           eyebrow="Verified Artifact custody"
           title="Strategy artifacts"
           titleId="artifact-directory-title"
+          meta="Owner custody · Read only · No build or execution"
           description={view === "verified"
             ? "Owner-verified terminal builds. Open an artifact to inspect its immutable source."
             : "Bounded custody identities only. Candidates carry no Artifact or TrialFamily outcome."}
