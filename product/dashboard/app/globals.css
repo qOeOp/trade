@@ -333,6 +333,9 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
 }
+.data-workspace-table[data-height-mode="fill"] { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.data-workspace-table[data-height-mode="fill"] > .data-workspace-viewport { min-height: 0; flex: 1 1 auto; overflow: auto; }
+.data-workspace-table[data-height-mode="fill"] > .data-workspace-pagination { flex: 0 0 auto; }
 .data-table-surface > .data-workspace-table { border-radius: 0; }
 .data-workspace-viewport { width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .workspace-table { width: 100%; border-spacing: 0; color: var(--text-primary); background: var(--surface-card); table-layout: fixed; }

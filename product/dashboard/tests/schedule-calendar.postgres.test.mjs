@@ -117,7 +117,7 @@ async function waitForBrowserExpression(browser, expression, timeoutMs = 15_000)
 }
 
 async function readBrowserValue(browser, expression) {
-  const result = await browser.send("Runtime.evaluate", { expression, returnByValue: true });
+  const result = await browser.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? "browser expression failed");
   return result.result?.value;
 }

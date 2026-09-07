@@ -77,6 +77,11 @@ test("all Dashboard tables stay behind the TanStack and shadcn workspace boundar
   assert.match(workspaceTableSource, /table\.getFilteredRowModel\(\)\.rows\.length/u);
   assert.match(workspaceTableSource, /aria-selected=\{conditionalRowStyles\.length \? selected : undefined\}/u);
   assert.match(workspaceTableSource, /if \(event\.target !== event\.currentTarget\) return;/u);
+  assert.match(workspaceTableSource, /heightMode\?: "content" \| "fill"/u);
+  assert.match(workspaceTableSource, /heightMode = "content"/u);
+  assert.match(workspaceTableSource, /data-height-mode=\{heightMode\}/u);
+  assert.match(globalCss, /\.data-workspace-table\[data-height-mode="fill"\][^}]*display: flex;[^}]*flex-direction: column;/u);
+  assert.match(globalCss, /\.data-workspace-table\[data-height-mode="fill"\] > \.data-workspace-viewport[^}]*flex: 1 1 auto;[^}]*overflow: auto;/u);
 
   const runTableSource = await readFile(
     join(dashboardRoot, "components/operations-runstore-preview.tsx"),
@@ -84,6 +89,11 @@ test("all Dashboard tables stay behind the TanStack and shadcn workspace boundar
   );
   assert.match(runTableSource, /<DataWorkspaceTable<RunListItemV1>/u);
   assert.match(runTableSource, /data=\{visibleRuns\}/u);
+  const scheduleTableSource = await readFile(
+    join(dashboardRoot, "components/operations-schedules-preview.tsx"),
+    "utf8",
+  );
+  assert.match(scheduleTableSource, /<DataWorkspaceTable[^>]*heightMode="fill"/u);
 });
 
 test("the TanStack filter model feeds pagination instead of filtering a rendered page", () => {

@@ -92,6 +92,7 @@ type DataWorkspaceTableProps<T extends RowData> = {
   defaultSortAsc?: boolean;
   defaultSortFieldId?: string | number;
   dense?: boolean;
+  heightMode?: "content" | "fill";
   keyField?: keyof T | string;
   noDataComponent?: ReactNode;
   onRowClicked?: (row: T, event: ReactMouseEvent<HTMLTableRowElement>) => void;
@@ -132,6 +133,7 @@ export function DataWorkspaceTable<T extends RowData>({
   defaultSortAsc = true,
   defaultSortFieldId,
   dense = false,
+  heightMode = "content",
   keyField,
   noDataComponent,
   onRowClicked,
@@ -203,6 +205,7 @@ export function DataWorkspaceTable<T extends RowData>({
       ref={viewportRef}
       className={["data-workspace-table", className].filter(Boolean).join(" ")}
       data-density={dense ? "compact" : "default"}
+      data-height-mode={heightMode}
       data-interactive={interactive || undefined}
     >
       <div className="data-workspace-viewport">
