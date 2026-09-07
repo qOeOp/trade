@@ -26,7 +26,7 @@
   min-width: 0;
   overflow: hidden;
   border: .5px solid var(--border-default);
-  border-radius: 15px;
+  border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
   box-shadow: var(--elevation-hairline);
   transition: border-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;

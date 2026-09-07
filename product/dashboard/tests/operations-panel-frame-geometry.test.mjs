@@ -42,8 +42,28 @@ test("Bento unavailable content uses the same inset-card geometry as populated c
 });
 
 test("Visible nested surfaces share one inner radius while structural joins stay flat", () => {
-  assert.match(css, /\.insight-summary \{[^}]*border-radius: var\(--panel-inner-radius\);/u);
-  assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);[^}]*border-radius: var\(--panel-inner-radius\);/u);
+  const tokenizedInnerSurfaces = [
+    ".bento-page-frame > .panel-frame-body > .panel-frame-footer",
+    ".bento-page-frame > .panel-frame-body > .progress-list",
+    ".operations-alerts-page .panel-frame-footer",
+    ".operations-event-rail .panel-frame-footer",
+    ".evidence-ribbon",
+    ".run-detail-result > header",
+    ".run-detail-result > .empty-state",
+    ".evidence-field",
+    ".evidence-actions",
+    ".summary-metric",
+    ".insight-summary",
+    ".technical-disclosure",
+    ".prototype-notice",
+  ];
+
+  for (const selector of tokenizedInnerSurfaces) {
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+    assert.match(css, new RegExp(`${escaped} \\{[^}]*border-radius: var\\(--panel-inner-radius\\);`, "u"));
+  }
+
+  assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);/u);
   assert.match(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
   assert.match(css, /\.operations-run-table-surface > \.panel-frame-footer \{[^}]*border-radius: 0;/u);
 });
@@ -67,4 +87,17 @@ test("Run result fields and actions reflow from their actual card width before t
   const mobileViewportBlock = css.split("@media (max-width: 767px)")[1];
   assert.ok(mobileViewportBlock);
   assert.doesNotMatch(mobileViewportBlock, /\.evidence-strip\[data-layout="result"\]/u);
+});
+
+test("Foundation card clusters consume the shared inner radius token", async () => {
+  const modules = await Promise.all([
+    source("market-data-owner-foundation-card.module.css"),
+    source("runtime-foundation-not-ready-card.module.css"),
+    source("portfolio-view-unavailable-card.module.css"),
+  ]);
+
+  for (const moduleCss of modules) {
+    assert.match(moduleCss, /border-radius: var\(--panel-inner-radius\);/u);
+    assert.doesNotMatch(moduleCss, /border-radius: 15px;/u);
+  }
 });
