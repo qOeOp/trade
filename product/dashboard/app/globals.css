@@ -327,7 +327,7 @@ a { color: inherit; text-decoration: none; }
 .data-workspace-table {
   min-width: 0;
   overflow: hidden;
-  border-radius: 14px;
+  border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
 }
 .data-table-surface > .data-workspace-table { border-radius: 0; }
