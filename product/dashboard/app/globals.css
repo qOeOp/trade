@@ -348,8 +348,8 @@ a { color: inherit; text-decoration: none; }
 .workspace-table-row { color: var(--text-primary); background: var(--surface-card); transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease; }
 .workspace-table-row[data-interactive="true"] { cursor: pointer; }
 .workspace-table-row[data-interactive="true"]:hover { color: var(--data-table-row-hover-fg); background: var(--data-table-row-hover-bg); }
-.workspace-table-row[aria-selected="true"] { color: var(--data-table-row-selected-fg); background: var(--data-table-row-selected-bg); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
-.workspace-table-row[data-interactive="true"][aria-selected="true"]:hover { color: var(--data-table-row-selected-fg); background: var(--data-table-row-selected-bg); }
+.workspace-table-row[aria-selected="true"] { color: var(--data-table-row-selected-fg); background-color: var(--data-table-row-selected-bg); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
+.workspace-table-row[data-interactive="true"][aria-selected="true"]:hover { color: var(--data-table-row-selected-fg); background-color: var(--data-table-row-selected-bg); }
 .workspace-table-row[data-interactive="true"]:focus-visible { outline: 0; box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent), 0 0 0 2px color-mix(in srgb, var(--text-muted) 22%, transparent); }
 .data-workspace-table[data-density="compact"] .workspace-table-cell { height: 48px; padding-block: 7px; }
 .data-workspace-sort { width: 100%; height: 100%; padding: 0; display: inline-flex; align-items: center; justify-content: inherit; gap: 6px; border: 0; color: inherit; background: transparent; font: inherit; text-align: inherit; cursor: pointer; }
