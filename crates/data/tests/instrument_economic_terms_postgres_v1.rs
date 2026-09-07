@@ -169,6 +169,47 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         first.locator()
     );
 
+    let deleted_second_fact: (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
+        "SELECT fact_identity,meaning_identity,fact_bytes,custody_digest FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(second.locator().fact_identity().as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let mut replication_connection = pool.acquire().await.unwrap();
+    sqlx::query("SET session_replication_role = replica")
+        .execute(&mut *replication_connection)
+        .await
+        .unwrap();
+    sqlx::query(
+        "DELETE FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(second.locator().fact_identity().as_slice())
+    .execute(&mut *replication_connection)
+    .await
+    .unwrap();
+    sqlx::query("SET session_replication_role = origin")
+        .execute(&mut *replication_connection)
+        .await
+        .unwrap();
+    drop(replication_connection);
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+    );
+    sqlx::query("INSERT INTO instrument_owner_private.economic_terms_facts_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
+        .bind(&deleted_second_fact.0)
+        .bind(&deleted_second_fact.1)
+        .bind(&deleted_second_fact.2)
+        .bind(&deleted_second_fact.3)
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
+    );
+
     let deleted_receipt: (Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
         "SELECT receipt_identity,receipt_bytes,custody_digest FROM instrument_owner_private.economic_terms_receipts_v1 WHERE fact_identity=$1",
     )
