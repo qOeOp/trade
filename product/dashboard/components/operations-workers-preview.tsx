@@ -222,7 +222,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
 
   return (
     <PageStack className="operations-workers-page" gap="compact">
-      <PanelFrame className="operations-workers-panel bento-page-frame" variant="flat"
+      <PanelFrame className="operations-workers-panel bento-page-frame"
         aria-labelledby="operations-workers-title">
         <PanelFrameHeader
           eyebrow="Trade worker custody"

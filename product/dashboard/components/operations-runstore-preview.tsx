@@ -230,7 +230,7 @@ export function OperationsRunStorePreview() {
 
   return (
     <PageStack className="operations-runs-page">
-    <PanelFrame className="operations-runs-panel bento-page-frame" variant="flat"
+    <PanelFrame className="operations-runs-panel bento-page-frame"
       aria-labelledby="operations-runstore-title">
       <PanelFrameHeader
         eyebrow="Operational history"
