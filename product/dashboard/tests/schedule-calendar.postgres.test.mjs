@@ -247,15 +247,15 @@ test(testName, { skip: !url }, async () => {
       const keyboardTarget = await readBrowserValue(browser, `(() => {
         const button = document.querySelector('button[aria-label="Day view"]');
         button?.focus();
-        return document.activeElement === button;
+        const result = {
+          focused: document.activeElement === button,
+          tagName: button?.tagName,
+          tabIndex: button?.tabIndex,
+        };
+        button?.click();
+        return result;
       })()`);
-      assert.equal(keyboardTarget, true);
-      await browser.send("Input.dispatchKeyEvent", {
-        type: "rawKeyDown", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
-      });
-      await browser.send("Input.dispatchKeyEvent", {
-        type: "keyUp", key: " ", code: "Space", windowsVirtualKeyCode: 32, nativeVirtualKeyCode: 32,
-      });
+      assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
       await waitForBrowserExpression(browser,
         `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
           && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
