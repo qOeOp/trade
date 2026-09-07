@@ -251,7 +251,11 @@ test(testName, { skip: !url }, async () => {
       })()`);
       assert.equal(keyboardTarget, true);
       await browser.send("Input.dispatchKeyEvent", {
-        type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+        type: "rawKeyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+      });
+      await browser.send("Input.dispatchKeyEvent", {
+        type: "char", text: "\r", unmodifiedText: "\r", key: "Enter", code: "Enter",
+        windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
       });
       await browser.send("Input.dispatchKeyEvent", {
         type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
