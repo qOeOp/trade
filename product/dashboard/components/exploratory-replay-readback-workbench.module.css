@@ -104,7 +104,7 @@
 .result :global(.unavailable-state) {
   min-height: 136px;
   border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
-  border-radius: 14px;
+  border-radius: var(--panel-inner-radius);
   background: var(--surface-panel);
 }
 
@@ -118,7 +118,7 @@
   min-width: 0;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
-  border-radius: 14px;
+  border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
 }
 
@@ -262,7 +262,7 @@
   .resultRail,
   .resultRail > div {
     align-items: flex-start;
-    border-radius: 14px;
+    border-radius: var(--panel-inner-radius);
     flex-direction: column;
   }
 }

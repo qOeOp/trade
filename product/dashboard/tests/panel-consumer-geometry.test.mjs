@@ -17,6 +17,14 @@ function sharedPadding(css, selector) {
   for (const [, value] of padding) assert.equal(value.trim(), "var(--panel-content-padding)", selector);
 }
 
+function sharedInnerRadius(css, selector) {
+  const rules = rulesFor(css, selector);
+  assert.ok(rules.length, `missing consumer ${selector}`);
+  for (const rule of rules) {
+    assert.match(rule, /border-radius: var\(--panel-inner-radius\)/u, selector);
+  }
+}
+
 test("Source Intake and Composer consume the same token-bound body", async () => {
   for (const consumer of ["source-intake", "develop-composer"]) {
     const source = await read(`components/${consumer}-readback-workbench.tsx`);
@@ -69,4 +77,24 @@ test("Run Detail conditional action fields stay on the shared content axis", asy
   assert.match(detail, /className="run-cache-delete-panel"[\s\S]*?className="run-cache-delete-confirmation"/u);
   sharedPadding(css, ".detail-inspector > .run-cache-delete-field");
   sharedPadding(css, ".detail-inspector > .run-cache-delete-confirmation");
+});
+
+test("Readback and Portfolio body surfaces consume the shared inner radius", async () => {
+  const [source, replay, portfolio] = await Promise.all([
+    read("components/source-intake-readback-workbench.module.css"),
+    read("components/exploratory-replay-readback-workbench.module.css"),
+    read("components/portfolio-view-unavailable-card.module.css"),
+  ]);
+  for (const css of [source, replay]) {
+    sharedInnerRadius(css, ".result :global(.empty-state)");
+    sharedInnerRadius(css, ".result :global(.unavailable-state)");
+    sharedInnerRadius(css, ".group");
+  }
+  for (const selector of [".resultRail", ".resultRail > div"]) {
+    assert.ok(
+      rulesFor(replay, selector).some((rule) => /border-radius: var\(--panel-inner-radius\)/u.test(rule)),
+      selector,
+    );
+  }
+  sharedInnerRadius(portfolio, ".unavailableBanner");
 });

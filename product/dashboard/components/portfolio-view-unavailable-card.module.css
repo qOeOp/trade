@@ -16,7 +16,7 @@
   align-items: center;
   gap: 11px;
   border: .5px solid color-mix(in oklch, var(--status-unavailable) 30%, var(--border-default));
-  border-radius: 14px;
+  border-radius: var(--panel-inner-radius);
   color: var(--status-unavailable);
   background: color-mix(in oklch, var(--status-unavailable) 7%, var(--panel-chrome-bg));
 }
