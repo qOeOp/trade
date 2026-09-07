@@ -786,6 +786,7 @@ button.rd-research-item { cursor: pointer; }
 
 .panel-frame, .detail-inspector { min-width: 0; padding: var(--panel-inset); overflow: hidden; border: 0; border-radius: var(--panel-radius); background: var(--panel-frame-bg); box-shadow: var(--inset-frame); }
 .panel-frame[data-variant="flat"] { padding: 0; overflow: visible; border-radius: 0; background: transparent; box-shadow: none; }
+.panel-frame[data-variant="flat"] > .panel-frame-header { background: transparent; }
 .panel-frame:not([data-variant="flat"]) > .panel-frame-header { min-width: 0; width: 100%; margin: 0; border-radius: var(--panel-inner-radius) var(--panel-inner-radius) 0 0; background: var(--panel-chrome-bg); }
 .panel-frame-header { min-width: 0; flex: 0 0 auto; min-height: 82px; padding: 12px var(--panel-content-padding); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .panel-frame-header[data-density="compact"] { min-height: 64px; padding: 10px var(--panel-content-padding); gap: 10px; }

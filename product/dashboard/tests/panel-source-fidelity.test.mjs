@@ -61,6 +61,7 @@ test("framed corner rules never clip flat page-title frames", () => {
   assert.ok(cornerRules.length >= 3);
   for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
   assert.match(css, /\.panel-frame\[data-variant="flat"\] \{[^}]+background: transparent;/u);
+  assert.match(css, /\.panel-frame\[data-variant="flat"\] > \.panel-frame-header \{ background: transparent; \}/u);
   assert.doesNotMatch(css, /^\.panel-frame-header \{[^}]+background: var\(--panel-chrome-bg\)/mu);
 });
 
