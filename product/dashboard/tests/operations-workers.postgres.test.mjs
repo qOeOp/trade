@@ -192,7 +192,8 @@ test(testName, { skip: !url }, async () => {
       workerArtifactDigest: digest("dashboard-expired-worker-v1"),
     });
     await pool.query(`UPDATE dashboard_shadow_workers_v1
-      SET last_heartbeat_at = clock_timestamp() - interval '2 minutes',
+      SET registered_at = clock_timestamp() - interval '3 minutes',
+          last_heartbeat_at = clock_timestamp() - interval '2 minutes',
           lease_expires_at = clock_timestamp() - interval '1 minute'
       WHERE worker_identity = $1`, [expiredWorker]);
 
