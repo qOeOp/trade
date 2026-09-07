@@ -152,7 +152,7 @@ async fn assert_acl_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
     let admitted: bool = sqlx::query_scalar(
-        r#"
+        "
         SELECT pg_get_userbyid(n.nspowner)=current_user
           AND NOT EXISTS (
             SELECT 1
@@ -189,7 +189,7 @@ async fn assert_acl_in_transaction(
           AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE')
           AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE')
         FROM pg_namespace n WHERE n.nspname='instrument_owner_private'
-        "#,
+        ",
     ).fetch_one(&mut **tx).await.map_err(store_error)?;
 
     if admitted {
