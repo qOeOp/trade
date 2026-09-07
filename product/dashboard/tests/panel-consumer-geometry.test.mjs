@@ -41,3 +41,12 @@ test("Schedules joins its interior planes inside one inset body", async () => {
   for (const selector of [".calendar", ".primary", ".detail"])
     assert.match(rulesFor(css, selector)[0], /border-radius: 0;/u, selector);
 });
+
+for (const consumer of ["market-data-owner-foundation-card", "portfolio-view-unavailable-card", "exploratory-replay-readback-workbench"]) {
+  test(`${consumer} keeps its outer body on the shared axis at every breakpoint`, async () => {
+    const source = await read(`components/${consumer}.tsx`);
+    assert.ok(source.includes(`from "./${consumer}.module.css"`));
+    assert.match(source, /<PanelFrameBody className=\{styles.body\}/u);
+    sharedPadding(await read(`components/${consumer}.module.css`), ".body");
+  });
+}
