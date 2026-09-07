@@ -3,7 +3,7 @@
 }
 
 .body {
-  padding: 14px;
+  padding: var(--panel-content-padding);
 }
 
 .lookupRail {
