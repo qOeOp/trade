@@ -411,6 +411,7 @@ mod tests {
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
     use rstest::rstest;
+    use sqlx::postgres::PgPoolOptions;
     use vibe_data::owner::{
         instrument_economic_terms_postgres_owner_from_environment_v1,
         instrument_economic_terms_v1::{
@@ -539,12 +540,28 @@ mod tests {
 
     #[tokio::test]
     async fn verified_owner_readback_mints_provenance_and_wrong_coordinates_fail() {
-        if std::env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err() {
+        let Ok(database_url) = std::env::var("INSTRUMENT_OWNER_DATABASE_URL") else {
             return;
-        }
+        };
         let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
             .await
             .unwrap();
+        let pool = PgPoolOptions::new()
+            .max_connections(1)
+            .connect(&database_url)
+            .await
+            .unwrap();
+        let mut reset = pool.begin().await.unwrap();
+        sqlx::query("DELETE FROM instrument_owner_private.economic_terms_receipts_v1")
+            .execute(&mut *reset)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM instrument_owner_private.economic_terms_facts_v1")
+            .execute(&mut *reset)
+            .await
+            .unwrap();
+        reset.commit().await.unwrap();
+
         let fact = InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
             schema_version: 1,
             instrument_identity: "ETHUSDT-PERP".into(),
