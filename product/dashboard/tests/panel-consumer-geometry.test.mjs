@@ -59,3 +59,14 @@ test("Worker detail keeps its outer cluster grid on the shared content axis", as
   assert.match(worker, /<DetailClusterGrid>/u);
   sharedPadding(css, ".detail-inspector > .detail-cluster-grid");
 });
+
+test("Run Detail conditional action fields stay on the shared content axis", async () => {
+  const [css, detail] = await Promise.all([
+    read("app/globals.css"),
+    read("components/operations-run-detail.tsx"),
+  ]);
+  assert.match(detail, /className="dependency-cancellation-panel"[\s\S]*?className="run-cache-delete-field"/u);
+  assert.match(detail, /className="run-cache-delete-panel"[\s\S]*?className="run-cache-delete-confirmation"/u);
+  sharedPadding(css, ".detail-inspector > .run-cache-delete-field");
+  sharedPadding(css, ".detail-inspector > .run-cache-delete-confirmation");
+});
