@@ -2,11 +2,6 @@
   min-width: 0;
 }
 
-.frame :global(.panel-frame-header),
-.frame :global(.panel-frame-footer) {
-  background: var(--panel-chrome-bg);
-}
-
 .body {
   padding: var(--panel-content-padding);
   display: grid;
