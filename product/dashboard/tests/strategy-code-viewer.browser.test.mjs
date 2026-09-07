@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { once } from "node:events";
-import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -133,44 +131,36 @@ test(browserAcceptance
     cwd: dashboardRoot, encoding: "utf8",
   }), "");
 
-  const buildRequestIdentity = "viewer-build-request-v1";
-  const attemptIdentity = "viewer-attempt-v1";
-  const artifactIdentity = "viewer-artifact-v1";
-  const token = "viewer-local-owner-token";
-  const source = Array.from({ length: 80 }, (_, index) =>
-    `pub fn signal_${index}(spread: i64) -> i64 {\n    spread * ${index + 1}\n}`
-  ).join("\n\n");
-  const sourceDigest = `sha256:${createHash("sha256").update(source).digest("hex")}`;
-  let ownerMode = "available";
-  let ownerRequests = 0;
-  const owner = createServer((request, response) => {
-    ownerRequests += 1;
-    assert.equal(request.method, "GET");
-    assert.equal(request.url,
-      `/v1/artifact-builds/${buildRequestIdentity}/attempts/${attemptIdentity}/source`);
-    assert.equal(request.headers.authorization, `Bearer ${token}`);
-    const payload = {
-      artifact_identity: artifactIdentity,
-      attempt_identity: attemptIdentity,
-      build_request_identity: buildRequestIdentity,
-      file_name: "strategy.rs",
-      language: "rust",
-      observed_at_epoch_ms: Date.parse("2026-09-07T12:00:00.000Z"),
-      schema_version: 1,
-      source,
-      source_digest: ownerMode === "available" ? sourceDigest : `sha256:${"0".repeat(64)}`,
-      wasm_preview_reason: "WASM_PREVIEW_NOT_RUN",
-      wasm_preview_status: "NOT_RUN",
-    };
-    response.writeHead(200, { "content-type": "application/json" });
-    response.end(JSON.stringify(payload));
-  });
-  await new Promise((resolve, reject) => {
-    owner.once("error", reject);
-    owner.listen(0, "127.0.0.1", resolve);
-  });
-  const address = owner.address();
-  assert.ok(address && typeof address === "object");
+  const ownerUrl = process.env.RD_OWNER_API_URL ?? "";
+  const token = process.env.RD_OWNER_API_TOKEN ?? "";
+  const buildRequestIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_BUILD_REQUEST_IDENTITY ?? "";
+  const attemptIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_ATTEMPT_IDENTITY ?? "";
+  const mismatchAttemptIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_MISMATCH_ATTEMPT_IDENTITY ?? "";
+  const artifactIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_ARTIFACT_IDENTITY ?? "";
+  const sourceDigest = process.env.DASHBOARD_STRATEGY_VIEWER_SOURCE_DIGEST ?? "";
+  assert.match(ownerUrl, /^http:\/\/127\.0\.0\.1:\d+\/$/u);
+  assert.match(token, /^\S+$/u);
+  for (const identity of [buildRequestIdentity, attemptIdentity, mismatchAttemptIdentity, artifactIdentity]) {
+    assert.match(identity, /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/u);
+  }
+  assert.notEqual(mismatchAttemptIdentity, attemptIdentity);
+  assert.match(sourceDigest, /^sha256:[0-9a-f]{64}$/u);
+
+  const ownerReadback = await fetch(new URL(
+    `v1/artifact-builds/${buildRequestIdentity}/attempts/${attemptIdentity}/source`,
+    ownerUrl,
+  ), { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(ownerReadback.status, 200);
+  const ownerProjection = await ownerReadback.json();
+  assert.equal(ownerProjection.artifact_identity, artifactIdentity);
+  assert.equal(ownerProjection.source_digest, sourceDigest);
+  assert.equal(ownerProjection.file_name, "strategy.rs");
+  assert.equal(ownerProjection.language, "rust");
+  assert.equal(ownerProjection.wasm_preview_status, "NOT_RUN");
+  assert.equal(ownerProjection.wasm_preview_reason, "WASM_PREVIEW_NOT_RUN");
+  const source = ownerProjection.source;
+  assert.equal(typeof source, "string");
+  assert.match(source, /pub fn/u);
 
   const port = 3220;
   let preview;
@@ -180,7 +170,7 @@ test(browserAcceptance
       cwd: dashboardRoot,
       env: {
         ...process.env,
-        RD_OWNER_API_URL: `http://127.0.0.1:${address.port}/`,
+        RD_OWNER_API_URL: ownerUrl,
         RD_OWNER_API_TOKEN: token,
       },
       stdio: "inherit",
@@ -250,8 +240,8 @@ test(browserAcceptance
       preview: "not_run",
     });
 
-    ownerMode = "malformed";
-    await browser.send("Page.reload", { ignoreCache: true });
+    const mismatchRoute = `${origin}/rd/artifacts/${buildRequestIdentity}/attempts/${mismatchAttemptIdentity}/`;
+    await browser.send("Page.navigate", { url: mismatchRoute });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Strategy source unavailable') === true
         && document.querySelector('button[aria-label="Copy strategy source"]')?.disabled === true`);
@@ -260,12 +250,10 @@ test(browserAcceptance
       editorAbsent: !document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'),
       reason: document.body.innerText.includes('OWNER_RESPONSE_UNAVAILABLE'),
     }))()`), { sourceAbsent: true, editorAbsent: true, reason: true });
-    assert.ok(ownerRequests >= 2, `expected a positive and fail-closed Owner read, got ${ownerRequests}`);
   } finally {
     browser?.close();
     await stopProcess(browser?.child);
     if (browser?.profile) await rm(browser.profile, { recursive: true, force: true });
     await stopProcess(preview);
-    await new Promise((resolve, reject) => owner.close((error) => error ? reject(error) : resolve()));
   }
 });
