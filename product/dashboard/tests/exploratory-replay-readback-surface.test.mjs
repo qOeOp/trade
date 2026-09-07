@@ -98,6 +98,13 @@ test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", asyn
   ));
   assert.equal(validReplacement.status, 503);
   assert.equal(ownerCalls, 1);
+  const leadingBomIdentity = encodeExploratoryReplayOpaqueIdentityV2("\uFEFFidentity");
+  assert.ok(leadingBomIdentity);
+  const validLeadingBom = await exports.GET(new Request(
+    `http://dashboard.test/api/backtest/replays?requestIdentityB64=${leadingBomIdentity}&meaningDigest=${digest}`,
+  ));
+  assert.equal(validLeadingBom.status, 503);
+  assert.equal(ownerCalls, 2);
 });
 
 test("bilingual Replay request contract fixes filtered zero-effect geometry", async () => {

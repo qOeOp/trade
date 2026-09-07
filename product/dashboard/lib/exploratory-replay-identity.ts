@@ -21,7 +21,7 @@ export function decodeExploratoryReplayOpaqueIdentityV2(value: unknown): string 
     const padded = `${value.replaceAll("-", "+").replaceAll("_", "/")}${"=".repeat((4 - value.length % 4) % 4)}`;
     const binary = atob(padded);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    const decoded = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    const decoded = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
     return validExploratoryReplayOpaqueIdentityV2(decoded)
       && encodeExploratoryReplayOpaqueIdentityV2(decoded) === value
       ? decoded
