@@ -148,7 +148,7 @@ export function DashboardShell({
       <main className="main-column">
         <TopBar current={current} />
         <div className="page-viewport">
-          {!suppressShellPageHeader && <header className="page-header">
+          {suppressShellPageHeader ? <h1 className="sr-only">{page.label}</h1> : <header className="page-header">
             <div>
               <p>{activeModule.label} / {page.label}</p>
               <h1>{page.label}</h1>

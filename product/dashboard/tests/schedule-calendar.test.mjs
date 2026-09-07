@@ -72,7 +72,7 @@ test("schedule controls retain the Vibe calendar hierarchy without editable acti
   assert.match(component, /<CalendarHeader/);
   assert.match(component, /return <PanelFrame[^>]*>\s*<PanelFrameBody>\s*<CalendarHeader/u);
   assert.match(shell, /const suppressShellPageHeader = operationsSchedules;/u);
-  assert.match(shell, /\{!suppressShellPageHeader && <header className="page-header">/u);
+  assert.match(shell, /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u);
   assert.doesNotMatch(component, /<PanelFrameHeader/u);
   assert.doesNotMatch(component, /Shadow-read schedules[^\n]+Expected triggers and observed runs/u);
   assert.equal(sourceLock.components.calendarHeader.blob, "2357cf00f668de103b346a15a02918fbfc9f25c8");
