@@ -6,7 +6,10 @@ import {
   parseExploratoryReplayBrowserProjectionV1,
   type ExploratoryReplayBrowserProjectionV1,
 } from "../lib/exploratory-replay-readback-gateway";
-import { validExploratoryReplayOpaqueIdentityV2 } from "../lib/exploratory-replay-identity";
+import {
+  encodeExploratoryReplayOpaqueIdentityV2,
+  validExploratoryReplayOpaqueIdentityV2,
+} from "../lib/exploratory-replay-identity";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
@@ -124,7 +127,9 @@ export function ExploratoryReplayReadbackWorkbench({
     setValidation(null);
     setStatus("loading");
     try {
-      const query = new URLSearchParams({ requestIdentity, meaningDigest });
+      const requestIdentityB64 = encodeExploratoryReplayOpaqueIdentityV2(requestIdentity);
+      if (!requestIdentityB64) throw new Error("invalid replay request identity");
+      const query = new URLSearchParams({ requestIdentityB64, meaningDigest });
       const response = await fetch(
         `/api/backtest/replays?${query.toString()}`,
         { cache: "no-store" },

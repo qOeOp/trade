@@ -5,6 +5,10 @@ import test from "node:test";
 import ts from "typescript";
 
 import { exactBlueprints, maturityFor } from "../lib/navigation.js";
+import {
+  decodeExploratoryReplayOpaqueIdentityV2,
+  encodeExploratoryReplayOpaqueIdentityV2,
+} from "../lib/exploratory-replay-identity.ts";
 import { readExploratoryReplayReadbackGatewayV1 } from "../lib/exploratory-replay-readback-gateway.ts";
 
 test("Backtest route renders one compact exact Replay request workbench", async () => {
@@ -33,7 +37,8 @@ test("Backtest route renders one compact exact Replay request workbench", async 
   assert.doesNotMatch(component, /useEffect|initialReadStarted/u);
   assert.equal(component.match(/void read\(/gu)?.length, 2);
   assert.match(route, /readExploratoryReplayReadbackGatewayV1/u);
-  assert.match(route, /getAll\("requestIdentity"\)/u);
+  assert.match(route, /getAll\("requestIdentityB64"\)/u);
+  assert.match(component, /requestIdentityB64/u);
   assert.match(route, /getAll\("meaningDigest"\)/u);
   assert.match(route, /cache-control/u);
   assert.match(shell, /<ExploratoryReplayReadbackWorkbench/u);
@@ -68,6 +73,9 @@ test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", asyn
         }),
       };
     }
+    if (path.includes("exploratory-replay-identity")) {
+      return { decodeExploratoryReplayOpaqueIdentityV2 };
+    }
     return require(path);
   };
   const exports = {};
@@ -78,16 +86,18 @@ test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", asyn
   const digest = `blake3:${"a".repeat(64)}`;
   for (const encodedIdentity of ["%FF", "%E0%A4"]) {
     const response = await exports.GET(new Request(
-      `http://dashboard.test/api/backtest/replays?requestIdentity=${encodedIdentity}&meaningDigest=${digest}`,
+      `http://dashboard.test/api/backtest/replays?requestIdentityB64=${encodedIdentity}&meaningDigest=${digest}`,
     ));
     assert.equal(response.status, 400);
     assert.equal(ownerCalls, 0);
   }
+  const replacementIdentity = encodeExploratoryReplayOpaqueIdentityV2("\uFFFD");
+  assert.ok(replacementIdentity);
   const validReplacement = await exports.GET(new Request(
-    `http://dashboard.test/api/backtest/replays?requestIdentity=%EF%BF%BD&meaningDigest=${digest}`,
+    `http://dashboard.test/api/backtest/replays?requestIdentityB64=${replacementIdentity}&meaningDigest=${digest}`,
   ));
-  assert.equal(validReplacement.status, 400);
-  assert.equal(ownerCalls, 0);
+  assert.equal(validReplacement.status, 503);
+  assert.equal(ownerCalls, 1);
 });
 
 test("bilingual Replay request contract fixes filtered zero-effect geometry", async () => {
