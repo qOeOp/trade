@@ -223,6 +223,105 @@ test(testName, { skip: !url }, async () => {
       });
       assert.match(visible.result.value, /observed/);
       assert.match(visible.result.value, /expected/);
+
+      const viewSlots = {
+        agenda: "calendar-agenda-view",
+        day: "calendar-day-view",
+        week: "calendar-week-view",
+        month: "calendar-month-view",
+        year: "calendar-year-view",
+      };
+      for (const [view, slot] of Object.entries(viewSlots)) {
+        const activated = await readBrowserValue(browser, `(() => {
+          const button = document.querySelector('button[aria-label="${view[0].toUpperCase()}${view.slice(1)} view"]');
+          button?.click();
+          return Boolean(button);
+        })()`);
+        assert.equal(activated, true, `${view} control exists`);
+        await waitForBrowserExpression(browser,
+          `Boolean(document.querySelector('[data-slot="${slot}"]'))
+            && document.querySelector('button[aria-label="${view[0].toUpperCase()}${view.slice(1)} view"]')
+              ?.getAttribute('aria-pressed') === 'true'`);
+      }
+
+      const keyboardTarget = await readBrowserValue(browser, `(() => {
+        const button = document.querySelector('button[aria-label="Day view"]');
+        button?.focus();
+        return document.activeElement === button;
+      })()`);
+      assert.equal(keyboardTarget, true);
+      await browser.send("Input.dispatchKeyEvent", {
+        type: "keyDown", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+      });
+      await browser.send("Input.dispatchKeyEvent", {
+        type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+      });
+      await waitForBrowserExpression(browser,
+        `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
+          && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
+
+      await readBrowserValue(browser,
+        `document.querySelector('button[aria-label="Month view"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('[data-slot=\"calendar-month-view\"]'))");
+      for (const theme of ["dark", "light"]) {
+        const viewPalette = await readBrowserValue(browser, `(() => {
+          document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+          const active = document.querySelector('button[aria-label="Month view"]');
+          const probe = document.createElement('i');
+          probe.style.cssText = 'position:absolute;background:var(--data-table-row-selected-bg)';
+          document.body.append(probe);
+          const token = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return {
+            pressed: active?.getAttribute('aria-pressed'),
+            background: active ? getComputedStyle(active).backgroundColor : null,
+            token,
+          };
+        })()`);
+        assert.equal(viewPalette.pressed, "true", `${theme} active view`);
+        assert.equal(viewPalette.background, viewPalette.token, `${theme} active view token`);
+      }
+
+      const overflowOpened = await readBrowserValue(browser, `(() => {
+        const button = document.querySelector('button[aria-label^="Show "][aria-label*=" more schedule groups on "]');
+        button?.click();
+        return Boolean(button);
+      })()`);
+      assert.equal(overflowOpened, true, "dense schedule days expose the retained overflow inspection");
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
+      const inspectionText = await readBrowserValue(browser,
+        "document.querySelector('dialog[open]')?.innerText ?? ''");
+      assert.match(inspectionText, /Expected triggers|Observed run reference/);
+      await readBrowserValue(browser,
+        `document.querySelector('button[aria-label="Close schedule inspection"]')?.click()`);
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 760, height: 900, deviceScaleFactor: 1, mobile: false,
+      });
+      const narrowGeometry = await readBrowserValue(browser, `(() => {
+        const header = document.querySelector('[data-slot="schedule-calendar-header"]');
+        const controls = [...document.querySelectorAll('[aria-label="Calendar view"] button')];
+        return {
+          flexDirection: header ? getComputedStyle(header).flexDirection : null,
+          overflowX: header ? getComputedStyle(header).overflowX : null,
+          controls: controls.length,
+          documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      })()`);
+      assert.equal(narrowGeometry.flexDirection, "column");
+      assert.equal(narrowGeometry.overflowX, "auto");
+      assert.equal(narrowGeometry.controls, 5);
+      assert.ok(narrowGeometry.documentOverflow <= 1, JSON.stringify(narrowGeometry));
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+      });
+      const desktopDirection = await readBrowserValue(browser,
+        "getComputedStyle(document.querySelector('[data-slot=\"schedule-calendar-header\"]')).flexDirection");
+      assert.equal(desktopDirection, "row");
+
       const tableOpened = await readBrowserValue(browser, `(() => {
         const settings = document.querySelector('summary[aria-label="Calendar settings"]');
         settings?.click();
