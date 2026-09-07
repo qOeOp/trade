@@ -1,8 +1,7 @@
 use sqlx::postgres::PgPoolOptions;
 use vibe_data::owner::{
-    instrument_economic_terms_postgres_v1::{
-        InstrumentEconomicTermsPostgresErrorV1, InstrumentEconomicTermsPostgresOwnerV1,
-    },
+    instrument_economic_terms_postgres_owner_from_environment_v1,
+    instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresErrorV1,
     instrument_economic_terms_v1::{
         InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
         InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
@@ -49,7 +48,7 @@ fn fact() -> InstrumentEconomicTermsFactV1 {
 
 #[tokio::test]
 async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
-    let Ok(url) = std::env::var("INSTRUMENT_ECONOMIC_TERMS_TEST_DATABASE_URL") else {
+    let Ok(url) = std::env::var("INSTRUMENT_OWNER_DATABASE_URL") else {
         return;
     };
     let pool = PgPoolOptions::new()
@@ -57,7 +56,7 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .connect(&url)
         .await
         .unwrap();
-    let owner = InstrumentEconomicTermsPostgresOwnerV1::install(pool.clone())
+    let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
         .await
         .unwrap();
     let fact = fact();
@@ -68,7 +67,7 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         first.fact().canonical_bytes(),
         replay.fact().canonical_bytes()
     );
-    let restarted = InstrumentEconomicTermsPostgresOwnerV1::install(pool.clone())
+    let restarted = instrument_economic_terms_postgres_owner_from_environment_v1()
         .await
         .unwrap();
     assert_eq!(

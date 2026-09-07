@@ -1,8 +1,8 @@
 //! Instrument Owner-private economic terms and exact-locator readback.
 //!
-//! These terms are not public Instrument Master truth.  Only the Instrument Owner PostgreSQL
-//! authority can construct a readback; callers can carry its locator but cannot manufacture the
-//! receipt used by Strategy Factory.
+//! These terms are not public Instrument Master truth. Only the configured Instrument Owner
+//! PostgreSQL authority can construct a readback; callers can carry its locator but cannot choose a
+//! replacement store or manufacture the receipt used by Strategy Factory.
 //!
 //! ```compile_fail
 //! use vibe_data::owner::instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1;

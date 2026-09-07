@@ -910,6 +910,9 @@ environment or caller fallback.
 The permanent TrialFamily binding and the R&D-owned request binding both repeat the exact two seal digests and
 cross-bind the same family identity and digest. Maker/taker fees and initial/maintenance margins are usable only
 with a distinct non-forgeable Instrument Owner provenance value minted from its verified exact-locator readback.
+That readback can be issued only by the Owner opened from the deployment configuration root
+`INSTRUMENT_OWNER_DATABASE_URL`; the public boundary accepts no caller-selected pool, URL, expected store identity,
+or expected digest. Missing configuration and a separately created PostgreSQL store fail before provenance exists.
 The private fact and atomic receipt bind public-fact identity/digest, venue, margin-account scope, half-open event
 validity, source/provenance, revision, quote/fee currency, and every exact term byte. The first version accepts only
 positive fixed `STANDARD_NOTIONAL_RATE` initial/maintenance values and explicitly selects

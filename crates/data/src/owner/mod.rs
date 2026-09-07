@@ -1,4 +1,4 @@
-//! Market Data Owner-local authority surfaces.
+//! Data-domain Owner-local authority surfaces.
 
 #[cfg(not(test))]
 use std::sync::Arc;
@@ -24,6 +24,11 @@ pub mod strategy_input_binding;
 pub mod strategy_input_joined_cut;
 pub mod universe_selection;
 
+use instrument_economic_terms_postgres_v1::{
+    INSTRUMENT_OWNER_DATABASE_URL_ENV, InstrumentEconomicTermsPostgresErrorV1,
+    InstrumentEconomicTermsPostgresOwnerV1,
+};
+
 pub(crate) mod corporate_action;
 pub(crate) mod correction_policy_projection;
 pub(crate) mod market_semantics;
@@ -37,6 +42,29 @@ pub use pit_snapshot::sealed_acceptance;
 
 mod postgres;
 mod store_admission;
+
+/// Opens the sole configured Instrument Owner economic-terms authority.
+///
+/// The deployment configuration root chooses the database through
+/// `INSTRUMENT_OWNER_DATABASE_URL`. No caller-supplied pool, URL, expected identity, or digest can
+/// construct this Owner. Missing or ambiguous configuration fails closed before a connection or
+/// schema change is attempted.
+///
+/// # Errors
+///
+/// Returns a redacted configuration, store, or ACL failure.
+pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
+-> Result<InstrumentEconomicTermsPostgresOwnerV1, InstrumentEconomicTermsPostgresErrorV1> {
+    let url = std::env::var(INSTRUMENT_OWNER_DATABASE_URL_ENV)
+        .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::ConfigurationUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(InstrumentEconomicTermsPostgresErrorV1::ConfigurationUnavailable);
+    }
+    let pool = sqlx::PgPool::connect(&url)
+        .await
+        .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::StoreUnavailable)?;
+    InstrumentEconomicTermsPostgresOwnerV1::install(pool).await
+}
 
 #[cfg(not(test))]
 use self::{

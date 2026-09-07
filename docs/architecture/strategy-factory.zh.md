@@ -862,7 +862,10 @@ model enum，且没有隐藏 default、floating-point、environment 或 caller f
 
 永久 TrialFamily binding 与 R&D-owned request binding 都重复准确的两个 seal digest，并交叉绑定相同 family
 identity/digest。maker/taker fee 与 initial/maintenance margin 只有通过 Instrument Owner verified
-exact-locator readback 铸造的独立、不可伪造 provenance value 才可使用。private fact 与 atomic receipt 绑定
+exact-locator readback 铸造的独立、不可伪造 provenance value 才可使用。
+该 readback 只能由 deployment configuration root `INSTRUMENT_OWNER_DATABASE_URL` 打开的 Owner 签发；public
+boundary 不接受 caller 选择的 pool、URL、expected store identity 或 expected digest。缺少配置或另建的
+PostgreSQL store 都会在 provenance 存在前失败。private fact 与 atomic receipt 绑定
 public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
 quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
 value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断

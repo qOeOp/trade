@@ -2,6 +2,13 @@
 //!
 //! Issue is one SERIALIZABLE transaction containing the fact and its deterministic receipt.
 //! Recovery requires both exact identities; there is no latest scan or generic query surface.
+//! The Owner can be constructed only through the configured bootstrap in [`super`]; a caller-chosen
+//! pool is not Instrument Owner authority.
+//!
+//! ```compile_fail
+//! use vibe_data::owner::instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1;
+//! let _ = InstrumentEconomicTermsPostgresOwnerV1::install;
+//! ```
 
 use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -15,6 +22,7 @@ use super::instrument_economic_terms_v1::{
 
 const CUSTODY_DOMAIN: &[u8] = b"instrument-owner.private-economic-terms.custody.v1\0";
 const ADVISORY_LOCK_KEY: i64 = 0x4945_5456_3100_0001;
+pub(super) const INSTRUMENT_OWNER_DATABASE_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
 
 const SCHEMA: [&str; 7] = [
     "CREATE SCHEMA IF NOT EXISTS instrument_owner_private",
@@ -33,12 +41,14 @@ pub struct InstrumentEconomicTermsPostgresOwnerV1 {
 }
 
 impl InstrumentEconomicTermsPostgresOwnerV1 {
-    /// Installs the private schema using the connected Instrument Owner principal.
+    /// Installs the private schema using the already-configured Instrument Owner principal.
     ///
     /// # Errors
     ///
     /// Returns a redacted store or ACL failure when private custody cannot be established.
-    pub async fn install(pool: PgPool) -> Result<Self, InstrumentEconomicTermsPostgresErrorV1> {
+    pub(super) async fn install(
+        pool: PgPool,
+    ) -> Result<Self, InstrumentEconomicTermsPostgresErrorV1> {
         for statement in SCHEMA {
             sqlx::query(statement)
                 .execute(&pool)
@@ -124,6 +134,8 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum InstrumentEconomicTermsPostgresErrorV1 {
+    #[error("Instrument economic terms store configuration is unavailable")]
+    ConfigurationUnavailable,
     #[error("Instrument economic terms store is unavailable")]
     StoreUnavailable,
     #[error("Instrument economic terms store ACL is unavailable or drifted")]

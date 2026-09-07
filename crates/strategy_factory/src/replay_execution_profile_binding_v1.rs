@@ -412,7 +412,7 @@ mod tests {
     };
     use rstest::rstest;
     use vibe_data::owner::{
-        instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresOwnerV1,
+        instrument_economic_terms_postgres_owner_from_environment_v1,
         instrument_economic_terms_v1::{
             InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
             InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
@@ -539,15 +539,10 @@ mod tests {
 
     #[tokio::test]
     async fn verified_owner_readback_mints_provenance_and_wrong_coordinates_fail() {
-        let Ok(url) = std::env::var("INSTRUMENT_ECONOMIC_TERMS_TEST_DATABASE_URL") else {
+        if std::env::var("INSTRUMENT_OWNER_DATABASE_URL").is_err() {
             return;
-        };
-        let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await
-            .unwrap();
-        let owner = InstrumentEconomicTermsPostgresOwnerV1::install(pool)
+        }
+        let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
             .await
             .unwrap();
         let fact = InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
