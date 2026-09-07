@@ -306,7 +306,7 @@ export function ArtifactDirectory() {
           </button>}
         />
         <PanelFrameBody>
-          <DataTableSurface className={styles.tableSurface} toolbarLabel="Artifact table controls" toolbar={
+          <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Artifact table controls" toolbar={
             <TableToolbar filter={<div className={styles.filterGroup}>
               <FilterTabs
                 label="Artifact directory view"

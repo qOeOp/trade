@@ -247,7 +247,7 @@ export function ResearchDirectory() {
           </button>}
         />
         <PanelFrameBody>
-          <DataTableSurface className={styles.tableSurface} toolbarLabel="Research table controls" toolbar={
+          <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Research table controls" toolbar={
             <TableToolbar filter={<FilterTabs
               label="Research directory view"
               items={[

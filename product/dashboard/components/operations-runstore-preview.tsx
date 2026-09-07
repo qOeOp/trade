@@ -250,7 +250,7 @@ export function OperationsRunStorePreview() {
       </InsightSummary>
       {result?.availability === "available" ? (
         <>
-          <DataTableSurface className="operations-run-table-surface" toolbarLabel="Run table controls" toolbar={
+          <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
             <TableToolbar filter={<TableFilterMenu label="Filter runs" sections={[{
               id: "state", label: "State", items: runStateFilters, selected: stateFilter,
               onSelect: (value) => setStateFilter(value as RunStateFilter),
