@@ -86,8 +86,8 @@ test("Backtest BFF rejects malformed query UTF-8 before selector dispatch", asyn
   const validReplacement = await exports.GET(new Request(
     `http://dashboard.test/api/backtest/replays?requestIdentity=%EF%BF%BD&meaningDigest=${digest}`,
   ));
-  assert.equal(validReplacement.status, 503);
-  assert.equal(ownerCalls, 1);
+  assert.equal(validReplacement.status, 400);
+  assert.equal(ownerCalls, 0);
 });
 
 test("bilingual Replay request contract fixes filtered zero-effect geometry", async () => {

@@ -10,8 +10,12 @@ function losslessQueryEncoding(search: string): boolean {
       const separator = field.indexOf("=");
       const key = separator < 0 ? field : field.slice(0, separator);
       const value = separator < 0 ? "" : field.slice(separator + 1);
-      decodeURIComponent(key.replaceAll("+", " "));
-      decodeURIComponent(value.replaceAll("+", " "));
+      const decodedKey = decodeURIComponent(key.replaceAll("+", " "));
+      const decodedValue = decodeURIComponent(value.replaceAll("+", " "));
+      // Next normalizes malformed UTF-8 query octets to U+FFFD before route dispatch.
+      // The original bytes are no longer distinguishable from an encoded replacement
+      // character, so reject the ambiguous transport value instead of querying Owner.
+      if (decodedKey.includes("\uFFFD") || decodedValue.includes("\uFFFD")) return false;
     }
     return true;
   } catch {
