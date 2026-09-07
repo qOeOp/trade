@@ -187,6 +187,17 @@ async fn assert_acl_in_transaction(
           )
           AND NOT EXISTS (
             SELECT 1
+            FROM pg_class c
+            JOIN pg_attribute column_acl ON column_acl.attrelid=c.oid
+            CROSS JOIN LATERAL aclexplode(column_acl.attacl) a
+            WHERE c.relnamespace=n.oid
+              AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
+              AND column_acl.attnum>0
+              AND NOT column_acl.attisdropped
+              AND a.grantee<>c.relowner
+          )
+          AND NOT EXISTS (
+            SELECT 1
             FROM pg_roles login
             WHERE login.rolcanlogin AND NOT login.rolsuper AND login.oid<>n.nspowner
               AND (
@@ -197,8 +208,16 @@ async fn assert_acl_in_transaction(
                   WHERE reachable.login_oid=login.oid
                     AND (
                       has_schema_privilege(reachable.role_oid,n.oid,'CREATE')
-                      OR has_table_privilege(reachable.role_oid,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                      OR has_table_privilege(reachable.role_oid,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR EXISTS (
+                        SELECT 1
+                        FROM pg_class protected_table
+                        WHERE protected_table.relnamespace=n.oid
+                          AND protected_table.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
+                          AND (
+                            has_table_privilege(reachable.role_oid,protected_table.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                            OR has_any_column_privilege(reachable.role_oid,protected_table.oid,'SELECT,INSERT,UPDATE,REFERENCES')
+                          )
+                      )
                     )
                 )
               )

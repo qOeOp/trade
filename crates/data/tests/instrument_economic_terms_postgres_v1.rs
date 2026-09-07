@@ -91,16 +91,36 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         Err(InstrumentEconomicTermsPostgresErrorV1::MeaningConflict)
     );
 
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
-        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
-    );
     sqlx::query("CREATE ROLE instrument_economic_intruder LOGIN NOSUPERUSER")
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("GRANT SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 TO instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let derived_column_select: bool = sqlx::query_scalar("SELECT has_column_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','fact_bytes','SELECT')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(derived_column_select);
+    let derived_table_select: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','SELECT')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(!derived_table_select);
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+    );
+    sqlx::query("REVOKE SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
+    );
     sqlx::query("GRANT INSERT ON instrument_owner_private.economic_terms_facts_v1 TO instrument_economic_intruder")
         .execute(&pool)
         .await
@@ -168,5 +188,20 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     assert_eq!(
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+    );
+    sqlx::query("REVOKE pg_write_all_data FROM instrument_economic_noinherit_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
+    );
+
+    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
+        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
     );
 }
