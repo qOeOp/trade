@@ -60,9 +60,12 @@ test("framed corner rules never clip flat page-title frames", () => {
     .filter((selector) => selector.startsWith(".panel-frame") && selector.includes("> .panel-frame-"));
   assert.ok(cornerRules.length >= 3);
   for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
+  assert.match(css, /\.panel-frame\[data-variant="flat"\] \{[^}]+background: transparent;/u);
+  assert.doesNotMatch(css, /^\.panel-frame-header \{[^}]+background: var\(--panel-chrome-bg\)/mu);
 });
 
 test("shared panel chrome is the single header and footer color authority", () => {
+  assert.match(css, /\.detail-inspector > :last-child:not\(\.detail-inspector-header\) \{[^}]+border-radius: 0 0 var\(--panel-inner-radius\) var\(--panel-inner-radius\)/u);
   for (const moduleCss of frameChromeModules) {
     assert.doesNotMatch(moduleCss, /\.frame :global\(\.panel-frame-header\),\s*\.frame :global\(\.panel-frame-footer\)/u);
   }
