@@ -97,7 +97,7 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
     );
-    sqlx::query("GRANT SELECT ON instrument_owner_private.economic_terms_facts_v1 TO PUBLIC")
+    sqlx::query("GRANT INSERT ON instrument_owner_private.economic_terms_facts_v1 TO pg_monitor")
         .execute(&pool)
         .await
         .unwrap();
