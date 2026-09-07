@@ -3,11 +3,6 @@
   overflow: hidden;
 }
 
-.frame :global(.panel-frame-header),
-.frame :global(.panel-frame-footer) {
-  background: var(--panel-chrome-bg);
-}
-
 .frame :global(.panel-frame-header) {
   align-items: center;
 }

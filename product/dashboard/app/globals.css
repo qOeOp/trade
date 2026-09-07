@@ -786,7 +786,7 @@ button.rd-research-item { cursor: pointer; }
 
 .panel-frame, .detail-inspector { min-width: 0; padding: var(--panel-inset); overflow: hidden; border: 0; border-radius: var(--panel-radius); background: var(--panel-frame-bg); box-shadow: var(--inset-frame); }
 .panel-frame[data-variant="flat"] { padding: 0; overflow: visible; border-radius: 0; background: transparent; box-shadow: none; }
-.panel-frame:not([data-variant="flat"]) > .panel-frame-header { min-width: 0; width: 100%; margin: 0; border-radius: var(--panel-inner-radius) var(--panel-inner-radius) 0 0; background: transparent; }
+.panel-frame:not([data-variant="flat"]) > .panel-frame-header { min-width: 0; width: 100%; margin: 0; border-radius: var(--panel-inner-radius) var(--panel-inner-radius) 0 0; background: var(--panel-chrome-bg); }
 .panel-frame-header { min-width: 0; flex: 0 0 auto; min-height: 82px; padding: 12px var(--panel-content-padding); display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .panel-frame-header[data-density="compact"] { min-height: 64px; padding: 10px var(--panel-content-padding); gap: 10px; }
 .panel-frame-header[data-density="compact"] h2 { margin-top: 4px; font-size: 16px; }
@@ -895,6 +895,8 @@ button.rd-research-item { cursor: pointer; }
 .detail-inspector > :last-child:not(.detail-inspector-header) { border-radius: 0 0 var(--panel-inner-radius) var(--panel-inner-radius); }
 .detail-inspector > .detail-inspector-header + :last-child { border-radius: var(--panel-inner-radius); }
 .detail-inspector-header { min-width: 0; width: 100%; min-height: 82px; margin: 0; padding: 12px var(--panel-content-padding); display: flex; align-items: center; justify-content: space-between; gap: 12px; border: 0; border-radius: var(--panel-inner-radius) var(--panel-inner-radius) 0 0; background: transparent; box-shadow: none; }
+.detail-inspector > .detail-inspector-header,
+.detail-inspector > .detail-inspector-footer { background: var(--panel-chrome-bg); }
 .detail-inspector-header > div { min-width: 0; }
 .detail-inspector-header > div > span, .detail-section > header > span { color: var(--text-muted); font: 700 9px/1.1 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .detail-inspector-header h3 { margin: 6px 0 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }

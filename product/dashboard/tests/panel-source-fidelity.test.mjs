@@ -7,6 +7,12 @@ const animateIn = await readFile(new URL("../components/ui/animate-in.tsx", impo
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const runtimeFoundation = await readFile(new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url), "utf8");
 const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
+const frameChromeModules = await Promise.all([
+  "market-data-owner-foundation-card.module.css",
+  "runtime-foundation-not-ready-card.module.css",
+  "portfolio-view-unavailable-card.module.css",
+  "ui/market-heatmap.module.css",
+].map((path) => readFile(new URL(`../components/${path}`, import.meta.url), "utf8")));
 const sourceLock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
 
 test("panel atoms retain the pinned Vibe source hierarchy", () => {
@@ -40,9 +46,12 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.match(css, /\.panel-frame-close-button[^}]+var\(--surface-card\)/);
   assert.match(css, /\.panel-frame-header\[data-layout="inline"\]/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+border-radius: var\(--panel-inner-radius\) var\(--panel-inner-radius\) 0 0/);
+  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+background: var\(--panel-chrome-bg\)/);
+  assert.match(css, /\.panel-frame-footer \{[^}]+background: var\(--panel-chrome-bg\)/);
   assert.match(css, /\.panel-frame-body \{[^}]+border-radius: var\(--panel-inner-radius\)/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius:[^}]+0 0/);
   assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-footer:last-child[^}]+border-radius: 0 0/);
+  assert.match(css, /\.detail-inspector > \.detail-inspector-header,[\s\S]*\.detail-inspector > \.detail-inspector-footer \{ background: var\(--panel-chrome-bg\); \}/);
 });
 
 test("framed corner rules never clip flat page-title frames", () => {
@@ -51,6 +60,12 @@ test("framed corner rules never clip flat page-title frames", () => {
     .filter((selector) => selector.startsWith(".panel-frame") && selector.includes("> .panel-frame-"));
   assert.ok(cornerRules.length >= 3);
   for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
+});
+
+test("shared panel chrome is the single header and footer color authority", () => {
+  for (const moduleCss of frameChromeModules) {
+    assert.doesNotMatch(moduleCss, /\.frame :global\(\.panel-frame-header\),\s*\.frame :global\(\.panel-frame-footer\)/u);
+  }
 });
 
 test("foundation bodies stay directly joined to their frame footers", () => {
