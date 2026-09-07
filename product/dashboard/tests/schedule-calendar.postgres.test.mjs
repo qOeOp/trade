@@ -277,13 +277,29 @@ test(testName, { skip: !url }, async () => {
       assert.ok(stickyGeometry.scrollTop >= 200, JSON.stringify(stickyGeometry));
       assert.ok(Math.abs(stickyGeometry.headTop - stickyGeometry.viewportTop) <= 1, JSON.stringify(stickyGeometry));
       const selectedRow = await readBrowserValue(browser, `(() => {
-        const row = document.querySelector('table[aria-label="Shadow-read schedules"] tbody tr');
+        const table = document.querySelector('table[aria-label="Shadow-read schedules"]');
+        const viewport = table?.closest('.data-workspace-viewport');
+        const viewportRect = viewport?.getBoundingClientRect();
+        const headHeight = table?.querySelector('th')?.getBoundingClientRect().height ?? 0;
+        const row = [...(table?.querySelectorAll('tbody tr') ?? [])].find((candidate) => {
+          const rect = candidate.getBoundingClientRect();
+          return viewportRect && rect.top >= viewportRect.top + headHeight && rect.bottom <= viewportRect.bottom;
+        });
         row?.click();
-        return Boolean(row);
+        if (!row || !viewportRect) return null;
+        const rowRect = row.getBoundingClientRect();
+        return {
+          visible: rowRect.top >= viewportRect.top + headHeight && rowRect.bottom <= viewportRect.bottom,
+          rowTop: rowRect.top,
+          rowBottom: rowRect.bottom,
+          viewportTop: viewportRect.top,
+          viewportBottom: viewportRect.bottom,
+          headHeight,
+        };
       })()`);
-      assert.equal(selectedRow, true);
+      assert.equal(selectedRow?.visible, true, JSON.stringify(selectedRow));
       await waitForBrowserExpression(browser,
-        "document.querySelector('table[aria-label=\"Shadow-read schedules\"] tbody tr')?.getAttribute('aria-selected') === 'true'");
+        "document.querySelector('table[aria-label=\"Shadow-read schedules\"] tbody tr[aria-selected=\"true\"]') !== null");
       for (const theme of ["dark", "light"]) {
         await readBrowserValue(browser, `(() => {
           document.documentElement.dataset.theme = ${JSON.stringify(theme)};
@@ -322,6 +338,9 @@ test(testName, { skip: !url }, async () => {
         await pool.query(`UPDATE dashboard_shadow_read_schedules_v1
           SET cadence_seconds = 60 WHERE schedule_identity = $1`,
         [browserSchedule.schedule_identity]);
+        const driftStatus = await readBrowserValue(browser,
+          "fetch('/api/operations/schedules/', { cache: 'no-store' }).then((response) => response.status)");
+        assert.equal(driftStatus, 503);
         const clicked = await browser.send("Runtime.evaluate", {
           expression: `(() => {
             const button = [...document.querySelectorAll("button")]
