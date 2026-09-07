@@ -121,3 +121,24 @@ test("the TanStack filter model feeds pagination instead of filtering a rendered
   );
   assert.deepEqual(table.getRowModel().rows.map((row) => row.original.id), ["a"]);
 });
+
+test("table surfaces declare their card hierarchy instead of guessing from ancestry", async () => {
+  const [surface, css, workers, runs, research, artifacts] = await Promise.all([
+    readFile(join(dashboardRoot, "components/ui/data-table.tsx"), "utf8"),
+    readFile(join(dashboardRoot, "app/globals.css"), "utf8"),
+    readFile(join(dashboardRoot, "components/operations-workers-preview.tsx"), "utf8"),
+    readFile(join(dashboardRoot, "components/operations-runstore-preview.tsx"), "utf8"),
+    readFile(join(dashboardRoot, "components/research-directory.tsx"), "utf8"),
+    readFile(join(dashboardRoot, "components/artifact-directory.tsx"), "utf8"),
+  ]);
+
+  assert.match(surface, /geometry: "inner" \| "outer";/u);
+  assert.match(surface, /data-geometry=\{geometry\}/u);
+  assert.match(css, /\.data-table-surface\[data-geometry="outer"\] \{ border-radius: var\(--panel-radius\); \}/u);
+  assert.match(css, /\.data-table-surface\[data-geometry="inner"\] \{ border-radius: var\(--panel-inner-radius\); \}/u);
+  assert.doesNotMatch(css, /\.data-table-surface \{[^}]*border-radius:/u);
+  assert.match(workers, /<DataTableSurface[^>]*geometry="outer"/u);
+  for (const nested of [runs, research, artifacts]) {
+    assert.match(nested, /<DataTableSurface[^>]*geometry="inner"/u);
+  }
+});

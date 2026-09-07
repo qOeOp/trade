@@ -247,7 +247,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         {result?.availability === "available" ? (
           <SplitBento className="operations-workers-layout"
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
-            <DataTableSurface className="operations-worker-table-surface" toolbarLabel="Worker table controls" toolbar={
+            <DataTableSurface className="operations-worker-table-surface" geometry="outer" toolbarLabel="Worker table controls" toolbar={
               <TableToolbar filter={<TableFilterMenu label="Filter workers" sections={[{
                 id: "lease", label: "Lease", items: leaseTabs, selected: leaseFilter,
                 onSelect: (value) => setLeaseFilter(value as LeaseFilter),

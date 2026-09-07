@@ -314,7 +314,9 @@ a { color: inherit; text-decoration: none; }
 .filter-action:disabled, .filter-action[aria-disabled="true"] { cursor: not-allowed; opacity: .42; pointer-events: none; }
 .filter-toggle { min-height: 38px; padding: 0 12px; display: inline-flex; align-items: center; gap: 7px; border-radius: 999px; color: var(--text-muted); background: var(--surface-card); box-shadow: var(--elevation-base); font-size: 9px; font-weight: 650; white-space: nowrap; }
 .filter-toggle input { width: 12px; height: 12px; margin: 0; accent-color: var(--text-primary); }
-.data-table-surface { min-width: 0; overflow: hidden; border: .5px solid var(--border-default); border-radius: 18px; background: var(--surface-card); box-shadow: var(--elevation-table); }
+.data-table-surface { min-width: 0; overflow: hidden; border: .5px solid var(--border-default); background: var(--surface-card); box-shadow: var(--elevation-table); }
+.data-table-surface[data-geometry="outer"] { border-radius: var(--panel-radius); }
+.data-table-surface[data-geometry="inner"] { border-radius: var(--panel-inner-radius); }
 .data-table-toolbar { padding: 14px 16px; border-bottom: .5px solid var(--border-default); background: var(--panel-chrome-bg); }
 .data-table-toolbar .filter-toolbar { min-height: 40px; }
 .data-table-toolbar .filter-search { min-height: 36px; box-shadow: var(--elevation-base); }
