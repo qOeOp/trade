@@ -205,6 +205,104 @@ impl StrategyInputSampleProjectionReadbackV2 {
     }
 }
 
+/// Promotes a real Owner-issued joined cut into an acceptance-only V2 readback view.
+///
+/// This helper is absent from default builds and cannot create a joined cut or alter predecessor
+/// receipt bytes. It exists only so the sealed acceptance corpus can exercise downstream complete-
+/// set admission without PostgreSQL.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) fn joined_cut_readback_for_event_corpus_acceptance_v2(
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+) -> Result<StrategyInputSampleProjectionReadbackV2, StrategyInputSampleProjectionUnavailable> {
+    if !joined_cut.has_valid_digest() || joined_cut.components().len() < 2 {
+        return Err(StrategyInputSampleProjectionUnavailable::EvidenceMismatch);
+    }
+    let mut components = joined_cut
+        .components()
+        .iter()
+        .map(|component| {
+            let [value] = component.frame().values() else {
+                return Err(StrategyInputSampleProjectionUnavailable::CountMismatch);
+            };
+            Ok((component, value))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    components.sort_by_key(|(_, value)| *value.input_role_identity().as_bytes());
+    let component_count = u32::try_from(components.len())
+        .map_err(|_| StrategyInputSampleProjectionUnavailable::InvalidLength)?;
+    let mut canonical_bytes =
+        Vec::with_capacity(RECEIPT_HEADER_LEN + RECEIPT_ENTRY_LEN.saturating_mul(components.len()));
+    put_u16(&mut canonical_bytes, 2);
+    put_u16(&mut canonical_bytes, 0);
+    canonical_bytes.push(JOINED_CUT_KIND);
+    canonical_bytes.extend_from_slice(joined_cut.digest().as_bytes());
+    put_u32(&mut canonical_bytes, component_count);
+    for (component, value) in components {
+        let frame = component.frame();
+        let frame_evidence = prepare_frame_evidence(frame)?;
+        let role = *value.input_role_identity().as_bytes();
+        let binding = *value.binding_receipt_digest().as_bytes();
+        let timeframe = sha256(b"sealed-acceptance.event-corpus.timeframe.v1\0", &binding);
+        let sample = sha256(
+            b"sealed-acceptance.event-corpus.sample.v1\0",
+            value.digest().as_bytes(),
+        );
+        let sample_receipt = sha256(
+            b"sealed-acceptance.event-corpus.sample-receipt.v1\0",
+            &sample,
+        );
+        let lifecycle = frame.trigger().lifecycle();
+        let mut coordinate = Vec::with_capacity(COORDINATE_LEN);
+        put_u16(&mut coordinate, 1);
+        put_u16(&mut coordinate, 0);
+        coordinate.extend_from_slice(&role);
+        coordinate.extend_from_slice(&timeframe);
+        coordinate.extend_from_slice(&lifecycle.event_identity());
+        coordinate.extend_from_slice(&sample);
+        put_u64(&mut coordinate, lifecycle.logical_time());
+        put_u64(&mut coordinate, lifecycle.event_time());
+        put_u64(&mut coordinate, lifecycle.owner_sequence());
+        coordinate.extend_from_slice(&binding);
+        coordinate.extend_from_slice(value.canonical_row_digest().as_bytes());
+        coordinate.extend_from_slice(value.source_binding_lineage_root().as_bytes());
+        put_u64(&mut coordinate, value.source_binding_lineage_version());
+        coordinate.extend_from_slice(value.market_semantics_identity().as_bytes());
+        coordinate.extend_from_slice(&sample_receipt);
+        let coordinate_digest = sha256(COORDINATE_DOMAIN, &coordinate);
+
+        canonical_bytes.extend_from_slice(&role);
+        canonical_bytes.extend_from_slice(&binding);
+        canonical_bytes.extend_from_slice(&frame_evidence.identity);
+        canonical_bytes.extend_from_slice(frame.trigger().digest().as_bytes());
+        canonical_bytes.extend_from_slice(&lifecycle.event_identity());
+        canonical_bytes.extend_from_slice(value.digest().as_bytes());
+        canonical_bytes.extend_from_slice(&timeframe);
+        canonical_bytes.extend_from_slice(&sample);
+        canonical_bytes.extend_from_slice(&sample_receipt);
+        canonical_bytes.extend_from_slice(&coordinate_digest);
+        canonical_bytes.extend_from_slice(&coordinate);
+    }
+    let receipt_digest = sha256(RECEIPT_DOMAIN, &canonical_bytes);
+    let decoded = decode_strategy_input_sample_projection_v2(&canonical_bytes, receipt_digest)?;
+    let components = decoded
+        .components
+        .iter()
+        .map(|component| StrategyInputSampleProjectionComponentViewV2 {
+            role_identity: component.role_identity,
+            binding_receipt_digest: component.binding_receipt_digest,
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+    Ok(StrategyInputSampleProjectionReadbackV2 {
+        receipt_digest,
+        kind: StrategyInputSampleProjectionKindV2::JoinedCut,
+        subject_identity: *joined_cut.digest().as_bytes(),
+        component_count,
+        canonical_bytes: canonical_bytes.into_boxed_slice(),
+        components,
+    })
+}
+
 /// Closed V2 projection-kind registry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StrategyInputSampleProjectionKindV2 {

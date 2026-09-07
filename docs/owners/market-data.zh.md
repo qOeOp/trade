@@ -952,6 +952,15 @@ request、projection、event identity 与 bytes。现有 Replay V2 的 `resolved
 通用 content addressing，单独并不构成这项权威，也绝不能被静默重新解释。隔离路径必须新增一个版本化 Owner
 binding receipt，在签发任何 resolver 之前交叉绑定 sealed R&D request identity、准确 Market Data projection
 receipt digest 与 Owner-native event identity。
+
+**CURRENT/PARTIAL，完整有序 EVENT corpus V1：**`StrategyInputEventCorpusV1` 是连续 replay 的新增
+Market Data 边界。签发会消费一份保持不变且 move-only 的 `SealedReplayInput`，以及已经由 Owner 签发的 V1 joined-cut
+和 V2 projection readback。完整 trigger 集合只能由 sealed replay-input census 决定，caller 不能选择子集。每个成员绑定
+规范 native 顺序键 `(logical_time, event_time, owner_sequence, event_identity)`、joined-cut digest、projection
+receipt digest 与 native trigger identity/digest；corpus 还绑定 Market Data request、census、correction frontier、预期数量
+及 domain-separated corpus digest。空集、缺失、重复、乱序、BAR 替换、跨 census、跨 request、跨 projection 或跨 native
+trigger 证据都不会产生正向 corpus。现有 V1 cut/V2 projection bytes、digest、resolver 语义与历史 single-event consumer
+保持不变。
 越过边界交给 Strategy Factory 或 Backtest composition 的唯一值
 是针对该 request-selected event 的密封、只读 `StrategyInputSampleEventResolverV1` capability；insert、update、
 delete、head advance、generic query、raw DSN、credential、admission receipt 或 evidence accessor 均不得越过

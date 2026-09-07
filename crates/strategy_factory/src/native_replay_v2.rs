@@ -15,6 +15,7 @@ use vibe_data::owner::{
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
     strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
+    strategy_input_event_corpus_v1::StrategyInputEventCorpusV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
@@ -135,11 +136,64 @@ impl PreparedProgramHostCapabilityV2 {
         Ok(PreparedProgramHostHandoffV2 {
             host,
             request,
-            replay_input,
+            replay_input: Some(replay_input),
             instrument_master,
             input_bindings,
-            joined_cut,
-            sample_projection,
+            joined_cut: Some(joined_cut),
+            sample_projection: Some(sample_projection),
+            event_corpus: None,
+            binding,
+        })
+    }
+}
+
+/// Move-only preparation capability for the additive complete ordered EVENT corpus path.
+pub struct PreparedProgramHostEventCorpusCapabilityV2 {
+    plan: StrategyPlanV2,
+    artifact: StrategyArtifactV2,
+    request: ReplayRequestV2,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    event_corpus: StrategyInputEventCorpusV1,
+    binding: PreparedProgramBindingV2,
+}
+
+impl PreparedProgramHostEventCorpusCapabilityV2 {
+    /// Constructs one host only after rechecking the whole retained corpus binding, then transfers
+    /// that corpus exactly once into the inseparable handoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramHostV2Error::InputCoverage`] before Host construction if the retained corpus
+    /// no longer matches the exact preparation binding.
+    pub fn into_program_host_handoff_v2(
+        self,
+    ) -> Result<PreparedProgramHostHandoffV2, ProgramHostV2Error> {
+        let Self {
+            plan,
+            artifact,
+            request,
+            instrument_master,
+            input_bindings,
+            event_corpus,
+            binding,
+        } = self;
+        if !event_corpus.has_valid_digest()
+            || binding.event_corpus_digest != event_corpus.digest()
+            || binding.event_corpus_count != event_corpus.expected_count()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let host = construct_prepared_program_host_v2(plan, artifact)?;
+        Ok(PreparedProgramHostHandoffV2 {
+            host,
+            request,
+            replay_input: None,
+            instrument_master,
+            input_bindings,
+            joined_cut: None,
+            sample_projection: None,
+            event_corpus: Some(event_corpus),
             binding,
         })
     }
@@ -206,11 +260,12 @@ impl PreparedProgramHostCapabilityV2 {
 pub struct PreparedProgramHostHandoffV2 {
     host: ProgramHostV2,
     request: ReplayRequestV2,
-    replay_input: SealedReplayInput,
+    replay_input: Option<SealedReplayInput>,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
-    joined_cut: StrategyInputJoinedCutReceiptV1,
-    sample_projection: StrategyInputSampleProjectionReadbackV2,
+    joined_cut: Option<StrategyInputJoinedCutReceiptV1>,
+    sample_projection: Option<StrategyInputSampleProjectionReadbackV2>,
+    event_corpus: Option<StrategyInputEventCorpusV1>,
     binding: PreparedProgramBindingV2,
 }
 
@@ -233,6 +288,28 @@ impl PreparedProgramHostHandoffV2 {
     /// Returns the complete Owner projection component count admitted with the Plan bindings.
     pub const fn sample_projection_component_count(&self) -> u32 {
         self.binding.sample_projection_component_count
+    }
+
+    /// Returns the complete EVENT corpus count, or zero for the historical single-event path.
+    pub const fn event_corpus_count(&self) -> usize {
+        self.binding.event_corpus_count
+    }
+
+    /// Returns the complete EVENT corpus digest, or zero for the historical single-event path.
+    pub const fn event_corpus_digest(&self) -> BindingDigest {
+        self.binding.event_corpus_digest
+    }
+
+    /// Borrows the persistent Host and complete corpus together for the in-crate Backtest adapter.
+    /// Keeping this seam crate-private prevents external adapters from bypassing the canonical
+    /// Risk, Execution, and Portfolio composition path.
+    #[allow(dead_code)]
+    pub(crate) fn host_and_event_corpus_mut_v1(
+        &mut self,
+    ) -> Option<(&mut ProgramHostV2, &StrategyInputEventCorpusV1)> {
+        self.event_corpus
+            .as_ref()
+            .map(|corpus| (&mut self.host, corpus))
     }
 }
 
@@ -259,6 +336,8 @@ pub(crate) struct PreparedProgramBindingV2 {
     sample_projection_digest: [u8; 32],
     sample_projection_subject: [u8; 32],
     sample_projection_component_count: u32,
+    event_corpus_digest: BindingDigest,
+    event_corpus_count: usize,
 }
 
 /// Prepares the sole ProgramHost package from R&D and Market Data Owner-sealed evidence.
@@ -309,6 +388,54 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         input_bindings,
         joined_cut,
         sample_projection,
+        binding,
+    })
+}
+
+/// Prepares one ProgramHost package carrying the complete Owner-sealed ordered EVENT corpus.
+///
+/// This is additive to [`prepare_program_host_from_owner_readbacks_v2`]. The historical single-event
+/// path and all existing V1/V2 wire identities remain unchanged.
+///
+/// # Errors
+///
+/// Returns [`ProgramPreparationFaultV2`] before a capability or Host exists if any corpus member is
+/// incompatible with the exact request, Plan bindings, or complete Market Data census.
+pub fn prepare_program_host_from_owner_event_corpus_v1(
+    replay: &SealedExploratoryReplayReadbackV2,
+    composer: &SealedDevelopComposerReadbackV2,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    event_corpus: StrategyInputEventCorpusV1,
+) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2> {
+    if !verify_instrument_master_readback(&instrument_master) || !event_corpus.has_valid_digest() {
+        return Err(ProgramPreparationFaultV2::Unavailable);
+    }
+    let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
+        replay,
+        composer,
+        event_corpus.replay_input(),
+        &instrument_master,
+    );
+    let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
+    let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
+    for member in event_corpus.members() {
+        validate_joined_cut_plan_admission_v2(&plan, member.joined_cut())?;
+        validate_sample_projection_admission_v2(
+            member.projection(),
+            member.joined_cut(),
+            plan.input_bindings(),
+        )?;
+    }
+    binding.event_corpus_digest = event_corpus.digest();
+    binding.event_corpus_count = event_corpus.expected_count();
+    Ok(PreparedProgramHostEventCorpusCapabilityV2 {
+        plan,
+        artifact,
+        request: claims.request,
+        instrument_master,
+        input_bindings,
+        event_corpus,
         binding,
     })
 }
@@ -539,6 +666,8 @@ fn prepare_program_package_v2(
             sample_projection_digest: [0; 32],
             sample_projection_subject: [0; 32],
             sample_projection_component_count: 0,
+            event_corpus_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            event_corpus_count: 0,
         },
     ))
 }

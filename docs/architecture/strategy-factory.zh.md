@@ -606,6 +606,13 @@ frontier 上执行逐 role latest-not-after argmax，再把 trigger、准确 Des
 共享 lifecycle kernel 消费的规范 Plan 数据；它不会引入 feature opcode、第二 interpreter、heuristic
 binding 或 raw-order 路径。
 
+连续 EVENT replay 只接受新增、move-only 的 `StrategyInputEventCorpusV1`。Strategy Factory preparation 会针对
+准确 Plan binding 集合重新校验 corpus 中每份 joined cut 与 V2 projection，并在构造 Host 前校验完整 corpus digest。
+随后一份 `PreparedProgramHostHandoffV2` 把完整 corpus 一次性转交给单个持久 Host consumer；不存在 lazy resolve、
+caller-selected event vector 或每个 event 重建一个 Host 的路径。缺失、重复、非规范 native 顺序、BAR 替换，或任何
+request/census/frontier/cut/projection/native-trigger 拼接都会在 Host 构造前失败，因此 Host checkpoint 不会推进。
+历史 single-event preparation 入口继续独立存在并保持原有行为。
+
 `StrategyArtifactV2` 是单个 package，其中包含规范 `StrategyPlanV2` bytes，并为 Plan 声明的每个 plugin
 准确包含一个独立构建的 Wasm module。不同 plugin 声明不能共享 module。系统不会生成外层或根 strategy
 Wasm module：通用 `ProgramHostV2` 解释 Plan graph、调用其 plugin module，再把得到的类型化值交给共享

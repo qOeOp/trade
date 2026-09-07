@@ -415,6 +415,183 @@ pub(crate) fn seal_replay_input(
     })
 }
 
+/// Acceptance-only complete-census bridge from real Owner-issued EVENT cuts.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+#[allow(
+    dead_code,
+    reason = "consumed only by the feature-gated corpus acceptance oracle"
+)]
+pub(crate) fn seal_event_corpus_acceptance_replay_input_v1(
+    bindings: &[super::strategy_input_binding::StrategyInputBindingReceipt],
+    events: &[super::strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1],
+) -> Result<SealedReplayInput, PitSnapshotError> {
+    use std::collections::BTreeMap;
+
+    let by_role = bindings
+        .iter()
+        .map(|binding| (binding.locator().input_role_identity(), binding))
+        .collect::<BTreeMap<_, _>>();
+    if events.is_empty() || by_role.len() != bindings.len() {
+        return Err(PitSnapshotError::ObservationBatchUnavailable);
+    }
+    let mut frames = Vec::new();
+    for event in events {
+        if !event.has_valid_digest() || event.components().len() != bindings.len() {
+            return Err(PitSnapshotError::ObservationBatchUnavailable);
+        }
+        for component in event.components() {
+            let [value] = component.frame().values() else {
+                return Err(PitSnapshotError::ObservationBatchUnavailable);
+            };
+            let binding = by_role
+                .get(&value.input_role_identity())
+                .ok_or(PitSnapshotError::ObservationBatchUnavailable)?;
+            if value.binding_receipt_digest() != binding.digest()
+                || component.frame().trigger().lifecycle().kind()
+                    != super::strategy_input_binding::StrategyInputEventKind::Event
+            {
+                return Err(PitSnapshotError::ObservationBatchUnavailable);
+            }
+            let lifecycle = component.frame().trigger().lifecycle();
+            let locator = binding.locator();
+            let mut frame = SealedReplayFrame {
+                digest: BindingDigest::from_untrusted_bytes([0; 32]),
+                symbolic_key: format!(
+                    "{}.{}.{}",
+                    locator.instrument(),
+                    locator.timeframe(),
+                    locator.field_semantic_identity()
+                ),
+                member_key: locator.instrument().to_owned(),
+                instrument: locator.instrument().to_owned(),
+                channel: locator.channel().to_owned(),
+                data_kind: locator.data_kind().to_owned(),
+                timeframe: locator.timeframe().to_owned(),
+                field: locator.field_semantic_identity().to_owned(),
+                value_mantissa: i128::from_le_bytes(*value.value_bytes()),
+                value_scale: value.value_scale(),
+                event_effective: lifecycle.event_time(),
+                provider_available: lifecycle.logical_time(),
+                retrieval: lifecycle.logical_time().saturating_add(1),
+                correction_publication: lifecycle.logical_time(),
+                correction_sequence: lifecycle.owner_sequence(),
+            };
+            frame.digest = derive_digest(FRAME_DOMAIN, &frame)?;
+            frames.push(frame);
+        }
+    }
+    frames.sort_by(|left, right| replay_order(left).cmp(&replay_order(right)));
+    if frames
+        .windows(2)
+        .any(|pair| replay_order(&pair[0]) >= replay_order(&pair[1]))
+    {
+        return Err(PitSnapshotError::ObservationBatchUnavailable);
+    }
+    let first_event = events
+        .first()
+        .ok_or(PitSnapshotError::ObservationBatchUnavailable)?;
+    let first_component = first_event
+        .components()
+        .iter()
+        .find(|component| component.role_semantic_id() == first_event.trigger_input_id())
+        .ok_or(PitSnapshotError::ObservationBatchUnavailable)?;
+    let first_value = &first_component.frame().values()[0];
+    let first_binding = by_role
+        .get(&first_value.input_role_identity())
+        .ok_or(PitSnapshotError::ObservationBatchUnavailable)?;
+    let observation_start_event_time = frames[0].event_effective;
+    let observation_end_event_time = frames[frames.len() - 1].event_effective;
+    let normalized_records_digest = derive_digest(
+        b"vibe.market-data.sealed-replay-input.acceptance-records.v1\0",
+        &frames.iter().map(|frame| frame.digest).collect::<Vec<_>>(),
+    )?;
+    let frame_census_digest = derive_digest(
+        FRAME_CENSUS_DOMAIN,
+        &(
+            first_component.frame().trigger().snapshot_identity(),
+            first_component.frame().trigger().snapshot_fact_digest(),
+            normalized_records_digest,
+            observation_start_event_time,
+            observation_end_event_time,
+            frames.iter().map(|frame| frame.digest).collect::<Vec<_>>(),
+        ),
+    )?;
+    let time_evidence = UntrustedPitSnapshotTimeEvidence {
+        event_effective: super::pit_snapshot::UntrustedEventEffectiveTime::from_untrusted(
+            observation_start_event_time,
+            "SEALED_ACCEPTANCE.EVENT_CORPUS.CLOCK",
+            "EPOCH.1",
+        ),
+        provider_available: super::pit_snapshot::UntrustedProviderAvailableTime::from_untrusted(
+            observation_start_event_time,
+            "SEALED_ACCEPTANCE.EVENT_CORPUS.CLOCK",
+            "EPOCH.1",
+        ),
+        retrieval: super::pit_snapshot::UntrustedRetrievalTime::from_untrusted(
+            observation_start_event_time.saturating_add(1),
+            "SEALED_ACCEPTANCE.EVENT_CORPUS.CLOCK",
+            "EPOCH.1",
+        ),
+        correction_publication: Some(
+            super::pit_snapshot::UntrustedCorrectionPublicationTime::from_untrusted(
+                observation_start_event_time,
+                "SEALED_ACCEPTANCE.EVENT_CORPUS.CLOCK",
+                "EPOCH.1",
+            ),
+        ),
+        decision_cut: super::pit_snapshot::UntrustedSnapshotDecisionCut::from_untrusted(
+            observation_end_event_time.saturating_add(1),
+            "SEALED_ACCEPTANCE.EVENT_CORPUS.CLOCK",
+            "EPOCH.1",
+        ),
+        monotonic_sequence: 1,
+        restart_continuity_digest: normalized_records_digest,
+        skew_bound: 1,
+        uncertainty_bound: 0,
+        observed_at: observation_end_event_time.saturating_add(1),
+        valid_through: observation_end_event_time.saturating_add(2),
+    };
+    Ok(SealedReplayInput {
+        request_identity: first_binding.locator().research_request_identity(),
+        request_digest: first_binding.digest(),
+        scope_digest: first_binding.locator().selection_identity(),
+        snapshot_identity: first_component.frame().trigger().snapshot_identity(),
+        snapshot_fact_digest: first_component.frame().trigger().snapshot_fact_digest(),
+        source_binding_identity: first_value.source_binding_lineage_root(),
+        source_binding_lineage_root: first_value.source_binding_lineage_root(),
+        source_binding_lineage_version: first_value.source_binding_lineage_version(),
+        correction_lineage_root: first_value.correction_frontier_digest(),
+        correction_lineage_version: first_value.correction_sequence(),
+        source_frontier: UntrustedCompleteFrontier {
+            stream_identity: "SEALED_ACCEPTANCE.EVENT_CORPUS.SOURCE".into(),
+            cut_identity: "SEALED_ACCEPTANCE.EVENT_CORPUS.SOURCE.CUT".into(),
+            sequence: 1,
+            digest: first_value.source_binding_lineage_root(),
+        },
+        correction_frontier: UntrustedCompleteFrontier {
+            stream_identity: first_value.correction_stream_identity().into(),
+            cut_identity: "SEALED_ACCEPTANCE.EVENT_CORPUS.CORRECTION.CUT".into(),
+            sequence: first_value.correction_sequence(),
+            digest: first_value.correction_frontier_digest(),
+        },
+        instrument_master_digest: first_component.frame().trigger().snapshot_fact_digest(),
+        universe_selection_digest: first_binding.locator().selection_identity(),
+        market_semantics_identity: first_value.market_semantics_identity(),
+        normalized_records_digest,
+        frame_census_digest,
+        snapshot_correction_rule_digest: first_value.correction_frontier_digest(),
+        time_evidence,
+        observation_start_event_time,
+        observation_end_event_time,
+        calendar_rules: "SEALED_ACCEPTANCE.EVENT_CORPUS.CALENDAR".into(),
+        session_rules: "SEALED_ACCEPTANCE.EVENT_CORPUS.SESSION".into(),
+        time_zone_rules: "SEALED_ACCEPTANCE.EVENT_CORPUS.TIME_ZONE".into(),
+        corporate_action_rules: "SEALED_ACCEPTANCE.EVENT_CORPUS.CORPORATE_ACTION".into(),
+        historical_membership_rules: "SEALED_ACCEPTANCE.EVENT_CORPUS.MEMBERSHIP".into(),
+        frames: frames.into_boxed_slice(),
+    })
+}
+
 fn seal_frame(row: &VerifiedPitObservation) -> Result<SealedReplayFrame, PitSnapshotError> {
     let digest = derive_digest(
         FRAME_DOMAIN,

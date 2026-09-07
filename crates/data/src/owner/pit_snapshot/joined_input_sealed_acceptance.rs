@@ -117,6 +117,7 @@ pub struct SealedAcceptanceStrategyInputJoinCorpus {
     events: Box<[StrategyInputJoinedCutReceiptV1]>,
     repeated_first: StrategyInputJoinedCutReceiptV1,
     alternate_join_claim_for_negative_test: StrategyInputJoinedCutReceiptV1,
+    stale_selection_basis_for_negative_test: StrategyInputJoinedCutReceiptV1,
     missing: StrategyInputJoinedCutUnavailable,
     stale: StrategyInputJoinedCutUnavailable,
     cross_splice: StrategyInputJoinedCutUnavailable,
@@ -139,6 +140,14 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
     /// canonical Strategy Plan. This exists only for cross-crate fail-close acceptance tests.
     pub const fn alternate_join_claim_for_negative_test(&self) -> &StrategyInputJoinedCutReceiptV1 {
         &self.alternate_join_claim_for_negative_test
+    }
+
+    /// Returns a valid cut from an incomplete census that omits the newest eligible non-trigger
+    /// observation. Complete-corpus consumers must reject it against the retained full census.
+    pub const fn stale_selection_basis_for_negative_test(
+        &self,
+    ) -> &StrategyInputJoinedCutReceiptV1 {
+        &self.stale_selection_basis_for_negative_test
     }
 
     pub const fn stale(&self) -> StrategyInputJoinedCutUnavailable {
@@ -172,6 +181,31 @@ pub fn issue_strategy_input_join_corpus()
         ("MSFT.XNAS", "1H", MarketDataFieldSemantic::BarClosePrice),
         ("QQQ.XNAS", "1D", MarketDataFieldSemantic::BarClosePrice),
     ];
+    issue_strategy_input_join_corpus_with_specs(specs, 500)
+}
+
+/// Issues the acceptance-only three-EVENT variant through the same real Owner authorities.
+#[allow(
+    dead_code,
+    reason = "consumed only by the feature-gated corpus acceptance oracle"
+)]
+pub(crate) fn issue_strategy_input_event_join_corpus_v1()
+-> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
+    issue_strategy_input_join_corpus_with_specs(
+        [
+            ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteBidPrice),
+            ("AAPL.XNAS", "TICK", MarketDataFieldSemantic::QuoteAskPrice),
+            ("MSFT.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
+            ("QQQ.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
+        ],
+        3_000_000_000,
+    )
+}
+
+fn issue_strategy_input_join_corpus_with_specs(
+    specs: [(&str, &str, MarketDataFieldSemantic); 4],
+    max_staleness_ns: u64,
+) -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
     let event_times = [1_000_000_000_u64, 3_000_000_000, 5_000_000_000];
     let mut bindings = Vec::with_capacity(specs.len());
     let mut by_event = vec![Vec::with_capacity(specs.len()); event_times.len()];
@@ -288,7 +322,7 @@ pub fn issue_strategy_input_join_corpus()
         bindings.push(role_binding.expect("role binding exists"));
     }
 
-    let claim = join_claim();
+    let claim = join_claim(max_staleness_ns);
     let mut cumulative = Vec::new();
     let mut events = Vec::with_capacity(event_times.len());
     let mut repeated_first = None;
@@ -314,9 +348,27 @@ pub fn issue_strategy_input_join_corpus()
         events.push(receipt);
     }
     let alternate_join_claim_for_negative_test = issue_strategy_input_joined_cut_v1(
-        &alternate_join_claim_for_negative_test(),
+        &alternate_join_claim_for_negative_test(max_staleness_ns),
         &bindings,
         &seal_strategy_input_join_census_v1(cumulative.clone())?,
+        event_times[2],
+    )?;
+    let stale_selection_census = seal_strategy_input_join_census_v1(
+        cumulative
+            .iter()
+            .filter(|frame| {
+                let value = &frame.values()[0];
+                value.input_role_identity()
+                    != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[0])
+                    || frame.trigger().lifecycle().logical_time() != event_times[2]
+            })
+            .cloned()
+            .collect(),
+    )?;
+    let stale_selection_basis_for_negative_test = issue_strategy_input_joined_cut_v1(
+        &claim,
+        &bindings,
+        &stale_selection_census,
         event_times[2],
     )?;
     let missing_census = seal_strategy_input_join_census_v1(
@@ -333,8 +385,13 @@ pub fn issue_strategy_input_join_corpus()
         issue_strategy_input_joined_cut_v1(&claim, &bindings, &missing_census, event_times[2])
             .expect_err("fixed incomplete census must fail closed");
     let stale_census = seal_strategy_input_join_census_v1(stale)?;
-    let stale = issue_strategy_input_joined_cut_v1(&claim, &bindings, &stale_census, 7_000_000_000)
-        .expect_err("fixed stale census must fail closed");
+    let stale = issue_strategy_input_joined_cut_v1(
+        &join_claim(500),
+        &bindings,
+        &stale_census,
+        7_000_000_000,
+    )
+    .expect_err("fixed stale census must fail closed");
     let cross_census = seal_strategy_input_join_census_v1(cross_splice)?;
     let cross_splice =
         issue_strategy_input_joined_cut_v1(&claim, &bindings, &cross_census, 9_000_000_000)
@@ -345,13 +402,14 @@ pub fn issue_strategy_input_join_corpus()
         events: events.into_boxed_slice(),
         repeated_first: repeated_first.expect("fixed corpus has a first event"),
         alternate_join_claim_for_negative_test,
+        stale_selection_basis_for_negative_test,
         missing,
         stale,
         cross_splice,
     })
 }
 
-fn join_claim() -> UntrustedStrategyInputJoinClaimV1 {
+fn join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
     let mut roles = [
         "research.input.open.v1",
         "research.input.close.v1",
@@ -373,7 +431,6 @@ fn join_claim() -> UntrustedStrategyInputJoinClaimV1 {
     let join_semantic_id = "research.input-join.cross-leg-regime.v1";
     let alignment_semantic_id = "strategy.input-join.latest-not-after-trigger.v1";
     let trigger_input_id = "research.input.close.v1";
-    let max_staleness_ns = 500;
     UntrustedStrategyInputJoinClaimV1 {
         strategy_design_identity: BindingDigest::from_untrusted_bytes(JOIN_DESIGN_IDENTITY),
         join_semantic_id: join_semantic_id.into(),
@@ -391,8 +448,10 @@ fn join_claim() -> UntrustedStrategyInputJoinClaimV1 {
     }
 }
 
-fn alternate_join_claim_for_negative_test() -> UntrustedStrategyInputJoinClaimV1 {
-    let mut claim = join_claim();
+fn alternate_join_claim_for_negative_test(
+    max_staleness_ns: u64,
+) -> UntrustedStrategyInputJoinClaimV1 {
+    let mut claim = join_claim(max_staleness_ns);
     claim.join_semantic_id = "research.input-join.alternate-negative-test.v1".into();
     let inputs = claim
         .roles
@@ -575,7 +634,7 @@ fn verified_batch(
             member_key: instrument.into(),
             instrument: instrument.into(),
             channel: "MARKET".into(),
-            data_kind: "BAR".into(),
+            data_kind: data_kind(field).into(),
             timeframe: timeframe.into(),
             field: field_name(field).into(),
             value_mantissa,
@@ -662,6 +721,18 @@ const fn field_name(field: MarketDataFieldSemantic) -> &'static str {
     match field {
         MarketDataFieldSemantic::BarOpenPrice => "OPEN",
         MarketDataFieldSemantic::BarClosePrice => "CLOSE",
+        MarketDataFieldSemantic::QuoteBidPrice => "BID_PRICE",
+        MarketDataFieldSemantic::QuoteAskPrice => "ASK_PRICE",
+        MarketDataFieldSemantic::TradeLastPrice => "LAST_PRICE",
+        _ => "UNSUPPORTED",
+    }
+}
+
+const fn data_kind(field: MarketDataFieldSemantic) -> &'static str {
+    match field {
+        MarketDataFieldSemantic::BarOpenPrice | MarketDataFieldSemantic::BarClosePrice => "BAR",
+        MarketDataFieldSemantic::QuoteBidPrice | MarketDataFieldSemantic::QuoteAskPrice => "QUOTE",
+        MarketDataFieldSemantic::TradeLastPrice => "TRADE",
         _ => "UNSUPPORTED",
     }
 }

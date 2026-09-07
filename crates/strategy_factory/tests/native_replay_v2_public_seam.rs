@@ -3,13 +3,16 @@ use vibe_data::owner::{
     instrument_master::InstrumentMasterReadbackV1,
     sample_projection::StrategyInputSampleProjectionReadbackV2,
     sealed_replay_input::SealedReplayInput, strategy_input_binding::StrategyInputBindingReceipt,
+    strategy_input_event_corpus_v1::StrategyInputEventCorpusV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 use vibe_strategy_factory::{
-    PreparedProgramHostCapabilityV2, PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
+    PreparedProgramHostCapabilityV2, PreparedProgramHostEventCorpusCapabilityV2,
+    PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     exploratory_replay::SealedExploratoryReplayReadbackV2,
-    prepare_program_host_from_owner_readbacks_v2, program_host_v2::ProgramHostV2Error,
+    prepare_program_host_from_owner_event_corpus_v1, prepare_program_host_from_owner_readbacks_v2,
+    program_host_v2::ProgramHostV2Error,
 };
 
 type OwnerSealedIssuerV2 = fn(
@@ -33,8 +36,17 @@ fn accepts_handoff_transition(
 fn accepts_backtest_consumer(_: impl FnOnce(PreparedProgramHostHandoffV2)) {}
 
 type ExactBacktestConsumerV2 = fn(PreparedProgramHostHandoffV2);
-type PreparedPublicObservationV2 = ([u8; 32], usize, [u8; 32], u32);
+type PreparedPublicObservationV2 = ([u8; 32], usize, [u8; 32], u32, [u8; 32], usize);
 type PublicConsumerResultV2 = Result<PreparedPublicObservationV2, Box<dyn std::error::Error>>;
+
+type OwnerEventCorpusIssuerV2 =
+    fn(
+        &SealedExploratoryReplayReadbackV2,
+        &SealedDevelopComposerReadbackV2,
+        InstrumentMasterReadbackV1,
+        Vec<StrategyInputBindingReceipt>,
+        StrategyInputEventCorpusV1,
+    ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2>;
 
 fn accepts_exact_backtest_consumer(_: ExactBacktestConsumerV2) {}
 
@@ -63,12 +75,15 @@ fn public_owner_projection_consumer(
         handoff.input_binding_count(),
         handoff.sample_projection_digest(),
         handoff.sample_projection_component_count(),
+        *handoff.event_corpus_digest().as_bytes(),
+        handoff.event_corpus_count(),
     ))
 }
 
 #[rstest]
 fn external_backtest_application_compiles_the_real_consuming_handoff() {
     let issuer: OwnerSealedIssuerV2 = prepare_program_host_from_owner_readbacks_v2;
+    let corpus_issuer: OwnerEventCorpusIssuerV2 = prepare_program_host_from_owner_event_corpus_v1;
     let transition =
         |capability: PreparedProgramHostCapabilityV2| capability.into_program_host_handoff_v2();
     let consumer = |handoff: PreparedProgramHostHandoffV2| {
@@ -76,9 +91,12 @@ fn external_backtest_application_compiles_the_real_consuming_handoff() {
         let _prepared_input_binding_count = handoff.input_binding_count();
         let _owner_projection_digest = handoff.sample_projection_digest();
         let _owner_projection_component_count = handoff.sample_projection_component_count();
+        let _owner_event_corpus_digest = handoff.event_corpus_digest();
+        let _owner_event_corpus_count = handoff.event_corpus_count();
     };
 
     let _owner_sealed_issuer = issuer;
+    let _owner_event_corpus_issuer = corpus_issuer;
     accepts_handoff_transition(transition);
     accepts_backtest_consumer(consumer);
     accepts_exact_backtest_consumer(consumer);
