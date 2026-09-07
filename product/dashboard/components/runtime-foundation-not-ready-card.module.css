@@ -102,7 +102,7 @@
 .dependencies {
   overflow: hidden;
   border: .5px solid var(--border-default);
-  border-radius: 15px;
+  border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
   box-shadow: var(--elevation-hairline);
 }
