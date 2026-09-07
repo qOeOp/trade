@@ -50,3 +50,12 @@ for (const consumer of ["market-data-owner-foundation-card", "portfolio-view-una
     sharedPadding(await read(`components/${consumer}.module.css`), ".body");
   });
 }
+
+test("Worker detail keeps its outer cluster grid on the shared content axis", async () => {
+  const [css, worker] = await Promise.all([
+    read("app/globals.css"),
+    read("components/operations-workers-preview.tsx"),
+  ]);
+  assert.match(worker, /<DetailClusterGrid>/u);
+  sharedPadding(css, ".detail-inspector > .detail-cluster-grid");
+});
