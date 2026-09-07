@@ -287,7 +287,10 @@ test(testName, { skip: !url }, async () => {
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${expiredWorker}/` });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.toLowerCase().includes('exact worker readback')
-        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})`);
+        && document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
+        && document.body?.innerText.toLowerCase().includes('registered operations')
+        && [...document.querySelectorAll('button')]
+          .some((button) => button.textContent?.trim() === 'Refresh')`);
     await pool.query("DELETE FROM dashboard_shadow_workers_v1 WHERE worker_identity = $1", [expiredWorker]);
     assert.equal((await fetch(`${origin}/api/operations/workers/${expiredWorker}/`)).status, 404);
     assert.equal((await fetch(`${origin}/api/operations/workers/`)).status, 200);
