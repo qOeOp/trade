@@ -160,7 +160,11 @@ test(browserAcceptance
   assert.equal(ownerProjection.wasm_preview_reason, "WASM_PREVIEW_NOT_RUN");
   const source = ownerProjection.source;
   assert.equal(typeof source, "string");
-  assert.match(source, /pub fn/u);
+  const firstSourceLine = source.split("\n", 1)[0];
+  const sourceSentinel = source.split("\n").find((line) =>
+    line.includes("strategy_factory_on_event_v1"));
+  assert.equal(firstSourceLine, "#![no_std]");
+  assert.equal(typeof sourceSentinel, "string");
 
   const port = 3220;
   let preview;
@@ -218,7 +222,7 @@ test(browserAcceptance
     assert.ok(surface.lineNumbers >= 10, JSON.stringify(surface));
     assert.equal(surface.foldGutter, true);
     assert.equal(surface.folded, true);
-    assert.match(surface.selected, /pub fn signal_/u);
+    assert.equal(surface.selected, firstSourceLine);
     assert.ok(surface.scrollTop > 0, JSON.stringify(surface));
 
     await browser.send("Input.insertText", { text: "\nINVENTED_EDIT" });
@@ -246,7 +250,7 @@ test(browserAcceptance
       `document.body?.innerText.includes('Strategy source unavailable') === true
         && document.querySelector('button[aria-label="Copy strategy source"]')?.disabled === true`);
     assert.deepEqual(await readBrowserValue(browser, `(() => ({
-      sourceAbsent: !document.body.innerText.includes('pub fn signal_0'),
+      sourceAbsent: !document.body.innerText.includes(${JSON.stringify(sourceSentinel)}),
       editorAbsent: !document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'),
       reason: document.body.innerText.includes('OWNER_RESPONSE_UNAVAILABLE'),
     }))()`), { sourceAbsent: true, editorAbsent: true, reason: true });
