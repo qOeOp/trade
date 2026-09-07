@@ -126,4 +126,47 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
     );
+    sqlx::query("REVOKE pg_write_all_data FROM instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOSUPERUSER NOINHERIT")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("GRANT pg_write_all_data TO instrument_economic_noinherit_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let immediate_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_noinherit_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(!immediate_insert);
+    let can_set_role: bool = sqlx::query_scalar(
+        "SELECT pg_has_role('instrument_economic_noinherit_intruder','pg_write_all_data','SET')",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(can_set_role);
+    let mut attacker = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL SESSION AUTHORIZATION instrument_economic_noinherit_intruder")
+        .execute(&mut *attacker)
+        .await
+        .unwrap();
+    sqlx::query("SET LOCAL ROLE pg_write_all_data")
+        .execute(&mut *attacker)
+        .await
+        .unwrap();
+    let set_role_insert: bool = sqlx::query_scalar("SELECT has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','INSERT')")
+        .fetch_one(&mut *attacker)
+        .await
+        .unwrap();
+    assert!(set_role_insert);
+    attacker.rollback().await.unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+    );
 }

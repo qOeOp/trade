@@ -153,6 +153,16 @@ async fn assert_acl_in_transaction(
 ) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
     let admitted: bool = sqlx::query_scalar(
         "
+        WITH RECURSIVE set_role_reachability(login_oid,role_oid,path) AS (
+          SELECT login.oid,login.oid,ARRAY[login.oid]
+          FROM pg_roles login
+          WHERE login.rolcanlogin AND NOT login.rolsuper
+          UNION ALL
+          SELECT reachable.login_oid,membership.roleid,reachable.path||membership.roleid
+          FROM set_role_reachability reachable
+          JOIN pg_auth_members membership ON membership.member=reachable.role_oid
+          WHERE membership.set_option AND NOT membership.roleid=ANY(reachable.path)
+        )
         SELECT pg_get_userbyid(n.nspowner)=current_user
           AND NOT EXISTS (
             SELECT 1
@@ -181,9 +191,16 @@ async fn assert_acl_in_transaction(
             WHERE login.rolcanlogin AND NOT login.rolsuper AND login.oid<>n.nspowner
               AND (
                 pg_has_role(login.oid,n.nspowner,'MEMBER')
-                OR has_schema_privilege(login.oid,n.oid,'CREATE')
-                OR has_table_privilege(login.oid,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-                OR has_table_privilege(login.oid,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                OR EXISTS (
+                  SELECT 1
+                  FROM set_role_reachability reachable
+                  WHERE reachable.login_oid=login.oid
+                    AND (
+                      has_schema_privilege(reachable.role_oid,n.oid,'CREATE')
+                      OR has_table_privilege(reachable.role_oid,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                      OR has_table_privilege(reachable.role_oid,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                    )
+                )
               )
           )
           AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE')
