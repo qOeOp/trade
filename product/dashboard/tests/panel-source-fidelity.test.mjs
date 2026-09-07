@@ -24,8 +24,13 @@ test("panel atoms retain the pinned Vibe source hierarchy", () => {
   assert.equal(sourceLock.components.panelFrameBody.blob, "56ff8e0f845fb2a4cd5094b878c64a6b816cb740");
   assert.equal(sourceLock.components.animateIn.blob, "d3503e5d76ccdc7f3cd911608040cc9d320dcc01");
   assert.match(panel, /data-slot="panel-frame"/);
+  assert.match(panel, /data-geometry=\{variant === "framed" \? "shell-inset" : "flat"\}/);
   assert.match(panel, /data-slot="panel-frame-header"/);
+  assert.match(panel, /data-surface="frame"/);
   assert.match(panel, /data-slot="panel-frame-body"/);
+  assert.match(panel, /data-surface="inset"/);
+  assert.match(panel, /data-slot="panel-frame-footer"/);
+  assert.match(panel, /data-surface="frame"/);
   assert.match(panel, /toolbar\?: ReactNode/);
   assert.match(panel, /mode\?: "static" \| "scroll" \| "flex"/);
   assert.match(panel, /PanelFrameCloseButton/);
@@ -45,12 +50,16 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.match(css, /\.panel-frame-body-content\[data-mode="scroll"\] \{ overflow-y: auto; \}/);
   assert.match(css, /\.panel-frame-close-button[^}]+var\(--surface-card\)/);
   assert.match(css, /\.panel-frame-header\[data-layout="inline"\]/);
-  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+border-radius: var\(--panel-inner-radius\) var\(--panel-inner-radius\) 0 0/);
-  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-header[^}]+background: var\(--panel-chrome-bg\)/);
-  assert.match(css, /\.panel-frame-footer \{[^}]+background: var\(--panel-chrome-bg\)/);
+  assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-header[^}]+border-radius: 0/);
+  assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-header[^}]+background: transparent/);
+  assert.doesNotMatch(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-header[^}]+background: var\(--panel-chrome-bg\)/);
+  assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-footer[^}]+border-radius: 0;[^}]+background: transparent/);
   assert.match(css, /\.panel-frame-body \{[^}]+border-radius: var\(--panel-inner-radius\)/);
-  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius:[^}]+0 0/);
-  assert.match(css, /\.panel-frame:not\(\[data-variant="flat"\]\) > \.panel-frame-footer:last-child[^}]+border-radius: 0 0/);
+  assert.match(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-body[^}]+overflow: clip;[^}]+border-radius: var\(--panel-inner-radius\);[^}]+background: var\(--panel-body-bg\)/);
+  assert.doesNotMatch(css, /\.panel-frame-body \{[^}]+overflow: hidden;/);
+  assert.doesNotMatch(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-body[^}]+overflow: hidden;/);
+  assert.doesNotMatch(css, /\.panel-frame[^{}]*> \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius/);
+  assert.doesNotMatch(css, /\.panel-frame[^{}]*> \.panel-frame-footer:last-child[^}]+border-radius/);
   assert.match(css, /\.detail-inspector > \.detail-inspector-header,[\s\S]*\.detail-inspector > \.detail-inspector-footer \{ background: var\(--panel-chrome-bg\); \}/);
 });
 
@@ -59,7 +68,9 @@ test("framed corner rules never clip flat page-title frames", () => {
     .map((match) => match[1].trim())
     .filter((selector) => selector.startsWith(".panel-frame") && selector.includes("> .panel-frame-"));
   assert.ok(cornerRules.length >= 3);
-  for (const selector of cornerRules) assert.match(selector, /:not\(\[data-variant="flat"\]\)/u);
+  for (const selector of cornerRules) {
+    assert.match(selector, /:not\(\[data-variant="flat"\]\)|\[data-geometry="shell-inset"\]/u);
+  }
   assert.match(css, /\.panel-frame\[data-variant="flat"\] \{[^}]+background: transparent;/u);
   assert.match(css, /\.panel-frame\[data-variant="flat"\] > \.panel-frame-header \{ background: transparent; \}/u);
   assert.doesNotMatch(css, /^\.panel-frame-header \{[^}]+background: var\(--panel-chrome-bg\)/mu);
@@ -72,7 +83,7 @@ test("shared panel chrome is the single header and footer color authority", () =
   }
 });
 
-test("foundation bodies stay directly joined to their frame footers", () => {
+test("foundation footers remain frame-level siblings of the sole inset body", () => {
   const joinedBodyAndFooter = /<\/PanelFrameBody>\s*<PanelFrameFooter\b/u;
   assert.match(runtimeFoundation, joinedBodyAndFooter);
   assert.match(dataFoundation, joinedBodyAndFooter);
