@@ -82,7 +82,7 @@ test("all Dashboard tables stay behind the TanStack and shadcn workspace boundar
   assert.match(workspaceTableSource, /data-height-mode=\{heightMode\}/u);
   assert.match(globalCss, /\.data-workspace-table\[data-height-mode="fill"\][^}]*display: flex;[^}]*flex-direction: column;/u);
   assert.match(globalCss, /\.data-workspace-table\[data-height-mode="fill"\] > \.data-workspace-viewport[^}]*flex: 1 1 auto;[^}]*overflow: auto;/u);
-  assert.match(globalCss, /\.workspace-table-row\[aria-selected="true"\][^}]*var\(--data-table-row-selected-bg\)/u);
+  assert.match(globalCss, /\.workspace-table-row\[aria-selected="true"\] > \.workspace-table-cell,[^}]*var\(--data-table-row-selected-bg\)/u);
   assert.doesNotMatch(globalCss, /\.workspace-table-row\[data-selected="true"\]/u);
 
   const runTableSource = await readFile(

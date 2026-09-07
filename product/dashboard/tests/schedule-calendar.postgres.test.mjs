@@ -301,8 +301,8 @@ test(testName, { skip: !url }, async () => {
           const headerToken = getComputedStyle(probe).backgroundColor;
           probe.remove();
           return {
-            selected: selected ? getComputedStyle(selected).backgroundColor : null,
-            idle: idle ? getComputedStyle(idle).backgroundColor : null,
+            selected: selected ? getComputedStyle(selected.querySelector('td') ?? selected).backgroundColor : null,
+            idle: idle ? getComputedStyle(idle.querySelector('td') ?? idle).backgroundColor : null,
             selectedToken,
             selectedCustomToken: selected ? getComputedStyle(selected).getPropertyValue('--data-table-row-selected-bg') : null,
             ariaSelected: selected?.getAttribute('aria-selected') ?? null,
