@@ -136,6 +136,7 @@ test("table surfaces declare their card hierarchy instead of guessing from ances
   assert.match(surface, /data-geometry=\{geometry\}/u);
   assert.match(css, /\.data-table-surface\[data-geometry="outer"\] \{ border-radius: var\(--panel-radius\); \}/u);
   assert.match(css, /\.data-table-surface\[data-geometry="inner"\] \{ border-radius: var\(--panel-inner-radius\); \}/u);
+  assert.match(css, /\.data-workspace-table \{[^}]*border-radius: var\(--panel-inner-radius\);/u);
   assert.doesNotMatch(css, /\.data-table-surface \{[^}]*border-radius:/u);
   assert.match(workers, /<DataTableSurface[^>]*geometry="outer"/u);
   for (const nested of [runs, research, artifacts]) {

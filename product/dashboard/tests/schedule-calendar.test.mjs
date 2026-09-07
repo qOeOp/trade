@@ -140,6 +140,8 @@ test("unavailable schedule data preserves the source calendar frame without inve
   assert.match(component, /data-availability="unavailable"/);
   assert.match(css, /\.unavailableCalendar \.calendar \{ opacity:/);
   assert.match(css, /\.availabilityNotice \{/);
+  assert.match(css, /\.availabilityNotice \{[^}]*border-radius: var\(--panel-inner-radius\)/u);
+  assert.match(css, /\.dialog \{[^}]*border-radius: var\(--panel-radius\)/u);
 });
 
 function dayGroups(rows, date) {
