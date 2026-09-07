@@ -259,14 +259,16 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   if (result?.availability !== "available" || !result.run || !result.operational_cache
     || !result.operational_cancellation) {
     return (
-      <PanelFrame variant="flat" className="run-detail-panel" aria-labelledby="run-detail-title">
+      <PanelFrame className="run-detail-panel" aria-labelledby="run-detail-title">
         <PanelFrameHeader eyebrow="Exact operational readback" title="Run detail" titleId="run-detail-title" actions={
           <button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
           </button>
         } />
-        <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={17} />}
-          title="Run detail unavailable" reason={result?.unavailable_reason ?? "READING_RUN_DETAIL"} />
+        <PanelFrameBody>
+          <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={17} />}
+            title="Run detail unavailable" reason={result?.unavailable_reason ?? "READING_RUN_DETAIL"} />
+        </PanelFrameBody>
       </PanelFrame>
     );
   }
@@ -278,7 +280,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   const operationalCancellation = result.operational_cancellation;
   return (
     <PageStack className="run-detail-page">
-    <PanelFrame variant="flat" className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
+    <PanelFrame className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
       <PanelFrameHeader
         eyebrow={<>Exact operational readback · {new Date(result.observed_at).toLocaleString()}</>}
         title={run.operation_id}
