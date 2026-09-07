@@ -152,7 +152,44 @@ async fn assert_acl_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
     let admitted: bool = sqlx::query_scalar(
-        "SELECT pg_get_userbyid(n.nspowner)=current_user AND NOT EXISTS (SELECT 1 FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a WHERE a.grantee<>n.nspowner AND a.privilege_type IN ('USAGE','CREATE')) AND 2=(SELECT count(*) FROM pg_class c WHERE c.relnamespace=n.oid AND c.relkind='r' AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1') AND c.relowner=n.nspowner) AND NOT EXISTS (SELECT 1 FROM pg_class c CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a WHERE c.relnamespace=n.oid AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1') AND a.grantee<>c.relowner AND a.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')) AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE') AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE') FROM pg_namespace n WHERE n.nspname='instrument_owner_private'",
+        r#"
+        SELECT pg_get_userbyid(n.nspowner)=current_user
+          AND NOT EXISTS (
+            SELECT 1
+            FROM aclexplode(COALESCE(n.nspacl,acldefault('n',n.nspowner))) a
+            WHERE a.grantee<>n.nspowner AND a.privilege_type IN ('USAGE','CREATE')
+          )
+          AND 2=(
+            SELECT count(*)
+            FROM pg_class c
+            WHERE c.relnamespace=n.oid AND c.relkind='r'
+              AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
+              AND c.relowner=n.nspowner
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_class c
+            CROSS JOIN LATERAL aclexplode(COALESCE(c.relacl,acldefault('r',c.relowner))) a
+            WHERE c.relnamespace=n.oid
+              AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
+              AND a.grantee<>c.relowner
+              AND a.privilege_type IN ('SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER')
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_roles login
+            WHERE login.rolcanlogin AND NOT login.rolsuper AND login.oid<>n.nspowner
+              AND (
+                pg_has_role(login.oid,n.nspowner,'MEMBER')
+                OR has_schema_privilege(login.oid,n.oid,'CREATE')
+                OR has_table_privilege(login.oid,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                OR has_table_privilege(login.oid,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+              )
+          )
+          AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','SELECT,INSERT,UPDATE,DELETE')
+          AND has_table_privilege(current_user,'instrument_owner_private.economic_terms_receipts_v1','SELECT,INSERT,UPDATE,DELETE')
+        FROM pg_namespace n WHERE n.nspname='instrument_owner_private'
+        "#,
     ).fetch_one(&mut **tx).await.map_err(store_error)?;
 
     if admitted {

@@ -97,10 +97,31 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
     );
-    sqlx::query("GRANT INSERT ON instrument_owner_private.economic_terms_facts_v1 TO pg_monitor")
+    sqlx::query("CREATE ROLE instrument_economic_intruder LOGIN NOSUPERUSER")
         .execute(&pool)
         .await
         .unwrap();
+    sqlx::query("GRANT INSERT ON instrument_owner_private.economic_terms_facts_v1 TO instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
+    );
+    sqlx::query("REVOKE INSERT ON instrument_owner_private.economic_terms_facts_v1 FROM instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("GRANT pg_write_all_data TO instrument_economic_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let derived_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(derived_insert);
     assert_eq!(
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)

@@ -866,6 +866,8 @@ exact-locator readback 铸造的独立、不可伪造 provenance value 才可使
 该 readback 只能由 deployment configuration root `INSTRUMENT_OWNER_DATABASE_URL` 打开的 Owner 签发；public
 boundary 不接受 caller 选择的 pool、URL、expected store identity 或 expected digest。缺少配置或另建的
 PostgreSQL store 都会在 provenance 存在前失败。private fact 与 atomic receipt 绑定
+Owner 还会拒绝任何非超级用户登录角色的直接或角色派生有效访问，包括 Owner 角色成员关系与 PostgreSQL
+全库读写角色。
 public-fact identity/digest、venue、margin-account scope、半开 event validity、source/provenance、revision、
 quote/fee currency 与每个准确 term byte。首版只接受正 fixed `STANDARD_NOTIONAL_RATE` initial/maintenance
 value，并明确选择 `StandardMarginModel`（`notional * rate`，不经 leverage）；绝不推断
