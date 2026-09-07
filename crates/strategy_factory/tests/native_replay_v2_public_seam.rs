@@ -45,6 +45,7 @@ type OwnerEventCorpusIssuerV2 =
         &SealedDevelopComposerReadbackV2,
         InstrumentMasterReadbackV1,
         Vec<StrategyInputBindingReceipt>,
+        SealedReplayInput,
         StrategyInputEventCorpusV1,
     ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2>;
 

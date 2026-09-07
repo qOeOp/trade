@@ -986,14 +986,17 @@ receipt that cross-binds the sealed R&D request identity, the exact Market Data 
 Owner-native event identity before any resolver can be issued.
 
 **CURRENT/PARTIAL, complete ordered EVENT corpus V1:** `StrategyInputEventCorpusV1` is the additive
-Market Data boundary for continuous replay. Issuance consumes one unchanged move-only `SealedReplayInput` and the
-already-issued V1 joined-cut and V2 projection readbacks. The sealed replay-input census determines the complete
-trigger set; the caller cannot select a subset. Every member binds the canonical native order key
+Market Data boundary for continuous replay. Its new move-only `StrategyInputEventSourceV1` is issued only from
+Owner event frames resolved from verified PIT batches; it retains each frame's snapshot identity, snapshot-fact
+digest, observation-batch digest, binding/value coordinates, and source/correction provenance. That source—not
+`SealedReplayInput` V1—determines the complete trigger set, so the caller cannot select a subset. Every member binds the canonical native order key
 `(logical_time, event_time, owner_sequence, event_identity)`, joined-cut digest, projection receipt digest, and
-native trigger identity/digest. The corpus additionally binds the Market Data request, census and correction
-frontier, expected count, and a domain-separated corpus digest. Empty, missing, duplicate, reordered, BAR,
+native trigger identity/digest. The corpus additionally binds the complete source digest, expected count, and a
+domain-separated corpus digest. Empty, missing, duplicate, reordered, BAR,
 cross-census, cross-request, cross-projection, or cross-native-trigger evidence produces no corpus. Existing V1 cut
-and V2 projection bytes, digests, resolver meaning, and historical single-event consumers remain unchanged.
+and V2 projection bytes, digests, `SealedReplayInput` V1 meaning, resolver meaning, and historical single-event
+consumers remain unchanged. Equal-valued evidence from another snapshot or observation batch is rejected by exact
+Owner provenance rather than value comparison.
 After restart, resolution of that locator must return the same canonical request, projection, and event identities and
 bytes. The only value crossing to Strategy Factory or Backtest composition is the sealed, read-only
 `StrategyInputSampleEventResolverV1` capability for that exact request-selected event; no insert, update, delete, head

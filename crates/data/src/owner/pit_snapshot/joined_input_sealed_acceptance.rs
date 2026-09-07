@@ -34,6 +34,9 @@ use crate::owner::{
         StrategyInputChannel, StrategyInputUnit, UntrustedStrategyInputBindingRequest,
         UntrustedStrategyInputScope, bind_strategy_input_event_frame, bind_strategy_input_role,
     },
+    strategy_input_event_corpus_v1::{
+        StrategyInputEventSourceV1, issue_strategy_input_event_source_v1,
+    },
     strategy_input_joined_cut::{
         StrategyInputJoinRoleClaimV1, StrategyInputJoinedCutReceiptV1,
         StrategyInputJoinedCutUnavailable, UntrustedStrategyInputJoinClaimV1,
@@ -111,13 +114,19 @@ impl From<StrategyInputJoinedCutUnavailable> for JoinedInputSealedAcceptanceErro
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(
+    dead_code,
+    reason = "EVENT-only fields are consumed by the feature-gated in-crate acceptance oracle"
+)]
+#[derive(Debug)]
 pub struct SealedAcceptanceStrategyInputJoinCorpus {
     bindings: Box<[StrategyInputBindingReceipt]>,
     events: Box<[StrategyInputJoinedCutReceiptV1]>,
     repeated_first: StrategyInputJoinedCutReceiptV1,
     alternate_join_claim_for_negative_test: StrategyInputJoinedCutReceiptV1,
-    stale_selection_basis_for_negative_test: StrategyInputJoinedCutReceiptV1,
+    stale_selection_basis_for_negative_test: Option<StrategyInputJoinedCutReceiptV1>,
+    event_source: Option<StrategyInputEventSourceV1>,
+    equal_value_cross_snapshot_source: Option<StrategyInputEventSourceV1>,
     missing: StrategyInputJoinedCutUnavailable,
     stale: StrategyInputJoinedCutUnavailable,
     cross_splice: StrategyInputJoinedCutUnavailable,
@@ -144,10 +153,23 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
 
     /// Returns a valid cut from an incomplete census that omits the newest eligible non-trigger
     /// observation. Complete-corpus consumers must reject it against the retained full census.
-    pub const fn stale_selection_basis_for_negative_test(
+    #[cfg(test)]
+    pub(crate) fn stale_selection_basis_for_negative_test(
         &self,
-    ) -> &StrategyInputJoinedCutReceiptV1 {
-        &self.stale_selection_basis_for_negative_test
+    ) -> Option<&StrategyInputJoinedCutReceiptV1> {
+        self.stale_selection_basis_for_negative_test.as_ref()
+    }
+
+    #[allow(dead_code, reason = "consumed only by the EVENT acceptance oracle")]
+    pub(crate) fn take_event_source(&mut self) -> Option<StrategyInputEventSourceV1> {
+        self.event_source.take()
+    }
+
+    #[allow(dead_code, reason = "consumed only by the EVENT acceptance oracle")]
+    pub(crate) fn take_equal_value_cross_snapshot_source(
+        &mut self,
+    ) -> Option<StrategyInputEventSourceV1> {
+        self.equal_value_cross_snapshot_source.take()
     }
 
     pub const fn stale(&self) -> StrategyInputJoinedCutUnavailable {
@@ -181,7 +203,7 @@ pub fn issue_strategy_input_join_corpus()
         ("MSFT.XNAS", "1H", MarketDataFieldSemantic::BarClosePrice),
         ("QQQ.XNAS", "1D", MarketDataFieldSemantic::BarClosePrice),
     ];
-    issue_strategy_input_join_corpus_with_specs(specs, 500)
+    issue_strategy_input_join_corpus_with_specs(specs, 500, false)
 }
 
 /// Issues the acceptance-only three-EVENT variant through the same real Owner authorities.
@@ -199,18 +221,23 @@ pub(crate) fn issue_strategy_input_event_join_corpus_v1()
             ("QQQ.XNAS", "TICK", MarketDataFieldSemantic::TradeLastPrice),
         ],
         3_000_000_000,
+        true,
     )
 }
 
 fn issue_strategy_input_join_corpus_with_specs(
     specs: [(&str, &str, MarketDataFieldSemantic); 4],
     max_staleness_ns: u64,
+    include_stale_selection_negative: bool,
 ) -> Result<SealedAcceptanceStrategyInputJoinCorpus, JoinedInputSealedAcceptanceError> {
     let event_times = [1_000_000_000_u64, 3_000_000_000, 5_000_000_000];
     let mut bindings = Vec::with_capacity(specs.len());
     let mut by_event = vec![Vec::with_capacity(specs.len()); event_times.len()];
     let mut stale = Vec::with_capacity(specs.len());
     let mut cross_splice = Vec::with_capacity(specs.len());
+    let mut source_batches = Vec::with_capacity(specs.len() * event_times.len());
+    let mut equal_value_foreign_batch = None;
+    let mut equal_value_foreign_position = None;
 
     for (role_index, (instrument, timeframe, field)) in specs.into_iter().enumerate() {
         let role_seed = u8::try_from(role_index + 61).expect("fixed role seed");
@@ -243,6 +270,7 @@ fn issue_strategy_input_join_corpus_with_specs(
                 10_001 + i128::from(role_seed) * 100 + i128::from(event_index as u16),
                 driver_time - lag,
             )?;
+            source_batches.push(verified.clone());
 
             if role_binding.is_none() {
                 role_binding = Some(bind_strategy_input_role(
@@ -261,6 +289,22 @@ fn issue_strategy_input_join_corpus_with_specs(
                 std::slice::from_ref(role_binding.as_ref().expect("role binding exists")),
                 &verified,
             )?);
+            if include_stale_selection_negative && role_index == 0 && event_index == 2 {
+                let foreign = verified_batch(
+                    &source_owner,
+                    source.receipt().locator(),
+                    &clock,
+                    role_seed,
+                    99,
+                    instrument,
+                    timeframe,
+                    field,
+                    10_001 + i128::from(role_seed) * 100 + i128::from(event_index as u16),
+                    driver_time - lag,
+                )?;
+                equal_value_foreign_position = Some(source_batches.len() - 1);
+                equal_value_foreign_batch = Some(foreign);
+            }
         }
 
         let stale_batch = verified_batch(
@@ -353,24 +397,42 @@ fn issue_strategy_input_join_corpus_with_specs(
         &seal_strategy_input_join_census_v1(cumulative.clone())?,
         event_times[2],
     )?;
-    let stale_selection_census = seal_strategy_input_join_census_v1(
-        cumulative
-            .iter()
-            .filter(|frame| {
-                let value = &frame.values()[0];
-                value.input_role_identity()
-                    != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[0])
-                    || frame.trigger().lifecycle().logical_time() != event_times[2]
-            })
-            .cloned()
-            .collect(),
-    )?;
-    let stale_selection_basis_for_negative_test = issue_strategy_input_joined_cut_v1(
-        &claim,
-        &bindings,
-        &stale_selection_census,
-        event_times[2],
-    )?;
+    let event_source = include_stale_selection_negative
+        .then(|| issue_strategy_input_event_source_v1(&bindings, source_batches.clone()))
+        .transpose()?;
+    let equal_value_cross_snapshot_source = if include_stale_selection_negative {
+        let foreign = equal_value_foreign_batch
+            .expect("fixed EVENT corpus produces equal-valued foreign snapshot evidence");
+        let position = equal_value_foreign_position
+            .expect("fixed EVENT source retains the substituted batch coordinate");
+        let mut batches = source_batches;
+        batches[position] = foreign;
+        Some(issue_strategy_input_event_source_v1(&bindings, batches)?)
+    } else {
+        None
+    };
+    let stale_selection_basis_for_negative_test = if include_stale_selection_negative {
+        let stale_selection_census = seal_strategy_input_join_census_v1(
+            cumulative
+                .iter()
+                .filter(|frame| {
+                    let value = &frame.values()[0];
+                    value.input_role_identity()
+                        != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[0])
+                        || frame.trigger().lifecycle().logical_time() != event_times[2]
+                })
+                .cloned()
+                .collect(),
+        )?;
+        Some(issue_strategy_input_joined_cut_v1(
+            &claim,
+            &bindings,
+            &stale_selection_census,
+            event_times[2],
+        )?)
+    } else {
+        None
+    };
     let missing_census = seal_strategy_input_join_census_v1(
         cumulative
             .iter()
@@ -403,6 +465,8 @@ fn issue_strategy_input_join_corpus_with_specs(
         repeated_first: repeated_first.expect("fixed corpus has a first event"),
         alternate_join_claim_for_negative_test,
         stale_selection_basis_for_negative_test,
+        event_source,
+        equal_value_cross_snapshot_source,
         missing,
         stale,
         cross_splice,

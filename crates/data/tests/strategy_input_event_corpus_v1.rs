@@ -1,16 +1,16 @@
 use rstest::rstest;
 use vibe_data::owner::{
-    sealed_replay_input::SealedReplayInput,
     strategy_input_binding::StrategyInputBindingReceipt,
     strategy_input_event_corpus_v1::{
         StrategyInputEventCorpusCandidateV1, StrategyInputEventCorpusUnavailableV1,
-        StrategyInputEventCorpusV1, issue_strategy_input_event_corpus_v1,
+        StrategyInputEventCorpusV1, StrategyInputEventSourceV1,
+        issue_strategy_input_event_corpus_v1,
     },
 };
 
 type OwnerEventCorpusIssuerV1 =
     fn(
-        SealedReplayInput,
+        StrategyInputEventSourceV1,
         &[StrategyInputBindingReceipt],
         Vec<StrategyInputEventCorpusCandidateV1>,
     ) -> Result<StrategyInputEventCorpusV1, StrategyInputEventCorpusUnavailableV1>;

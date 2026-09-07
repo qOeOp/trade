@@ -606,10 +606,13 @@ frontier 上执行逐 role latest-not-after argmax，再把 trigger、准确 Des
 共享 lifecycle kernel 消费的规范 Plan 数据；它不会引入 feature opcode、第二 interpreter、heuristic
 binding 或 raw-order 路径。
 
-连续 EVENT replay 只接受新增、move-only 的 `StrategyInputEventCorpusV1`。Strategy Factory preparation 会针对
+连续 EVENT replay 只接受新增、move-only 的 `StrategyInputEventCorpusV1`。其完整集合权威是新增、move-only 的 Market Data
+`StrategyInputEventSourceV1`，且只能由针对 verified PIT batch 解析的 Owner frame 签发；不得把 `SealedReplayInput` V1
+重新解释为多事件权威。Strategy Factory preparation 会针对
 准确 Plan binding 集合重新校验 corpus 中每份 joined cut 与 V2 projection，并在构造 Host 前校验完整 corpus digest。
 随后一份 `PreparedProgramHostHandoffV2` 把完整 corpus 一次性转交给单个持久 Host consumer；不存在 lazy resolve、
-caller-selected event vector 或每个 event 重建一个 Host 的路径。缺失、重复、非规范 native 顺序、BAR 替换，或任何
+caller-selected event vector 或每个 event 重建一个 Host 的路径。缺失、重复、非规范 native 顺序、BAR 替换、等值跨
+snapshot/batch 替换，或任何
 request/census/frontier/cut/projection/native-trigger 拼接都会在 Host 构造前失败，因此 Host checkpoint 不会推进。
 历史 single-event preparation 入口继续独立存在并保持原有行为。
 

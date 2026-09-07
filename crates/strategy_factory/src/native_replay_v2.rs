@@ -154,6 +154,7 @@ pub struct PreparedProgramHostEventCorpusCapabilityV2 {
     request: ReplayRequestV2,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    replay_input: SealedReplayInput,
     event_corpus: StrategyInputEventCorpusV1,
     binding: PreparedProgramBindingV2,
 }
@@ -175,6 +176,7 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
             request,
             instrument_master,
             input_bindings,
+            replay_input,
             event_corpus,
             binding,
         } = self;
@@ -188,7 +190,7 @@ impl PreparedProgramHostEventCorpusCapabilityV2 {
         Ok(PreparedProgramHostHandoffV2 {
             host,
             request,
-            replay_input: None,
+            replay_input: Some(replay_input),
             instrument_master,
             input_bindings,
             joined_cut: None,
@@ -406,6 +408,7 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
     composer: &SealedDevelopComposerReadbackV2,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
+    replay_input: SealedReplayInput,
     event_corpus: StrategyInputEventCorpusV1,
 ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2> {
     if !verify_instrument_master_readback(&instrument_master) || !event_corpus.has_valid_digest() {
@@ -414,7 +417,7 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
     let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
         replay,
         composer,
-        event_corpus.replay_input(),
+        &replay_input,
         &instrument_master,
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
@@ -435,6 +438,7 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
         request: claims.request,
         instrument_master,
         input_bindings,
+        replay_input,
         event_corpus,
         binding,
     })
