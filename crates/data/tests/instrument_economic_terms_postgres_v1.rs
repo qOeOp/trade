@@ -403,6 +403,30 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         first.locator()
     );
 
+    let original_custody: Vec<u8> = sqlx::query_scalar(
+        "SELECT custody_digest FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(first.locator().fact_identity().as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
+        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+    );
+    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=$1 WHERE fact_identity=$2")
+        .bind(&original_custody)
+        .bind(first.locator().fact_identity().as_slice())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
+    );
+
     sqlx::query("CREATE SCHEMA instrument_economic_inheritance_intruder")
         .execute(&pool)
         .await
@@ -440,12 +464,5 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     assert_eq!(
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-    );
-
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
-        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
-    assert_eq!(
-        restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
     );
 }

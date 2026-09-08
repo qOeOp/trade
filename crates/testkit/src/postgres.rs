@@ -249,12 +249,12 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
                     INSTRUMENT_OWNER_RUNTIME_URL_ENV,
                 )
             })?;
-        let instrument_runtime =
-            normalize_url(INSTRUMENT_OWNER_RUNTIME_URL_ENV, &instrument_runtime_value)?;
+        normalize_url(INSTRUMENT_OWNER_RUNTIME_URL_ENV, &instrument_runtime_value)?;
 
-        if instrument_runtime != targets[CanonicalOwnerTestRoleV1::InstrumentOwner.index()] {
-            return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
-        }
+        validate_exact_runtime_url_pair(
+            &urls[CanonicalOwnerTestRoleV1::InstrumentOwner.index()],
+            &instrument_runtime_value,
+        )?;
 
         for name in PRODUCTION_DATABASE_URL_ENVS {
             if let Ok(value) = env::var(name) {
@@ -629,6 +629,17 @@ fn normalize_url(
     })
 }
 
+fn validate_exact_runtime_url_pair(
+    test_url: &str,
+    runtime_url: &str,
+) -> Result<(), DedicatedPostgresTestDatabaseError> {
+    if test_url != runtime_url {
+        return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
+    }
+
+    Ok(())
+}
+
 fn validate_target(
     target: &NormalizedDatabaseTarget,
     expected: &ExpectedMarker<'_>,
@@ -756,6 +767,20 @@ mod tests {
             "INSTRUMENT_OWNER_DATABASE_URL"
         );
         assert!(!PRODUCTION_DATABASE_URL_ENVS.contains(&INSTRUMENT_OWNER_RUNTIME_URL_ENV));
+        assert!(
+            validate_exact_runtime_url_pair(
+                "postgresql://instrument_owner:secret@127.0.0.1:55432/vibe_test_7",
+                "postgresql://instrument_owner:secret@127.0.0.1:55432/vibe_test_7",
+            )
+            .is_ok()
+        );
+        assert_eq!(
+            validate_exact_runtime_url_pair(
+                "postgresql://instrument_owner:secret@127.0.0.1:55432/vibe_test_7",
+                "postgresql://instrument_owner:secret@[::1]:55432/vibe_test_7",
+            ),
+            Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch)
+        );
     }
 
     #[rstest]
