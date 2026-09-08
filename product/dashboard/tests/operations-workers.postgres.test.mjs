@@ -281,8 +281,17 @@ test(testName, { skip: !url }, async () => {
     assert.equal(surface.separatorWidth, "0.5px");
     assert.equal(surface.separatorTop, "10px");
     assert.equal(surface.separatorBottom, "10px");
+    const openedLastRun = await readBrowserValue(browser, `(() => {
+      const link = document.querySelector('a[href="/operations/runs/${queued.run_identity}"]');
+      link?.click();
+      return Boolean(link);
+    })()`);
+    assert.equal(openedLastRun, true);
     await waitForBrowserExpression(browser,
-      `Boolean(document.querySelector('a[href="/operations/runs/${queued.run_identity}"]'))`);
+      `location.pathname === "/operations/runs/${queued.run_identity}/"
+        && document.body?.innerText.toLowerCase().includes('exact operational readback')
+        && document.body?.innerText.includes(${JSON.stringify(queued.run_identity)})
+        && document.body?.innerText.includes(${JSON.stringify(SOURCE_INTAKE_SHADOW_READ_OPERATION)})`);
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/${expiredWorker}/` });
     await waitForBrowserExpression(browser,
@@ -301,11 +310,27 @@ test(testName, { skip: !url }, async () => {
 
     await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
-      `document.body?.innerText.includes(${JSON.stringify(activeWorker)})`);
+      `document.body?.innerText.includes(${JSON.stringify(activeWorker)})
+        && !document.body?.innerText.includes(${JSON.stringify(expiredWorker)})
+        && document.querySelectorAll('table[aria-label="Dashboard shadow workers"] tbody tr').length === 1`);
+
+    await browser.send("Page.navigate", { url: `${origin}/operations/workers/${activeWorker}/` });
+    await waitForBrowserExpression(browser,
+      `document.body?.innerText.toLowerCase().includes('exact worker readback')
+        && document.body?.innerText.includes(${JSON.stringify(activeWorker)})
+        && document.body?.innerText.toLowerCase().includes('registered operations')`);
     await pool.query("ALTER TABLE dashboard_shadow_workers_v1 RENAME TO dashboard_shadow_workers_unavailable_v1");
     workerTableRenamed = true;
+    assert.equal((await fetch(`${origin}/api/operations/workers/${activeWorker}/`)).status, 503);
     assert.equal((await fetch(`${origin}/api/operations/workers/`)).status, 503);
     await clickRefresh(browser);
+    await waitForBrowserExpression(browser,
+      `document.body?.innerText.includes('Worker store unavailable')
+        && document.body?.innerText.includes('WORKER_DETAIL_RESPONSE_UNAVAILABLE')
+        && document.body?.innerText.includes(${JSON.stringify(activeWorker)})
+        && !document.body?.innerText.toLowerCase().includes('registered operations')`);
+
+    await browser.send("Page.navigate", { url: `${origin}/operations/workers/` });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Worker store unavailable')
         && !document.body?.innerText.includes(${JSON.stringify(activeWorker)})`);
