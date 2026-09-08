@@ -45,6 +45,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
   'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
+  'vibe-strategy-factory|vibe_strategy_factory|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed'
 )
 readonly nextest_graph_args=(
   --locked
@@ -66,8 +67,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 27 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-seven ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 28 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-eight ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -89,7 +90,8 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[23]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[24]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
     [[ "${rd_owner_postgres_tests[25]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
-    [[ "${rd_owner_postgres_tests[26]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]]; then
+    [[ "${rd_owner_postgres_tests[26]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]] ||
+    [[ "${rd_owner_postgres_tests[27]}" != *'|product_edge_postgres::tests::bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -1729,6 +1731,11 @@ export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export INSTRUMENT_OWNER_DATABASE_URL="$INSTRUMENT_OWNER_TEST_DATABASE_URL"
+export OPERATOR_AUTHORIZATION_TEST_DATABASE_ROLE="operator_authorization_writer"
+export PRODUCT_EDGE_TEST_DATABASE_ROLE="product_edge_owner"
+export RD_OWNER_TEST_DATABASE_ROLE="rd_owner"
+export QUALIFICATION_TEST_DATABASE_ROLE="qualification_writer"
+export BACKTEST_TEST_DATABASE_ROLE="backtest_owner"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"

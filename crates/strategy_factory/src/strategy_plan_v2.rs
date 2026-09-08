@@ -33,7 +33,15 @@ const MAX_PLUGIN_FUEL: u64 = 10_000_000;
 const MAX_PLUGIN_INVOCATIONS: u16 = 32;
 const MAX_INPUT_JOIN_STALENESS_NS: u64 = 31 * 24 * 60 * 60 * 1_000_000_000;
 const PLUGIN_ABI_V2: u16 = 2;
+const PLUGIN_ABI_V3: u16 = 3;
 const PLUGIN_FAILURE_V1: &str = "strategy.plugin.failure.unsupported.v1";
+const BFP_NUMERIC_FAILURE_V1: &str = "bfp.numeric.failure.no-state-change.v1";
+const OWNER_SAMPLE_COORDINATE_SOURCE_PREFIX_V1: &str =
+    "strategy.value-ref.owner-sample-coordinate.v1";
+const OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1: &str = "strategy.input.sample-coordinate.v1.";
+const OWNER_SAMPLE_COORDINATE_DIGEST_DOMAIN_V1: &str = "strategy.input.sample-coordinate.v1";
+const OWNER_SAMPLE_COORDINATE_SCHEMA_V1: u16 = 1;
+const OWNER_SAMPLE_COORDINATE_BYTES_V1: u16 = 308;
 const PLUGIN_EXPORT_V2: &str = "strategy.plugin.compute.v2";
 const DURABLE_CODEC_MAGIC_V2: &[u8; 4] = b"RDC2";
 const DURABLE_CODEC_VERSION_V2: u16 = 1;
@@ -232,6 +240,27 @@ pub enum StrategyDesignPreparationV2 {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CanonicalStrategyDesignPreparationV2 {
+    canonical_bytes: Vec<u8>,
+    design_identity: BindingDigest,
+    design_digest: BindingDigest,
+}
+
+impl CanonicalStrategyDesignPreparationV2 {
+    pub(crate) fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    pub(crate) const fn design_identity(&self) -> BindingDigest {
+        self.design_identity
+    }
+
+    pub(crate) const fn design_digest(&self) -> BindingDigest {
+        self.design_digest
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct VerifiedStrategyInputBindingsV2 {
     projections: Vec<BindingProjectionV2>,
     universe_selection: Option<UniverseSelectionProjectionV2>,
@@ -320,6 +349,92 @@ struct UniverseRoleBindingProjectionV2 {
     strategy_design_identity: BindingDigest,
     input_role_identity: BindingDigest,
     members: Vec<UniverseMemberBindingProjectionV2>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum BfpRoleBindingKindV1 {
+    Value,
+    Coordinate,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub(crate) enum OwnerSampleCoordinateDigestRuleV1 {
+    Sha256DomainSeparated,
+}
+
+/// Canonical BFP role table. Its `(role identity, kind)` order proves value-coordinate pairing;
+/// `manifest_port_ordinal` independently preserves the canonical ABI frame position.
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+pub(crate) struct BfpRoleBindingProjectionV1 {
+    input_role_identity: BindingDigest,
+    kind: BfpRoleBindingKindV1,
+    input_role_id: String,
+    plugin_semantic_id: String,
+    manifest_port_id: String,
+    manifest_port_ordinal: u16,
+    static_binding_receipt_digest: BindingDigest,
+    coordinate_source_semantic_id: String,
+    coordinate_codec_schema_version: u16,
+    coordinate_canonical_bytes: u16,
+    coordinate_digest_rule: OwnerSampleCoordinateDigestRuleV1,
+    coordinate_digest_domain: String,
+    update_clock_source_semantic_id: String,
+}
+
+impl BfpRoleBindingProjectionV1 {
+    pub(crate) const fn input_role_identity(&self) -> BindingDigest {
+        self.input_role_identity
+    }
+
+    pub(crate) const fn kind(&self) -> BfpRoleBindingKindV1 {
+        self.kind
+    }
+
+    pub(crate) fn input_role_id(&self) -> &str {
+        &self.input_role_id
+    }
+
+    pub(crate) fn plugin_semantic_id(&self) -> &str {
+        &self.plugin_semantic_id
+    }
+
+    pub(crate) fn manifest_port_id(&self) -> &str {
+        &self.manifest_port_id
+    }
+
+    pub(crate) const fn manifest_port_ordinal(&self) -> u16 {
+        self.manifest_port_ordinal
+    }
+
+    pub(crate) const fn static_binding_receipt_digest(&self) -> BindingDigest {
+        self.static_binding_receipt_digest
+    }
+
+    pub(crate) fn coordinate_source_semantic_id(&self) -> &str {
+        &self.coordinate_source_semantic_id
+    }
+
+    pub(crate) const fn coordinate_codec_schema_version(&self) -> u16 {
+        self.coordinate_codec_schema_version
+    }
+
+    pub(crate) const fn coordinate_canonical_bytes(&self) -> u16 {
+        self.coordinate_canonical_bytes
+    }
+
+    pub(crate) const fn coordinate_digest_rule(&self) -> OwnerSampleCoordinateDigestRuleV1 {
+        self.coordinate_digest_rule
+    }
+
+    pub(crate) fn coordinate_digest_domain(&self) -> &str {
+        &self.coordinate_digest_domain
+    }
+
+    pub(crate) fn update_clock_source_semantic_id(&self) -> &str {
+        &self.update_clock_source_semantic_id
+    }
 }
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
@@ -483,6 +598,8 @@ pub struct StrategyPlanV2 {
     resources: ResourceBoundsV2,
     canonical_design: CanonicalDesignV2,
     bindings: Vec<BindingProjectionV2>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    bfp_role_bindings: Vec<BfpRoleBindingProjectionV1>,
     universe_selection: Option<UniverseSelectionProjectionV2>,
     universe_bindings: Vec<UniverseRoleBindingProjectionV2>,
     plugin_implementations: Vec<PluginImplementationReceiptV2>,
@@ -582,6 +699,10 @@ impl StrategyPlanV2 {
 
     pub(crate) fn input_bindings(&self) -> &[BindingProjectionV2] {
         &self.bindings
+    }
+
+    pub(crate) fn bfp_role_bindings(&self) -> &[BfpRoleBindingProjectionV1] {
+        &self.bfp_role_bindings
     }
 
     pub fn reactions(&self) -> &[ReactionGraphV2] {
@@ -1350,6 +1471,8 @@ impl BindingProjectionV2 {
 struct LoweringProjectionV2<'a> {
     design: BindingDigest,
     bindings: BindingDigest,
+    #[serde(skip_serializing_if = "bfp_role_bindings_are_empty")]
+    bfp_role_bindings: &'a [BfpRoleBindingProjectionV1],
     universe_selection: Option<&'a UniverseSelectionProjectionV2>,
     plugin_implementations: BindingDigest,
     capabilities: &'a [String],
@@ -1357,6 +1480,10 @@ struct LoweringProjectionV2<'a> {
     plugin_abis: &'a [u16],
     lifecycle: u16,
     checkpoint: u16,
+}
+
+fn bfp_role_bindings_are_empty(value: &&[BfpRoleBindingProjectionV1]) -> bool {
+    value.is_empty()
 }
 
 #[derive(Serialize)]
@@ -1561,23 +1688,33 @@ pub(crate) fn compile_strategy_design_v2_with_verified_bindings(
 
 /// Canonicalizes the complete graph before an Owner issues input-binding receipts.
 pub fn prepare_strategy_design_v2(design: &StrategyDesignV2) -> StrategyDesignPreparationV2 {
-    let canonical = match canonicalize(design.clone()) {
-        Ok(value) => value,
+    match prepare_canonical_strategy_design_v2(design) {
+        Ok(prepared) => StrategyDesignPreparationV2::Prepared {
+            design_identity: prepared.design_identity,
+            design_digest: prepared.design_digest,
+        },
         Err(StrategyCompilationV2::Unsupported(issue)) => {
-            return StrategyDesignPreparationV2::Unsupported(issue);
+            StrategyDesignPreparationV2::Unsupported(issue)
         }
         Err(StrategyCompilationV2::NeedsResearchRefinement(issue)) => {
-            return StrategyDesignPreparationV2::NeedsResearchRefinement(issue);
+            StrategyDesignPreparationV2::NeedsResearchRefinement(issue)
         }
         Err(StrategyCompilationV2::Compiled(_)) => unreachable!("canonicalization cannot compile"),
-    };
+    }
+}
+
+pub(crate) fn prepare_canonical_strategy_design_v2(
+    design: &StrategyDesignV2,
+) -> Result<CanonicalStrategyDesignPreparationV2, StrategyCompilationV2> {
+    let canonical = canonicalize(design.clone())?;
     let bytes = serde_json::to_vec(&canonical).expect("canonical design serialization");
     let design_digest = digest(b"strategy.design.v2\0", &bytes);
     let design_identity = digest(b"strategy.design.identity.v2\0", design_digest.as_bytes());
-    StrategyDesignPreparationV2::Prepared {
+    Ok(CanonicalStrategyDesignPreparationV2 {
+        canonical_bytes: bytes,
         design_identity,
         design_digest,
-    }
+    })
 }
 
 /// Derives the exact typed role identity Market Data seals into its receipt.
@@ -1830,9 +1967,13 @@ fn validate_joins(design: &StrategyDesignV2) -> Result<(), StrategyCompilationV2
 }
 
 fn validate_plugin_manifest(plugin: &PluginManifestV2) -> Result<(), StrategyCompilationV2> {
+    let supported_failure = match plugin.abi_version {
+        PLUGIN_ABI_V2 => plugin.failure_semantic_id == PLUGIN_FAILURE_V1,
+        PLUGIN_ABI_V3 => plugin.failure_semantic_id == BFP_NUMERIC_FAILURE_V1,
+        _ => false,
+    };
     if plugin.semantic_id.is_empty()
-        || plugin.abi_version != PLUGIN_ABI_V2
-        || plugin.failure_semantic_id != PLUGIN_FAILURE_V1
+        || !supported_failure
         || plugin.input_ports.is_empty()
         || plugin.output_ports.is_empty()
         || plugin.state.pre_port_id.is_empty()
@@ -2151,7 +2292,9 @@ fn validate_reaction_graphs(design: &StrategyDesignV2) -> Result<(), StrategyCom
 fn reaction_input_ids_v2(reaction: &ReactionGraphV2) -> BTreeSet<String> {
     let mut ids = BTreeSet::new();
     let mut add = |reference: &ValueRefV2| match reference {
-        ValueRefV2::Input { input_id } | ValueRefV2::UniverseMemberInput { input_id, .. } => {
+        ValueRefV2::Input { input_id }
+        | ValueRefV2::OwnerSampleCoordinate { input_id, .. }
+        | ValueRefV2::UniverseMemberInput { input_id, .. } => {
             ids.insert(input_id.clone());
         }
         _ => {}
@@ -2445,6 +2588,38 @@ fn resolve_reference(
     validation.edges = validation.edges.saturating_add(1);
 
     match reference {
+        ValueRefV2::OwnerSampleCoordinate {
+            input_id,
+            source_semantic_id,
+        } => {
+            if coordinate != "reactions.nodes.input" {
+                return Err(unsupported(
+                    coordinate,
+                    "Owner sample coordinate is legal only as an exact plugin input binding",
+                ));
+            }
+            if reaction == LifecycleKindV2::Timer {
+                return Err(unsupported(
+                    coordinate,
+                    "TIMER input authority is unavailable until a Time/Scheduler Owner contract exists",
+                ));
+            }
+            if !matches!(reaction, LifecycleKindV2::Bar | LifecycleKindV2::Event)
+                || validation.input_fact_classes.get(input_id.as_str())
+                    != Some(&InputFactClassV2::MarketData)
+                || validation.input_scopes.get(input_id.as_str())
+                    != Some(&&InputScopeV2::ExactInstrument)
+                || !validation.inputs.contains_key(input_id.as_str())
+                || source_semantic_id != &owner_sample_coordinate_source_semantic(input_id)
+            {
+                return Err(unsupported(
+                    coordinate,
+                    "invalid role-bound Owner sample coordinate source",
+                ));
+            }
+            validation.consumed_inputs.insert(input_id.clone());
+            Ok(ValueTypeV2::Bytes)
+        }
         ValueRefV2::Input { input_id }
         | ValueRefV2::UniverseMemberInput {
             input_id,
@@ -2545,6 +2720,191 @@ fn resolve_reference(
             Ok(value_type)
         }
     }
+}
+
+fn owner_sample_coordinate_source_semantic(input_role_id: &str) -> String {
+    format!("{OWNER_SAMPLE_COORDINATE_SOURCE_PREFIX_V1}({input_role_id})")
+}
+
+fn owner_sample_coordinate_port_id(input_role_identity: BindingDigest) -> String {
+    let mut value = String::with_capacity(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1.len() + 64);
+    value.push_str(OWNER_SAMPLE_COORDINATE_PORT_PREFIX_V1);
+    for byte in input_role_identity.as_bytes() {
+        use std::fmt::Write as _;
+        write!(&mut value, "{byte:02x}").expect("writing lowercase hex to String is infallible");
+    }
+    value
+}
+
+fn project_bfp_role_bindings(
+    design: &CanonicalDesignV2,
+    bindings: &[BindingProjectionV2],
+) -> Result<Vec<BfpRoleBindingProjectionV1>, StrategyCompilationV2> {
+    let inputs = design
+        .inputs
+        .iter()
+        .map(|input| (input.semantic_id.as_str(), input))
+        .collect::<BTreeMap<_, _>>();
+    let static_bindings = bindings
+        .iter()
+        .map(|binding| (binding.input_role_identity, binding.receipt_digest))
+        .collect::<BTreeMap<_, _>>();
+    let plugins = design
+        .plugins
+        .iter()
+        .map(|plugin| (plugin.semantic_id.as_str(), plugin))
+        .collect::<BTreeMap<_, _>>();
+    let mut table =
+        BTreeMap::<(BindingDigest, BfpRoleBindingKindV1), BfpRoleBindingProjectionV1>::new();
+
+    for reaction in &design.reactions {
+        for node in &reaction.nodes {
+            let plugin = plugins[node.plugin_semantic_id.as_str()];
+            if plugin.abi_version != PLUGIN_ABI_V3
+                || plugin.failure_semantic_id != BFP_NUMERIC_FAILURE_V1
+            {
+                if node.input_bindings.iter().any(|binding| {
+                    matches!(binding.source, ValueRefV2::OwnerSampleCoordinate { .. })
+                }) {
+                    return Err(unsupported(
+                        "reactions.nodes.input",
+                        "Owner sample coordinate source requires the bounded ABI 3 plugin contract",
+                    ));
+                }
+                continue;
+            }
+
+            let mut values = BTreeMap::<&str, (&PortContractV2, u16)>::new();
+            let mut coordinates = BTreeMap::<&str, (&PortContractV2, u16, &str)>::new();
+            for (ordinal, (binding, port)) in node
+                .input_bindings
+                .iter()
+                .zip(&plugin.input_ports)
+                .enumerate()
+            {
+                let ordinal = u16::try_from(ordinal).map_err(|_| {
+                    unsupported(
+                        "reactions.nodes.input",
+                        "manifest input ordinal exceeds the bounded Plan representation",
+                    )
+                })?;
+                match &binding.source {
+                    ValueRefV2::Input { input_id } => {
+                        if values.insert(input_id, (port, ordinal)).is_some() {
+                            return Err(unsupported(
+                                "reactions.nodes.input",
+                                "BFP role has more than one value binding in one invocation",
+                            ));
+                        }
+                    }
+                    ValueRefV2::OwnerSampleCoordinate {
+                        input_id,
+                        source_semantic_id,
+                    } if coordinates
+                        .insert(input_id, (port, ordinal, source_semantic_id))
+                        .is_some() =>
+                    {
+                        return Err(unsupported(
+                            "reactions.nodes.input",
+                            "BFP role has more than one coordinate binding in one invocation",
+                        ));
+                    }
+                    ValueRefV2::OwnerSampleCoordinate { .. } => {}
+                    _ => {}
+                }
+            }
+
+            if values.is_empty() && coordinates.is_empty() {
+                continue;
+            }
+            if values.keys().copied().collect::<BTreeSet<_>>()
+                != coordinates.keys().copied().collect::<BTreeSet<_>>()
+            {
+                return Err(unsupported(
+                    "reactions.nodes.input",
+                    "every BFP input role requires exactly one value and one coordinate binding",
+                ));
+            }
+
+            for (input_role_id, (value_port, value_ordinal)) in values {
+                let input = inputs.get(input_role_id).copied().ok_or_else(|| {
+                    unsupported(
+                        "reactions.nodes.input",
+                        "BFP binding references an unknown role",
+                    )
+                })?;
+                let input_role_identity = role_identity(input);
+                let (coordinate_port, coordinate_ordinal, coordinate_source) =
+                    coordinates[input_role_id];
+                let expected_source = owner_sample_coordinate_source_semantic(input_role_id);
+                let expected_coordinate_port = owner_sample_coordinate_port_id(input_role_identity);
+                let static_binding_receipt_digest = static_bindings
+                    .get(&input_role_identity)
+                    .copied()
+                    .ok_or_else(|| {
+                        unsupported(
+                            "bindings",
+                            "BFP coordinate role lacks its exact static Owner binding receipt",
+                        )
+                    })?;
+
+                if input.fact_class != InputFactClassV2::MarketData
+                    || input.scope != InputScopeV2::ExactInstrument
+                    || input.value_type != ValueTypeV2::I128
+                    || value_port.value_type != ValueTypeV2::I128
+                    || value_port.max_bytes != 16
+                    || coordinate_source != expected_source
+                    || coordinate_port.semantic_id != expected_coordinate_port
+                    || coordinate_port.value_type != ValueTypeV2::Bytes
+                    || coordinate_port.max_bytes != u32::from(OWNER_SAMPLE_COORDINATE_BYTES_V1)
+                {
+                    return Err(unsupported(
+                        "reactions.nodes.input",
+                        "noncanonical BFP value-coordinate role binding",
+                    ));
+                }
+
+                for (kind, port, ordinal) in [
+                    (BfpRoleBindingKindV1::Value, value_port, value_ordinal),
+                    (
+                        BfpRoleBindingKindV1::Coordinate,
+                        coordinate_port,
+                        coordinate_ordinal,
+                    ),
+                ] {
+                    let projection = BfpRoleBindingProjectionV1 {
+                        input_role_identity,
+                        kind,
+                        input_role_id: input_role_id.to_owned(),
+                        plugin_semantic_id: plugin.semantic_id.clone(),
+                        manifest_port_id: port.semantic_id.clone(),
+                        manifest_port_ordinal: ordinal,
+                        static_binding_receipt_digest,
+                        coordinate_source_semantic_id: expected_source.clone(),
+                        coordinate_codec_schema_version: OWNER_SAMPLE_COORDINATE_SCHEMA_V1,
+                        coordinate_canonical_bytes: OWNER_SAMPLE_COORDINATE_BYTES_V1,
+                        coordinate_digest_rule:
+                            OwnerSampleCoordinateDigestRuleV1::Sha256DomainSeparated,
+                        coordinate_digest_domain: OWNER_SAMPLE_COORDINATE_DIGEST_DOMAIN_V1
+                            .to_owned(),
+                        update_clock_source_semantic_id: expected_source.clone(),
+                    };
+                    match table.insert((input_role_identity, kind), projection.clone()) {
+                        None => {}
+                        Some(existing) if existing == projection => {}
+                        Some(_) => {
+                            return Err(unsupported(
+                                "reactions.nodes.input",
+                                "BFP role binding changes across lifecycle invocations",
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(table.into_values().collect())
 }
 
 fn compile_canonical(
@@ -2791,8 +3151,16 @@ fn compile_canonical(
     let Some(market_semantics_identity) = market_semantics else {
         return refinement("inputs", "at least one exact Owner receipt is required");
     };
-    let binding_bytes =
-        serde_json::to_vec(&(&bindings, &universe_bindings)).expect("binding serialization");
+    let bfp_role_bindings = match project_bfp_role_bindings(&canonical, &bindings) {
+        Ok(value) => value,
+        Err(value) => return value,
+    };
+    let binding_bytes = if bfp_role_bindings.is_empty() {
+        serde_json::to_vec(&(&bindings, &universe_bindings)).expect("binding serialization")
+    } else {
+        serde_json::to_vec(&(&bindings, &universe_bindings, &bfp_role_bindings))
+            .expect("BFP binding serialization")
+    };
     let binding_digest = digest(b"strategy.plan.bindings.v2\0", &binding_bytes);
     let plugin_implementation_digest =
         match validate_plugin_implementations(&canonical, &mut plugin_implementations) {
@@ -2855,6 +3223,7 @@ fn compile_canonical(
     let lowering = LoweringProjectionV2 {
         design: design_identity,
         bindings: binding_digest,
+        bfp_role_bindings: &bfp_role_bindings,
         universe_selection: universe_selection.as_ref(),
         plugin_implementations: plugin_implementation_digest,
         capabilities: &capability_closure,
@@ -2885,6 +3254,7 @@ fn compile_canonical(
         resources: canonical.resources.clone(),
         canonical_design: canonical,
         bindings,
+        bfp_role_bindings,
         universe_selection,
         universe_bindings,
         plugin_implementations,

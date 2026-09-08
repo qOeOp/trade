@@ -37,7 +37,6 @@ const MAX_FUNCTION_BODY_BYTES: usize = 32 * 1024;
 #[derive(Clone, Copy)]
 enum WasmValidationPolicy {
     Legacy,
-    #[allow(dead_code)] // Consumed only after a future tagged ABI3/V3 caller exists.
     StrictNoFloat,
 }
 
@@ -203,26 +202,38 @@ pub(crate) fn validate_plugin_candidate_v2(
     wasm: &[u8],
     manifest: &PluginManifestV2,
 ) -> Result<(), ProgramRuntimeError> {
-    validate_plugin_candidate(wasm, manifest, WasmValidationPolicy::Legacy)
+    validate_plugin_candidate(wasm, manifest, 64 * 1024, WasmValidationPolicy::Legacy)
 }
 
-/// Future tagged plugin callers reuse the existing envelope while adding the BFP no-float policy.
-#[allow(dead_code)] // This foundation deliberately does not create the missing ABI3/V3 discriminator.
-pub(crate) fn validate_plugin_candidate_strict_no_float(
+/// Validates the exact ABI3 BFP envelope against its Owner-validated Wasm byte bound.
+pub(crate) fn validate_plugin_candidate_v3(
     wasm: &[u8],
     manifest: &PluginManifestV2,
+    max_wasm_bytes: u32,
 ) -> Result<(), ProgramRuntimeError> {
-    validate_plugin_candidate(wasm, manifest, WasmValidationPolicy::StrictNoFloat)
+    if manifest.abi_version != 3 {
+        return Err(ProgramRuntimeError::Abi("plugin ABI 3"));
+    }
+    if max_wasm_bytes == 0 {
+        return Err(ProgramRuntimeError::ResourceLimit("module bytes"));
+    }
+    validate_plugin_candidate(
+        wasm,
+        manifest,
+        max_wasm_bytes as usize,
+        WasmValidationPolicy::StrictNoFloat,
+    )
 }
 
 fn validate_plugin_candidate(
     wasm: &[u8],
     manifest: &PluginManifestV2,
+    max_module_bytes: usize,
     policy: WasmValidationPolicy,
 ) -> Result<(), ProgramRuntimeError> {
     let exports = scan_module(
         wasm,
-        64 * 1024,
+        max_module_bytes,
         MemoryPolicy::PluginBounded {
             max_bytes: manifest.max_linear_memory_bytes,
         },
@@ -285,14 +296,15 @@ fn validate_plugin_candidate(
         .and_then(|value| value.checked_add(input_payload_bound as usize))
         .ok_or(ProgramRuntimeError::ResourceLimit("input bytes"))?;
     let output_bound = 96_usize
-        .checked_add((manifest.output_ports.len() + 1) * 8)
+        .checked_add(usize::from(manifest.abi_version == 3))
+        .and_then(|value| value.checked_add((manifest.output_ports.len() + 1) * 8))
         .and_then(|value| value.checked_add(output_payload_bound as usize))
         .ok_or(ProgramRuntimeError::ResourceLimit("output bytes"))?;
-    if input.len() > input_bound {
+    if input.len() != input_bound {
         return Err(ProgramRuntimeError::ResourceLimit("input bytes"));
     }
 
-    if output.len() > output_bound {
+    if output.len() != output_bound {
         return Err(ProgramRuntimeError::ResourceLimit("output bytes"));
     }
     Ok(())
@@ -418,11 +430,16 @@ fn scan_module(
                         let maximum_bytes = maximum
                             .checked_mul(65_536)
                             .ok_or(ProgramRuntimeError::ResourceLimit("linear memory"))?;
+                        let strict_memory_mismatch =
+                            matches!(validation_policy, WasmValidationPolicy::StrictNoFloat)
+                                && (memory.initial != maximum
+                                    || maximum_bytes != u64::from(max_bytes));
                         if memory.memory64
                             || memory.shared
                             || memory.initial == 0
                             || memory.initial > maximum
                             || maximum_bytes > u64::from(max_bytes)
+                            || strict_memory_mismatch
                             || memory.page_size_log2.is_some()
                         {
                             return Err(ProgramRuntimeError::ResourceLimit("linear memory"));
@@ -740,19 +757,75 @@ mod tests {
         .unwrap();
         validate_exports(&exports).unwrap();
 
-        let manifest = plugin_manifest();
-        let v2 = plugin_module(None);
+        let mut manifest = plugin_manifest();
+        let v2 = plugin_module(None, 128, 128);
         validate_plugin_candidate_v2(&v2, &manifest).unwrap();
-        validate_plugin_candidate_strict_no_float(&v2, &manifest).unwrap();
+        manifest.abi_version = 3;
+        let v3 = plugin_module(None, 128, 129);
+        validate_plugin_candidate_v3(&v3, &manifest, v3.len() as u32).unwrap();
+    }
+
+    #[rstest]
+    fn plugin_capacity_must_cover_the_exact_canonical_frame() {
+        let manifest = plugin_manifest();
+        assert_eq!(
+            validate_plugin_candidate_v2(&plugin_module(None, 127, 128), &manifest),
+            Err(ProgramRuntimeError::ResourceLimit("input bytes"))
+        );
+
+        let mut abi_three = manifest;
+        abi_three.abi_version = 3;
+        let undersized_output = plugin_module(None, 128, 128);
+        assert_eq!(
+            validate_plugin_candidate_v3(
+                &undersized_output,
+                &abi_three,
+                undersized_output.len() as u32,
+            ),
+            Err(ProgramRuntimeError::ResourceLimit("output bytes"))
+        );
+    }
+
+    #[rstest]
+    fn abi_three_memory_must_exactly_fill_its_declared_whole_pages() {
+        let mut manifest = plugin_manifest();
+        manifest.abi_version = 3;
+        manifest.max_linear_memory_bytes = 2 * 65_536;
+
+        let exact = plugin_module_with_memory(None, 128, 129, 2, 2);
+        validate_plugin_candidate_v3(&exact, &manifest, exact.len() as u32).unwrap();
+
+        for (wasm, max_linear_memory_bytes) in [
+            (plugin_module_with_memory(None, 128, 129, 1, 1), 2 * 65_536),
+            (plugin_module_with_memory(None, 128, 129, 1, 2), 2 * 65_536),
+            (plugin_module_with_memory(None, 128, 129, 1, 1), 65_537),
+        ] {
+            manifest.max_linear_memory_bytes = max_linear_memory_bytes;
+            assert_eq!(
+                validate_plugin_candidate_v3(&wasm, &manifest, wasm.len() as u32),
+                Err(ProgramRuntimeError::ResourceLimit("linear memory"))
+            );
+        }
+
+        let mut legacy = plugin_manifest();
+        legacy.max_linear_memory_bytes = 2 * 65_536;
+        let bounded = plugin_module_with_memory(None, 128, 128, 1, 2);
+        validate_plugin_candidate_v2(&bounded, &legacy).unwrap();
     }
 
     #[rstest]
     fn legacy_float_module_remains_accepted_but_strict_policy_rejects_it() {
-        let manifest = plugin_manifest();
-        let wasm = plugin_module(Some((&[0x60, 1, 0x7d, 0], &[0], &[])));
+        let mut manifest = plugin_manifest();
+        let wasm_v2 = plugin_module(Some((&[0x60, 1, 0x7d, 0], &[0], &[])), 128, 128);
 
-        validate_plugin_candidate_v2(&wasm, &manifest).unwrap();
-        assert_float_rejected(validate_plugin_candidate_strict_no_float(&wasm, &manifest));
+        validate_plugin_candidate_v2(&wasm_v2, &manifest).unwrap();
+        manifest.abi_version = 3;
+        let wasm_v3 = plugin_module(Some((&[0x60, 1, 0x7d, 0], &[0], &[])), 128, 129);
+        assert_float_rejected(validate_plugin_candidate_v3(
+            &wasm_v3,
+            &manifest,
+            wasm_v3.len() as u32,
+        ));
     }
 
     #[rstest]
@@ -1109,7 +1182,21 @@ mod tests {
         }
     }
 
-    fn plugin_module(extra: Option<(&[u8], &[u8], &[u8])>) -> Vec<u8> {
+    fn plugin_module(
+        extra: Option<(&[u8], &[u8], &[u8])>,
+        input_capacity: i32,
+        output_capacity: i32,
+    ) -> Vec<u8> {
+        plugin_module_with_memory(extra, input_capacity, output_capacity, 1, 1)
+    }
+
+    fn plugin_module_with_memory(
+        extra: Option<(&[u8], &[u8], &[u8])>,
+        input_capacity: i32,
+        output_capacity: i32,
+        initial_pages: u32,
+        maximum_pages: u32,
+    ) -> Vec<u8> {
         let mut wasm = b"\0asm\x01\0\0\0".to_vec();
         let mut types = vec![2 + u8::from(extra.is_some())];
         types.extend([0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
@@ -1123,7 +1210,10 @@ mod tests {
             functions.push(2);
         }
         section(&mut wasm, 3, &functions);
-        section(&mut wasm, 5, &[1, 1, 1, 1]);
+        let mut memories = vec![1, 1];
+        u32_leb(&mut memories, initial_pages);
+        u32_leb(&mut memories, maximum_pages);
+        section(&mut wasm, 5, &memories);
 
         let mut exports = vec![6];
         export(&mut exports, MEMORY_EXPORT, 2, 0);
@@ -1140,7 +1230,7 @@ mod tests {
         section(&mut wasm, 7, &exports);
 
         let mut code = vec![5 + u8::from(extra.is_some())];
-        for value in [1024, 64, 8192, 64, 0] {
+        for value in [1024, input_capacity, 8192, output_capacity, 0] {
             body(&mut code, &i32_const(value));
         }
 

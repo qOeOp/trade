@@ -132,6 +132,8 @@ async fn durable_owner_is_atomic_restart_exact_and_fail_closed() {
            composer_private.rd_develop_operations_v2,
            composer_private.rd_develop_host_receipts_v2,
            composer_private.rd_develop_composer_receipts_v2,
+           composer_private.rd_develop_artifact_build_receipt_uses_v3,
+           composer_private.rd_develop_build_receipts_v3,
            composer_private.rd_develop_artifact_build_receipt_uses_v2,
            composer_private.rd_develop_build_receipts_v2,
            composer_private.rd_develop_artifact_modules_v2,

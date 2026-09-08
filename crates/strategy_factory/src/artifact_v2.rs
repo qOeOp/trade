@@ -9,7 +9,7 @@ use thiserror::Error;
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
-    cargo_artifact::VerifiedPluginCargoBuildV2,
+    cargo_artifact::{VerifiedPluginCargoBuildV2, VerifiedPluginCargoBuildV3},
     strategy_design_v2::PluginManifestV2,
     strategy_plan_v2::{
         PluginImplementationReceiptV2, StrategyPlanV2, durable_decode, durable_encode,
@@ -20,7 +20,27 @@ use crate::{
 pub const STRATEGY_ARTIFACT_SCHEMA_V2: u16 = 2;
 pub const PROGRAM_PROFILE_SCHEMA_V2: u16 = 2;
 pub const PROGRAM_HOST_ABI_VERSION_V2: u16 = 2;
+pub const PROGRAM_HOST_ABI_VERSION_V3: u16 = 3;
 const PROGRAM_HOST_ABI_SEMANTIC_ID_V2: &str = "strategy.program-host.plugin-abi.v2";
+const PROGRAM_HOST_ABI_SEMANTIC_ID_V3: &str = "strategy.program-host.plugin-abi.v3";
+
+/// Move-only Artifact input. The tag is part of the authority carried to issuance.
+pub(crate) enum VerifiedPluginArtifactBuildV2OrV3 {
+    V2(VerifiedPluginCargoBuildV2),
+    V3(VerifiedPluginCargoBuildV3),
+}
+
+impl From<VerifiedPluginCargoBuildV2> for VerifiedPluginArtifactBuildV2OrV3 {
+    fn from(build: VerifiedPluginCargoBuildV2) -> Self {
+        Self::V2(build)
+    }
+}
+
+impl From<VerifiedPluginCargoBuildV3> for VerifiedPluginArtifactBuildV2OrV3 {
+    fn from(build: VerifiedPluginCargoBuildV3) -> Self {
+        Self::V3(build)
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct StrategyArtifactModuleV2 {
@@ -282,6 +302,7 @@ impl StrategyArtifactV2 {
         {
             return Err(StrategyArtifactV2Error::ReceiptMismatch);
         }
+        artifact_abi_version(plan.canonical_plugin_manifests())?;
         let expected_profile = build_profile(
             plan,
             self.identity,
@@ -315,6 +336,9 @@ impl StrategyArtifactV2 {
                         module_digest,
                     )
                 || module.module_identity != receipt.module_identity()
+                || module.implementation_capsule_digest != receipt.implementation_capsule_digest()
+                || module.source_entry_digest != receipt.source_entry_digest()
+                || module.verified_build_receipt_digest != receipt.verified_build_receipt_digest()
                 || module.implementation_receipt_digest
                     != plugin_implementation_receipt_digest(receipt)
                 || module.implementation_receipt_digest != receipt.receipt_digest()
@@ -337,11 +361,27 @@ impl StrategyArtifactV2 {
 
     pub(crate) fn issue(
         plan: &StrategyPlanV2,
-        mut builds: Vec<VerifiedPluginCargoBuildV2>,
+        builds: Vec<VerifiedPluginCargoBuildV2>,
+    ) -> Result<Self, StrategyArtifactV2Error> {
+        Self::issue_versioned(plan, builds.into_iter().map(Into::into).collect())
+    }
+
+    pub(crate) fn issue_versioned(
+        plan: &StrategyPlanV2,
+        mut builds: Vec<VerifiedPluginArtifactBuildV2OrV3>,
     ) -> Result<Self, StrategyArtifactV2Error> {
         let receipts = plan.plugin_implementations();
         if builds.len() != receipts.len() {
             return Err(StrategyArtifactV2Error::ModuleCoverage);
+        }
+
+        let manifests = plan.canonical_plugin_manifests();
+        let artifact_abi = artifact_abi_version(manifests)?;
+        if builds
+            .iter()
+            .any(|build| build.abi_version() != artifact_abi)
+        {
+            return Err(StrategyArtifactV2Error::ReceiptMismatch);
         }
 
         if receipts
@@ -360,7 +400,6 @@ impl StrategyArtifactV2 {
             return Err(StrategyArtifactV2Error::SharedModuleIdentity);
         }
 
-        let manifests = plan.canonical_plugin_manifests();
         let mut modules = Vec::with_capacity(receipts.len());
         for receipt in receipts {
             let manifest = manifests
@@ -443,15 +482,18 @@ pub enum StrategyArtifactV2Error {
     ReceiptMismatch,
     #[error("one module identity or module content is shared across plugins")]
     SharedModuleIdentity,
+    #[error("one artifact cannot mix plugin ABI wire contracts")]
+    MixedPluginAbiVersions,
 }
 
 fn build_matches_receipt(
-    build: &VerifiedPluginCargoBuildV2,
+    build: &VerifiedPluginArtifactBuildV2OrV3,
     receipt: &PluginImplementationReceiptV2,
 ) -> bool {
     let actual_module_digest =
         BindingDigest::from_untrusted_bytes(Sha256::digest(build.wasm()).into());
-    build.plugin_semantic_id() == receipt.plugin_semantic_id()
+    build.abi_version() == receipt.abi_version()
+        && build.plugin_semantic_id() == receipt.plugin_semantic_id()
         && build.manifest_digest() == receipt.manifest_digest()
         && build.module_digest() == actual_module_digest
         && build.module_digest() == receipt.module_digest()
@@ -460,15 +502,103 @@ fn build_matches_receipt(
         && build.verified_build_receipt_digest() == receipt.verified_build_receipt_digest()
 }
 
+impl VerifiedPluginArtifactBuildV2OrV3 {
+    pub(crate) const fn abi_version(&self) -> u16 {
+        match self {
+            Self::V2(_) => PROGRAM_HOST_ABI_VERSION_V2,
+            Self::V3(_) => PROGRAM_HOST_ABI_VERSION_V3,
+        }
+    }
+
+    pub(crate) fn plugin_semantic_id(&self) -> &str {
+        match self {
+            Self::V2(build) => build.plugin_semantic_id(),
+            Self::V3(build) => build.plugin_semantic_id(),
+        }
+    }
+
+    pub(crate) const fn manifest_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.manifest_digest(),
+            Self::V3(build) => build.manifest_digest(),
+        }
+    }
+
+    pub(crate) fn wasm(&self) -> &[u8] {
+        match self {
+            Self::V2(build) => build.wasm(),
+            Self::V3(build) => build.wasm(),
+        }
+    }
+
+    pub(crate) const fn module_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.module_digest(),
+            Self::V3(build) => build.module_digest(),
+        }
+    }
+
+    pub(crate) const fn implementation_capsule_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.implementation_capsule_digest(),
+            Self::V3(build) => build.capsule_digest(),
+        }
+    }
+
+    pub(crate) const fn source_entry_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.source_entry_digest(),
+            Self::V3(build) => build.source_set_digest(),
+        }
+    }
+
+    pub(crate) const fn verified_build_receipt_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.verified_build_receipt_digest(),
+            Self::V3(build) => build.verified_build_receipt_digest(),
+        }
+    }
+
+    fn into_wasm(self) -> Box<[u8]> {
+        match self {
+            Self::V2(build) => build.into_wasm(),
+            Self::V3(build) => build.into_wasm(),
+        }
+    }
+}
+
+fn artifact_abi_version(manifests: &[PluginManifestV2]) -> Result<u16, StrategyArtifactV2Error> {
+    let Some(first) = manifests.first().map(|manifest| manifest.abi_version) else {
+        return Err(StrategyArtifactV2Error::ModuleCoverage);
+    };
+    if !matches!(
+        first,
+        PROGRAM_HOST_ABI_VERSION_V2 | PROGRAM_HOST_ABI_VERSION_V3
+    ) || manifests
+        .iter()
+        .any(|manifest| manifest.abi_version != first)
+    {
+        return Err(StrategyArtifactV2Error::MixedPluginAbiVersions);
+    }
+    Ok(first)
+}
+
 fn build_profile(
     plan: &StrategyPlanV2,
     artifact_identity: BindingDigest,
     modules: &[StrategyArtifactModuleV2],
     manifests: &[PluginManifestV2],
 ) -> ProgramProfileV2 {
+    let program_host_abi_version =
+        artifact_abi_version(manifests).expect("compiler-sealed homogeneous plugin ABI coverage");
+    let program_host_abi_semantic_id = match program_host_abi_version {
+        PROGRAM_HOST_ABI_VERSION_V2 => PROGRAM_HOST_ABI_SEMANTIC_ID_V2,
+        PROGRAM_HOST_ABI_VERSION_V3 => PROGRAM_HOST_ABI_SEMANTIC_ID_V3,
+        _ => unreachable!("artifact ABI was validated above"),
+    };
     let host_contract = (
-        PROGRAM_HOST_ABI_SEMANTIC_ID_V2,
-        PROGRAM_HOST_ABI_VERSION_V2,
+        program_host_abi_semantic_id,
+        program_host_abi_version,
         [
             "memory",
             "strategy_factory_plugin_input_ptr_v2",
@@ -508,7 +638,7 @@ fn build_profile(
         b"strategy.program-runtime.profile.identity.v2\0",
         &serde_json::to_vec(&(
             program_host_abi_identity,
-            PROGRAM_HOST_ABI_VERSION_V2,
+            program_host_abi_version,
             lifecycle_kernel_identity,
             plan.lifecycle_schema_version(),
             plan.checkpoint_schema_version(),
@@ -522,7 +652,7 @@ fn build_profile(
         canonical_plan_digest: plan.canonical_plan_digest(),
         artifact_identity,
         program_host_abi_identity,
-        program_host_abi_version: PROGRAM_HOST_ABI_VERSION_V2,
+        program_host_abi_version,
         lifecycle_kernel_identity,
         lifecycle_schema_version: plan.lifecycle_schema_version(),
         checkpoint_schema_version: plan.checkpoint_schema_version(),
@@ -567,7 +697,10 @@ fn domain_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
 mod tests {
     use super::*;
     use crate::{
-        cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
+        cargo_artifact::{
+            PluginCargoBuildEvidenceV2, PluginCargoBuildEvidenceV3, VerifiedPluginCargoBuildV2,
+            VerifiedPluginCargoBuildV3,
+        },
         strategy_design_v2::{
             ComputeNodeV2, PluginManifestV2, PluginStateContractV2, PortBindingV2, PortContractV2,
             StateCellV2, StateWriteV2, TypedConstantV2, ValueRefV2, ValueTypeV2,
@@ -652,6 +785,89 @@ mod tests {
             BindingDigest::from_untrusted_bytes([0; 32])
         );
         assert!(!artifact.modules()[0].wasm().is_empty());
+    }
+
+    #[rstest]
+    fn pure_v2_wrapper_preserves_versioned_package_and_identity_bytes() {
+        let (plan, builds) = compiled_plan_and_builds(false);
+        let wrapped = StrategyArtifactV2::issue(&plan, builds.clone()).expect("V2 wrapper");
+        let versioned = StrategyArtifactV2::issue_versioned(
+            &plan,
+            builds.into_iter().map(Into::into).collect(),
+        )
+        .expect("versioned V2 issuance");
+
+        assert_eq!(wrapped.identity(), versioned.identity());
+        assert_eq!(wrapped.profile(), versioned.profile());
+        assert_eq!(
+            wrapped.durable_package_bytes(),
+            versioned.durable_package_bytes()
+        );
+        assert_eq!(
+            wrapped.private_module_bytes(),
+            versioned.private_module_bytes()
+        );
+    }
+
+    #[rstest]
+    fn abi3_artifact_binds_capsule_source_set_receipt_and_wire_profile() {
+        let (plan, _) = compiled_plan_and_builds(false);
+        let (manifest, build, receipt) = verified_v3_build_and_receipt();
+        let tagged = VerifiedPluginArtifactBuildV2OrV3::from(build);
+        assert!(build_matches_receipt(&tagged, &receipt));
+        let module = StrategyArtifactModuleV2 {
+            plugin_semantic_id: receipt.plugin_semantic_id().to_owned(),
+            manifest_digest: receipt.manifest_digest(),
+            module_digest: receipt.module_digest(),
+            module_identity: receipt.module_identity(),
+            implementation_capsule_digest: receipt.implementation_capsule_digest(),
+            source_entry_digest: receipt.source_entry_digest(),
+            verified_build_receipt_digest: receipt.verified_build_receipt_digest(),
+            implementation_receipt_digest: receipt.receipt_digest(),
+            wasm: tagged.into_wasm(),
+        };
+        let profile = build_profile(
+            &plan,
+            BindingDigest::from_untrusted_bytes([90; 32]),
+            std::slice::from_ref(&module),
+            std::slice::from_ref(&manifest),
+        );
+        assert_eq!(
+            profile.program_host_abi_version(),
+            PROGRAM_HOST_ABI_VERSION_V3
+        );
+        assert_eq!(
+            module.implementation_capsule_digest(),
+            receipt.implementation_capsule_digest()
+        );
+        assert_eq!(module.source_entry_digest(), receipt.source_entry_digest());
+        assert_eq!(
+            module.verified_build_receipt_digest(),
+            receipt.verified_build_receipt_digest()
+        );
+    }
+
+    #[rstest]
+    fn artifact_rejects_cross_tag_partial_and_mixed_abi_coverage() {
+        let (v2_plan, _) = compiled_plan_and_builds(false);
+        let (_, v3_build, _) = verified_v3_build_and_receipt();
+        assert!(!build_matches_receipt(
+            &VerifiedPluginArtifactBuildV2OrV3::from(v3_build),
+            &v2_plan.plugin_implementations()[0]
+        ));
+        assert_eq!(
+            StrategyArtifactV2::issue_versioned(&v2_plan, vec![]),
+            Err(StrategyArtifactV2Error::ModuleCoverage)
+        );
+
+        let mut manifests = v2_plan.canonical_plugin_manifests().to_vec();
+        let mut v3 = manifests[0].clone();
+        v3.abi_version = PROGRAM_HOST_ABI_VERSION_V3;
+        manifests.push(v3);
+        assert_eq!(
+            artifact_abi_version(&manifests),
+            Err(StrategyArtifactV2Error::MixedPluginAbiVersions)
+        );
     }
 
     #[rstest]
@@ -867,8 +1083,29 @@ mod tests {
         let mut builds = Vec::new();
 
         for (index, plugin) in candidate.plugins.iter().enumerate() {
-            let capacity = if shared_module { 1 } else { 1 + index as i32 };
-            let wasm = plugin_module(capacity, capacity, 1, false, false, true, false);
+            let frame_capacity = |ports: &[crate::strategy_design_v2::PortContractV2]| {
+                96 + (ports.len() + 1) * 8
+                    + ports
+                        .iter()
+                        .map(|port| port.max_bytes as usize)
+                        .sum::<usize>()
+                    + plugin.state.max_bytes as usize
+            };
+            let mut wasm = plugin_module(
+                frame_capacity(&plugin.input_ports) as i32,
+                frame_capacity(&plugin.output_ports) as i32,
+                1,
+                false,
+                false,
+                true,
+                false,
+            );
+            if !shared_module {
+                let mut identity = Vec::new();
+                name(&mut identity, "fixture-identity");
+                identity.push(index as u8);
+                section(&mut wasm, 0, &identity);
+            }
             let build = VerifiedPluginCargoBuildV2::verify(
                 plugin,
                 PluginCargoBuildEvidenceV2 {
@@ -890,7 +1127,11 @@ mod tests {
                 plugin,
                 build.implementation_capsule_digest(),
                 build.source_entry_digest(),
-                build.module_digest(),
+                if shared_module {
+                    BindingDigest::from_untrusted_bytes([60; 32])
+                } else {
+                    build.module_digest()
+                },
                 build.verified_build_receipt_digest(),
                 "strategy.plugin.compute.v2",
                 plugin.abi_version,
@@ -914,9 +1155,98 @@ mod tests {
         (plan, builds)
     }
 
+    fn verified_v3_build_and_receipt() -> (
+        PluginManifestV2,
+        VerifiedPluginCargoBuildV3,
+        PluginImplementationReceiptV2,
+    ) {
+        let mut plugin = design().plugins.remove(0);
+        plugin.abi_version = PROGRAM_HOST_ABI_VERSION_V3;
+        plugin.failure_semantic_id = "bfp.numeric.failure.no-state-change.v1".to_owned();
+        let input_capacity = 96
+            + (plugin.input_ports.len() + 1) * 8
+            + plugin
+                .input_ports
+                .iter()
+                .map(|port| port.max_bytes as usize)
+                .sum::<usize>()
+            + plugin.state.max_bytes as usize;
+        let output_capacity = 96
+            + (plugin.output_ports.len() + 1) * 8
+            + plugin
+                .output_ports
+                .iter()
+                .map(|port| port.max_bytes as usize)
+                .sum::<usize>()
+            + plugin.state.max_bytes as usize
+            + 1;
+        let memory_pages =
+            u8::try_from(plugin.max_linear_memory_bytes / 65_536).expect("test memory pages");
+        let wasm = plugin_module_with_memory(
+            input_capacity as i32,
+            output_capacity as i32,
+            memory_pages,
+            memory_pages,
+            false,
+            false,
+            true,
+            false,
+        );
+        let build = VerifiedPluginCargoBuildV3::verify(
+            &plugin,
+            PluginCargoBuildEvidenceV3 {
+                wasm_one: &wasm,
+                wasm_two: &wasm,
+                capsule_digest: BindingDigest::from_untrusted_bytes([71; 32]),
+                source_set_digest: BindingDigest::from_untrusted_bytes([72; 32]),
+                verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([73; 32]),
+                max_wasm_bytes: wasm.len() as u32,
+            },
+        )
+        .expect("valid ABI3 plugin build");
+        let receipt = issue_plugin_implementation_receipt_v2_for_test(
+            &plugin,
+            build.capsule_digest(),
+            build.source_set_digest(),
+            build.module_digest(),
+            build.verified_build_receipt_digest(),
+            "strategy.plugin.compute.v2",
+            plugin.abi_version,
+            plugin
+                .capability_ids
+                .iter()
+                .map(|id| (id.clone(), 1))
+                .collect(),
+        );
+        (plugin, build, receipt)
+    }
+
     fn plugin_module(
         input_capacity: i32,
         output_capacity: i32,
+        memory_max: u8,
+        import: bool,
+        start: bool,
+        exact_exports: bool,
+        grow: bool,
+    ) -> Vec<u8> {
+        plugin_module_with_memory(
+            input_capacity,
+            output_capacity,
+            1,
+            memory_max,
+            import,
+            start,
+            exact_exports,
+            grow,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn plugin_module_with_memory(
+        input_capacity: i32,
+        output_capacity: i32,
+        memory_initial: u8,
         memory_max: u8,
         import: bool,
         start: bool,
@@ -934,7 +1264,7 @@ mod tests {
             section(&mut wasm, 2, &payload);
         }
         section(&mut wasm, 3, &[5, 0, 0, 0, 0, 1]);
-        section(&mut wasm, 5, &[1, 1, 1, memory_max]);
+        section(&mut wasm, 5, &[1, 1, memory_initial, memory_max]);
         let shift = u32::from(import);
         let mut exports = vec![if exact_exports { 6 } else { 5 }];
         export(&mut exports, "memory", 2, 0);

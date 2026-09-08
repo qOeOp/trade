@@ -1691,7 +1691,8 @@ mod postgres_tests {
             "CREATE SCHEMA IF NOT EXISTS market_data_private AUTHORIZATION market_data_owner"
         ));
         assert!(
-            AUTHORITY_MIGRATION_SQL.contains("REVOKE CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC")
+            AUTHORITY_MIGRATION_SQL
+                .contains("REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE %I FROM PUBLIC")
         );
         let post_function_acl_cutover = AUTHORITY_MIGRATION_SQL
             .split("$catalog_composer_function_acl_cutover$;")
@@ -1719,7 +1720,7 @@ mod postgres_tests {
         );
         assert!(
             AUTHORITY_MIGRATION_SQL
-                .contains("count(*)=16 AND bool_and(relation.relpersistence='p')")
+                .contains("count(*)=18 AND bool_and(relation.relpersistence='p')")
         );
         assert!(AUTHORITY_MIGRATION_SQL.contains("index_relation.relpersistence='p'"));
         assert!(AUTHORITY_MIGRATION_SQL.contains(

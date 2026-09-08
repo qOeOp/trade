@@ -323,6 +323,41 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ],
     },
     crate::schema_materialization::PublicTableSpec {
+        name: "rd_bounded_feature_program_freezes_v1",
+        runtime_read_grantees: &[],
+        columns: &[
+            crate::schema_materialization::required("request_identity", "text"),
+            crate::schema_materialization::required("schema_version", "integer"),
+            crate::schema_materialization::required("research_request_identity", "bytea"),
+            crate::schema_materialization::required("intent_identity", "bytea"),
+            crate::schema_materialization::required("intent_digest", "bytea"),
+            crate::schema_materialization::required("research_custody_digest", "bytea"),
+            crate::schema_materialization::required("design_identity", "bytea"),
+            crate::schema_materialization::required("design_digest", "bytea"),
+            crate::schema_materialization::required("design_bytes", "bytea"),
+            crate::schema_materialization::required("plugin_manifest_digest", "bytea"),
+            crate::schema_materialization::required("program_digest", "bytea"),
+            crate::schema_materialization::required("program_bytes", "bytea"),
+            crate::schema_materialization::required("joint_freeze_digest", "bytea"),
+            crate::schema_materialization::required("committed_at_epoch_ms", "bigint"),
+        ],
+        constraints: &[
+            "f:request_identity:public.rd_research_request_receipts_v1(request_identity):a:a:s:false:false:true:",
+            "p:request_identity:::false:false:true:",
+            "u:design_identity:::false:false:true:",
+            "u:intent_identity:::false:false:true:",
+            "u:joint_freeze_digest:::false:false:true:",
+            "u:program_digest:::false:false:true:",
+        ],
+        indexes: &[
+            crate::schema_materialization::primary_index("request_identity"),
+            crate::schema_materialization::unique_index("intent_identity"),
+            crate::schema_materialization::unique_index("design_identity"),
+            crate::schema_materialization::unique_index("program_digest"),
+            crate::schema_materialization::unique_index("joint_freeze_digest"),
+        ],
+    },
+    crate::schema_materialization::PublicTableSpec {
         name: "rd_independence_bases_v1",
         runtime_read_grantees: &[],
         columns: &[
@@ -788,6 +823,29 @@ impl PostgresResearchGoalOwnerV1 {
             .execute(pool)
             .await
             .map_err(|e| storage(&e))?;
+
+        crate::schema_materialization::materialize_public_table(
+            pool,
+            "rd_bounded_feature_program_freezes_v1",
+            "CREATE TABLE IF NOT EXISTS rd_bounded_feature_program_freezes_v1 (
+                request_identity TEXT PRIMARY KEY REFERENCES rd_research_request_receipts_v1(request_identity),
+                schema_version INTEGER NOT NULL,
+                research_request_identity BYTEA NOT NULL,
+                intent_identity BYTEA NOT NULL UNIQUE,
+                intent_digest BYTEA NOT NULL,
+                research_custody_digest BYTEA NOT NULL,
+                design_identity BYTEA NOT NULL UNIQUE,
+                design_digest BYTEA NOT NULL,
+                design_bytes BYTEA NOT NULL,
+                plugin_manifest_digest BYTEA NOT NULL,
+                program_digest BYTEA NOT NULL UNIQUE,
+                program_bytes BYTEA NOT NULL,
+                joint_freeze_digest BYTEA NOT NULL UNIQUE,
+                committed_at_epoch_ms BIGINT NOT NULL
+            )",
+        )
+        .await
+        .map_err(|e| storage(&e))?;
 
         for statement in [
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_digest TEXT",
@@ -2857,7 +2915,10 @@ mod tests {
         ProductEdgeAuthorizationTrustV1, ProductEdgeBootstrapProposalV1,
         ProductEdgePostgresOwnerV1,
     };
-    use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
+    use vibe_testkit::postgres::{
+        CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1,
+        DedicatedPostgresTestDatabase,
+    };
 
     #[rstest]
     fn expression_index_manifest_matches_postgres_pretty_catalog_form() {
@@ -3416,7 +3477,14 @@ mod tests {
             .unwrap()
             .as_nanos();
         let request_identity = format!("research-request-v2-read-cut-{suffix}");
-        let admission = bootstrap_admission(&database_url, &request_identity, suffix).await;
+        let admission = bootstrap_admission(
+            BootstrapAdmissionTopology::Migrating {
+                database_url: &database_url,
+            },
+            &request_identity,
+            suffix,
+        )
+        .await;
         let owner = PostgresResearchGoalOwnerV1::connect(&database_url, &database_url)
             .await
             .unwrap();
@@ -3556,6 +3624,197 @@ mod tests {
             .unwrap();
     }
 
+    #[tokio::test]
+    #[ignore = "requires admitted OA/PE/R&D test database URLs"]
+    async fn bounded_feature_program_joint_freeze_is_atomic_idempotent_and_tamper_closed() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let _mutation = test_database.mutation();
+        let operator_authorization_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::OperatorAuthorizationWriter)
+            .to_string();
+        let product_edge_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::ProductEdgeOwner)
+            .to_string();
+        let rd_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::RdOwner)
+            .to_string();
+        let qualification_database_url = test_database
+            .database_url(CanonicalOwnerTestRoleV1::QualificationWriter)
+            .to_string();
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let request_identity = format!("research-bfp-joint-freeze-{suffix}");
+        let admission = bootstrap_admission(
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url: &operator_authorization_database_url,
+                product_edge_database_url: &product_edge_database_url,
+            },
+            &request_identity,
+            suffix,
+        )
+        .await;
+        let owner =
+            PostgresResearchGoalOwnerV1::connect(&rd_database_url, &qualification_database_url)
+                .await
+                .unwrap();
+        let accepted = owner
+            .submit_v2(request(&request_identity, admission))
+            .await
+            .unwrap();
+        let read_cut = accepted
+            .research_view()
+            .unwrap()
+            .valid_through_epoch_ms
+            .saturating_sub(1);
+
+        let mut preparation = owner.pool.begin().await.unwrap();
+        let verified =
+            crate::rd_owner_postgres_custody::admit_research_v2_custody_read_only_in_transaction(
+                &mut preparation,
+                &request_identity,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        let custody = crate::develop_composer_v2::CurrentResearchDevelopCustodyV2::from_verified(
+            &verified,
+            &request_identity,
+            read_cut,
+        )
+        .unwrap();
+        preparation.rollback().await.unwrap();
+
+        let (mut design, mut proposal, catalog) =
+            crate::bounded_feature_program_v1::tests::candidate();
+        design.research_request_identity = custody.research_request_identity();
+        design.intent_identity = custody.intent_identity();
+        design.intent_digest = custody.intent_digest();
+        design.falsifier = custody.falsifier().to_owned();
+        let prepared = crate::strategy_plan_v2::prepare_strategy_design_v2(&design);
+        let (design_identity, design_digest) = match prepared {
+            crate::strategy_plan_v2::StrategyDesignPreparationV2::Prepared {
+                design_identity,
+                design_digest,
+            } => (design_identity, design_digest),
+            other => panic!("joint-freeze Design must prepare: {other:?}"),
+        };
+        proposal.research_request_identity = design.research_request_identity;
+        proposal.intent_identity = design.intent_identity;
+        proposal.intent_digest = design.intent_digest;
+        proposal.design_identity = design_identity;
+        proposal.design_digest = design_digest;
+
+        sqlx::query(
+            "INSERT INTO rd_owner_outbox_v1 (
+                event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                committed_at_epoch_ms
+             ) VALUES ($1,$2,$3,$4,$5,$6)",
+        )
+        .bind(format!("poison-bfp-outbox-{suffix}"))
+        .bind(&request_identity)
+        .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+        .bind("sha256:poison")
+        .bind(serde_json::json!({"poison": true}))
+        .bind(i64::try_from(read_cut).unwrap())
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+        let mut failed = owner.pool.begin().await.unwrap();
+        assert_eq!(
+            crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+                &mut failed,
+                &request_identity,
+                read_cut,
+                read_cut,
+                &design,
+                proposal.clone(),
+                catalog,
+            )
+            .await,
+            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+        );
+        failed.rollback().await.unwrap();
+        let frozen_rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM rd_bounded_feature_program_freezes_v1 WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .fetch_one(&owner.pool)
+        .await
+        .unwrap();
+        assert_eq!(frozen_rows, 0);
+        sqlx::query("DELETE FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind=$2")
+            .bind(&request_identity)
+            .bind(crate::rd_bounded_feature_program_v1::JOINT_FREEZE_EVENT_KIND_V1)
+            .execute(&owner.pool)
+            .await
+            .unwrap();
+
+        let mut first = owner.pool.begin().await.unwrap();
+        let committed = crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+            &mut first,
+            &request_identity,
+            read_cut,
+            read_cut,
+            &design,
+            proposal.clone(),
+            catalog,
+        )
+        .await
+        .unwrap();
+        first.commit().await.unwrap();
+
+        let mut retry = owner.pool.begin().await.unwrap();
+        let retried = crate::rd_bounded_feature_program_v1::commit_research_bounded_feature_program_in_transaction_v1(
+            &mut retry,
+            &request_identity,
+            read_cut,
+            read_cut,
+            &design,
+            proposal,
+            catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(retried, committed);
+        retry.commit().await.unwrap();
+
+        let mut readback = owner.pool.begin().await.unwrap();
+        let resolved = crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+            &mut readback,
+            &request_identity,
+            read_cut,
+            catalog,
+        )
+        .await
+        .unwrap();
+        assert_eq!(resolved, committed);
+        readback.rollback().await.unwrap();
+
+        sqlx::query(
+            "UPDATE rd_bounded_feature_program_freezes_v1
+                SET program_bytes=program_bytes || decode('00','hex')
+              WHERE request_identity=$1",
+        )
+        .bind(&request_identity)
+        .execute(&owner.pool)
+        .await
+        .unwrap();
+        let mut tampered = owner.pool.begin().await.unwrap();
+        assert_eq!(
+            crate::rd_bounded_feature_program_v1::read_research_bounded_feature_program_in_transaction_v1(
+                &mut tampered,
+                &request_identity,
+                read_cut,
+                catalog,
+            )
+            .await,
+            Err(crate::rd_bounded_feature_program_v1::ResearchBoundedFeatureProgramFreezeErrorV1::Unavailable)
+        );
+        tampered.rollback().await.unwrap();
+    }
+
     fn request(
         request_identity: &str,
         admission: ProductEdgeAdmissionLocatorV1,
@@ -3595,8 +3854,19 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    enum BootstrapAdmissionTopology<'a> {
+        Migrating {
+            database_url: &'a str,
+        },
+        Existing {
+            operator_authorization_database_url: &'a str,
+            product_edge_database_url: &'a str,
+        },
+    }
+
     async fn bootstrap_admission(
-        database_url: &str,
+        topology: BootstrapAdmissionTopology<'_>,
         request_identity: &str,
         suffix: u128,
     ) -> ProductEdgeAdmissionLocatorV1 {
@@ -3612,9 +3882,21 @@ mod tests {
             effective_from_epoch_ms: now.saturating_sub(1_000),
             valid_through_epoch_ms: now.saturating_add(3_600_000),
         };
-        let issuer = OperatorAuthorizationIssuerPostgresV1::connect(database_url)
-            .await
-            .unwrap();
+        let issuer = match topology {
+            BootstrapAdmissionTopology::Migrating { database_url } => {
+                OperatorAuthorizationIssuerPostgresV1::connect(database_url).await
+            }
+            BootstrapAdmissionTopology::Existing {
+                operator_authorization_database_url,
+                ..
+            } => {
+                OperatorAuthorizationIssuerPostgresV1::connect_existing(
+                    operator_authorization_database_url,
+                )
+                .await
+            }
+        }
+        .unwrap();
         let authorization = issuer
             .issue_genesis(OperatorAuthorizationIssuanceProposalV1 {
                 authorization_identity: format!("operator-authorization-{suffix}"),
@@ -3640,16 +3922,32 @@ mod tests {
             .await
             .unwrap();
         let deployment_identity = format!("product-edge-deployment-{suffix}");
-        let edge = ProductEdgePostgresOwnerV1::connect(
-            database_url,
-            &deployment_identity,
-            ProductEdgeAuthorizationTrustV1 {
-                issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
-                issuer_key_version: "test-key-v1".to_string(),
-                audience: RESEARCH_OWNER_V1.to_string(),
-            },
-        )
-        .await
+        let authorization_trust = ProductEdgeAuthorizationTrustV1 {
+            issuer_identity: "operator-authorization-issuer-test-v1".to_string(),
+            issuer_key_version: "test-key-v1".to_string(),
+            audience: RESEARCH_OWNER_V1.to_string(),
+        };
+        let edge = match topology {
+            BootstrapAdmissionTopology::Migrating { database_url } => {
+                ProductEdgePostgresOwnerV1::connect(
+                    database_url,
+                    &deployment_identity,
+                    authorization_trust,
+                )
+                .await
+            }
+            BootstrapAdmissionTopology::Existing {
+                product_edge_database_url,
+                ..
+            } => {
+                ProductEdgePostgresOwnerV1::connect_existing(
+                    product_edge_database_url,
+                    &deployment_identity,
+                    authorization_trust,
+                )
+                .await
+            }
+        }
         .unwrap();
         edge.bootstrap_genesis(ProductEdgeBootstrapProposalV1 {
             deployment_identity,

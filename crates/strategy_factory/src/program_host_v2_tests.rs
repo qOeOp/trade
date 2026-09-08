@@ -1,6 +1,6 @@
 use rstest::rstest;
 use strategy_factory_program_sdk::lifecycle_v1::{
-    EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind, PositionIntentV1,
+    self, EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind, PositionIntentV1,
     ProtectionProposalV1, TargetProposalV1,
 };
 use strategy_factory_program_sdk::lifecycle_v2::{
@@ -21,11 +21,16 @@ use super::strategy_plan_v2::{
 };
 use super::{
     artifact_v2::StrategyArtifactV2,
+    bounded_feature_program_v1::BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
-    plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, TypedValueV2},
+    plugin_wire_v2::{
+        PLUGIN_FRAME_ABI_V3, PluginFrameKindV2, PluginFrameV2, PluginOutputAvailabilityV3,
+        TypedValueV2,
+    },
     program_host_v2::{
         AdmittedProgramEventV2, ProgramHostV2, corrupt_checkpoint_bytes_for_test,
-        corrupt_last_plugin_state_and_reseal_for_test,
+        corrupt_last_plugin_state_and_reseal_for_test, validate_bfp_output_availability,
+        validate_bfp_warming_fields,
     },
     strategy_design_v2::{
         LifecycleKindV2, PluginManifestV2, PortBindingV2, PortContractV2, StateCellV2,
@@ -157,6 +162,129 @@ fn generic_host_is_atomic_replay_safe_and_restart_deterministic() {
     let mut tampered_state = checkpoint;
     corrupt_last_plugin_state_and_reseal_for_test(&mut tampered_state);
     assert!(ProgramHostV2::restore(plan, artifact, &tampered_state).is_err());
+}
+
+#[rstest]
+fn warming_proposal_validation_reads_all_raw_lifecycle_fields() {
+    let (plan, _artifact) = fixture();
+    let reaction = plan
+        .reactions()
+        .iter()
+        .find(|reaction| reaction.kind == LifecycleKindV2::Bar)
+        .unwrap();
+    let node_id = &reaction.nodes[0].semantic_id;
+    let manifest = executable_design().plugins.remove(0);
+    let frame = output_frame(&manifest);
+    let outputs: std::collections::BTreeMap<(String, String), TypedValueV2> = manifest
+        .output_ports
+        .iter()
+        .zip(frame.values)
+        .map(|(port, value)| ((node_id.clone(), port.semantic_id.clone()), value))
+        .collect();
+    let value = |port: &str| {
+        outputs
+            .get(&(node_id.clone(), port.into()))
+            .unwrap()
+            .clone()
+    };
+    let fields = [
+        ("position", value("proposal.position-intent.v1")),
+        ("target_variant", value("proposal.target-variant.v1")),
+        ("target_position", value("proposal.target-position.v1")),
+        ("target_weight", value("proposal.target-weight.v1")),
+        (
+            "rebalance_sequence",
+            value("proposal.rebalance-sequence.v1"),
+        ),
+        (
+            "reconciliation_target",
+            value("proposal.reconciliation-target.v1"),
+        ),
+        (
+            "protection_variant",
+            value("proposal.protection-variant.v1"),
+        ),
+        ("stop_loss", value("proposal.stop-loss.v1")),
+        ("take_profit", value("proposal.take-profit.v1")),
+        ("trailing_distance", value("proposal.trailing-distance.v1")),
+        ("trailing_stop", value("proposal.trailing-stop.v1")),
+    ]
+    .into_iter()
+    .collect();
+
+    assert!(validate_bfp_warming_fields(&fields).is_ok());
+
+    for (field, nonzero) in [
+        ("target_position", TypedValueV2::i64(1)),
+        ("target_weight", TypedValueV2::i32(1)),
+        ("rebalance_sequence", TypedValueV2::u64(1)),
+        ("reconciliation_target", TypedValueV2::i64(1)),
+        ("stop_loss", TypedValueV2::i64(1)),
+        ("take_profit", TypedValueV2::i64(1)),
+        ("trailing_distance", TypedValueV2::u64(1)),
+        ("trailing_stop", TypedValueV2::i64(1)),
+    ] {
+        let mut contradictory = fields.clone();
+        contradictory.insert(field, nonzero);
+        assert!(
+            validate_bfp_warming_fields(&contradictory).is_err(),
+            "WARMING accepted nonzero {field}",
+        );
+    }
+
+    for (field, value_type, semantic_id) in [
+        (
+            "position",
+            ValueTypeV2::PositionIntentV1,
+            lifecycle_v1::ENTER_SEMANTIC_ID,
+        ),
+        (
+            "target_variant",
+            ValueTypeV2::TargetVariantV1,
+            lifecycle_v1::TARGET_POSITION_SEMANTIC_ID,
+        ),
+        (
+            "protection_variant",
+            ValueTypeV2::ProtectionVariantV1,
+            lifecycle_v1::TRAILING_ADJUST_SEMANTIC_ID,
+        ),
+    ] {
+        let mut contradictory = fields.clone();
+        contradictory.insert(
+            field,
+            TypedValueV2::new(value_type, semantic_id.as_bytes()).unwrap(),
+        );
+        assert!(
+            validate_bfp_warming_fields(&contradictory).is_err(),
+            "WARMING accepted contradictory {field}",
+        );
+    }
+}
+
+#[rstest]
+fn abi3_bfp_availability_is_explicit_and_ready_hold_stays_ready() {
+    let mut manifest = executable_design().plugins.remove(0);
+    manifest.abi_version = PLUGIN_FRAME_ABI_V3;
+    manifest.failure_semantic_id = BOUNDED_FEATURE_NUMERIC_FAILURE_V1.into();
+    let mut frame = output_frame(&manifest);
+
+    assert!(
+        !validate_bfp_output_availability(&manifest, &frame).unwrap(),
+        "READY plus HOLD/Keep/Keep must remain READY",
+    );
+
+    frame.output_availability = Some(PluginOutputAvailabilityV3::Warming);
+    frame.state = TypedValueV2::new(
+        manifest.state.value_type,
+        vec![0; manifest.state.max_bytes as usize],
+    )
+    .unwrap();
+    assert!(validate_bfp_output_availability(&manifest, &frame).unwrap());
+
+    frame.state = TypedValueV2::new(manifest.state.value_type, Vec::new()).unwrap();
+    assert!(validate_bfp_output_availability(&manifest, &frame).is_err());
+    frame.output_availability = None;
+    assert!(validate_bfp_output_availability(&manifest, &frame).is_err());
 }
 
 #[rstest]
@@ -745,6 +873,8 @@ fn output_frame(manifest: &PluginManifestV2) -> PluginFrameV2 {
         manifest_digest: BindingDigest::from_untrusted_bytes([1; 32]),
         module_identity: BindingDigest::from_untrusted_bytes([2; 32]),
         invocation_identity: [3; 16],
+        output_availability: (manifest.abi_version == PLUGIN_FRAME_ABI_V3)
+            .then_some(PluginOutputAvailabilityV3::Ready),
         values,
         state: TypedValueV2::new(ValueTypeV2::Bytes, [1].as_slice()).unwrap(),
     }

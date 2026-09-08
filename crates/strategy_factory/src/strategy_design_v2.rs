@@ -244,6 +244,12 @@ pub enum ValueRefV2 {
     Input {
         input_id: String,
     },
+    /// Exact fixed-width sample coordinate retained by the admitted Market Data Owner projection.
+    /// The source semantic is versioned and role-bound; callers never supply the bytes.
+    OwnerSampleCoordinate {
+        input_id: String,
+        source_semantic_id: String,
+    },
     UniverseMemberInput {
         input_id: String,
         /// Zero-based position in the Owner-canonical selection member order.

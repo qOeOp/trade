@@ -30,7 +30,10 @@ use vibe_model::{
     types::{Money, Price, Quantity},
 };
 
-use super::{ProgramHostV2, admit_backtest_lifecycle_event_v2};
+use super::{
+    OwnerSampleCoordinateEvidenceV2, ProgramHostV2, admit_backtest_lifecycle_event_v2,
+    admit_market_data_joined_program_event_v2, admitted_event_identity,
+};
 use crate::{
     artifact_v2::{StrategyArtifactV2, StrategyArtifactV2Error},
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
@@ -52,6 +55,39 @@ const AAPL_OPEN: &str = "research.input.open.v1";
 const AAPL_CLOSE: &str = "research.input.close.v1";
 const MSFT_HOUR_CLOSE: &str = "research.input.msft-hour-close.v1";
 const QQQ_DAY_CLOSE: &str = "research.input.qqq-day-close.v1";
+
+#[rstest]
+fn exact_owner_coordinate_evidence_changes_the_admitted_event_identity() {
+    let (plan, _, corpus) = fixture();
+    let joined = &corpus.events()[0];
+    let mut first = admit_market_data_joined_program_event_v2(&plan, joined)
+        .expect("legacy joined event admits before the additive V4 binding");
+    let mut second = first.clone();
+    let evidence = |coordinate: [u8; 308]| OwnerSampleCoordinateEvidenceV2 {
+        canonical: coordinate,
+        projection_receipt_digest: BindingDigest::from_untrusted_bytes([101; 32]),
+        projection_subject_identity: joined.digest(),
+        schedule_dependency_set_digest: BindingDigest::from_untrusted_bytes([102; 32]),
+        timeframe_projection_digest: BindingDigest::from_untrusted_bytes([103; 32]),
+        sample_identity: BindingDigest::from_untrusted_bytes([104; 32]),
+        sample_receipt_digest: BindingDigest::from_untrusted_bytes([105; 32]),
+    };
+    first.inputs[0].owner_event.sample_coordinate = Some(evidence([7; 308]));
+    second.inputs[0].owner_event.sample_coordinate = Some(evidence([8; 308]));
+
+    let identity = |event: &super::AdmittedProgramEventV2| {
+        admitted_event_identity(
+            &plan,
+            event.envelope,
+            &event.inputs,
+            &event.source_binding_lineages,
+            event.input_join_identity,
+            event.universe_frame,
+        )
+    };
+    assert_ne!(identity(&first), identity(&second));
+    assert_eq!(identity(&first), identity(&first));
+}
 
 #[rstest]
 fn owner_join_corpus_is_bound_to_the_exact_canonical_design_and_roles() {

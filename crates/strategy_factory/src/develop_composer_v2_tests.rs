@@ -4,22 +4,35 @@ use rstest::rstest;
 use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
+    artifact_v2::StrategyArtifactV2,
+    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    bounded_feature_program_v1::tests::candidate as bfp_candidate,
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
     develop_composer_v2::{
         CurrentResearchDevelopCustodyV2, DevelopComposerEvidencePortV2, DevelopComposerResultV2,
         DevelopComposerTerminalKindV2, DevelopComposerTerminalV2, DevelopComposerV2,
         UntrustedDevelopComposerProposalV2, UntrustedPluginBuildLocatorV2,
+        VerifiedDevelopPluginBuildV2OrV3,
     },
-    develop_plugin_build_v2::{
-        VerifiedDevelopPluginBuildV2, portable_sealed_composer_test_evidence,
+    develop_plugin_build_v2::portable_sealed_composer_test_evidence,
+    develop_plugin_build_v3::{
+        DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3, DevelopPluginBuildResultV3,
+        VerifiedDevelopPluginBuildReadV3,
     },
     program_host_v2::ProgramHostV2,
     program_host_v2_backtest_tests::stateful_plugin_module,
     program_host_v2_tests::executable_design,
-    strategy_design_v2::PluginManifestV2,
+    rd_bounded_feature_program_v1::{
+        FrozenResearchBoundedFeatureProgramV1, freeze_research_bounded_feature_program_v1,
+    },
+    strategy_design_v2::{
+        LifecycleKindV2, ParameterV2, PluginManifestV2, StrategyDesignV2, TypedConstantV2,
+        ValueRefV2, ValueTypeV2,
+    },
     strategy_design_v2_tests::bindings,
     strategy_plan_v2::{
-        VerifiedStrategyInputBindingsV2, verified_strategy_input_bindings_for_test,
+        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, durable_decode,
+        prepare_strategy_design_v2, verified_strategy_input_bindings_for_test,
     },
 };
 
@@ -42,11 +55,253 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
     let manifest = proposal.design.plugins[0].clone();
     let build = real_plugin_build(&manifest);
     proposal.plugin_builds[0].verified_build_receipt_digest = build.receipt().receipt_digest();
-    evidence.builds = RefCell::new(vec![build.into_composer_build()]);
+    evidence.builds = RefCell::new(vec![build.into_composer_build().into()]);
 
     let positive = composed(DevelopComposerV2::default().compose(&proposal, 10, &evidence));
     ProgramHostV2::new(positive.plan().clone(), positive.artifact().clone())
         .expect("the real locally built module reaches the sole Composer and ProgramHostV2 path");
+}
+
+#[test]
+#[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
+fn real_v3_owner_build_reaches_composer_and_durable_abi3_artifact() {
+    let (design, bfp_proposal, catalog) = single_plugin_bfp_candidate();
+    let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+    let frozen =
+        freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal, catalog)
+            .expect("joint Owner BFP freeze");
+    let manifest = design.plugins[0].clone();
+    let mut producer = DevelopPluginBuildProducerV3::default();
+
+    let positive_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
+    let capsule_digest = positive_build.build().capsule_digest();
+    let source_set_digest = positive_build.build().source_set_digest();
+    let module_digest = positive_build.build().module_digest();
+    let receipt_digest = positive_build.build().verified_build_receipt_digest();
+    let receipt: DevelopPluginBuildReceiptV3 =
+        durable_decode(positive_build.canonical_receipt_bytes())
+            .expect("real builder emits the canonical typed V3 receipt");
+    assert_eq!(
+        receipt.canonical_bytes(),
+        positive_build.canonical_receipt_bytes()
+    );
+
+    // The move-only V3 build enters the tagged Composer enum directly; no V2 build token exists.
+    let (proposal, evidence) = v3_composer_case(design.clone(), custody.clone(), positive_build);
+    let positive = composed(DevelopComposerV2::default().compose(&proposal, 10, &evidence));
+    assert_eq!(positive.artifact().profile().program_host_abi_version(), 3);
+    positive
+        .artifact()
+        .validate_for_plan(positive.plan())
+        .expect("Composer ABI3 Artifact revalidates against its Plan");
+    let module = &positive.artifact().modules()[0];
+    assert_eq!(module.implementation_capsule_digest(), capsule_digest);
+    assert_eq!(module.source_entry_digest(), source_set_digest);
+    assert_eq!(module.module_digest(), module_digest);
+    assert_eq!(module.verified_build_receipt_digest(), receipt_digest);
+
+    let package_bytes = positive.artifact().durable_package_bytes();
+    let private_modules = positive.artifact().private_module_bytes();
+    let restarted = StrategyArtifactV2::parse_and_revalidate_durable(
+        &package_bytes,
+        private_modules,
+        positive.plan(),
+    )
+    .expect("durable ABI3 Artifact restart revalidates every bound identity");
+    assert_eq!(restarted, *positive.artifact());
+
+    let wrong_manifest_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
+    let mut wrong_design = design.clone();
+    wrong_design.plugins[0].max_fuel -= 1;
+    let (wrong_proposal, wrong_evidence) =
+        v3_composer_case(wrong_design, custody.clone(), wrong_manifest_build);
+    let terminal =
+        into_terminal(DevelopComposerV2::default().compose(&wrong_proposal, 11, &wrong_evidence));
+    assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);
+    assert_eq!(terminal.coordinate, "plugin_builds.manifest_digest");
+
+    let cross_tag_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
+    let mut v2_tagged_design = design;
+    v2_tagged_design.plugins[0].abi_version = 2;
+    v2_tagged_design.plugins[0].failure_semantic_id =
+        "strategy.plugin.failure.unsupported.v1".to_owned();
+    let (cross_tag_proposal, cross_tag_evidence) =
+        v3_composer_case(v2_tagged_design, custody, cross_tag_build);
+    let terminal = into_terminal(DevelopComposerV2::default().compose(
+        &cross_tag_proposal,
+        12,
+        &cross_tag_evidence,
+    ));
+    assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);
+    assert_eq!(terminal.coordinate, "plugin_builds.manifest_digest");
+}
+
+fn single_plugin_bfp_candidate() -> (
+    StrategyDesignV2,
+    super::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
+    vibe_indicators_kernel::PrimitiveCatalogV1,
+) {
+    let (mut design, mut proposal, catalog) = bfp_candidate();
+    let plugin_semantic_id = proposal.plugin_semantic_id.clone();
+    design
+        .plugins
+        .retain(|plugin| plugin.semantic_id == plugin_semantic_id);
+    for reaction in &mut design.reactions {
+        reaction
+            .nodes
+            .retain(|node| node.plugin_semantic_id == plugin_semantic_id);
+        if reaction.nodes.is_empty() {
+            reaction.state_writes.clear();
+            reaction.proposal = None;
+        }
+    }
+    let event_reaction = design
+        .reactions
+        .iter_mut()
+        .find(|reaction| reaction.kind == LifecycleKindV2::Event)
+        .expect("BFP candidate has an EVENT reaction");
+    event_reaction.nodes[0].input_bindings[0].source = ValueRefV2::Parameter {
+        parameter_id: "research.parameter.timer-close.v1".to_owned(),
+    };
+    event_reaction.nodes[0].input_bindings[1].source = ValueRefV2::Parameter {
+        parameter_id: "research.parameter.timer-coordinate.v1".to_owned(),
+    };
+    let mut timer_reaction = design
+        .reactions
+        .iter()
+        .find(|reaction| reaction.kind == LifecycleKindV2::Event)
+        .cloned()
+        .expect("BFP candidate has an EVENT reaction");
+    timer_reaction.kind = LifecycleKindV2::Timer;
+    let prior_node_id = timer_reaction.nodes[0].semantic_id.clone();
+    let timer_node_id = "research.node.bfp.timer.v1";
+    timer_reaction.nodes[0].semantic_id = timer_node_id.to_owned();
+    timer_reaction.nodes[0].input_bindings[0].source = ValueRefV2::Parameter {
+        parameter_id: "research.parameter.timer-close.v1".to_owned(),
+    };
+    timer_reaction.nodes[0].input_bindings[1].source = ValueRefV2::Parameter {
+        parameter_id: "research.parameter.timer-coordinate.v1".to_owned(),
+    };
+    for write in &mut timer_reaction.state_writes {
+        rename_node_output(&mut write.source, &prior_node_id, timer_node_id);
+    }
+    let reaction_proposal = timer_reaction
+        .proposal
+        .as_mut()
+        .expect("BFP EVENT reaction has complete proposal wiring");
+    for reference in [
+        &mut reaction_proposal.position_intent,
+        &mut reaction_proposal.target_variant,
+        &mut reaction_proposal.target_position_units,
+        &mut reaction_proposal.target_weight_micros,
+        &mut reaction_proposal.rebalance_sequence,
+        &mut reaction_proposal.reconciliation_target_units,
+        &mut reaction_proposal.protection_variant,
+        &mut reaction_proposal.stop_loss_ticks,
+        &mut reaction_proposal.take_profit_ticks,
+        &mut reaction_proposal.trailing_distance_ticks,
+        &mut reaction_proposal.trailing_stop_ticks,
+    ] {
+        rename_node_output(reference, &prior_node_id, timer_node_id);
+    }
+    if let Some(reference) = &mut reaction_proposal.member_target_set {
+        rename_node_output(reference, &prior_node_id, timer_node_id);
+    }
+    *design
+        .reactions
+        .iter_mut()
+        .find(|reaction| reaction.kind == LifecycleKindV2::Timer)
+        .expect("BFP candidate has a TIMER reaction") = timer_reaction;
+    let retained_state_ids = design
+        .reactions
+        .iter()
+        .flat_map(|reaction| reaction.state_writes.iter())
+        .map(|write| write.state_id.as_str())
+        .collect::<Vec<_>>();
+    design
+        .state
+        .retain(|state| retained_state_ids.contains(&state.semantic_id.as_str()));
+    design.parameters.push(ParameterV2 {
+        semantic_id: "research.parameter.timer-coordinate.v1".to_owned(),
+        value_type: ValueTypeV2::Bytes,
+        value: TypedConstantV2::Bytes { value: vec![] },
+        unit: "OWNER_SAMPLE_COORDINATE_V1".to_owned(),
+    });
+    design.resources.max_state_bytes = design.state.iter().map(|state| state.max_bytes).sum();
+
+    let (design_identity, design_digest) = match prepare_strategy_design_v2(&design) {
+        StrategyDesignPreparationV2::Prepared {
+            design_identity,
+            design_digest,
+        } => (design_identity, design_digest),
+        other => panic!("single-plugin BFP design must prepare: {other:?}"),
+    };
+    proposal.design_identity = design_identity;
+    proposal.design_digest = design_digest;
+    (design, proposal, catalog)
+}
+
+fn rename_node_output(reference: &mut ValueRefV2, prior_node_id: &str, node_id: &str) {
+    if let ValueRefV2::NodeOutput {
+        node_id: reference_node_id,
+        ..
+    } = reference
+        && reference_node_id == prior_node_id
+    {
+        *reference_node_id = node_id.to_owned();
+    }
+}
+
+fn real_v3_plugin_build(
+    producer: &mut DevelopPluginBuildProducerV3,
+    manifest: &PluginManifestV2,
+    frozen: &FrozenResearchBoundedFeatureProgramV1,
+) -> VerifiedDevelopPluginBuildReadV3 {
+    let first = prepare_frozen_bounded_feature_source_inputs_v1(frozen)
+        .expect("first independent lowering");
+    let second = prepare_frozen_bounded_feature_source_inputs_v1(frozen)
+        .expect("second independent lowering");
+    match producer.build(manifest, first, second) {
+        DevelopPluginBuildResultV3::Verified(value) => *value,
+        DevelopPluginBuildResultV3::Terminal(terminal) => {
+            panic!("real V3 plugin build failed: {terminal:?}")
+        }
+    }
+}
+
+fn v3_composer_case(
+    design: StrategyDesignV2,
+    custody: CurrentResearchDevelopCustodyV2,
+    build: VerifiedDevelopPluginBuildReadV3,
+) -> (UntrustedDevelopComposerProposalV2, TestEvidencePort) {
+    let owner_bindings = bindings(&design);
+    let input_binding_receipt_digests = owner_bindings
+        .iter()
+        .map(|(_, digest)| *digest)
+        .collect::<Vec<_>>();
+    let verified_bindings = verified_strategy_input_bindings_for_test(&design, owner_bindings);
+    let plugin_builds = vec![UntrustedPluginBuildLocatorV2 {
+        plugin_semantic_id: design.plugins[0].semantic_id.clone(),
+        verified_build_receipt_digest: build.build().verified_build_receipt_digest(),
+    }];
+    (
+        UntrustedDevelopComposerProposalV2 {
+            research_request_locator: custody.request_locator().to_owned(),
+            design,
+            input_binding_receipt_digests,
+            plugin_builds,
+        },
+        TestEvidencePort {
+            custody,
+            bindings: verified_bindings,
+            builds: RefCell::new(vec![build.into_composer_build().into()]),
+            binding_terminal: None,
+            build_terminal: None,
+            research_reads: Cell::new(0),
+            binding_reads: Cell::new(0),
+            build_reads: Cell::new(0),
+        },
+    )
 }
 
 #[cfg(any(
@@ -91,7 +346,7 @@ fn real_plugin_build(manifest: &PluginManifestV2) -> VerifiedDevelopPluginBuildR
 struct TestEvidencePort {
     custody: CurrentResearchDevelopCustodyV2,
     bindings: VerifiedStrategyInputBindingsV2,
-    builds: RefCell<Vec<VerifiedDevelopPluginBuildV2>>,
+    builds: RefCell<Vec<VerifiedDevelopPluginBuildV2OrV3>>,
     binding_terminal: Option<DevelopComposerTerminalV2>,
     build_terminal: Option<DevelopComposerTerminalV2>,
     research_reads: Cell<usize>,
@@ -107,7 +362,7 @@ impl DevelopComposerEvidencePortV2 for TestEvidencePort {
     ) -> Result<CurrentResearchDevelopCustodyV2, DevelopComposerTerminalV2> {
         self.research_reads.set(self.research_reads.get() + 1);
 
-        if request_locator != "research-request-1" {
+        if request_locator != self.custody.request_locator() {
             return Err(DevelopComposerTerminalV2::unavailable(
                 "research_custody",
                 "request is unavailable",
@@ -131,7 +386,7 @@ impl DevelopComposerEvidencePortV2 for TestEvidencePort {
         &self,
         _manifests: &[PluginManifestV2],
         _locators: &[UntrustedPluginBuildLocatorV2],
-    ) -> Result<Vec<VerifiedDevelopPluginBuildV2>, DevelopComposerTerminalV2> {
+    ) -> Result<Vec<VerifiedDevelopPluginBuildV2OrV3>, DevelopComposerTerminalV2> {
         self.build_reads.set(self.build_reads.get() + 1);
         self.build_terminal
             .clone()
@@ -386,7 +641,7 @@ fn fixture_with_custody_byte(
         TestEvidencePort {
             custody,
             bindings: verified_bindings,
-            builds: RefCell::new(vec![build.into_composer_build()]),
+            builds: RefCell::new(vec![build.into_composer_build().into()]),
             binding_terminal: None,
             build_terminal: None,
             research_reads: Cell::new(0),
@@ -408,6 +663,13 @@ fn composed(
 fn assert_terminal(result: DevelopComposerResultV2, expected: DevelopComposerTerminalKindV2) {
     match result {
         DevelopComposerResultV2::Terminal(terminal) => assert_eq!(terminal.kind, expected),
+        DevelopComposerResultV2::Composed(_) => panic!("terminal path leaked a positive Artifact"),
+    }
+}
+
+fn into_terminal(result: DevelopComposerResultV2) -> DevelopComposerTerminalV2 {
+    match result {
+        DevelopComposerResultV2::Terminal(terminal) => terminal,
         DevelopComposerResultV2::Composed(_) => panic!("terminal path leaked a positive Artifact"),
     }
 }

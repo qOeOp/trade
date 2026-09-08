@@ -50,6 +50,10 @@ const LINUX_ARM64_PROFILE: FrozenHostProfileV2 = FrozenHostProfileV2 {
     target_sysroot_digest: Some(LINUX_TARGET_SYSROOT_SHA256),
 };
 
+pub(super) fn frozen_execution_profiles() -> [FrozenHostProfileV2; 2] {
+    [MACOS_ARM64_PROFILE, LINUX_ARM64_PROFILE]
+}
+
 // Portable sealed test evidence remains bound to the original macOS profile.
 #[cfg(test)]
 pub(super) const CARGO_SHA256: [u8; 32] = MACOS_ARM64_PROFILE.cargo_digest;
@@ -86,6 +90,12 @@ pub(super) struct SandboxBuildOutputV2 {
     pub(super) execution: SandboxExecutionReceiptV2,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct SandboxSourceFileV2<'a> {
+    pub(super) path: &'a str,
+    pub(super) bytes: &'a [u8],
+}
+
 struct ExactToolV2 {
     path: PathBuf,
     observed_digest: [u8; 32],
@@ -96,6 +106,35 @@ pub(super) fn build_once(
     source: &[u8],
     crate_name: &str,
     max_memory_bytes: u32,
+) -> Result<SandboxBuildOutputV2, DevelopPluginBuildTerminalV2> {
+    build_once_with_materializer(root, crate_name, |root| {
+        materialize(root, source, crate_name, max_memory_bytes)
+    })
+}
+
+/// Builds an already validated, complete source tree without adding source or dependency inputs.
+///
+/// The caller owns the exact file bytes. This boundary independently rejects unsafe, duplicate, or
+/// noncanonical paths before creating anything. The complete set must carry the exact frozen Cargo
+/// config rather than inheriting an ambient one.
+pub(super) fn build_source_set_once(
+    root: &Path,
+    files: &[SandboxSourceFileV2<'_>],
+    crate_name: &str,
+    max_memory_bytes: u32,
+) -> Result<SandboxBuildOutputV2, DevelopPluginBuildTerminalV2> {
+    validate_source_set(files, max_memory_bytes)?;
+    let output = build_once_with_materializer(root, crate_name, |root| {
+        materialize_source_set(root, files, max_memory_bytes)
+    })?;
+    recheck_materialized_source_set(root, files)?;
+    Ok(output)
+}
+
+fn build_once_with_materializer(
+    root: &Path,
+    crate_name: &str,
+    materializer: impl FnOnce(&Path) -> Result<[u8; 32], DevelopPluginBuildTerminalV2>,
 ) -> Result<SandboxBuildOutputV2, DevelopPluginBuildTerminalV2> {
     let profile = selected_host_profile()?;
     reject_ancestor_configs(root)?;
@@ -124,7 +163,7 @@ pub(super) fn build_once(
         profile.host,
         "rustc",
     )?;
-    let config_digest = materialize(root, source, crate_name, max_memory_bytes)?;
+    let config_digest = materializer(root)?;
     verify_target_sysroot(&toolchain, profile)?;
 
     let home = root.join("home");
@@ -190,6 +229,145 @@ pub(super) fn build_once(
             config_digest,
         },
     })
+}
+
+fn validate_source_set(
+    files: &[SandboxSourceFileV2<'_>],
+    max_memory_bytes: u32,
+) -> Result<(), DevelopPluginBuildTerminalV2> {
+    const MAX_FILES: usize = 64;
+    const MAX_BYTES: usize = 4 * 1024 * 1024;
+
+    if files.is_empty() || files.len() > MAX_FILES {
+        return Err(invalid_source_set(
+            "sandbox.source_set.files",
+            "the source set is empty or exceeds the frozen file bound",
+        ));
+    }
+    if !files
+        .windows(2)
+        .all(|pair| pair[0].path.as_bytes() < pair[1].path.as_bytes())
+    {
+        return Err(invalid_source_set(
+            "sandbox.source_set.order",
+            "source paths must be unique and strictly byte-sorted",
+        ));
+    }
+    let mut total = 0_usize;
+    for file in files {
+        let path = Path::new(file.path);
+        if file.path.is_empty()
+            || !file.path.is_ascii()
+            || path.is_absolute()
+            || path
+                .components()
+                .any(|component| !matches!(component, std::path::Component::Normal(_)))
+            || (file.path.starts_with(".cargo/") && file.path != ".cargo/config.toml")
+            || file.path.starts_with("target/")
+            || file.bytes.is_empty()
+        {
+            return Err(invalid_source_set(
+                "sandbox.source_set.path",
+                "source entries must be nonempty regular ASCII paths outside sandbox-owned paths",
+            ));
+        }
+        total = total.checked_add(file.bytes.len()).ok_or_else(|| {
+            invalid_source_set("sandbox.source_set.bytes", "source byte count overflow")
+        })?;
+    }
+    if total > MAX_BYTES
+        || !files.iter().any(|file| file.path == "Cargo.toml")
+        || !files.iter().any(|file| file.path == "Cargo.lock")
+        || !files.iter().any(|file| file.path == "src/lib.rs")
+        || !files.iter().any(|file| {
+            file.path == ".cargo/config.toml"
+                && file.bytes == frozen_config(max_memory_bytes).as_bytes()
+        })
+    {
+        return Err(invalid_source_set(
+            "sandbox.source_set.coverage",
+            "source set exceeds its byte bound or omits a required build entry",
+        ));
+    }
+    Ok(())
+}
+
+fn materialize_source_set(
+    root: &Path,
+    files: &[SandboxSourceFileV2<'_>],
+    max_memory_bytes: u32,
+) -> Result<[u8; 32], DevelopPluginBuildTerminalV2> {
+    if fs::read_dir(root)
+        .map_err(|e| io_terminal("sandbox.root", &e))?
+        .next()
+        .is_some()
+    {
+        return Err(invalid_source_set(
+            "sandbox.root",
+            "the private build root is not empty",
+        ));
+    }
+    for file in files {
+        let destination = root.join(file.path);
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(|e| io_terminal("sandbox.source.parent", &e))?;
+        }
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination)
+            .map_err(|e| io_terminal("sandbox.source", &e))?;
+        output
+            .write_all(file.bytes)
+            .map_err(|e| io_terminal("sandbox.source", &e))?;
+    }
+    Ok(frozen_config_digest(max_memory_bytes))
+}
+
+fn recheck_materialized_source_set(
+    root: &Path,
+    files: &[SandboxSourceFileV2<'_>],
+) -> Result<(), DevelopPluginBuildTerminalV2> {
+    for file in files {
+        let path = root.join(file.path);
+        let metadata = fs::symlink_metadata(&path).map_err(|_| {
+            DevelopPluginBuildTerminalV2::new(
+                DevelopPluginBuildTerminalKindV2::VerificationFailed,
+                "sandbox.source.recheck",
+                "a materialized source entry became unavailable during the build",
+            )
+        })?;
+        if !metadata.file_type().is_file() {
+            return Err(DevelopPluginBuildTerminalV2::new(
+                DevelopPluginBuildTerminalKindV2::VerificationFailed,
+                "sandbox.source.recheck",
+                "a materialized source entry is no longer a regular file",
+            ));
+        }
+        let observed = fs::read(path).map_err(|_| {
+            DevelopPluginBuildTerminalV2::new(
+                DevelopPluginBuildTerminalKindV2::VerificationFailed,
+                "sandbox.source.recheck",
+                "materialized source bytes could not be reread after the build",
+            )
+        })?;
+        if observed != file.bytes {
+            return Err(DevelopPluginBuildTerminalV2::new(
+                DevelopPluginBuildTerminalKindV2::VerificationFailed,
+                "sandbox.source.recheck",
+                "materialized source bytes changed during the build",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn invalid_source_set(coordinate: &str, reason: &str) -> DevelopPluginBuildTerminalV2 {
+    DevelopPluginBuildTerminalV2::new(
+        DevelopPluginBuildTerminalKindV2::InvalidCapsule,
+        coordinate,
+        reason,
+    )
 }
 
 fn selected_host_profile() -> Result<&'static FrozenHostProfileV2, DevelopPluginBuildTerminalV2> {
@@ -654,4 +832,44 @@ fn io_terminal(coordinate: &str, error: &std::io::Error) -> DevelopPluginBuildTe
         coordinate,
         &error.to_string(),
     )
+}
+
+#[cfg(test)]
+mod source_set_tests {
+    use super::*;
+
+    #[test]
+    fn materialized_source_bytes_are_rechecked_after_build_boundary() {
+        let root = tempfile::tempdir().unwrap();
+        let config = frozen_config(65_536);
+        let files = [
+            SandboxSourceFileV2 {
+                path: ".cargo/config.toml",
+                bytes: config.as_bytes(),
+            },
+            SandboxSourceFileV2 {
+                path: "Cargo.lock",
+                bytes: b"lock",
+            },
+            SandboxSourceFileV2 {
+                path: "Cargo.toml",
+                bytes: b"manifest",
+            },
+            SandboxSourceFileV2 {
+                path: "src/lib.rs",
+                bytes: b"source",
+            },
+        ];
+        materialize_source_set(root.path(), &files, 65_536).unwrap();
+        recheck_materialized_source_set(root.path(), &files).unwrap();
+
+        fs::write(root.path().join("src/lib.rs"), b"changed").unwrap();
+        assert!(matches!(
+            recheck_materialized_source_set(root.path(), &files),
+            Err(DevelopPluginBuildTerminalV2 {
+                kind: DevelopPluginBuildTerminalKindV2::VerificationFailed,
+                ..
+            })
+        ));
+    }
 }

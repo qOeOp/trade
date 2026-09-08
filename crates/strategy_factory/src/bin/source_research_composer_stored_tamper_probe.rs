@@ -10,6 +10,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use sqlx::PgConnection;
 use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, time::Duration};
+use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationResponseV2;
 use vibe_testkit::postgres::DedicatedPostgresTestDatabase;
 
 const INPUT_PATH: &str = "/run/source-research-composer-stored-tamper/input.json";
@@ -26,6 +27,8 @@ struct ProbeInput {
 struct Baseline {
     run: Vec<u8>,
     resolve: Vec<u8>,
+    sealed_operation: DevelopComposerOperationResponseV2,
+    sealed_read: Vec<u8>,
 }
 
 struct RestoreLease {
@@ -654,6 +657,15 @@ async fn main() -> anyhow::Result<()> {
         baselines.push(ordinary_baseline(&client, &bearer, locator, &request_identity).await?);
         request_identities.push(request_identity);
     }
+    let mut cross_spliced = baselines[0].sealed_operation.clone();
+    cross_spliced.request_identity = baselines[1].sealed_operation.request_identity.clone();
+    anyhow::ensure!(
+        sealed_read_response(&client, &bearer, &cross_spliced)
+            .await?
+            .status()
+            == StatusCode::SERVICE_UNAVAILABLE,
+        "cross-Research sealed read was accepted"
+    );
     let family_baseline = digest_rows(&mut connection, marker, "family").await?;
     let catalog_baseline = digest_rows(&mut connection, marker, "catalog").await?;
     let census_baseline = census(&mut connection, marker).await?;
@@ -710,6 +722,13 @@ async fn main() -> anyhow::Result<()> {
             let resolve = owner_resolve(&client, &bearer, request_identity)
                 .await
                 .context("stored-custody RESOLVE")?;
+            anyhow::ensure!(
+                sealed_read_response(&client, &bearer, &baselines[0].sealed_operation)
+                    .await?
+                    .status()
+                    == StatusCode::SERVICE_UNAVAILABLE,
+                "stored-custody sealed read was accepted"
+            );
 
             for disposition in [run, resolve] {
                 match disposition {
@@ -856,7 +875,40 @@ async fn ordinary_baseline(
             .bearer_auth(bearer),
     )
     .await?;
-    Ok(Baseline { run, resolve })
+    let sealed_operation: DevelopComposerOperationResponseV2 = serde_json::from_slice(&run)?;
+    let response = sealed_read_response(client, bearer, &sealed_operation).await?;
+    anyhow::ensure!(response.status() == StatusCode::OK, "sealed read failed");
+    let sealed_read = response.bytes().await?.to_vec();
+    let projection: serde_json::Value = serde_json::from_slice(&sealed_read)?;
+    anyhow::ensure!(
+        projection
+            .get("request_identity")
+            .and_then(serde_json::Value::as_str)
+            == Some(sealed_operation.request_identity.as_str()),
+        "sealed read returned another locator"
+    );
+    Ok(Baseline {
+        run,
+        resolve,
+        sealed_operation,
+        sealed_read,
+    })
+}
+
+async fn sealed_read_response(
+    client: &Client,
+    bearer: &str,
+    operation: &DevelopComposerOperationResponseV2,
+) -> anyhow::Result<reqwest::Response> {
+    client
+        .post(format!(
+            "{OWNER_BASE_URL}/_sealed-acceptance/v1/develop-composer/sealed-read"
+        ))
+        .bearer_auth(bearer)
+        .json(operation)
+        .send()
+        .await
+        .context("call sealed Composer read port")
 }
 
 async fn assert_ordinary_baseline(
@@ -868,7 +920,9 @@ async fn assert_ordinary_baseline(
 ) -> anyhow::Result<()> {
     let observed = ordinary_baseline(client, bearer, locator, request).await?;
     anyhow::ensure!(
-        observed.run == baseline.run && observed.resolve == baseline.resolve,
+        observed.run == baseline.run
+            && observed.resolve == baseline.resolve
+            && observed.sealed_read == baseline.sealed_read,
         "ordinary Owner response changed after restore"
     );
     Ok(())

@@ -33,6 +33,30 @@ fn postgres_contract_uses_one_advisory_lock_private_bytea_and_no_json_authority(
     assert!(source.contains("is_unique_violation"));
     assert!(migration.contains("build_attempt_identity BYTEA NOT NULL UNIQUE"));
     assert!(migration.contains("capsule_identity BYTEA NOT NULL UNIQUE"));
+    assert!(
+        migration
+            .contains("CREATE TABLE IF NOT EXISTS composer_private.rd_develop_build_receipts_v3")
+    );
+    assert!(migration.contains(
+        "CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifact_build_receipt_uses_v3"
+    ));
+    assert!(migration.contains("composer_owner_api.commit_develop_composer_v3"));
+    assert!(migration.contains("composer_owner_api.commit_develop_composer_acceptance_v3"));
+    let acceptance_v3_signature = "composer_owner_api.commit_develop_composer_acceptance_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[])";
+    assert!(migration.contains(&format!(
+        "ALTER FUNCTION {acceptance_v3_signature} OWNER TO composer_owner"
+    )));
+    assert!(migration.contains(&format!(
+        "REVOKE ALL ON FUNCTION {acceptance_v3_signature} FROM PUBLIC, rd_owner, rd_fact_writer"
+    )));
+    assert!(migration.contains(&format!(
+        "GRANT EXECUTE ON FUNCTION {acceptance_v3_signature} TO rd_owner"
+    )));
+    assert!(migration.contains("EXISTS (SELECT 1 FROM unnest(p_receipt_tags) tag WHERE tag<>3)"));
+    assert!(migration.contains("SELECT receipt_use.ordinal,2 AS receipt_tag"));
+    assert!(migration.contains("SELECT receipt_use.ordinal,3 AS receipt_tag"));
+    assert!(!migration.contains("ALTER TABLE composer_private.rd_develop_build_receipts_v2 ADD"));
+    assert!(!migration.contains("UPDATE composer_private.rd_develop_build_receipts_v2"));
     assert!(migration.contains("canonical_bytes BYTEA NOT NULL"));
     assert!(migration.contains("module_bytes BYTEA NOT NULL"));
     assert!(migration.contains("attestation_identity BYTEA NOT NULL UNIQUE"));

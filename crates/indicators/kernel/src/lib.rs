@@ -1,10 +1,54 @@
 #![no_std]
 #![deny(unsafe_code)]
 
+mod catalog_contract;
+mod catalog_rows;
+mod fixed_bar_state;
+mod fixed_features;
 mod fixed_i128;
+mod fixed_rsi_state;
+mod fixed_state;
+mod fixed_window;
+mod golden_corpus;
+mod golden_execution;
+mod golden_vector;
 mod i256;
+mod primitive_catalog;
+mod required_golden_ids;
 
-pub use fixed_i128::{CanonicalDecodeError, DecimalScale, FixedI128, NumericFailure, RoundingMode};
+pub use catalog_contract::{
+    CatalogAvailabilityRuleV1, CatalogClockRuleV1, CatalogContractV1, CatalogInputRuleV1,
+    CatalogOutputRuleV1, CatalogParameterRuleV1, CatalogRowKindV1, CatalogRowV1,
+    CatalogScaleRuleV1, CatalogStateRuleV1, CatalogUnitRuleV1, PrimitiveOperationV1,
+};
+pub use primitive_catalog::{PrimitiveCatalogFailure, PrimitiveCatalogV1};
+
+pub use fixed_bar_state::{FixedBarState, FixedIndicatorUpdate};
+pub use fixed_features::{
+    FixedFeatureFailure, FixedOhlc, ReducedUnitFraction, fixed_range_fraction,
+    fixed_rsi_from_averages, fixed_window_mean, fixed_window_sum,
+};
+pub use fixed_i128::{
+    CanonicalDecodeError, ComparisonPredicateV1, DecimalScale, FixedI128, NumericFailure,
+    RoundingMode,
+};
+pub use fixed_rsi_state::FixedRsiState;
+pub use fixed_state::{
+    FixedSampleUpdate, FixedSmoothingKind, FixedSmoothingState, FixedStateFailure,
+    SampleClockInputV1,
+};
+pub use fixed_window::{
+    FixedWindowFunction, FixedWindowOutput, FixedWindowState, FixedWindowUpdate,
+};
+pub use golden_execution::{GoldenVerificationFailure, verify_required_golden_corpus_v1};
+pub use golden_vector::{
+    BoundedFeatureGoldenVectorV1, GoldenVectorCodecFailure, GoldenVectorPartsV1,
+    GoldenVectorTerminalV1,
+};
+pub use required_golden_ids::{
+    CATALOG_SEMANTIC_IDS_V1, EXECUTABLE_PRIMITIVE_IDS_V1, GoldenSetFailure, REQUIRED_GOLDEN_IDS_V1,
+    validate_required_golden_ids,
+};
 
 /// Complete externally stored state after one EMA transition.
 #[derive(Clone, Copy, Debug, PartialEq)]

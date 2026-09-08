@@ -60,6 +60,10 @@ use vibe_strategy_factory::{
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerOperationDispositionV2;
 #[cfg(not(feature = "sealed-develop-composer-acceptance"))]
 use vibe_strategy_factory::develop_composer_operation_v2::DevelopComposerRunRequestV2;
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use vibe_strategy_factory::develop_composer_postgres_v2::{
+    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+};
 #[cfg(all(
     feature = "sealed-develop-composer-acceptance",
     any(test, not(feature = "sealed-source-intake-composer-acceptance"))
@@ -440,6 +444,10 @@ async fn main() -> anyhow::Result<()> {
             get(develop_composer_a0_executions),
         )
         .route(
+            "/_sealed-acceptance/v1/develop-composer/sealed-read",
+            post(read_sealed_develop_composer_for_acceptance),
+        )
+        .route(
             "/_sealed-acceptance/v1/develop-composer/runs",
             post(run_develop_composer_with_acceptance_control),
         )
@@ -504,6 +512,44 @@ async fn develop_composer_a0_executions(
         }),
     )
         .into_response()
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+async fn read_sealed_develop_composer_for_acceptance(
+    State(state): State<ApiState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if let Err(status) = admit_sealed_acceptance_fault_control(state.allow_acceptance_faults) {
+        return status.into_response();
+    }
+    let operation: DevelopComposerOperationResponseV2 = match serde_json::from_slice(&body) {
+        Ok(operation) => operation,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+    let locator = match DevelopComposerSealedReadLocatorV2::from_accepted_response(&operation) {
+        Ok(locator) => locator,
+        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+    };
+
+    match state.develop_composer.read_accepted(&locator).await {
+        Ok(readback) => Json(serde_json::json!({
+            "request_identity": readback.locator().request_identity,
+            "artifact_identity": readback.locator().artifact_identity,
+            "research_request_identity": readback.research_request_identity(),
+            "intent_identity": readback.intent_identity(),
+            "design_identity": readback.design_identity(),
+            "plan_bytes_digest": readback.plan_bytes_digest(),
+            "artifact_package_bytes_digest": readback.artifact_package_bytes_digest(),
+            "module_bytes_digests": readback.module_bytes_digests(),
+        }))
+        .into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -996,6 +1042,10 @@ mod develop_composer_api_contract_tests {
         let source = include_str!("main.rs");
 
         for (handler, next_item) in [
+            (
+                "async fn read_sealed_develop_composer_for_acceptance",
+                "async fn run_develop_composer_with_acceptance_control",
+            ),
             (
                 "async fn run_develop_composer_with_acceptance_control",
                 "async fn resolve_develop_composer_with_acceptance_tamper",

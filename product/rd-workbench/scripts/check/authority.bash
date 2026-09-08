@@ -117,8 +117,8 @@ grep -Fq 'ALTER SCHEMA public OWNER TO rd_database_owner' "$package_dir/postgres
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS replay_policy_catalog_private AUTHORIZATION replay_policy_catalog_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS composer_private AUTHORIZATION composer_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11,12) AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11,12) AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=4 AND catalog_public_exact AND catalog_private_count=0 AND composer_public_count IN (9,11,12,14) AND composer_public_exact AND composer_private_count=0)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '(catalog_public_count=0 AND catalog_private_count=4 AND catalog_private_exact AND composer_public_count=0 AND composer_private_count IN (9,11,12,14) AND composer_private_exact)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "THEN RAISE EXCEPTION 'Catalog/Composer relation families are absent, partial, or mixed'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 test "$(grep -Fc "c.relkind='r' AND c.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 cutover_gate_line=$(grep -nF "DO \$private_owner_cutover_gate\$" "$package_dir/postgres-init/10-migrate-authority-custody.sh" | cut -d: -f1)
@@ -143,7 +143,7 @@ grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-res
 grep -Fq 'case "${SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE:-0}" in' "$composer_migration"
 # shellcheck disable=SC2016
 production_composer_source=$(sed -n '/AS \$composer_commit\$/,/END\$composer_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_commit\$//; $s/\$composer_commit\$;//')
-test "$(printf '%s' "$production_composer_source" | sha256_stdin)" = ed9b2945a114c2ffc846b780022fca57df6e0448076ac3520e00074597de3b38
+test "$(printf '%s' "$production_composer_source" | sha256_stdin)" = 8e0362fca030fce1cd829ef23902779463ae795d7ab1f9e6cb53717f7df218bf
 if printf '%s' "$production_composer_source" | grep -Eq 'composer_fail_after|acceptance fault'; then
   echo "production Composer commit routine must not contain acceptance fault hooks" >&2
   exit 1
@@ -155,7 +155,7 @@ test "$(printf '%s' "$acceptance_composer_header" | sha256_stdin)" = 77142de2536
 acceptance_composer_source=$(sed -n '/AS \$composer_acceptance_commit\$/,/END\$composer_acceptance_commit\$/p' "$composer_migration" | sed '1s/^.*AS \$composer_acceptance_commit\$//; $s/\$composer_acceptance_commit\$;//')
 # This exact source identity binds the closed GUC validation and every insert -> matching raise,
 # including module/build-use loops, ROW_COUNT-gated new receipts, and the native-join conditional.
-test "$(printf '%s' "$acceptance_composer_source" | sha256_stdin)" = f5c0f1ba53d2225b40d8242a555b462fc947db250c990388fac1aee8b11d76e2
+test "$(printf '%s' "$acceptance_composer_source" | sha256_stdin)" = 41a0bd98d41cdcda9f76aff98f22602106602f1a9739222d4da050096deed3cb
 acceptance_composer_acl=$(sed -n '/^ALTER FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(/,/^GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(.* TO rd_owner;$/p' "$composer_migration")
 test "$(printf '%s' "$acceptance_composer_acl" | sha256_stdin)" = c2fc6bbd3d0c1e38ebfa6f830830ac90aed222499b42e11c819d1f6a3879ad19
 test "$(grep -Fc '\if :composer_acceptance' "$composer_migration")" -eq 3
@@ -169,7 +169,7 @@ grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-
 grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq "count(*)=16 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "count(*)=18 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "index_relation.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
