@@ -390,16 +390,11 @@ fn stable_identity(domain: &[u8], digest: BindingDigest) -> [u8; 16] {
 
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 mod tests {
-    use std::{cell::RefCell, rc::Rc};
-
     use rstest::rstest;
-    use vibe_data::owner::pit_snapshot::joined_input_sealed_acceptance::issue_strategy_input_event_replay_package_for_sealed_acceptance_v1;
     use vibe_model::identifiers::StrategyId;
 
     use super::*;
-    use crate::program_host_v2::{
-        ProgramHostV2, admit_market_data_joined_program_event_v2, event_corpus_plan_and_artifact,
-    };
+    use crate::native_replay_v2::prepare_event_corpus_handoff_for_sealed_acceptance_v1;
 
     #[rstest]
     fn complete_owner_event_corpus_runs_repeatably_through_one_host_and_real_backtest() {
@@ -436,26 +431,11 @@ mod tests {
     }
 
     fn run_event_corpus(end: Option<UnixNanos>) -> anyhow::Result<EventCorpusBacktestTraceV1> {
-        let acceptance = issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()?;
-        let (bindings, package) = acceptance.into_parts();
-        let (plan, artifact) = event_corpus_plan_and_artifact(&bindings);
-        for (ordinal, member) in package.corpus().members().iter().enumerate() {
-            admit_market_data_joined_program_event_v2(&plan, member.joined_cut())
-                .unwrap_or_else(|e| {
-                    panic!(
-                        "Owner EVENT corpus member {ordinal} did not admit against the exact Plan: {e:?}"
-                    )
-                });
-        }
-        let host = ProgramHostV2::new(plan, artifact)?;
-        let trace = Rc::new(RefCell::new(EventCorpusBacktestTraceV1::default()));
-        let (strategy, data) = EventCorpusBacktestStrategyV1::from_parts(
+        run_prepared_owner_event_corpus_backtest_v1(
             StrategyId::from("OWNER-EVENT-CORPUS-BACKTEST-001"),
-            host,
-            package,
-            Rc::clone(&trace),
-        )?;
-        run_owner_event_corpus_strategy_v1(strategy, data, end, &trace)
+            prepare_event_corpus_handoff_for_sealed_acceptance_v1()?,
+            end,
+        )
     }
 
     #[rstest]

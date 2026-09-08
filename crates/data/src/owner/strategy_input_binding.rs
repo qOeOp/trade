@@ -138,7 +138,8 @@ impl MarketDataFieldSemantic {
         Self::ScalarValue,
     ];
 
-    const fn identity(self) -> &'static str {
+    /// Returns the canonical Market Data field semantic identity.
+    pub const fn identity(self) -> &'static str {
         match self {
             Self::BarOpenPrice => "MARKET_DATA.BAR.OPEN.PRICE.V1",
             Self::BarHighPrice => "MARKET_DATA.BAR.HIGH.PRICE.V1",
@@ -155,7 +156,8 @@ impl MarketDataFieldSemantic {
         }
     }
 
-    const fn row_field(self) -> &'static str {
+    /// Returns the canonical normalized observation field bound by this semantic.
+    pub const fn row_field(self) -> &'static str {
         match self {
             Self::BarOpenPrice => "OPEN",
             Self::BarHighPrice => "HIGH",
@@ -172,7 +174,8 @@ impl MarketDataFieldSemantic {
         }
     }
 
-    fn from_identity(identity: &str) -> Option<Self> {
+    /// Resolves an exact canonical semantic identity without accepting aliases.
+    pub fn from_identity(identity: &str) -> Option<Self> {
         Self::ALL
             .into_iter()
             .find(|semantic| semantic.identity() == identity)

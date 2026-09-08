@@ -19,10 +19,21 @@ use super::{
 };
 use crate::owner::sample_projection::joined_cut_readback_for_event_corpus_acceptance_v2;
 use crate::owner::{
+    instrument_master::{
+        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
+        InstrumentMasterFactProposalV1, InstrumentMasterReadbackV1, InstrumentMasterScopeV1,
+        InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
+        authority::{
+            build_cut as build_instrument_cut, build_fact as build_instrument_fact,
+            build_readback as build_instrument_readback, build_receipt as build_instrument_receipt,
+            clock_projection,
+        },
+    },
     research_pit_terminal::derive_snapshot_correction_rule_digest,
     sealed_replay_input::{
         SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
     },
+    shared_time_evidence::{SharedTimeEvidenceError, build_head_fact},
     source_binding::{
         BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -111,6 +122,8 @@ pub enum JoinedInputSealedAcceptanceError {
     PitSnapshot(PitSnapshotError),
     StrategyInput(StrategyInputBindingUnavailable),
     JoinedCut(StrategyInputJoinedCutUnavailable),
+    InstrumentMaster(InstrumentMasterError),
+    TimeEvidence(SharedTimeEvidenceError),
 }
 
 impl Display for JoinedInputSealedAcceptanceError {
@@ -161,6 +174,18 @@ impl From<StrategyInputEventCorpusUnavailableV1> for JoinedInputSealedAcceptance
     }
 }
 
+impl From<InstrumentMasterError> for JoinedInputSealedAcceptanceError {
+    fn from(value: InstrumentMasterError) -> Self {
+        Self::InstrumentMaster(value)
+    }
+}
+
+impl From<SharedTimeEvidenceError> for JoinedInputSealedAcceptanceError {
+    fn from(value: SharedTimeEvidenceError) -> Self {
+        Self::TimeEvidence(value)
+    }
+}
+
 /// Feature-gated, zero-effect package for downstream behavioral acceptance tests.
 ///
 /// The package carries only real Owner-issued receipts. It exposes no constructor and grants no
@@ -169,6 +194,7 @@ impl From<StrategyInputEventCorpusUnavailableV1> for JoinedInputSealedAcceptance
 pub struct SealedAcceptanceStrategyInputEventReplayPackageV1 {
     bindings: Box<[StrategyInputBindingReceipt]>,
     package: StrategyInputEventReplayPackageV1,
+    instrument_master: InstrumentMasterReadbackV1,
 }
 
 impl SealedAcceptanceStrategyInputEventReplayPackageV1 {
@@ -183,6 +209,17 @@ impl SealedAcceptanceStrategyInputEventReplayPackageV1 {
         StrategyInputEventReplayPackageV1,
     ) {
         (self.bindings, self.package)
+    }
+
+    /// Moves the inseparable Owner-issued inputs into the downstream preparation acceptance path.
+    pub fn into_preparation_parts(
+        self,
+    ) -> (
+        Box<[StrategyInputBindingReceipt]>,
+        StrategyInputEventReplayPackageV1,
+        InstrumentMasterReadbackV1,
+    ) {
+        (self.bindings, self.package, self.instrument_master)
     }
 }
 
@@ -217,10 +254,17 @@ fn issue_event_corpus_package(
     let replay_input = joined
         .take_event_replay_input()
         .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
+    let instrument_master = joined
+        .take_event_instrument_master()
+        .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
     let bindings = joined.bindings().to_vec().into_boxed_slice();
     let package =
         issue_strategy_input_event_replay_package_v1(replay_input, source, &bindings, candidates)?;
-    Ok(SealedAcceptanceStrategyInputEventReplayPackageV1 { bindings, package })
+    Ok(SealedAcceptanceStrategyInputEventReplayPackageV1 {
+        bindings,
+        package,
+        instrument_master,
+    })
 }
 
 #[allow(
@@ -236,6 +280,7 @@ pub struct SealedAcceptanceStrategyInputJoinCorpus {
     stale_selection_basis_for_negative_test: Option<StrategyInputJoinedCutReceiptV1>,
     event_source: Option<StrategyInputEventSourceV1>,
     event_replay_input: Option<SealedReplayInput>,
+    event_instrument_master: Option<InstrumentMasterReadbackV1>,
     nonterminal_event_replay_input: Option<SealedReplayInput>,
     equal_value_cross_snapshot_source: Option<StrategyInputEventSourceV1>,
     missing: StrategyInputJoinedCutUnavailable,
@@ -278,6 +323,10 @@ impl SealedAcceptanceStrategyInputJoinCorpus {
 
     pub(crate) fn take_event_replay_input(&mut self) -> Option<SealedReplayInput> {
         self.event_replay_input.take()
+    }
+
+    pub(crate) fn take_event_instrument_master(&mut self) -> Option<InstrumentMasterReadbackV1> {
+        self.event_instrument_master.take()
     }
 
     #[allow(
@@ -370,6 +419,8 @@ fn issue_event_join_corpus_from_batches(
         },
         &clock,
     )?;
+    let instrument_master = issue_event_instrument_master(source.receipt().locator())?;
+    let instrument_master_digest = instrument_master.digest();
     let mut aggregates = Vec::new();
     let mut batches = Vec::new();
 
@@ -416,7 +467,7 @@ fn issue_event_join_corpus_from_batches(
             requester_identity: digest_byte(0xb1),
             scope_digest: digest_byte(0xd1),
             source_binding: source.receipt().locator().clone(),
-            instrument_master_digest: digest_byte(0xc1),
+            instrument_master_digest,
             universe_selection_digest: digest_byte(0xc2),
             market_semantics_identity: digest_byte(0xc3),
             time_evidence,
@@ -588,12 +639,113 @@ fn issue_event_join_corpus_from_batches(
         stale_selection_basis_for_negative_test,
         event_source: Some(event_source),
         event_replay_input: Some(event_replay_input),
+        event_instrument_master: Some(instrument_master),
         nonterminal_event_replay_input: Some(nonterminal_event_replay_input),
         equal_value_cross_snapshot_source,
         missing: StrategyInputJoinedCutUnavailable::IncompleteCensus,
         stale: StrategyInputJoinedCutUnavailable::StaleComponent,
         cross_splice: StrategyInputJoinedCutUnavailable::CrossDesign,
     })
+}
+
+fn issue_event_instrument_master(
+    source: &crate::owner::source_binding::UntrustedSourceBindingLocator,
+) -> Result<InstrumentMasterReadbackV1, JoinedInputSealedAcceptanceError> {
+    let clock = MarketDataClockAdmission::seal_for_test(
+        "12345678901234567890123456789012",
+        "abcdefghijklmnopqrstuvwxyzABCDEF",
+        1,
+        DECISION_CUT,
+        DECISION_CUT,
+        VALID_THROUGH,
+        digest_byte(7),
+        1,
+        2,
+    );
+    let head = build_head_fact(&clock, None)?;
+    let lifecycle_frontier = digest_byte(0xc4);
+    let corporate_action_frontier = digest_byte(0xc5);
+    let historical_membership_frontier = digest_byte(0xc6);
+    let market_semantics_identity = digest_byte(0xc3);
+    let members = ["AAPL.XNAS", "MSFT.XNAS", "QQQ.XNAS"]
+        .into_iter()
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let facts = members
+        .iter()
+        .map(|instrument| {
+            build_instrument_fact(
+                InstrumentMasterFactProposalV1 {
+                    canonical_identity: instrument.clone(),
+                    predecessor_fact_digest: None,
+                    mappings: vec![InstrumentVenueSourceMapping {
+                        venue_identity: "XNAS".into(),
+                        source_identity: "SIP".into(),
+                        source_instrument: instrument.as_bytes().to_vec(),
+                    }],
+                    instrument_class: InstrumentClass::Equity,
+                    base_currency: Some("USD".into()),
+                    quote_currency: None,
+                    settlement_currency: Some("USD".into()),
+                    margin_currency: None,
+                    price_increment: InstrumentDecimal {
+                        mantissa: 1,
+                        scale: 2,
+                    },
+                    quantity_increment: InstrumentDecimal {
+                        mantissa: 1,
+                        scale: 0,
+                    },
+                    contract_multiplier: InstrumentDecimal {
+                        mantissa: 1,
+                        scale: 0,
+                    },
+                    calendar_identity: "XNAS.CALENDAR.V1".into(),
+                    session_identity: "XNAS.REGULAR.V1".into(),
+                    time_zone_identity: "AMERICA_NEW_YORK.V1".into(),
+                    lifecycle_frontier,
+                    corporate_action_frontier,
+                    historical_membership_frontier,
+                    market_semantics_identity,
+                    source_frontier: source.source_frontier.digest,
+                    correction_frontier: source.correction_frontier.digest,
+                    effective_from: 0,
+                    effective_until: None,
+                    provider_available: 5_000_000_001,
+                    retrieval: 5_000_000_002,
+                    correction_publication: 5_000_000_003,
+                    owner_observation: 5_000_000_004,
+                },
+                &head.handoff,
+                None,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let request = UntrustedInstrumentMasterRequestV1 {
+        request_identity: digest_byte(0xc7),
+        request_meaning_digest: digest_byte(0xc8),
+        consumer_role: BACKTEST_OWNER_V1.into(),
+        scope: InstrumentMasterScopeV1::UniverseSelectionRecord(digest_byte(0xc2)),
+        effective_instant: 5_000_000_000,
+        owner_observation: 5_000_000_004,
+        decision_cut: DECISION_CUT,
+        clock_head: head.handoff.locator().clone(),
+        lifecycle_frontier,
+        corporate_action_frontier,
+        historical_membership_frontier,
+        market_semantics_identity,
+        source_frontier: source.source_frontier.digest,
+        correction_frontier: source.correction_frontier.digest,
+        stable_correlation: digest_byte(0xc9),
+    };
+    let cut = build_instrument_cut(
+        &request,
+        members,
+        &facts,
+        clock_projection(&head.handoff, None)?,
+    )?;
+    let receipt = build_instrument_receipt(&request, &facts, &cut, digest_byte(0xca), 1)?;
+    Ok(build_instrument_readback(&receipt)?)
 }
 
 fn seal_event_replay_input(
@@ -881,6 +1033,7 @@ fn issue_strategy_input_join_corpus_with_specs(
         stale_selection_basis_for_negative_test,
         event_source,
         event_replay_input: None,
+        event_instrument_master: None,
         nonterminal_event_replay_input: None,
         equal_value_cross_snapshot_source,
         missing,
