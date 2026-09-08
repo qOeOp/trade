@@ -42,7 +42,9 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
+  'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
+  'vibe-data|instrument_economic_terms_postgres_v1|atomic_exact_replay_restart_tamper_and_acl_fail_closed'
 )
 readonly nextest_graph_args=(
   --locked
@@ -64,8 +66,8 @@ check_nextest_graph_contract() {
     echo "ERROR: isolated PostgreSQL tests must use the shared nextest graph." >&2
     return 1
   fi
-  if [[ "${#rd_owner_postgres_tests[@]}" -ne 25 ]]; then
-    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-five ordered tests." >&2
+  if [[ "${#rd_owner_postgres_tests[@]}" -ne 27 ]]; then
+    echo "ERROR: isolated PostgreSQL test selection must retain all twenty-seven ordered tests." >&2
     return 1
   fi
   if [[ "${rd_owner_postgres_tests[0]}" != *'|replay_policy_catalog_postgres_v2::postgres_tests::catalog_admin_and_family_formation_are_atomic_and_fail_closed' ]] ||
@@ -85,7 +87,9 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
     [[ "${rd_owner_postgres_tests[22]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
     [[ "${rd_owner_postgres_tests[23]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
-    [[ "${rd_owner_postgres_tests[24]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]]; then
+    [[ "${rd_owner_postgres_tests[24]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
+    [[ "${rd_owner_postgres_tests[25]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
+    [[ "${rd_owner_postgres_tests[26]}" != *'|atomic_exact_replay_restart_tamper_and_acl_fail_closed' ]]; then
     echo "ERROR: isolated PostgreSQL test ordering must remain fresh-first and poison-last." >&2
     return 1
   fi
@@ -838,12 +842,19 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=test_password="$test_password" << 'SQL'
 CREATE ROLE vibe_test_owner_topology_admin LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+CREATE ROLE instrument_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD :'test_password';
+CREATE ROLE instrument_economic_intruder LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
 ALTER ROLE market_data_reader PASSWORD :'test_password';
 GRANT replay_policy_catalog_owner, composer_owner TO vibe_test_owner_topology_admin;
 DO $database_access$
 BEGIN
   EXECUTE pg_catalog.format(
-    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin',
+    'GRANT CONNECT ON DATABASE %I TO rd_fact_writer, replay_policy_catalog_admin_writer, vibe_test_owner_topology_admin, instrument_owner',
+    pg_catalog.current_database()
+  );
+  EXECUTE pg_catalog.format(
+    'GRANT CREATE ON DATABASE %I TO instrument_owner',
     pg_catalog.current_database()
   );
 END
@@ -864,8 +875,8 @@ CREATE TABLE IF NOT EXISTS vibe_test_admin.dedicated_postgres_test_instance_v1 (
 ALTER TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 OWNER TO postgres;
 REVOKE ALL ON SCHEMA vibe_test_admin FROM PUBLIC;
 REVOKE ALL ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 FROM PUBLIC;
-GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
-GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+GRANT USAGE ON SCHEMA vibe_test_admin TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
+GRANT SELECT ON TABLE vibe_test_admin.dedicated_postgres_test_instance_v1 TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 INSERT INTO vibe_test_admin.dedicated_postgres_test_instance_v1(marker_identity, database_name, test_role)
 SELECT :'test_marker', :'test_database', role_name
 FROM unnest(ARRAY[
@@ -878,6 +889,7 @@ FROM unnest(ARRAY[
   'market_data_reader',
   'qualification_writer',
   'backtest_owner',
+  'instrument_owner',
   'vibe_test_owner_topology_admin'
 ]) AS role_name
 ON CONFLICT (test_role) DO UPDATE
@@ -912,6 +924,72 @@ $function$;
 ALTER FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) OWNER TO postgres;
 REVOKE ALL ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION vibe_test_admin.inject_backtest_result_acl_with_fence_v1(text)
+  TO vibe_test_owner_topology_admin;
+
+CREATE FUNCTION vibe_test_admin.delete_instrument_economic_fact_as_replica_v1(
+  expected_marker_identity text,
+  requested_fact_identity bytea
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Instrument Owner replica fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'Instrument Owner replica fault marker mismatch' USING ERRCODE='55000';
+  END IF;
+  PERFORM pg_catalog.set_config('session_replication_role','replica',true);
+  EXECUTE 'DELETE FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1'
+    USING requested_fact_identity;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.delete_instrument_economic_fact_as_replica_v1(text,bytea)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.delete_instrument_economic_fact_as_replica_v1(text,bytea)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.delete_instrument_economic_fact_as_replica_v1(text,bytea)
+  TO vibe_test_owner_topology_admin;
+
+CREATE FUNCTION vibe_test_admin.set_instrument_economic_builtin_membership_v1(
+  expected_marker_identity text,
+  requested_role text,
+  enabled boolean
+) RETURNS void LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+BEGIN
+  IF session_user<>'vibe_test_owner_topology_admin' OR current_user<>'postgres' THEN
+    RAISE EXCEPTION 'Instrument Owner membership fault caller mismatch' USING ERRCODE='42501';
+  END IF;
+  IF requested_role NOT IN ('instrument_economic_intruder','instrument_economic_noinherit_intruder') THEN
+    RAISE EXCEPTION 'Instrument Owner membership fault target mismatch' USING ERRCODE='22023';
+  END IF;
+  IF NOT EXISTS (
+    SELECT 1 FROM vibe_test_admin.dedicated_postgres_test_instance_v1 marker
+     WHERE marker.marker_identity=expected_marker_identity
+       AND marker.database_name=pg_catalog.current_database()
+       AND marker.test_role='vibe_test_owner_topology_admin'
+  ) THEN
+    RAISE EXCEPTION 'Instrument Owner membership fault marker mismatch' USING ERRCODE='55000';
+  END IF;
+  IF enabled THEN
+    EXECUTE pg_catalog.format('GRANT pg_write_all_data TO %I', requested_role);
+  ELSE
+    EXECUTE pg_catalog.format('REVOKE pg_write_all_data FROM %I', requested_role);
+  END IF;
+END
+$function$;
+ALTER FUNCTION vibe_test_admin.set_instrument_economic_builtin_membership_v1(text,text,boolean)
+  OWNER TO postgres;
+REVOKE ALL ON FUNCTION vibe_test_admin.set_instrument_economic_builtin_membership_v1(text,text,boolean)
+  FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION vibe_test_admin.set_instrument_economic_builtin_membership_v1(text,text,boolean)
   TO vibe_test_owner_topology_admin;
 
 CREATE TABLE vibe_test_admin.rd_exploratory_replay_routine_definition_v1 (
@@ -1432,11 +1510,11 @@ REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUB
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
-  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, vibe_test_owner_topology_admin;
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
   VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database')
@@ -1451,6 +1529,7 @@ WITH clones(database_name) AS (
     ('market_data_reader'),
     ('qualification_writer'),
     ('backtest_owner'),
+    ('instrument_owner'),
     ('vibe_test_owner_topology_admin')
 )
 SELECT (
@@ -1648,6 +1727,8 @@ export VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner
 export RD_OWNER_DRAIN_ALIAS_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_alias_host}:${postgres_alias_port}/${test_database}"
 export QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
 export BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${test_database}"
+export INSTRUMENT_OWNER_DATABASE_URL="$INSTRUMENT_OWNER_TEST_DATABASE_URL"
 export BACKTEST_IMPERSONATOR_TEST_DATABASE_URL="postgresql://backtest_owner:${impersonator_password}@${impersonator_host}:${impersonator_port}/${impersonator_database}"
 export VIBE_POSTGRES_TEST_DATABASE_NAME="$test_database"
 export VIBE_POSTGRES_TEST_INSTANCE_MARKER="$test_marker"
@@ -1982,7 +2063,8 @@ SQL
 
 # The Catalog administrator and two replay migration filters use separate fresh databases. The drain probe
 # removes receipt storage needed to validate its retained legacy attempts, so it
-# follows positive consumers. Keep the malformed OA/PE schema probe last.
+# follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
+# last because its final inheritance fault intentionally poisons that private store.
 for test_selection in "${rd_owner_postgres_tests[@]}"; do
   IFS='|' read -r test_package test_binary test_name <<< "$test_selection"
   test_filter="package(${test_package}) & binary(${test_binary}) & test(=${test_name})"
@@ -2011,6 +2093,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${catalog_admin_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -2029,6 +2113,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${legacy_replay_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
@@ -2047,6 +2133,8 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \

@@ -411,16 +411,15 @@ mod tests {
         replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
     };
     use rstest::rstest;
-    use sqlx::postgres::PgPoolOptions;
     use vibe_data::owner::{
         instrument_economic_terms_postgres_owner_from_environment_v1,
-        instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresErrorV1,
         instrument_economic_terms_v1::{
             InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicDecimalV1,
             InstrumentEconomicTermsFactV1, InstrumentEconomicTermsInputV1,
             InstrumentMarginMeaningV1,
         },
     };
+    use vibe_testkit::postgres::CanonicalOwnerPostgresTestDatabaseV1;
 
     fn fixtures() -> (
         ReplayEconomicConfigurationV1,
@@ -542,7 +541,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires INSTRUMENT_OWNER_DATABASE_URL"]
     async fn verified_owner_readback_mints_provenance_and_wrong_coordinates_fail() {
-        std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
+        let _database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
         let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
             .await
             .unwrap();
@@ -630,165 +629,5 @@ mod tests {
                 Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
             ));
         }
-
-        let url = std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
-        let pool = PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&url)
-            .await
-            .unwrap();
-        sqlx::query(
-            "CREATE FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1() RETURNS trigger LANGUAGE plpgsql AS 'BEGIN DELETE FROM instrument_owner_private.economic_terms_receipts_v1 WHERE receipt_identity=NEW.receipt_identity; RETURN NULL; END'",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query(
-            "CREATE CONSTRAINT TRIGGER defer_delete_economic_receipt_v1 AFTER INSERT ON instrument_owner_private.economic_terms_receipts_v1 DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1()",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        let row_counts_before: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let mut deferred_input = fact.input().clone();
-        deferred_input.instrument_identity = "SOLUSDT-PERP".into();
-        let deferred_fact = InstrumentEconomicTermsFactV1::seal(deferred_input).unwrap();
-        assert_eq!(
-            owner.issue(&deferred_fact).await,
-            Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-        );
-        let row_counts_after: (i64, i64) = sqlx::query_as(
-            "SELECT (SELECT count(*) FROM instrument_owner_private.economic_terms_facts_v1),(SELECT count(*) FROM instrument_owner_private.economic_terms_receipts_v1)",
-        )
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(row_counts_before, row_counts_after);
-        sqlx::query(
-            "DROP TRIGGER defer_delete_economic_receipt_v1 ON instrument_owner_private.economic_terms_receipts_v1",
-        )
-        .execute(&pool)
-        .await
-        .unwrap();
-        sqlx::query("DROP FUNCTION instrument_owner_private.defer_delete_economic_receipt_v1()")
-            .execute(&pool)
-            .await
-            .unwrap();
-        assert_eq!(
-            owner.resolve(readback.locator()).await.unwrap().locator(),
-            readback.locator()
-        );
-
-        let stored_fact: (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
-            "SELECT fact_identity,meaning_identity,fact_bytes,custody_digest FROM ONLY instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
-        )
-        .bind(readback.locator().fact_identity().as_slice())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        let stored_receipt: (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>) = sqlx::query_as(
-            "SELECT receipt_identity,fact_identity,receipt_bytes,custody_digest FROM ONLY instrument_owner_private.economic_terms_receipts_v1 WHERE fact_identity=$1",
-        )
-        .bind(readback.locator().fact_identity().as_slice())
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        sqlx::query("CREATE SCHEMA instrument_economic_inheritance_intruder")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("CREATE TABLE instrument_economic_inheritance_intruder.facts_child_v1 (LIKE instrument_owner_private.economic_terms_facts_v1 INCLUDING ALL)")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("CREATE TABLE instrument_economic_inheritance_intruder.receipts_child_v1 (LIKE instrument_owner_private.economic_terms_receipts_v1 INCLUDING ALL)")
-            .execute(&pool)
-            .await
-            .unwrap();
-        let mut topology_guard = pool.begin().await.unwrap();
-        sqlx::query("LOCK TABLE instrument_owner_private.economic_terms_facts_v1, instrument_owner_private.economic_terms_receipts_v1 IN SHARE ROW EXCLUSIVE MODE")
-            .execute(&mut *topology_guard)
-            .await
-            .unwrap();
-        let mut topology_mutator = pool.begin().await.unwrap();
-        sqlx::query("SET LOCAL lock_timeout='100ms'")
-            .execute(&mut *topology_mutator)
-            .await
-            .unwrap();
-        let blocked = sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
-            .execute(&mut *topology_mutator)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            blocked.as_database_error().and_then(|e| e.code()),
-            Some(code) if code == "55P03"
-        ));
-        topology_mutator.rollback().await.unwrap();
-        topology_guard.rollback().await.unwrap();
-        sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.receipts_child_v1 INHERIT instrument_owner_private.economic_terms_receipts_v1")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("CREATE ROLE instrument_economic_inheritance_writer LOGIN NOSUPERUSER")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("GRANT USAGE ON SCHEMA instrument_economic_inheritance_intruder TO instrument_economic_inheritance_writer")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("GRANT INSERT ON instrument_economic_inheritance_intruder.facts_child_v1, instrument_economic_inheritance_intruder.receipts_child_v1 TO instrument_economic_inheritance_writer")
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM ONLY instrument_owner_private.economic_terms_receipts_v1 WHERE fact_identity=$1")
-            .bind(readback.locator().fact_identity().as_slice())
-            .execute(&pool)
-            .await
-            .unwrap();
-        sqlx::query("DELETE FROM ONLY instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1")
-            .bind(readback.locator().fact_identity().as_slice())
-            .execute(&pool)
-            .await
-            .unwrap();
-        let mut attacker = pool.acquire().await.unwrap();
-        sqlx::query("SET ROLE instrument_economic_inheritance_writer")
-            .execute(&mut *attacker)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO instrument_economic_inheritance_intruder.facts_child_v1(fact_identity,meaning_identity,fact_bytes,custody_digest) VALUES($1,$2,$3,$4)")
-            .bind(&stored_fact.0)
-            .bind(&stored_fact.1)
-            .bind(&stored_fact.2)
-            .bind(&stored_fact.3)
-            .execute(&mut *attacker)
-            .await
-            .unwrap();
-        sqlx::query("INSERT INTO instrument_economic_inheritance_intruder.receipts_child_v1(receipt_identity,fact_identity,receipt_bytes,custody_digest) VALUES($1,$2,$3,$4)")
-            .bind(&stored_receipt.0)
-            .bind(&stored_receipt.1)
-            .bind(&stored_receipt.2)
-            .bind(&stored_receipt.3)
-            .execute(&mut *attacker)
-            .await
-            .unwrap();
-        sqlx::query("RESET ROLE")
-            .execute(&mut *attacker)
-            .await
-            .unwrap();
-        drop(attacker);
-        assert_eq!(
-            owner.resolve(readback.locator()).await,
-            Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
-        );
     }
 }

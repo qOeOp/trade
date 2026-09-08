@@ -28,7 +28,8 @@ const DEFAULT_DATABASE_NAMES: [&str; 7] = [
     "rd_owner",
     "product_edge",
 ];
-const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 9] = [
+const INSTRUMENT_OWNER_RUNTIME_URL_ENV: &str = "INSTRUMENT_OWNER_DATABASE_URL";
+const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 10] = [
     (
         "OPERATOR_AUTHORIZATION_TEST_DATABASE_URL",
         "operator_authorization_writer",
@@ -47,6 +48,7 @@ const CANONICAL_OWNER_TEST_URLS: [(&str, &str); 9] = [
     ),
     ("QUALIFICATION_TEST_DATABASE_URL", "qualification_writer"),
     ("BACKTEST_TEST_DATABASE_URL", "backtest_owner"),
+    ("INSTRUMENT_OWNER_TEST_DATABASE_URL", "instrument_owner"),
 ];
 
 /// A stable, credential-redacting failure from dedicated test-database admission.
@@ -163,6 +165,7 @@ pub enum CanonicalOwnerTestRoleV1 {
     MarketDataReader,
     QualificationWriter,
     BacktestOwner,
+    InstrumentOwner,
 }
 
 impl CanonicalOwnerTestRoleV1 {
@@ -177,14 +180,15 @@ impl CanonicalOwnerTestRoleV1 {
             Self::MarketDataReader => 6,
             Self::QualificationWriter => 7,
             Self::BacktestOwner => 8,
+            Self::InstrumentOwner => 9,
         }
     }
 }
 
 /// Proof that all canonical Owner roles resolve to one immutable, disposable database.
 pub struct CanonicalOwnerPostgresTestDatabaseV1 {
-    database_urls: [String; 9],
-    pools: [PgPool; 9],
+    database_urls: [String; 10],
+    pools: [PgPool; 10],
     marker_identity: String,
     owner_topology_admin_pool: PgPool,
 }
@@ -237,6 +241,19 @@ impl CanonicalOwnerPostgresTestDatabaseV1 {
             .ok_or(DedicatedPostgresTestDatabaseError::NonTestUrlEnvironment)?;
         if targets.iter().any(|target| !target.same_database(first)) {
             return Err(DedicatedPostgresTestDatabaseError::CrossOwnerDatabaseMismatch);
+        }
+
+        let instrument_runtime_value =
+            env::var(INSTRUMENT_OWNER_RUNTIME_URL_ENV).map_err(|_| {
+                DedicatedPostgresTestDatabaseError::MissingEnvironment(
+                    INSTRUMENT_OWNER_RUNTIME_URL_ENV,
+                )
+            })?;
+        let instrument_runtime =
+            normalize_url(INSTRUMENT_OWNER_RUNTIME_URL_ENV, &instrument_runtime_value)?;
+
+        if instrument_runtime != targets[CanonicalOwnerTestRoleV1::InstrumentOwner.index()] {
+            return Err(DedicatedPostgresTestDatabaseError::ExpectedIdentityMismatch);
         }
 
         for name in PRODUCTION_DATABASE_URL_ENVS {
@@ -726,6 +743,19 @@ mod tests {
             )
         );
         assert!(PRODUCTION_DATABASE_URL_ENVS.contains(&"REPLAY_POLICY_CATALOG_ADMIN_DATABASE_URL"));
+    }
+
+    #[rstest]
+    fn canonical_instrument_owner_binding_requires_a_paired_runtime_root() {
+        assert_eq!(
+            CANONICAL_OWNER_TEST_URLS[CanonicalOwnerTestRoleV1::InstrumentOwner.index()],
+            ("INSTRUMENT_OWNER_TEST_DATABASE_URL", "instrument_owner")
+        );
+        assert_eq!(
+            INSTRUMENT_OWNER_RUNTIME_URL_ENV,
+            "INSTRUMENT_OWNER_DATABASE_URL"
+        );
+        assert!(!PRODUCTION_DATABASE_URL_ENVS.contains(&INSTRUMENT_OWNER_RUNTIME_URL_ENV));
     }
 
     #[rstest]
