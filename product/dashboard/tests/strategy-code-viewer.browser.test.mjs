@@ -281,7 +281,7 @@ test(browserAcceptance
     assert.deepEqual(await readBrowserValue(browser, `(() => ({
       sourceAbsent: !document.body.innerText.includes(${JSON.stringify(sourceSentinel)}),
       editorAbsent: !document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'),
-      reason: document.body.innerText.includes('OWNER_RESPONSE_UNAVAILABLE'),
+      reason: document.body.innerText.includes('ARTIFACT_SOURCE_UNAVAILABLE'),
     }))()`), { sourceAbsent: true, editorAbsent: true, reason: true });
   } finally {
     browser?.close();
