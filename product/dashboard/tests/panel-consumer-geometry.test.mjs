@@ -68,6 +68,25 @@ test("Worker detail keeps its outer cluster grid on the shared content axis", as
   sharedPadding(css, ".detail-inspector > .detail-cluster-grid");
 });
 
+test("Bento empty and unavailable children remain inset cards", async () => {
+  const [css, worker] = await Promise.all([
+    read("app/globals.css"),
+    read("components/operations-workers-preview.tsx"),
+  ]);
+  const directUnavailable = /<SplitBento className="operations-workers-layout"(?:(?!<\/SplitBento>)[\s\S])*?<UnavailableState/u;
+  const directEmpty = /<SplitBento className="operations-workers-layout"(?:(?!<\/SplitBento>)[\s\S])*?<DetailEmpty/u;
+  assert.match(worker, directUnavailable);
+  assert.match(worker, directEmpty);
+  assert.doesNotMatch('<SplitBento className="operations-workers-layout"></SplitBento><UnavailableState', directUnavailable);
+  assert.doesNotMatch('<SplitBento className="operations-workers-layout"></SplitBento><DetailEmpty', directEmpty);
+  for (const selector of [
+    ".split-bento > .unavailable-state",
+    ".split-bento > .empty-state",
+    ".split-bento > .detail-empty",
+    '.split-bento[data-height-mode="viewport"] > .data-workspace-empty',
+  ]) sharedInnerRadius(css, selector);
+});
+
 test("Run Detail conditional action fields stay on the shared content axis", async () => {
   const [css, detail, inspector] = await Promise.all([
     read("app/globals.css"),

@@ -209,13 +209,16 @@ a { color: inherit; text-decoration: none; }
 .ui-stage-card-accessory { grid-column: 1 / -1; min-width: 0; }
 .split-bento { display: grid; grid-template-columns: var(--split-bento-columns); gap: 12px; align-items: start; background: transparent; }
 .split-bento > .detail-inspector { position: sticky; top: 0; }
+.split-bento > .unavailable-state,
+.split-bento > .empty-state,
+.split-bento > .detail-empty { border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); box-shadow: var(--elevation-base); }
 .split-bento[data-height-mode="viewport"] { min-height: 0; align-items: start; }
 .split-bento[data-height-mode="viewport"] > * { min-height: 0; max-height: var(--split-bento-max-height); }
 .split-bento[data-height-mode="viewport"] > .data-table-surface { height: var(--split-bento-max-height); align-self: start; display: flex; flex-direction: column; overflow: hidden; }
 .split-bento[data-height-mode="viewport"] > .data-table-surface > .data-workspace-table { min-height: 0; display: flex; flex: 1 1 auto; flex-direction: column; }
 .split-bento[data-height-mode="viewport"] > .data-table-surface > .data-workspace-table > .data-workspace-viewport { min-height: 0; flex: 1 1 auto; overflow: auto; }
 .split-bento[data-height-mode="viewport"] > .detail-inspector { width: 100%; height: fit-content; align-self: start; overflow-y: auto; overscroll-behavior: contain; }
-.split-bento[data-height-mode="viewport"] > .data-workspace-empty { width: 100%; height: auto; min-height: 160px; align-self: start; display: flex; border: .5px solid var(--border-default); border-radius: 18px; background: var(--surface-card); box-shadow: var(--elevation-table); }
+.split-bento[data-height-mode="viewport"] > .data-workspace-empty { width: 100%; height: auto; min-height: 160px; align-self: start; display: flex; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); background: var(--surface-card); box-shadow: var(--elevation-table); }
 .split-bento[data-height-mode="equal"] { align-items: stretch; }
 .split-bento[data-height-mode="equal"] > * { height: 100%; }
 .panel-frame.bento-page-frame { overflow: clip; }
