@@ -44,6 +44,29 @@ test("Service Logs uses exact GET/no-store filters, cursor paging, and bounded d
   assert.match(source, /if \(!autoRefresh \|\| pageIndex !== 0\) return undefined/u);
 });
 
+test("Service Logs auto-refresh observes the bounded table tail and cannot replace an off-tail first page", async () => {
+  const [source, css] = await Promise.all([readFile(componentUrl, "utf8"), readFile(cssUrl, "utf8")]);
+  const toleranceMatch = source.match(/return viewport\.scrollTop <= (\d+);/u);
+  assert.ok(toleranceMatch, "newest-first live edge must be derived from the bound scroll container's top");
+  const tolerance = Number(toleranceMatch[1]);
+  const atTail = (scrollTop) => scrollTop <= tolerance;
+  assert.equal(atTail(0), true);
+  assert.equal(atTail(2), true);
+  assert.equal(atTail(3), false);
+  assert.equal(atTail(120), false);
+
+  assert.match(source, /table\?\.closest<HTMLElement>\("\.page-viewport"\)/u);
+  assert.match(source, /viewportRef=\{logTableRef\}/u);
+  assert.match(source, /const refreshOnlyAtTail = \(\) => pageIndexRef\.current === 0\s*&& serviceLogViewportAtTail\(logTableRef\.current\)/u);
+  assert.match(source, /if \(!refreshOnlyAtTail\(\)\) return;/u);
+  assert.match(source, /replaceIf: refreshOnlyAtTail/u);
+  assert.match(source, /if \(replaceIf && !replaceIf\(\)\) return;/u);
+  assert.doesNotMatch(source, /window\.scrollY|document\.scrollingElement|document\.documentElement\.scrollTop/u);
+  assert.doesNotMatch(css, /\.service-logs-viewport \.data-workspace-viewport \{[^}]*overflow-y: auto;/u);
+  assert.match(css, /\.page-viewport \{[^}]*overflow: auto;/u);
+  assert.match(css, /@media \(max-width: 1279px\)[\s\S]*\.service-logs-viewport \.data-workspace-viewport \{ max-height: none; \}/u);
+});
+
 test("Service Logs table preserves exact field order, dimensions, and identity-bound row keys", async () => {
   const source = await readFile(componentUrl, "utf8");
   const columns = source.slice(source.indexOf("const columns"), source.indexOf("const viewportState"));

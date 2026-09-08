@@ -91,6 +91,12 @@ function rowKey(entry: ServiceLogEntryV1) {
   return `${entry.correlation_identity}:${entry.sequence}`;
 }
 
+function serviceLogViewportAtTail(table: HTMLDivElement | null) {
+  const viewport = table?.closest<HTMLElement>(".page-viewport");
+  if (!viewport) return false;
+  return viewport.scrollTop <= 2;
+}
+
 function availableEnvelope(
   value: ServiceLogBrowserEnvelopeV1 | null,
 ): value is AvailableServiceLogEnvelope {
@@ -169,17 +175,22 @@ export function OperationsServiceLogs() {
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [downloadDisclosure, setDownloadDisclosure] = useState<string | null>(null);
   const requestVersion = useRef(0);
+  const pageIndexRef = useRef(pageIndex);
+  const logTableRef = useRef<HTMLDivElement>(null);
+  pageIndexRef.current = pageIndex;
 
   const load = useCallback(async ({
     cut,
     cursor = null,
     append = false,
     requestedPageSize = pageSize,
+    replaceIf,
   }: {
     cut: ServiceLogFilterCutV1;
     cursor?: string | null;
     append?: boolean;
     requestedPageSize?: number;
+    replaceIf?: () => boolean;
   }) => {
     const version = ++requestVersion.current;
     const requestedCut = {
@@ -204,6 +215,7 @@ export function OperationsServiceLogs() {
         setUnavailableReason(parsed?.unavailable_reason ?? "SERVICE_LOG_RESPONSE_UNAVAILABLE");
         return;
       }
+      if (replaceIf && !replaceIf()) return;
       if (append) {
         const current = pages[pageIndex];
         const priorKeys = new Set(pages.slice(0, pageIndex + 1).flatMap(({ entries }) => entries.map(rowKey)));
@@ -243,7 +255,13 @@ export function OperationsServiceLogs() {
   useEffect(() => {
     if (!autoRefresh || pageIndex !== 0) return undefined;
     const timer = window.setInterval(() => {
-      void load({ cut: { ...filterCut, observed_at: new Date().toISOString() } });
+      const refreshOnlyAtTail = () => pageIndexRef.current === 0
+        && serviceLogViewportAtTail(logTableRef.current);
+      if (!refreshOnlyAtTail()) return;
+      void load({
+        cut: { ...filterCut, observed_at: new Date().toISOString() },
+        replaceIf: refreshOnlyAtTail,
+      });
     }, 10_000);
     return () => window.clearInterval(timer);
   }, [autoRefresh, filterCut, load, pageIndex]);
@@ -439,6 +457,7 @@ export function OperationsServiceLogs() {
                     data={[]}
                     dense
                     keyField="row_identity"
+                    viewportRef={logTableRef}
                     noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{pending ? "Reading service logs from the exact RunStore cut." : "Service logs are unavailable for this cut."}</p></div>}
                   />
                 </BoundedLogViewport>
@@ -481,6 +500,7 @@ export function OperationsServiceLogs() {
                     data={entries}
                     dense
                     keyField="row_identity"
+                    viewportRef={logTableRef}
                     noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No logs match the canonical filter cut." : "No service logs were observed in this cut."}</p></div>}
                   />
                 </BoundedLogViewport>

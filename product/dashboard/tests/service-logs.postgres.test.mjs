@@ -351,8 +351,8 @@ test(testName, { skip: !url }, async () => {
         terminalCode: "OWNER_AVAILABLE",
       });
     }
-    const browserReadFingerprint = await readModelFingerprint(pool);
-    assert.deepEqual(browserReadFingerprint, { runs: 31, queue: 31, logs: 93, workers: 1 });
+    const initialBrowserReadFingerprint = await readModelFingerprint(pool);
+    assert.deepEqual(initialBrowserReadFingerprint, { runs: 31, queue: 31, logs: 93, workers: 1 });
     assert.equal(execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: dashboardRoot, encoding: "utf8",
     }).trim(), acceptanceCandidate);
@@ -396,6 +396,12 @@ test(testName, { skip: !url }, async () => {
 
     browser = await openBrowser(browserExecutable);
     await browser.send("Page.enable");
+    await browser.send("Emulation.setDeviceMetricsOverride", {
+      width: 800,
+      height: 1000,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
     await browser.send("Page.navigate", { url: `${origin}/operations/service-logs/` });
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
@@ -471,6 +477,109 @@ test(testName, { skip: !url }, async () => {
     assert.equal(await readBrowserValue(browser,
       `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === false
         && !document.body?.innerText.includes('SERVICE_LOG_CURSOR_CONTINUITY_UNAVAILABLE')`), true);
+    await clickButton(browser, "Auto-refresh on");
+
+    await navigatePage("Previous service-log page",
+      `document.querySelector('button[aria-label="Previous service-log page"]')?.disabled === true`);
+    const selectedPageSize = await readBrowserValue(browser, `(() => {
+      const select = [...document.querySelectorAll('.bounded-log-pagination select')]
+        .find((candidate) => [...candidate.options].some((option) => option.value === '200'));
+      if (!select) return false;
+      select.value = '200';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    assert.equal(selectedPageSize, true);
+    await waitForBrowserExpression(browser,
+      `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 93`);
+    assert.equal(await readBrowserValue(browser, `(() => {
+      const viewport = document.querySelector('.page-viewport');
+      if (!viewport) return false;
+      viewport.scrollTop = 0;
+      return viewport.scrollTop === 0;
+    })()`), true);
+    const fetchGateInstalled = await readBrowserValue(browser, `(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.__serviceLogFetchGate = { enabled: true, started: 0, completed: 0, release: null };
+      window.fetch = async (...args) => {
+        const target = String(args[0]);
+        const gate = window.__serviceLogFetchGate;
+        if (gate.enabled && target.includes('/api/operations/service-logs/?')) {
+          gate.started += 1;
+          await new Promise((resolve) => { gate.release = resolve; });
+        }
+        const response = await originalFetch(...args);
+        if (target.includes('/api/operations/service-logs/?')) gate.completed += 1;
+        return response;
+      };
+      return true;
+    })()`);
+    assert.equal(fetchGateInstalled, true);
+    await clickButton(browser, "Auto-refresh off");
+    await waitForBrowserExpression(browser, `window.__serviceLogFetchGate?.started === 1`, 15_000);
+
+    const tailFollowRun = await store.enqueueRead(SOURCE_INTAKE_SHADOW_READ_OPERATION, {
+      request_identity: "source-request-service-log-tail-follow",
+    }, binding);
+    const tailFollowClaim = await store.claimNextRead({ workerIdentity, workerCapability });
+    assert.equal(tailFollowClaim?.run.run_identity, tailFollowRun.run_identity);
+    await store.completeClaimedRead({
+      runIdentity: tailFollowRun.run_identity,
+      workerIdentity,
+      claimToken: tailFollowClaim.claim_token,
+      expectedTransitionVersion: tailFollowClaim.run.transition_version,
+      operationalState: "succeeded",
+      ownerOutcomeState: "available",
+      terminalCode: "OWNER_AVAILABLE",
+    });
+    const browserReadFingerprint = await readModelFingerprint(pool);
+    assert.deepEqual(browserReadFingerprint, { runs: 32, queue: 32, logs: 96, workers: 1 });
+    const offTailState = await readBrowserValue(browser, `(() => {
+      const viewport = document.querySelector('.page-viewport');
+      const table = document.querySelector('table[aria-label="Service log events"]');
+      const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
+      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      if (!viewport || !table || !firstRow || !cut || viewport.scrollHeight <= viewport.clientHeight + 320) return null;
+      const tableTop = table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
+      viewport.scrollTop = Math.min(viewport.scrollHeight - viewport.clientHeight, tableTop + 240);
+      return { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop };
+    })()`);
+    assert.ok(offTailState && offTailState.scrollTop > 2);
+    assert.equal(await readBrowserValue(browser, `(() => {
+      const gate = window.__serviceLogFetchGate;
+      if (!gate?.release) return false;
+      const release = gate.release;
+      gate.release = null;
+      release();
+      return true;
+    })()`), true);
+    await waitForBrowserExpression(browser, `window.__serviceLogFetchGate?.completed === 1`);
+    await delay(250);
+    assert.deepEqual(await readBrowserValue(browser, `(() => {
+      const viewport = document.querySelector('.page-viewport');
+      const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
+      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      return viewport && firstRow && cut
+        ? { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop }
+        : null;
+    })()`), offTailState);
+    assert.equal(await readBrowserValue(browser,
+      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+    await delay(10_500);
+    assert.equal(await readBrowserValue(browser, `window.__serviceLogFetchGate?.started`), 1);
+    assert.equal(await readBrowserValue(browser,
+      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`), false);
+
+    assert.equal(await readBrowserValue(browser, `(() => {
+      const gate = window.__serviceLogFetchGate;
+      const viewport = document.querySelector('.page-viewport');
+      if (!gate || !viewport) return false;
+      gate.enabled = false;
+      viewport.scrollTop = 0;
+      return viewport.scrollTop === 0;
+    })()`), true);
+    await waitForBrowserExpression(browser,
+      `document.body?.innerText.includes(${JSON.stringify(tailFollowRun.run_identity)})`, 15_000);
     await clickButton(browser, "Auto-refresh on");
 
     const selectedWorker = await readBrowserValue(browser, `(() => {
