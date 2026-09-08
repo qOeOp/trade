@@ -125,6 +125,24 @@ check_nextest_graph_contract() {
     echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1
   fi
+  if ! rg -Fq \
+    'DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE: "1"' \
+    "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
+    ! rg -Fq \
+      'DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE: ${{ github.sha }}' \
+      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
+    ! rg -Fq \
+      '${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome' \
+      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
+    ! rg -Fq \
+      'npm ci --prefix product/dashboard' \
+      "$repository_root/.github/workflows/rd-owner-postgres.yml" ||
+    ! rg -Fq \
+      'ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37' \
+      "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
+    echo "ERROR: rd-owner-postgres must execute the sealed Dashboard browser acceptance with immutable runtime inputs." >&2
+    return 1
+  fi
   if ! rg -n 'EXTRA_FEATURES="\$\{RUST_TEST_EXTRA_FEATURES\}"' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml" > /dev/null; then
     echo "ERROR: rd-owner-postgres workflow must pass RUST_TEST_EXTRA_FEATURES to the isolated test graph." >&2
