@@ -93,6 +93,7 @@ export function OperationsSchedulesPreview() {
                 schedules={schedules} date={date} view={view} selectedIdentity={selectedIdentity}
                 onSelect={setSelectedIdentity} onDate={changeDate} compact={compactCalendar} />
               : <DataWorkspaceTable ariaLabel="Shadow-read schedules" columns={columns} data={schedules}
+                heightMode="fill"
                 keyField="schedule_identity" pagination paginationPerPage={20} paginationRowsPerPageOptions={[10, 20, 50]}
                 paginationResetKey={query} onRowClicked={(row) => setSelectedIdentity(row.schedule_identity)}
                 conditionalRowStyles={dataWorkspaceSelectedRowStyles((row: ScheduleProjectionV1) => row.schedule_identity === selectedIdentity)} />}

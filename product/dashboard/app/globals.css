@@ -333,6 +333,9 @@ a { color: inherit; text-decoration: none; }
   border-radius: var(--panel-inner-radius);
   background: var(--surface-card);
 }
+.data-workspace-table[data-height-mode="fill"] { height: 100%; min-height: 0; display: flex; flex-direction: column; }
+.data-workspace-table[data-height-mode="fill"] > .data-workspace-viewport { min-height: 0; flex: 1 1 auto; overflow: auto; }
+.data-workspace-table[data-height-mode="fill"] > .data-workspace-pagination { flex: 0 0 auto; }
 .data-table-surface > .data-workspace-table { border-radius: 0; }
 .data-workspace-viewport { width: 100%; overflow-x: auto; scrollbar-width: thin; }
 .workspace-table { width: 100%; border-spacing: 0; color: var(--text-primary); background: var(--surface-card); table-layout: fixed; }
@@ -345,8 +348,9 @@ a { color: inherit; text-decoration: none; }
 .workspace-table-row { color: var(--text-primary); background: var(--surface-card); transition: color 140ms ease, background 140ms ease, box-shadow 140ms ease; }
 .workspace-table-row[data-interactive="true"] { cursor: pointer; }
 .workspace-table-row[data-interactive="true"]:hover { color: var(--data-table-row-hover-fg); background: var(--data-table-row-hover-bg); }
-.workspace-table-row[data-selected="true"] { color: var(--data-table-row-selected-fg); background: var(--data-table-row-selected-bg); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
-.workspace-table-row[data-interactive="true"][data-selected="true"]:hover { color: var(--data-table-row-selected-fg); background: var(--data-table-row-selected-bg); }
+.workspace-table-row[aria-selected="true"] { color: var(--data-table-row-selected-fg); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
+.workspace-table-row[aria-selected="true"] > .workspace-table-cell,
+.workspace-table-row[data-interactive="true"][aria-selected="true"]:hover > .workspace-table-cell { background-color: var(--data-table-row-selected-bg); }
 .workspace-table-row[data-interactive="true"]:focus-visible { outline: 0; box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent), 0 0 0 2px color-mix(in srgb, var(--text-muted) 22%, transparent); }
 .data-workspace-table[data-density="compact"] .workspace-table-cell { height: 48px; padding-block: 7px; }
 .data-workspace-sort { width: 100%; height: 100%; padding: 0; display: inline-flex; align-items: center; justify-content: inherit; gap: 6px; border: 0; color: inherit; background: transparent; font: inherit; text-align: inherit; cursor: pointer; }
