@@ -17,7 +17,7 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
       "artifactSourceDetail",
     ]),
   );
-  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| embedsRouteChrome;/u);
+  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| embedsRouteChrome;/u);
   assert.match(
     shell,
     /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u,
