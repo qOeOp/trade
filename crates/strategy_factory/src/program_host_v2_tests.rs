@@ -273,6 +273,9 @@ fn abi3_bfp_availability_is_explicit_and_ready_hold_stays_ready() {
         "READY plus HOLD/Keep/Keep must remain READY",
     );
 
+    frame.state = TypedValueV2::new(manifest.state.value_type, Vec::new()).unwrap();
+    assert!(validate_bfp_output_availability(&manifest, &frame).is_err());
+
     frame.output_availability = Some(PluginOutputAvailabilityV3::Warming);
     frame.state = TypedValueV2::new(
         manifest.state.value_type,
@@ -876,7 +879,15 @@ fn output_frame(manifest: &PluginManifestV2) -> PluginFrameV2 {
         output_availability: (manifest.abi_version == PLUGIN_FRAME_ABI_V3)
             .then_some(PluginOutputAvailabilityV3::Ready),
         values,
-        state: TypedValueV2::new(ValueTypeV2::Bytes, [1].as_slice()).unwrap(),
+        state: TypedValueV2::new(
+            ValueTypeV2::Bytes,
+            if manifest.abi_version == PLUGIN_FRAME_ABI_V3 {
+                vec![0; manifest.state.max_bytes as usize]
+            } else {
+                vec![1]
+            },
+        )
+        .unwrap(),
     }
 }
 
