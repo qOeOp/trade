@@ -49,6 +49,17 @@ use crate::{
     trial_family_postgres::{migrate as migrate_trial_family, persist_artifact_binding},
 };
 
+#[cfg(feature = "sealed-artifact-source-acceptance")]
+use crate::{
+    artifact_build::{
+        SandboxBuildProductV1, SandboxBuildRequestV1, canonical_sandbox_source_capsule,
+    },
+    cargo_artifact::{
+        RD_SANDBOX_DOCKERFILE, RUSTC_COMMIT, RUSTC_RELEASE, SANDBOX_POLICY_V1, TARGET,
+    },
+    family_adapters::verified_price_build,
+};
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct LegacyPreparedAttemptDrainSummaryV1 {
@@ -66,6 +77,56 @@ pub struct PostgresArtifactBuildOwnerV1 {
     sandbox: Arc<dyn ArtifactBuildSandboxPort>,
     attempt_timeout_ms: u64,
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
+}
+
+#[cfg(feature = "sealed-artifact-source-acceptance")]
+#[derive(Clone)]
+struct SealedArtifactSourceAcceptanceSandboxV1;
+
+#[cfg(feature = "sealed-artifact-source-acceptance")]
+#[async_trait]
+impl ArtifactBuildSandboxPort for SealedArtifactSourceAcceptanceSandboxV1 {
+    async fn build(
+        &self,
+        request: SandboxBuildRequestV1,
+    ) -> Result<SandboxBuildProductV1, ArtifactBuildError> {
+        let wasm = verified_price_build()
+            .map_err(|e| ArtifactBuildError::Sandbox(e.to_string()))?
+            .wasm
+            .to_vec();
+        Ok(SandboxBuildProductV1 {
+            source_capsule: canonical_sandbox_source_capsule(request.source.as_bytes())?,
+            build_recipe: sealed_artifact_source_acceptance_recipe()?,
+            wasm_one: wasm.clone(),
+            wasm_two: wasm,
+        })
+    }
+}
+
+#[cfg(feature = "sealed-artifact-source-acceptance")]
+fn sealed_artifact_source_acceptance_recipe() -> Result<Vec<u8>, ArtifactBuildError> {
+    let dockerfile_digest = format!(
+        "sha256:{:x}",
+        sha2::Sha256::digest(RD_SANDBOX_DOCKERFILE.as_bytes())
+    );
+    let mut bytes = serde_json::to_vec(&serde_json::json!({
+        "build_platform": "linux/arm64",
+        "dependency_policy": "locked_no_external_dependencies",
+        "dockerfile_sha256": dockerfile_digest,
+        "frontend": "docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d",
+        "manifest": "Cargo.toml",
+        "network_policy": "container_network_none_cargo_offline",
+        "rust_image": "public.ecr.aws/docker/library/rust:1.97.1-slim-bookworm@sha256:99e09cb2284e2ddbb73a995deee3e91783fd04d177602ccf6eab326d778ee777",
+        "rustc_commit": RUSTC_COMMIT,
+        "rustc_release": RUSTC_RELEASE,
+        "sandbox_policy": SANDBOX_POLICY_V1,
+        "schema_version": 2,
+        "target": TARGET,
+        "wasm_target": "rd_generated_strategy",
+    }))
+    .map_err(|e| ArtifactBuildError::Sandbox(e.to_string()))?;
+    bytes.push(b'\n');
+    Ok(bytes)
 }
 
 #[derive(Deserialize, Serialize)]
@@ -271,6 +332,32 @@ impl PostgresArtifactBuildOwnerV1 {
         sandbox_socket: &str,
         attempt_timeout_ms: u64,
     ) -> Result<Self, ArtifactBuildError> {
+        Self::connect_with_sandbox(
+            database_url,
+            Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
+            attempt_timeout_ms,
+        )
+        .await
+    }
+
+    #[cfg(feature = "sealed-artifact-source-acceptance")]
+    pub async fn connect_with_sealed_artifact_source_acceptance(
+        database_url: &str,
+        attempt_timeout_ms: u64,
+    ) -> Result<Self, ArtifactBuildError> {
+        Self::connect_with_sandbox(
+            database_url,
+            Arc::new(SealedArtifactSourceAcceptanceSandboxV1),
+            attempt_timeout_ms,
+        )
+        .await
+    }
+
+    async fn connect_with_sandbox(
+        database_url: &str,
+        sandbox: Arc<dyn ArtifactBuildSandboxPort>,
+        attempt_timeout_ms: u64,
+    ) -> Result<Self, ArtifactBuildError> {
         let database_endpoint_resource_fingerprint =
             crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(
                 database_url,
@@ -283,7 +370,7 @@ impl PostgresArtifactBuildOwnerV1 {
         let owner = Self {
             pool,
             database_endpoint_resource_fingerprint,
-            sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
+            sandbox,
             attempt_timeout_ms,
             clock: Arc::new(current_epoch_ms),
         };

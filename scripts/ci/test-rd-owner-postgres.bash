@@ -41,7 +41,7 @@ readonly rd_owner_postgres_tests=(
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_topology_fence_serializes_managed_acl_drift'
   'vibe-backtest-owner|vibe_backtest_owner|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut'
-  'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes'
+  'vibe-strategy-factory-rd-owner-api|rd_owner_api_main|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody'
   'vibe-strategy-factory|vibe_strategy_factory|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only'
   'vibe-strategy-factory|vibe_strategy_factory|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail'
   'vibe-product-edge|vibe_product_edge|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation'
@@ -60,7 +60,7 @@ readonly nextest_graph_args=(
 )
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
-readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance'
+readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance'
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -88,7 +88,7 @@ check_nextest_graph_contract() {
     [[ "${rd_owner_postgres_tests[20]}" != *'|tests::postgres_result_topology_fence_serializes_managed_acl_drift' ]] ||
     [[ "${rd_owner_postgres_tests[21]}" != *'|tests::postgres_result_mid_commit_failure_rolls_back_every_aggregate_row' ]] ||
     [[ "${rd_owner_postgres_tests[22]}" != *'|artifact_build_postgres::postgres_freshness_tests::specialized_artifact_admission_rechecks_locked_rd_view_at_final_cut' ]] ||
-    [[ "${rd_owner_postgres_tests[23]}" != *'|artifact_build_postgres::postgres_freshness_tests::exact_stale_cut_blocks_every_artifact_transition_without_writes' ]] ||
+    [[ "${rd_owner_postgres_tests[23]}" != *'|tests::strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody' ]] ||
     [[ "${rd_owner_postgres_tests[24]}" != *'|artifact_build_postgres::postgres_freshness_tests::legacy_prepared_drain_is_atomic_idempotent_and_read_only' ]] ||
     [[ "${rd_owner_postgres_tests[25]}" != *'|replay_execution_profile_binding_v1::tests::verified_owner_readback_mints_provenance_and_wrong_coordinates_fail' ]] ||
     [[ "${rd_owner_postgres_tests[26]}" != *'|postgres::tests::expired_manifest_recovery_sidecars_reject_unknown_constraints_without_catalog_mutation' ]] ||
@@ -98,7 +98,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --lib --tests' ]] ||
-    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' ]] ||
+    [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
     echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
     return 1
@@ -107,7 +107,7 @@ check_nextest_graph_contract() {
   local repository_root
   repository_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
   if ! rg -Fxq \
-    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' \
+    'RD_OWNER_POSTGRES_FEATURES := $(CARGO_FEATURES),vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' \
     "$repository_root/Makefile" || ! rg -Uq \
     'cargo-test-rd-owner-postgres-isolated: check-nextest-installed.*\n\tNEXTEST_PROFILE="\$\(NEXTEST_PROFILE\)".*\n\tCARGO_CI_PROFILE="\$\(CARGO_CI_PROFILE\)".*\n\tRD_OWNER_POSTGRES_FEATURES="\$\(RD_OWNER_POSTGRES_FEATURES\)"' \
     "$repository_root/Makefile"; then
@@ -120,7 +120,7 @@ check_nextest_graph_contract() {
     return 1
   fi
   if ! rg -Uq \
-    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' \
+    'RUST_TEST_EXTRA_FEATURES: >-\n[[:space:]]+capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,\n[[:space:]]+vibe-strategy-factory/sealed-develop-composer-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,\n[[:space:]]+vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance' \
     "$repository_root/.github/workflows/rd-owner-postgres.yml"; then
     echo "ERROR: rd-owner-postgres workflow must define the complete Composer and Source Intake feature union." >&2
     return 1

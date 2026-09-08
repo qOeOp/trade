@@ -13,6 +13,7 @@ workspace = true
 [features]
 default = []
 sealed-develop-composer-acceptance = ["sealed-strategy-input-acceptance"]
+sealed-artifact-source-acceptance = []
 sealed-source-intake-acceptance = []
 sealed-source-intake-research-acceptance = ["sealed-source-intake-acceptance"]
 sealed-source-intake-composer-acceptance = [

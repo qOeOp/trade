@@ -138,6 +138,7 @@ test(browserAcceptance
   const mismatchAttemptIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_MISMATCH_ATTEMPT_IDENTITY ?? "";
   const artifactIdentity = process.env.DASHBOARD_STRATEGY_VIEWER_ARTIFACT_IDENTITY ?? "";
   const sourceDigest = process.env.DASHBOARD_STRATEGY_VIEWER_SOURCE_DIGEST ?? "";
+  const previewPort = process.env.DASHBOARD_STRATEGY_VIEWER_PREVIEW_PORT ?? "";
   assert.match(ownerUrl, /^http:\/\/127\.0\.0\.1:\d+\/$/u);
   assert.match(token, /^\S+$/u);
   for (const identity of [buildRequestIdentity, attemptIdentity, mismatchAttemptIdentity, artifactIdentity]) {
@@ -145,6 +146,7 @@ test(browserAcceptance
   }
   assert.notEqual(mismatchAttemptIdentity, attemptIdentity);
   assert.match(sourceDigest, /^sha256:[0-9a-f]{64}$/u);
+  assert.match(previewPort, /^[1-9][0-9]{0,4}$/u);
 
   const ownerReadback = await fetch(new URL(
     `v1/artifact-builds/${buildRequestIdentity}/attempts/${attemptIdentity}/source`,
@@ -166,7 +168,8 @@ test(browserAcceptance
   assert.equal(firstSourceLine, "#![no_std]");
   assert.equal(typeof sourceSentinel, "string");
 
-  const port = 3220;
+  const port = Number(previewPort);
+  assert.ok(port <= 65_535);
   let preview;
   let browser;
   try {
@@ -174,6 +177,7 @@ test(browserAcceptance
       cwd: dashboardRoot,
       env: {
         ...process.env,
+        NEXT_TELEMETRY_DISABLED: "1",
         RD_OWNER_API_URL: ownerUrl,
         RD_OWNER_API_TOKEN: token,
       },

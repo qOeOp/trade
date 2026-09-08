@@ -412,10 +412,7 @@ async fn main() -> anyhow::Result<()> {
             "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/resolve",
             post(resolve_artifact_build),
         )
-        .route(
-            "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source",
-            get(read_artifact_source),
-        )
+        .merge(artifact_source_router())
         .route("/v2/develop-composer/runs", post(run_develop_composer))
         .route(
             "/v2/develop-composer/request-projections",
@@ -1753,6 +1750,13 @@ async fn read_artifact_source(
     }
 }
 
+fn artifact_source_router() -> Router<ApiState> {
+    Router::new().route(
+        "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source",
+        get(read_artifact_source),
+    )
+}
+
 async fn read_artifact_directory(
     State(state): State<ApiState>,
     Query(query): Query<ArtifactDirectoryQueryV1>,
@@ -2597,6 +2601,326 @@ mod tests {
             .await
             .unwrap();
         product_edge
+    }
+
+    #[cfg(feature = "sealed-artifact-source-browser-acceptance")]
+    async fn artifact_source_acceptance_snapshot(
+        rd_owner_pool: &sqlx::PgPool,
+        product_edge_pool: &sqlx::PgPool,
+    ) -> serde_json::Value {
+        let rd_attempts: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_artifact_build_attempts_v1 ORDER BY build_request_identity) row_value",
+        )
+        .fetch_all(rd_owner_pool)
+        .await
+        .unwrap();
+        let artifacts: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_strategy_artifacts_v1 ORDER BY attempt_identity) row_value",
+        )
+        .fetch_all(rd_owner_pool)
+        .await
+        .unwrap();
+        let rd_outbox: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(row_value) FROM (SELECT * FROM rd_owner_outbox_v1 ORDER BY event_identity) row_value",
+        )
+        .fetch_all(rd_owner_pool)
+        .await
+        .unwrap();
+        let admissions: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(row_value) FROM (SELECT * FROM product_edge_request_admissions_v1 ORDER BY request_identity) row_value",
+        )
+        .fetch_all(product_edge_pool)
+        .await
+        .unwrap();
+        let product_edge_outbox: Vec<serde_json::Value> = sqlx::query_scalar(
+            "SELECT to_jsonb(row_value) FROM (SELECT * FROM product_edge_owner_outbox_v1 ORDER BY event_identity) row_value",
+        )
+        .fetch_all(product_edge_pool)
+        .await
+        .unwrap();
+        serde_json::json!({
+            "admissions": admissions,
+            "artifacts": artifacts,
+            "product_edge_outbox": product_edge_outbox,
+            "rd_attempts": rd_attempts,
+            "rd_outbox": rd_outbox,
+        })
+    }
+
+    #[cfg(feature = "sealed-artifact-source-browser-acceptance")]
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    #[ignore = "requires explicit local PostgreSQL, Dashboard dependencies, and Chrome acceptance admission"]
+    async fn strategy_source_browser_acceptance_reads_canonical_terminal_owner_custody() {
+        if env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE").as_deref() != Ok("1") {
+            return;
+        }
+
+        let browser_executable = env::var("DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE")
+            .expect("explicit browser executable is required");
+        let acceptance_candidate = env::var("DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE")
+            .expect("exact committed Dashboard candidate is required");
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        {
+            let catalog_admin_pool = sqlx::PgPool::connect(
+                test_database
+                    .database_url(CanonicalOwnerTestRoleV1::ReplayPolicyCatalogAdminWriter),
+            )
+            .await
+            .unwrap();
+            ensure_replay_policy_catalog_fixture_v2(&catalog_admin_pool)
+                .await
+                .unwrap();
+        }
+
+        let token = "rd-owner-strategy-source-browser-acceptance";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let request_proof_digest = format!("sha256:{}", hex_digest(&token_digest));
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let product_edge = Arc::new(
+            bootstrap_api_test_product_edge(
+                &test_database,
+                &format!("strategy-source-{suffix}"),
+                &request_proof_digest,
+            )
+            .await,
+        );
+        let product_edge_pool = mutation.pool(CanonicalOwnerTestRoleV1::ProductEdgeOwner);
+        let owner = PostgresResearchGoalOwnerV1::connect(
+            test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+        )
+        .await
+        .unwrap();
+        #[cfg(feature = "sealed-source-intake-acceptance")]
+        let owner = owner.bind_sealed_source_intake_research_policy();
+        let owner = Arc::new(owner);
+        let artifact_owner = Arc::new(
+            PostgresArtifactBuildOwnerV1::connect_with_sealed_artifact_source_acceptance(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                u64::MAX,
+            )
+            .await
+            .unwrap(),
+        );
+        let historical_custody_owner = Arc::new(
+            PostgresHistoricalCustodyOwnerV1::connect_read_only(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+            )
+            .await
+            .unwrap(),
+        );
+        let state = ApiState {
+            product_edge,
+            owner: owner.clone(),
+            artifact_owner: artifact_owner.clone(),
+            artifact_source_owner: artifact_owner.clone(),
+            artifact_directory_owner: artifact_owner,
+            research_directory_owner: owner,
+            historical_custody_owner,
+            token_digest,
+            request_proof_digest,
+            allow_acceptance_faults: false,
+            _market_data_research_pit: None,
+            #[cfg(all(
+                feature = "sealed-develop-composer-acceptance",
+                not(feature = "sealed-source-intake-composer-acceptance")
+            ))]
+            develop_composer: Arc::new(
+                SealedDevelopComposerAcceptanceV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+            develop_composer: Arc::new(
+                SealedPostgresSourceResearchComposerV2::connect(
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                    test_database.database_url(CanonicalOwnerTestRoleV1::RdFactWriter),
+                )
+                .await
+                .unwrap(),
+            ),
+            #[cfg(feature = "sealed-develop-composer-acceptance")]
+            replay_composition: None,
+        };
+        let headers = bearer_headers(token);
+        let research_request_identity = format!("strategy-source-research-{suffix}");
+        let research = ProductEdgeOperationRequestV2 {
+            request_identity: research_request_identity,
+            channel: ProductEdgeChannel::WindmillProductEdge,
+            goal: SourcedResearchGoalV2 {
+                hypothesis: "A bounded momentum effect persists after exact costs.".to_string(),
+                mechanism: "Slow information diffusion creates bounded continuation.".to_string(),
+                falsification_question: "Does the effect disappear after modeled costs?"
+                    .to_string(),
+                expected_observation: "Net continuation remains positive.".to_string(),
+                required_data: vec!["PIT adjusted bars".to_string()],
+                cost_assumption: "Exact acceptance cost model.".to_string(),
+                capacity_assumption: "Exact acceptance capacity model.".to_string(),
+                sources: vec![ResearchSourceV1 {
+                    locator: "https://example.com/strategy-source-acceptance".to_string(),
+                    content_digest: format!("sha256:{}", "a".repeat(64)),
+                    observed_at: "2026-09-08T00:00:00Z".to_string(),
+                    source_cut: "strategy-source-acceptance-cut-v1".to_string(),
+                    license_basis: "public research".to_string(),
+                    interpretation: "Bounded strategy source browser acceptance fixture."
+                        .to_string(),
+                }],
+            },
+            trial_family_proposal: TrialFamilyProposalV1 {
+                trial_budget: 2,
+                stop_rule: "Stop on falsifier or unavailable PIT input.".to_string(),
+                pit_rule_identity: "pit-rule-v1".to_string(),
+                cost_model_identity: "cost-model-v1".to_string(),
+                slippage_model_identity: "slippage-model-v1".to_string(),
+                capacity_model_identity: "capacity-model-v1".to_string(),
+                independence_rationale: "Fresh isolated strategy source family.".to_string(),
+            },
+        };
+        let research_response = Box::pin(submit_v2(
+            State(state.clone()),
+            headers.clone(),
+            Bytes::from(serde_json::to_vec(&research).unwrap()),
+        ))
+        .await;
+        assert_eq!(research_response.status(), StatusCode::OK);
+        let research_json = response_json(research_response).await;
+        let intent_identity = research_json["owner_receipt"]["resulting_research_intent_identity"]
+            .as_str()
+            .unwrap_or_else(|| panic!("research custody unavailable: {research_json}"))
+            .to_string();
+
+        let build_request_identity = format!("strategy-source-build-{suffix}");
+        let attempt_identity = format!("strategy-source-attempt-{suffix}");
+        let build = serde_json::json!({
+            "build_request_identity": build_request_identity,
+            "attempt_identity": attempt_identity,
+            "intent_identity": intent_identity,
+            "channel": "WINDMILL_PRODUCT_EDGE",
+        });
+        let prepared = prepare_artifact_build(
+            State(state.clone()),
+            headers.clone(),
+            Bytes::from(serde_json::to_vec(&build).unwrap()),
+        )
+        .await;
+        assert_eq!(prepared.status(), StatusCode::OK);
+        let prepared_json = response_json(prepared).await;
+        assert_eq!(prepared_json["resolution"], "PREPARED");
+        let intent_semantic_digest = prepared_json["intent_semantic_digest"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let candidate = serde_json::json!({
+            "request": build,
+            "candidate": {
+                "schema_version": 1,
+                "candidate_identity": format!("strategy-source-candidate-{suffix}"),
+                "intent_identity": intent_identity,
+                "intent_semantic_digest": intent_semantic_digest,
+                "logic": {
+                    "signal": "MOMENTUM",
+                    "direction": "LONG_ONLY",
+                    "lookback_bars": 24,
+                    "entry_threshold_bps": 50,
+                    "exit_threshold_bps": 10
+                },
+                "structured_logic_summary": "Bounded momentum source viewer acceptance.",
+                "agent_change_explanation": "Produces canonical read-only source custody without provider execution."
+            }
+        });
+        let submitted = submit_artifact_candidate(
+            State(state.clone()),
+            headers.clone(),
+            Bytes::from(serde_json::to_vec(&candidate).unwrap()),
+        )
+        .await;
+        assert_eq!(submitted.status(), StatusCode::OK);
+        let submitted_json = response_json(submitted).await;
+        assert_eq!(submitted_json["resolution"], "SUCCESS");
+        assert!(submitted_json["provider_invocation"].is_null());
+
+        let source_response = read_artifact_source(
+            State(state.clone()),
+            Path((build_request_identity.clone(), attempt_identity.clone())),
+            headers,
+        )
+        .await;
+        assert_eq!(source_response.status(), StatusCode::OK);
+        let source = response_json(source_response).await;
+        let artifact_identity = source["artifact_identity"].as_str().unwrap().to_string();
+        let source_digest = source["source_digest"].as_str().unwrap().to_string();
+        assert_eq!(source["wasm_preview_status"], "NOT_RUN");
+
+        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let claim_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1")
+                .fetch_one(product_edge_pool)
+                .await
+                .unwrap();
+        assert_eq!(claim_count, 0);
+        let before = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+
+        let owner_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let owner_address = owner_listener.local_addr().unwrap();
+        let owner_server = tokio::spawn(async move {
+            axum::serve(owner_listener, artifact_source_router().with_state(state)).await
+        });
+        let preview_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let preview_port = preview_listener.local_addr().unwrap().port();
+        drop(preview_listener);
+        let dashboard_root =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../product/dashboard");
+        let browser_status = std::process::Command::new("node")
+            .arg("--test")
+            .arg("tests/strategy-code-viewer.browser.test.mjs")
+            .current_dir(&dashboard_root)
+            .env("DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE", "1")
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE",
+                acceptance_candidate,
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE",
+                browser_executable,
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_PREVIEW_PORT",
+                preview_port.to_string(),
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_BUILD_REQUEST_IDENTITY",
+                &build_request_identity,
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_ATTEMPT_IDENTITY",
+                &attempt_identity,
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_MISMATCH_ATTEMPT_IDENTITY",
+                format!("strategy-source-mismatch-{suffix}"),
+            )
+            .env(
+                "DASHBOARD_STRATEGY_VIEWER_ARTIFACT_IDENTITY",
+                artifact_identity,
+            )
+            .env("DASHBOARD_STRATEGY_VIEWER_SOURCE_DIGEST", source_digest)
+            .env("RD_OWNER_API_URL", format!("http://{owner_address}/"))
+            .env("RD_OWNER_API_TOKEN", token)
+            .status()
+            .unwrap();
+        owner_server.abort();
+        let _ = owner_server.await;
+        assert!(browser_status.success());
+
+        let after = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+        assert_eq!(after, before);
     }
 
     #[tokio::test]

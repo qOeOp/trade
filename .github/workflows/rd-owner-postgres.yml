@@ -26,7 +26,8 @@ env:
   RUST_TEST_EXTRA_FEATURES: >-
     capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,
     vibe-strategy-factory/sealed-develop-composer-acceptance,
-    vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance
+    vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,
+    vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance
 
 jobs:
   rd-owner-postgres:
