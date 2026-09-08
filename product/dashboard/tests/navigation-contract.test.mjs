@@ -33,7 +33,7 @@ test("only the current bilingual completeness closure is drawable exact", () => 
     "/backtest",
     "/runtime", "/runtime/generations", "/runtime/checkpoints", "/runtime/incidents",
     "/portfolio", "/portfolio/exposure", "/portfolio/capacity", "/portfolio/attribution",
-    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/runs/example", "/operations/workers/example",
+    "/data", "/data/pit-catalog", "/operations", "/operations/workers", "/operations/schedules", "/operations/service-logs", "/operations/runs/example", "/operations/workers/example",
   ]);
   assert.deepEqual(Object.keys(exactBlueprints).sort(), exact.toSorted());
 });
@@ -41,11 +41,22 @@ test("only the current bilingual completeness closure is drawable exact", () => 
 test("all remaining pages fail closed", () => {
   for (const href of [
     "/dashboard", "/rd/hypotheses", "/rd/decisions",
-    "/operations/service-logs", "/operations/audit",
+    "/operations/audit",
     "/operations/event-rail", "/operations/telemetry", "/operations/alerts",
   ]) {
     assert.equal(maturityFor(href), "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE");
   }
+});
+
+test("Service Logs exposes only the admitted bounded RunStore read surface", () => {
+  assert.equal(maturityFor("/operations/service-logs"), "DRAWABLE_EXACT");
+  assert.deepEqual(exactBlueprints["/operations/service-logs"].summaries, [
+    "Error", "Warning", "Info", "Worker", "Server",
+  ]);
+  assert.equal(exactBlueprints["/operations/service-logs"].primary, "ServiceInstanceList");
+  assert.equal(exactBlueprints["/operations/service-logs"].context, "ServiceInstanceCard");
+  assert.equal(exactBlueprints["/operations/service-logs"].terminal, "ServiceLogPanel");
+  assert.match(exactBlueprints["/operations/service-logs"].state, /FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS/);
 });
 
 test("Portfolio routes expose only the fixed fail-closed contract blueprint", () => {

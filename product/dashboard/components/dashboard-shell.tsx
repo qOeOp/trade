@@ -13,6 +13,7 @@ import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
 import { OperationsSchedulesPreview } from "./operations-schedules-preview";
+import { OperationsServiceLogs } from "./operations-service-logs";
 import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ResearchDirectory } from "./research-directory";
@@ -125,6 +126,7 @@ export function DashboardShell({
   const operationsRunDetail = current === "/operations/runs/example";
   const operationsWorkers = current === "/operations/workers";
   const operationsSchedules = current === "/operations/schedules";
+  const operationsServiceLogs = current === "/operations/service-logs";
   const artifactSourceDetail = current === "/rd/artifacts"
     && Boolean(artifactBuildRequestIdentity && artifactAttemptIdentity);
   const artifactDirectory = current === "/rd/artifacts" && !artifactSourceDetail;
@@ -135,10 +137,11 @@ export function DashboardShell({
   const marketDataFoundation = current === "/data" || current === "/data/pit-catalog";
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
-  const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
+  const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
+    || operationsSchedules || operationsServiceLogs;
   const embedsRouteChrome = sourceIntakeReadback || composerReadback || researchDirectory
     || artifactDirectory || artifactSourceDetail;
-  const suppressShellPageHeader = operationsSchedules || embedsRouteChrome;
+  const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || embedsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || composerReadback
     || exploratoryReplayReadback || researchDirectory || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
@@ -183,6 +186,8 @@ export function DashboardShell({
                 ? "IMPLEMENTATION_ADMITTED - RUN_STORE_WORKER_READ_ONLY - NO_WORKER_ADMIN"
                 : operationsSchedules
                 ? "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS"
+                : operationsServiceLogs
+                ? "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS"
                 : operationsRuns
                 ? "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT"
                 : drawableExact
@@ -194,6 +199,7 @@ export function DashboardShell({
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview />
+              : operationsServiceLogs ? <OperationsServiceLogs />
               : sourceIntakeReadback ? <SourceIntakeReadbackWorkbench initialRequestIdentity={sourceIntakeRequestIdentity} />
               : composerReadback ? <DevelopComposerReadbackWorkbench initialRequestIdentity={composerRequestIdentity} />
               : exploratoryReplayReadback ? <ExploratoryReplayReadbackWorkbench

@@ -79,7 +79,7 @@
   --panel-body-bg: var(--surface-card);
   --panel-radius: 20px;
   --panel-inset: 6px;
-  --panel-inner-radius: calc(var(--panel-radius) - var(--panel-inset));
+  --panel-inner-radius: 13px;
   --panel-content-padding: 12px;
   --nav-heavy-glass-bg: color-mix(in srgb, var(--surface-elevated) 40%, transparent);
   --nav-light-glass-bg: color-mix(in srgb, var(--surface-elevated) 60%, transparent);
@@ -560,12 +560,48 @@ a { color: inherit; text-decoration: none; }
 .run-detail-result > .unavailable-state,
 .run-detail-result > .empty-state { overflow: hidden; border: 0; border-radius: var(--panel-inner-radius); background: var(--surface-card); box-shadow: var(--elevation-base); }
 .run-detail-content .log-explorer-viewport { max-height: 280px; }
-.service-logs-actions { display: flex; gap: 7px; }
-.service-logs-actions button[aria-pressed="true"], .log-explorer-actions button[aria-pressed="true"] { background: var(--surface-hover); box-shadow: inset 0 0 0 1px var(--text-primary); }
-.service-logs-status { margin-bottom: 2px; }
-.service-logs-main { min-width: 0; background: transparent; }
-.service-logs-main .detail-cluster-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.service-logs-main .technical-disclosure-content { padding: 8px; }
+.service-logs-actions { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.service-logs-actions button[aria-pressed="true"], .log-explorer-actions button[aria-pressed="true"] { color: var(--text-primary); background: var(--surface-elevated); box-shadow: inset 0 0 0 1px var(--border-default); }
+.service-logs-body { padding: var(--panel-content-padding); display: grid; gap: 12px; }
+.service-logs-status { width: 100%; margin: 0; }
+.service-logs-status .compact-status-group { flex: 1 1 auto; }
+.service-log-filters { min-width: 0; padding: 10px; display: grid; grid-template-columns: 92px 104px 152px minmax(160px, 1fr) 118px minmax(210px, 1.2fr); align-items: center; gap: 7px; overflow-x: auto; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); background: var(--panel-chrome-bg); scrollbar-width: thin; }
+.service-log-filters label { min-width: 0; height: 36px; padding: 0 10px; display: flex; align-items: center; gap: 7px; border: .5px solid var(--border-default); border-radius: 10px; color: var(--text-muted); background: var(--surface-card); font-size: 9px; }
+.service-log-filters label > span:not(.sr-only) { flex: 0 0 auto; font-weight: 650; }
+.service-log-filters select, .service-log-filters input { min-width: 0; width: 100%; border: 0; outline: 0; color: var(--text-primary); background: transparent; font-size: 9px; }
+.service-log-filters select { appearance: none; cursor: pointer; }
+.service-log-filters label:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 24%, transparent); }
+.service-log-search { border-radius: 999px !important; }
+.service-logs-layout { align-items: start; }
+.service-instance-list { overflow: hidden; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); box-shadow: var(--elevation-base); }
+.service-instance-list > button { background-image: linear-gradient(var(--data-table-gridline), var(--data-table-gridline)); background-position: center bottom; background-repeat: no-repeat; background-size: calc(100% - 22px) .5px; }
+.service-instance-list > button + button { border-top: 0; }
+.service-instance-list > button:last-child { background-image: none; }
+.service-instance-list > button:focus-visible { outline: 0; background-color: var(--surface-hover); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
+.service-instance-list > button[data-selected="true"] { background-color: var(--data-table-row-selected-bg); box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent); }
+.service-logs-main { min-width: 0; display: grid; align-content: start; gap: 12px; background: transparent; }
+.service-instance-card { position: static !important; }
+.service-instance-card .detail-cluster-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.service-instance-card .detail-cluster-fact :is(code, span, time) { max-width: 100%; overflow: hidden; display: block; text-overflow: ellipsis; white-space: nowrap; }
+.bounded-log-viewport { min-width: 0; overflow: hidden; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); background: var(--surface-card); box-shadow: var(--elevation-table); }
+.bounded-log-viewport-body { min-width: 0; min-height: 220px; overflow-x: auto; }
+.bounded-log-viewport .data-workspace-table { overflow: visible; border-radius: 0; }
+.bounded-log-viewport .data-workspace-viewport { min-height: 220px; }
+.bounded-log-viewport-footer { min-width: 0; min-height: 58px; padding: 9px 11px 9px 14px; display: flex; align-items: center; gap: 12px; border-top: .5px solid var(--border-default); color: var(--text-muted); background: var(--panel-chrome-bg); }
+.bounded-log-viewport-footer > div:first-child { min-width: 190px; flex: 1 1 auto; }
+.bounded-log-viewport-footer b, .bounded-log-viewport-footer small { display: block; }
+.bounded-log-viewport-footer b { color: var(--text-primary); font-size: 9px; }
+.bounded-log-viewport-footer small { margin-top: 4px; font-size: 8px; line-height: 1.35; }
+.bounded-log-viewport-footer > code { min-width: 0; max-width: 240px; overflow: hidden; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
+.bounded-log-pagination { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
+.bounded-log-pagination label { display: flex; align-items: center; gap: 6px; font-size: 8px; }
+.bounded-log-pagination select, .bounded-log-pagination button { height: 30px; border: .5px solid var(--border-default); border-radius: 8px; color: var(--text-primary); background: var(--surface-card); }
+.bounded-log-pagination select { padding: 0 24px 0 9px; }
+.bounded-log-pagination button { width: 30px; padding: 0; display: grid; place-items: center; }
+.bounded-log-pagination button:focus-visible { outline: 0; box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 24%, transparent); }
+.bounded-log-pagination button:disabled { opacity: .4; cursor: not-allowed; }
+.service-log-empty { min-height: 220px; }
+.service-logs-main > .detail-notice { overflow: hidden; border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); background: var(--surface-card); box-shadow: var(--elevation-base); }
 .operation-audit-panel button:disabled { opacity: .48; }
 .operation-audit-status { width: 100%; }
 .operation-audit-status .compact-status-group { flex: 1 0 auto; }
