@@ -101,7 +101,7 @@ test("Service Logs suppresses duplicate shell chrome and BoundedLogViewport owns
     readFile(shellUrl, "utf8"), readFile(viewportUrl, "utf8"), readFile(cssUrl, "utf8"),
   ]);
   assert.match(shell, /operationsServiceLogs = current === "\/operations\/service-logs"/u);
-  assert.match(shell, /suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| embedsRouteChrome/u);
+  assert.match(shell, /suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| ownsRouteChrome/u);
   assert.match(viewport, /data-state=\{state\}/u);
   assert.match(viewport, /bounded-log-viewport-body/u);
   assert.match(viewport, /bounded-log-viewport-footer/u);

@@ -17,12 +17,14 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
       "artifactSourceDetail",
     ]),
   );
-  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| embedsRouteChrome;/u);
+  assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/hypotheses" \|\| current === "\/rd\/decisions";/u);
+  assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute;/u);
+  assert.match(shell, /const suppressShellPageHeader = operationsSchedules \|\| operationsServiceLogs \|\| ownsRouteChrome;/u);
   assert.match(
     shell,
     /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u,
   );
-  assert.match(shell, /\{!embedsRouteChrome \? <footer className="prototype-notice">/u);
+  assert.match(shell, /\{!ownsRouteChrome \? <footer className="prototype-notice">/u);
   assert.doesNotMatch(predicate, /hypoth|decision|backtest|market|runtime|portfolio|operation/iu);
 });
 

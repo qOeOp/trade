@@ -25,6 +25,7 @@ import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-ca
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
 import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
+import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
 
 type ExactBlueprint = {
   summaries: string[];
@@ -86,14 +87,29 @@ function ExactRouteGrid({ blueprint }: { blueprint: ExactBlueprint }) {
   );
 }
 
-function UnavailableBlueprint({ maturity }: { maturity: "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE" }) {
-  return (
+function UnavailableBlueprint({
+  maturity,
+  routeLabel,
+}: {
+  maturity: "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE";
+  routeLabel?: string;
+}) {
+  const unavailable = (
     <section className="not-implementable" aria-label={maturity}>
       <span>Navigation placeholder only</span>
       <h2>{maturity}</h2>
       <p>{maturity === "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" ? "Named detail regions exist, but the enclosing route list contract is incomplete." : "Navigation position and named composites exist, but whole-page geometry is not drawable or implementable."}</p>
       <b>No summary, P/Q/T surface, action, or product availability is asserted.</b>
     </section>
+  );
+  if (!routeLabel) return unavailable;
+  return (
+    <PanelFrame className="rd-placeholder-panel">
+      <PanelFrameHeader eyebrow="R&D" title={routeLabel}
+        description="This route remains unavailable until its documented product contract is admitted." />
+      <PanelFrameBody density="compact">{unavailable}</PanelFrameBody>
+      <PanelFrameFooter>Navigation only · No Dashboard consumer or action is connected.</PanelFrameFooter>
+    </PanelFrame>
   );
 }
 
@@ -141,7 +157,9 @@ export function DashboardShell({
     || operationsSchedules || operationsServiceLogs;
   const embedsRouteChrome = sourceIntakeReadback || composerReadback || researchDirectory
     || artifactDirectory || artifactSourceDetail;
-  const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || embedsRouteChrome;
+  const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
+  const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute;
+  const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || ownsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || composerReadback
     || exploratoryReplayReadback || researchDirectory || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
@@ -216,8 +234,9 @@ export function DashboardShell({
               : runtimeFoundation ? <RuntimeFoundationNotReadyCard />
               : portfolioUnavailable ? <PortfolioViewUnavailableCard />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
-                : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
-          {!embedsRouteChrome ? <footer className="prototype-notice">
+                : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
+                  routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
+          {!ownsRouteChrome ? <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
               : artifactDirectory
