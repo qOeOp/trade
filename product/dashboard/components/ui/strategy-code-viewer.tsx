@@ -51,6 +51,7 @@ export function StrategyCodeViewer({
         eyebrow={eyebrow}
         title={title}
         subtitle={safeProjection.availability === "available" ? safeProjection.artifactIdentity : undefined}
+        meta="Owner custody · Read only · No edit or execution"
         layout="inline"
       />
       <PanelFrameBody className={styles.body} mode="static">

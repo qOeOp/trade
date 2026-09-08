@@ -238,6 +238,7 @@ export function ResearchDirectory() {
           eyebrow="Verified Research custody"
           title="Research requests"
           titleId="research-directory-title"
+          meta="Owner custody · Read only · No submit or resolve"
           description={view === "verified"
             ? "Current Owner-verified request outcomes, without research payloads or execution controls."
             : "Bounded custody identities only. A candidate is not a verified Research outcome."}

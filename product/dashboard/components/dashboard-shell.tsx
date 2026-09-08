@@ -136,7 +136,9 @@ export function DashboardShell({
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers || operationsSchedules;
-  const suppressShellPageHeader = operationsSchedules;
+  const embedsRouteChrome = sourceIntakeReadback || composerReadback || researchDirectory
+    || artifactDirectory || artifactSourceDetail;
+  const suppressShellPageHeader = operationsSchedules || embedsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || composerReadback
     || exploratoryReplayReadback || researchDirectory || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
@@ -209,7 +211,7 @@ export function DashboardShell({
               : portfolioUnavailable ? <PortfolioViewUnavailableCard />
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"} />}
-          <footer className="prototype-notice">
+          {!embedsRouteChrome ? <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
               : artifactDirectory
@@ -231,7 +233,7 @@ export function DashboardShell({
               : connected
                 ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
-          </footer>
+          </footer> : null}
         </div>
       </main>
     </div>

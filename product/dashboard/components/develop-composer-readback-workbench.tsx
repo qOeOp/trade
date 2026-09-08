@@ -144,6 +144,7 @@ export function DevelopComposerReadbackWorkbench({
         eyebrow="Develop composer"
         title="Composer readback"
         titleId="develop-composer-title"
+        meta="Owner point read · No run, resolve, or edit"
         description="Inspect one exact sealed result without running, resolving, editing, or exposing source bytes."
         actions={(
           <button

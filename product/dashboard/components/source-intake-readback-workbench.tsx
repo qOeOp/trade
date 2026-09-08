@@ -140,6 +140,7 @@ export function SourceIntakeReadbackWorkbench({
         eyebrow="Source intake"
         title="Source intake"
         titleId="source-intake-title"
+        meta="Owner point read · No submit or resolve"
         description="Open one exact Owner readback without submitting, resolving, or exposing source payload."
         actions={(
           <button
