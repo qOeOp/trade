@@ -318,6 +318,9 @@ test(testName, { skip: !url }, async () => {
           probe.remove();
           return {
             selected: selected ? getComputedStyle(selected.querySelector('td') ?? selected).backgroundColor : null,
+            selectedCells: selected
+              ? [...selected.querySelectorAll('td')].map((cell) => getComputedStyle(cell).backgroundColor)
+              : [],
             idle: idle ? getComputedStyle(idle.querySelector('td') ?? idle).backgroundColor : null,
             selectedToken,
             selectedCustomToken: selected ? getComputedStyle(selected).getPropertyValue('--data-table-row-selected-bg') : null,
@@ -330,6 +333,9 @@ test(testName, { skip: !url }, async () => {
           };
         })()`);
         assert.equal(palette.selected, palette.selectedToken, `${theme} selected token: ${JSON.stringify(palette)}`);
+        assert.ok(palette.selectedCells.length > 1, `${theme} selected cell coverage: ${JSON.stringify(palette)}`);
+        assert.ok(palette.selectedCells.every((color) => color === palette.selectedToken),
+          `${theme} selected row cell tokens: ${JSON.stringify(palette)}`);
         assert.notEqual(palette.selected, palette.idle, `${theme} selected contrast`);
         assert.equal(palette.header, palette.headerToken, `${theme} header token`);
       }
