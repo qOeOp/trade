@@ -192,6 +192,10 @@ test(browserAcceptance
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
+    await waitForBrowserExpression(browser, `
+      [...document.querySelectorAll('[data-slot="strategy-read-only-code"] .cm-foldGutter .cm-gutterElement span[title]')]
+        .some((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0)
+    `);
 
     const interaction = await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
