@@ -74,12 +74,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .execute(&mut *tx)
             .await
             .map_err(store_error)?;
-        sqlx::query(
-            "LOCK TABLE instrument_owner_private.economic_terms_facts_v1, instrument_owner_private.economic_terms_receipts_v1 IN SHARE ROW EXCLUSIVE MODE",
-        )
-        .execute(&mut *tx)
-        .await
-        .map_err(store_error)?;
+        lock_protected_tables_in_transaction(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         sqlx::query("SELECT pg_advisory_xact_lock($1)")
             .bind(ADVISORY_LOCK_KEY)
@@ -143,6 +138,7 @@ impl InstrumentEconomicTermsPostgresOwnerV1 {
             .execute(&mut *tx)
             .await
             .map_err(store_error)?;
+        lock_protected_tables_in_transaction(&mut tx).await?;
         assert_acl_in_transaction(&mut tx).await?;
         assert_complete_ledger_in_transaction(&mut tx).await?;
         let readback = resolve_in_transaction(&mut tx, locator).await?;
@@ -185,6 +181,18 @@ pub enum InstrumentEconomicTermsPostgresErrorV1 {
     CorruptReadback,
 }
 
+async fn lock_protected_tables_in_transaction(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
+    sqlx::query(
+        "LOCK TABLE instrument_owner_private.economic_terms_facts_v1, instrument_owner_private.economic_terms_receipts_v1 IN SHARE ROW EXCLUSIVE MODE",
+    )
+    .execute(&mut **tx)
+    .await
+    .map_err(store_error)?;
+    Ok(())
+}
+
 async fn assert_acl_in_transaction(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(), InstrumentEconomicTermsPostgresErrorV1> {
@@ -212,6 +220,13 @@ async fn assert_acl_in_transaction(
             WHERE c.relnamespace=n.oid AND c.relkind='r'
               AND c.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
               AND c.relowner=n.nspowner
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM pg_inherits inheritance
+            JOIN pg_class protected_table ON protected_table.oid=inheritance.inhparent
+            WHERE protected_table.relnamespace=n.oid
+              AND protected_table.relname IN ('economic_terms_facts_v1','economic_terms_receipts_v1')
           )
           AND NOT EXISTS (
             SELECT 1
