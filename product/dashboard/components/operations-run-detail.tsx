@@ -35,7 +35,7 @@ import {
   DetailSection,
 } from "./ui/detail-inspector";
 import { EmptyState, EvidenceActions, EvidenceField, EvidenceStrip, UnavailableState } from "./ui/evidence-strip";
-import { FilterLink, FilterTabs } from "./ui/filter-toolbar";
+import { FilterButton, FilterLink, FilterTabs } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
@@ -356,13 +356,14 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           {cancellationResult?.availability === "unavailable" ? <DetailNotice
             icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
             title="Cancellation unavailable">{cancellationResult.unavailable_reason}</DetailNotice> : null}
-          <DetailInspectorFooter>
+          <DetailInspectorFooter layout="split">
             <span>No batch, retry, Owner, provider, build or replay cancellation.</span>
-            <button type="button" disabled={cancellationCapability.length < 32 || cancelling}
+            <FilterButton type="button" variant="outline"
+              disabled={cancellationCapability.length < 32 || cancelling}
               onClick={() => void cancelQueuedDependency()}>
               <RunIcons.cancelled aria-hidden="true" size={12} />
               {cancelling ? "Cancelling…" : "Cancel queued dependency"}
-            </button>
+            </FilterButton>
           </DetailInspectorFooter>
         </> : operationalCancellation.state === "receipt"
           && operationalCancellation.receipt ? <DetailFactGrid>
@@ -451,7 +452,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
             Open replacement run <InterfaceIcons.open aria-hidden="true" size={12} />
           </Link> : "No retry or replacement effect was inferred."}
         </DetailNotice> : null}
-        <DetailInspectorFooter>
+        <DetailInspectorFooter layout="split">
           <span>Owner payload, receipt bytes and source authority remain outside RunStore.</span>
           <FilterLink href={run.owner_view.href}>
             Open Owner view <InterfaceIcons.open aria-hidden="true" size={13} />
@@ -479,12 +480,13 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         </label>
         {deletionResult?.availability === "unavailable" ? <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
           title="Cache deletion unavailable">{deletionResult.unavailable_reason}</DetailNotice> : null}
-        <DetailInspectorFooter>
+        <DetailInspectorFooter layout="split">
           <span>Exact transition {run.transition_version} · no generic delete or batch action</span>
-          <button type="button" disabled={!deleteConfirmed || deleteCapability.length < 32 || deleting}
+          <FilterButton type="button" variant="outline"
+            disabled={!deleteConfirmed || deleteCapability.length < 32 || deleting}
             onClick={() => void deleteOperationalCache()}>
             <InterfaceIcons.delete aria-hidden="true" size={12} /> {deleting ? "Deleting…" : "Delete operational cache"}
-          </button>
+          </FilterButton>
         </DetailInspectorFooter>
       </DetailInspector> : null}
 

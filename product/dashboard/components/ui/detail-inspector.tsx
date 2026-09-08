@@ -117,8 +117,14 @@ export function DetailNotice({
   );
 }
 
-export function DetailInspectorFooter({ children }: { children: ReactNode }) {
-  return <footer className="detail-inspector-footer">{children}</footer>;
+export function DetailInspectorFooter({
+  children,
+  layout = "stack",
+}: {
+  children: ReactNode;
+  layout?: "stack" | "split";
+}) {
+  return <footer className="detail-inspector-footer" data-layout={layout}>{children}</footer>;
 }
 
 export function DetailEmpty({ icon, children }: { icon: ReactNode; children: ReactNode }) {
