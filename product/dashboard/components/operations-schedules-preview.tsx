@@ -8,7 +8,7 @@ import { scheduleAvailabilityPresentationV1 } from "../lib/schedule-availability
 import { ScheduleCalendar } from "./ui/schedule-calendar";
 import { CalendarHeader } from "./ui/schedule-calendar/header/calendar-header";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { PanelFrame, PanelFrameBody } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameFooter } from "./ui/panel-frame";
 import { InterfaceIcons } from "./ui/iconography";
 import styles from "./ui/schedule-calendar.module.css";
 
@@ -68,28 +68,29 @@ export function OperationsSchedulesPreview() {
       cell: (row) => row.last_run_identity ? <a href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</a> : "Not observed" },
   ], []);
   return <PanelFrame className={styles.page} aria-label="Shadow-read schedules">
+    <CalendarHeader date={date} view={view} mode={mode} pending={pending}
+      statusLabel={pending ? "Reading" : envelope ? `${all.length} schedules` : "Unavailable"}
+      query={query} observationScope={observationScope} operationScope={operationScope} operations={operations}
+      compactCalendar={compactCalendar} onToday={() => setDate(today())} onShift={shift}
+      onView={(nextView) => { setMode("calendar"); setView(nextView); }} onQuery={setQuery}
+      onObservationScope={setObservationScope} onOperationScope={setOperationScope}
+      onRefresh={() => void refresh()} onCompactCalendar={setCompactCalendar}
+      onToggleTable={() => setMode(mode === "table" ? "calendar" : "table")} />
     <PanelFrameBody>
-      <CalendarHeader date={date} view={view} mode={mode} pending={pending}
-        statusLabel={pending ? "Reading" : envelope ? `${all.length} schedules` : "Unavailable"}
-        query={query} observationScope={observationScope} operationScope={operationScope} operations={operations}
-        compactCalendar={compactCalendar} onToday={() => setDate(today())} onShift={shift}
-        onView={(nextView) => { setMode("calendar"); setView(nextView); }} onQuery={setQuery}
-        onObservationScope={setObservationScope} onOperationScope={setOperationScope}
-        onRefresh={() => void refresh()} onCompactCalendar={setCompactCalendar}
-        onToggleTable={() => setMode(mode === "table" ? "calendar" : "table")} />
       {pending ? <div className={styles.message} role="status" aria-label="Reading schedules">{Array.from({ length: 6 }, (_, i) => <div className={styles.skeleton} key={i} />)}</div>
         : error ? <div className={styles.unavailableCalendar} data-availability="unavailable">
-          <ScheduleCalendar schedules={[]} date={date} view={view} selectedIdentity={null}
-            onSelect={setSelectedIdentity} onDate={changeDate} compact={compactCalendar} />
           <div className={styles.availabilityNotice} role="status">
             <InterfaceIcons.calendar size={20} aria-hidden="true" />
             <div><b>{scheduleAvailabilityPresentationV1(error).title}</b><p>{scheduleAvailabilityPresentationV1(error).detail}</p></div>
           </div>
         </div>
+        : !schedules.length ? <div className={styles.emptyResult} role="status">
+          <InterfaceIcons.calendar size={20} aria-hidden="true" />
+          <div><b>No matching schedules</b><p>Adjust the current search or scope filters to show configured schedules.</p></div>
+        </div>
         : <div className={styles.split}>
           <div className={styles.primary}>
-            {!schedules.length ? <div className={styles.message}>No matching schedules.</div>
-              : mode === "calendar" ? <ScheduleCalendar key={`${date}-${view}-${query}-${envelope?.observed_at}`}
+            {mode === "calendar" ? <ScheduleCalendar key={`${date}-${view}-${query}-${envelope?.observed_at}`}
                 schedules={schedules} date={date} view={view} selectedIdentity={selectedIdentity}
                 onSelect={setSelectedIdentity} onDate={changeDate} compact={compactCalendar} />
               : <DataWorkspaceTable ariaLabel="Shadow-read schedules" columns={columns} data={schedules}
@@ -112,7 +113,7 @@ export function OperationsSchedulesPreview() {
             </> : <div className={styles.message}>Select a schedule to inspect its timing.</div>}
           </aside>
         </div>}
-      <footer className={styles.foot}>Read-only · Expected does not mean executed{envelope && <time>Observed {timestamp(envelope.observed_at)}</time>}</footer>
     </PanelFrameBody>
+    <PanelFrameFooter className={styles.foot}>Read-only · Expected does not mean executed{envelope && <time>Observed {timestamp(envelope.observed_at)}</time>}</PanelFrameFooter>
   </PanelFrame>;
 }

@@ -191,6 +191,9 @@ test(testName, { skip: !url }, async () => {
         anchor_epoch_ms: Math.floor(now / 60000) * 60000 - (5 + index) * 60000,
       };
     }).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    if (browserAcceptance) {
+      assert.equal(new Set(descriptors.map((descriptor) => descriptor.operation_id)).size, 9);
+    }
     // The configured-set parser owns canonical descriptor ordering.
     const canonical = JSON.stringify(descriptors);
     const environment = {
@@ -341,26 +344,126 @@ test(testName, { skip: !url }, async () => {
       });
       const narrowGeometry = await readBrowserValue(browser, `(() => {
         const header = document.querySelector('[data-slot="schedule-calendar-header"]');
+        const frame = header?.closest('[data-slot="panel-frame"]');
+        const body = frame?.querySelector(':scope > [data-slot="panel-frame-body"]');
+        const footer = frame?.querySelector(':scope > [data-slot="panel-frame-footer"]');
+        const tools = header?.querySelector('[class*="calendarTools"]');
         const controls = [...document.querySelectorAll('[aria-label="Calendar view"] button')];
+        const headerRect = header?.getBoundingClientRect();
+        const toolsRect = tools?.getBoundingClientRect();
         return {
-          flexDirection: header ? getComputedStyle(header).flexDirection : null,
+          display: header ? getComputedStyle(header).display : null,
+          gridColumns: header ? getComputedStyle(header).gridTemplateColumns : null,
           overflowX: header ? getComputedStyle(header).overflowX : null,
+          headerBackground: header ? getComputedStyle(header).backgroundColor : null,
+          headerRadius: header ? getComputedStyle(header).borderRadius : null,
+          bodyRadius: body ? getComputedStyle(body).borderRadius : null,
+          directHeader: header?.parentElement === frame,
+          directBody: body?.parentElement === frame,
+          directFooter: footer?.parentElement === frame,
+          toolsContained: Boolean(headerRect && toolsRect
+            && toolsRect.left >= headerRect.left - 1 && toolsRect.right <= headerRect.right + 1),
           controls: controls.length,
           documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
         };
       })()`);
-      assert.equal(narrowGeometry.flexDirection, "column");
-      assert.equal(narrowGeometry.overflowX, "auto");
+      assert.equal(narrowGeometry.display, "grid");
+      assert.ok(!narrowGeometry.gridColumns.includes(" "), JSON.stringify(narrowGeometry));
+      assert.equal(narrowGeometry.overflowX, "visible");
+      assert.equal(narrowGeometry.headerBackground, "rgba(0, 0, 0, 0)");
+      assert.equal(narrowGeometry.headerRadius, "0px");
+      assert.notEqual(narrowGeometry.bodyRadius, "0px");
+      assert.equal(narrowGeometry.directHeader, true);
+      assert.equal(narrowGeometry.directBody, true);
+      assert.equal(narrowGeometry.directFooter, true);
+      assert.equal(narrowGeometry.toolsContained, true);
       assert.equal(narrowGeometry.controls, 5);
       assert.ok(narrowGeometry.documentOverflow <= 1, JSON.stringify(narrowGeometry));
+
+      const filterGeometry = await readBrowserValue(browser, `(() => {
+        const summary = document.querySelector('summary[aria-label="Filter schedules"]');
+        summary?.click();
+        const popover = summary?.parentElement?.querySelector('[class*="toolPopover"]');
+        const rect = popover?.getBoundingClientRect();
+        return {
+          opened: summary?.parentElement?.hasAttribute('open') ?? false,
+          visible: Boolean(rect && rect.left >= 0 && rect.right <= document.documentElement.clientWidth),
+          ancestorOverflow: summary?.closest('[data-slot="schedule-calendar-header"]')
+            ? getComputedStyle(summary.closest('[data-slot="schedule-calendar-header"]')).overflow
+            : null,
+        };
+      })()`);
+      assert.deepEqual(filterGeometry, { opened: true, visible: true, ancestorOverflow: "visible" });
+
+      const filtered = await readBrowserValue(browser, `(() => {
+        const input = document.querySelector('summary[aria-label="Filter schedules"]')
+          ?.parentElement?.querySelector('input');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(input, 'no-schedule-can-match-this-query');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        return true;
+      })()`);
+      assert.equal(filtered, true);
+      await waitForBrowserExpression(browser, "document.body?.innerText.includes('No matching schedules') === true");
+      assert.equal(await readBrowserValue(browser,
+        "document.querySelector('[data-availability=\"unavailable\"]') === null"), true);
+      await readBrowserValue(browser, `(() => {
+        document.querySelector('summary[aria-label="Filter schedules"]')
+          ?.closest('details')?.removeAttribute('open');
+      })()`);
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
       });
+      const operationMenuGeometry = await readBrowserValue(browser, `(() => {
+        const summary = document.querySelector('summary[aria-label="Operation scope"]');
+        summary?.click();
+        const menu = summary?.closest('details');
+        const popover = menu?.querySelector('[role="listbox"]');
+        const frame = summary?.closest('[data-slot="panel-frame"]');
+        const body = frame?.querySelector(':scope > [data-slot="panel-frame-body"]');
+        const popoverRect = popover?.getBoundingClientRect();
+        const frameRect = frame?.getBoundingClientRect();
+        const bodyRect = body?.getBoundingClientRect();
+        return {
+          opened: menu?.hasAttribute('open') ?? false,
+          options: popover?.querySelectorAll('[role="option"]').length ?? 0,
+          withinFrame: Boolean(popoverRect && frameRect
+            && popoverRect.top >= frameRect.top - 1 && popoverRect.bottom <= frameRect.bottom + 1
+            && popoverRect.left >= frameRect.left - 1 && popoverRect.right <= frameRect.right + 1),
+          withinBodyReach: Boolean(popoverRect && bodyRect
+            && popoverRect.bottom <= bodyRect.bottom + 1
+            && popoverRect.left >= bodyRect.left - 1 && popoverRect.right <= bodyRect.right + 1),
+        };
+      })()`);
+      assert.deepEqual(operationMenuGeometry, {
+        opened: true,
+        options: 10,
+        withinFrame: true,
+        withinBodyReach: true,
+      });
+      const restored = await readBrowserValue(browser, `(() => {
+        document.querySelector('summary[aria-label="Operation scope"]')
+          ?.closest('details')?.removeAttribute('open');
+        const input = document.querySelector('summary[aria-label="Filter schedules"]')
+          ?.parentElement?.querySelector('input');
+        if (!input) return false;
+        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+        setter?.call(input, '');
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.closest('details')?.removeAttribute('open');
+        return true;
+      })()`);
+      assert.equal(restored, true);
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('[data-slot=\"calendar-month-view\"]'))");
       const desktopGeometry = await readBrowserValue(browser, `(() => ({
-        flexDirection: getComputedStyle(document.querySelector('[data-slot="schedule-calendar-header"]')).flexDirection,
+        display: getComputedStyle(document.querySelector('[data-slot="schedule-calendar-header"]')).display,
+        gridColumns: getComputedStyle(document.querySelector('[data-slot="schedule-calendar-header"]')).gridTemplateColumns,
         documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       }))()`);
-      assert.equal(desktopGeometry.flexDirection, "row");
+      assert.equal(desktopGeometry.display, "grid");
+      assert.ok(desktopGeometry.gridColumns.includes(" "), JSON.stringify(desktopGeometry));
       assert.ok(desktopGeometry.documentOverflow <= 1, JSON.stringify(desktopGeometry));
 
       const tableOpened = await readBrowserValue(browser, `(() => {
