@@ -2846,6 +2846,15 @@ mod tests {
         assert_eq!(submitted_json["resolution"], "SUCCESS");
         assert!(submitted_json["provider_invocation"].is_null());
 
+        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let claim_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1")
+                .fetch_one(product_edge_pool)
+                .await
+                .unwrap();
+        assert_eq!(claim_count, 0);
+        let before = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
+
         let source_response = read_artifact_source(
             State(state.clone()),
             Path((build_request_identity.clone(), attempt_identity.clone())),
@@ -2857,15 +2866,6 @@ mod tests {
         let artifact_identity = source["artifact_identity"].as_str().unwrap().to_string();
         let source_digest = source["source_digest"].as_str().unwrap().to_string();
         assert_eq!(source["wasm_preview_status"], "NOT_RUN");
-
-        let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        let claim_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1")
-                .fetch_one(product_edge_pool)
-                .await
-                .unwrap();
-        assert_eq!(claim_count, 0);
-        let before = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
 
         let owner_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let owner_address = owner_listener.local_addr().unwrap();
