@@ -192,17 +192,10 @@ test(browserAcceptance
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
-    await waitForBrowserExpression(browser, `
-      [...document.querySelectorAll('[data-slot="strategy-read-only-code"] .cm-foldGutter .cm-gutterElement span[title]')]
-        .some((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0)
-    `);
-
-    const interaction = await readBrowserValue(browser, `(() => {
+    const preparedInteraction = await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
       const content = host?.querySelector('.cm-content');
       const scroller = host?.querySelector('.cm-scroller');
-      const fold = [...(host?.querySelectorAll('.cm-foldGutter .cm-gutterElement span[title]') ?? [])]
-        .find((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0);
       const range = document.createRange();
       const firstLine = content?.querySelector('.cm-line');
       if (firstLine) {
@@ -212,8 +205,21 @@ test(browserAcceptance
         selection?.addRange(range);
       }
       content?.focus();
-      fold?.click();
       scroller.scrollTop = scroller.scrollHeight;
+      return {
+        selected: window.getSelection()?.toString() ?? '',
+      };
+    })()`);
+    assert.equal(preparedInteraction.selected, firstSourceLine);
+    await waitForBrowserExpression(browser, `
+      [...document.querySelectorAll('[data-slot="strategy-read-only-code"] .cm-foldGutter .cm-gutterElement span[title]')]
+        .some((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0)
+    `);
+    const interaction = await readBrowserValue(browser, `(() => {
+      const host = document.querySelector('[data-slot="strategy-read-only-code"]');
+      const fold = [...(host?.querySelectorAll('.cm-foldGutter .cm-gutterElement span[title]') ?? [])]
+        .find((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0);
+      fold?.click();
       return {
         foldTarget: Boolean(fold),
         selected: window.getSelection()?.toString() ?? '',
