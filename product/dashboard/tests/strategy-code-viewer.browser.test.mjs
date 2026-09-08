@@ -30,7 +30,7 @@ async function waitForHttp(url, child, timeoutMs = 60_000) {
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`strategy viewer preview exited with ${child.exitCode}`);
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, { signal: AbortSignal.timeout(5_000) });
       if (response.ok) return response;
     } catch {
       // The bounded local preview is still starting.
@@ -61,13 +61,28 @@ async function openBrowser(executable) {
       }
     }
     if (!devTools?.[0]) throw new Error("strategy viewer browser debugging endpoint unavailable");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, { method: "PUT" });
+    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+      method: "PUT",
+      signal: AbortSignal.timeout(15_000),
+    });
     if (!target.ok) throw new Error(`strategy viewer browser target failed with ${target.status}`);
     const { webSocketDebuggerUrl } = await target.json();
-    const socket = new WebSocket(webSocketDebuggerUrl);
+    const debuggerEndpoint = new URL(webSocketDebuggerUrl);
+    debuggerEndpoint.hostname = "127.0.0.1";
+    const socket = new WebSocket(debuggerEndpoint);
     await new Promise((resolve, reject) => {
-      socket.addEventListener("open", resolve, { once: true });
-      socket.addEventListener("error", reject, { once: true });
+      const timer = setTimeout(() => {
+        socket.close();
+        reject(new Error("strategy viewer browser websocket timed out"));
+      }, 15_000);
+      socket.addEventListener("open", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      socket.addEventListener("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }, { once: true });
     });
     let id = 0;
     const pending = new Map();
@@ -151,7 +166,10 @@ test(browserAcceptance
   const ownerReadback = await fetch(new URL(
     `v1/artifact-builds/${buildRequestIdentity}/attempts/${attemptIdentity}/source`,
     ownerUrl,
-  ), { headers: { authorization: `Bearer ${token}` } });
+  ), {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15_000),
+  });
   assert.equal(ownerReadback.status, 200);
   const ownerProjection = await ownerReadback.json();
   assert.equal(ownerProjection.artifact_identity, artifactIdentity);
