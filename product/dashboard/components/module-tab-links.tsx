@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type WheelEvent } from "react";
+import Link from "next/link";
+import { useCallback, useLayoutEffect, useRef, useState, type WheelEvent } from "react";
 
 export function ModuleTabLinks({
   activeHref,
@@ -28,10 +29,13 @@ export function ModuleTabLinks({
     });
   }, []);
 
-  useEffect(() => {
-    activeRef.current?.scrollIntoView({ behavior: "auto", block: "nearest", inline: "center" });
-    updateOverflow();
+  useLayoutEffect(() => {
     const nav = navRef.current;
+    const active = activeRef.current;
+    if (nav && active) {
+      nav.scrollLeft = Math.max(0, active.offsetLeft - ((nav.clientWidth - active.offsetWidth) / 2));
+    }
+    updateOverflow();
     if (!nav) return undefined;
     const observer = new ResizeObserver(updateOverflow);
     observer.observe(nav);
@@ -58,8 +62,8 @@ export function ModuleTabLinks({
       ref={navRef}>
       {tabs.map((tab) => {
         const active = activeHref === tab.href;
-        return <a aria-current={active ? "page" : undefined} data-active={active || undefined}
-          href={tab.href} key={tab.href} ref={active ? activeRef : undefined}>{tab.label}</a>;
+        return <Link aria-current={active ? "page" : undefined} data-active={active || undefined}
+          href={tab.href} key={tab.href} ref={active ? activeRef : undefined}>{tab.label}</Link>;
       })}
     </nav>
   );
