@@ -193,14 +193,11 @@ test(browserAcceptance
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
 
-    const surface = await readBrowserValue(browser, `(() => {
+    const interaction = await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
       const content = host?.querySelector('.cm-content');
       const scroller = host?.querySelector('.cm-scroller');
       const fold = host?.querySelector('.cm-foldGutter .cm-gutterElement span[title]');
-      const lineNumbers = host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement').length ?? 0;
-      scroller.scrollTop = scroller.scrollHeight;
-      fold?.click();
       const range = document.createRange();
       const firstLine = content?.querySelector('.cm-line');
       if (firstLine) {
@@ -210,10 +207,27 @@ test(browserAcceptance
         selection?.addRange(range);
       }
       content?.focus();
+      fold?.click();
+      scroller.scrollTop = scroller.scrollHeight;
+      return {
+        foldTarget: Boolean(fold),
+        selected: window.getSelection()?.toString() ?? '',
+      };
+    })()`);
+    assert.equal(interaction.foldTarget, true);
+    assert.equal(interaction.selected, firstSourceLine);
+    await waitForBrowserExpression(
+      browser,
+      `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-foldPlaceholder'))`,
+    );
+    const surface = await readBrowserValue(browser, `(() => {
+      const host = document.querySelector('[data-slot="strategy-read-only-code"]');
+      const content = host?.querySelector('.cm-content');
+      const scroller = host?.querySelector('.cm-scroller');
       return {
         ariaReadonly: host?.getAttribute('aria-readonly'),
         contentEditable: content?.getAttribute('contenteditable'),
-        lineNumbers,
+        lineNumbers: host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement').length ?? 0,
         foldGutter: Boolean(host?.querySelector('.cm-foldGutter')),
         folded: Boolean(host?.querySelector('.cm-foldPlaceholder')),
         selected: window.getSelection()?.toString() ?? '',
