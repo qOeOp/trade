@@ -817,11 +817,13 @@ pub fn bind_strategy_input_event_frame(
 /// Unlike [`bind_strategy_input_event_frame`], this operation derives the static bindings and the
 /// frame together. Every observation must belong to exactly one requested role. No partial binding
 /// set or frame is returned.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(in crate::owner) type StrategyInputEventCorpusBinding = (
     Box<[StrategyInputBindingReceipt]>,
     StrategyInputEventFrameReceipt,
 );
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(in crate::owner) fn bind_strategy_input_event_corpus(
     requests: &[UntrustedStrategyInputBindingRequest],
     batch: &VerifiedPitObservationBatch,
@@ -835,12 +837,15 @@ pub(in crate::owner) fn bind_strategy_input_event_corpus(
     let mut bindings = Vec::with_capacity(requests.len());
     for request in requests {
         validate_request(request)?;
+
         if request.unit != request.field_semantic.unit() {
             return Err(StrategyInputBindingUnavailable::UnitMismatch);
         }
+
         if !batch_matches_request(request, batch) {
             return Err(StrategyInputBindingUnavailable::StaleBatch);
         }
+
         if !role_identities.insert(request.input_role_identity) {
             return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
         }
@@ -862,12 +867,14 @@ pub(in crate::owner) fn bind_complete_strategy_input_event_frame(
         ));
     }
     let mut role_identities = BTreeSet::new();
+
     if bindings
         .iter()
         .any(|binding| !role_identities.insert(binding.locator().input_role_identity()))
     {
         return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
     }
+
     if batch.observations().iter().any(|row| {
         bindings
             .iter()
@@ -880,6 +887,7 @@ pub(in crate::owner) fn bind_complete_strategy_input_event_frame(
     bind_strategy_input_event_frame(bindings, batch)
 }
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
 pub(in crate::owner) fn split_strategy_input_event_frames_by_role(
     frames: &[StrategyInputEventFrameReceipt],
 ) -> Box<[StrategyInputEventFrameReceipt]> {

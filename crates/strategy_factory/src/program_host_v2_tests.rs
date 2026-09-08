@@ -750,6 +750,12 @@ fn output_frame(manifest: &PluginManifestV2) -> PluginFrameV2 {
     }
 }
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(crate) fn hold_plugin_module(manifest: &PluginManifestV2) -> anyhow::Result<Vec<u8>> {
+    let body = output_frame(manifest).encode(manifest)?[96..].to_vec();
+    Ok(plugin_module(manifest, &body, InvokeMode::Valid))
+}
+
 fn universe_target_set(
     first: &str,
     second: &str,

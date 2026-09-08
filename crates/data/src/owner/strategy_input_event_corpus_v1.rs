@@ -154,6 +154,7 @@ fn event_authority(
         .first()
         .map(|row| row.correction_stream_identity().to_owned())
         .ok_or(StrategyInputBindingUnavailable::MissingLifecycleCoordinate)?;
+
     if batch
         .observations()
         .iter()
@@ -415,6 +416,7 @@ fn replay_matches_event_authority(
     let Some(authority) = source.authorities.last() else {
         return false;
     };
+
     if source
         .authorities
         .iter()

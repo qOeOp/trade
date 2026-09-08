@@ -83,6 +83,8 @@ mod program_host;
 mod program_host_backtest_target_set_v2;
 #[allow(dead_code)]
 mod program_host_backtest_v2;
+#[allow(dead_code)]
+mod program_host_event_corpus_backtest_v1;
 pub mod program_host_v2;
 #[cfg(test)]
 mod program_host_v2_backtest_tests;

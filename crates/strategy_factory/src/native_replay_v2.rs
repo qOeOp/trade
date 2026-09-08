@@ -15,9 +15,7 @@ use vibe_data::owner::{
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
     strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
-    strategy_input_event_corpus_v1::{
-        StrategyInputEventCorpusV1, StrategyInputEventReplayPackageV1,
-    },
+    strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
@@ -303,16 +301,23 @@ impl PreparedProgramHostHandoffV2 {
         self.binding.event_corpus_digest
     }
 
-    /// Borrows the persistent Host and complete corpus together for the in-crate Backtest adapter.
-    /// Keeping this seam crate-private prevents external adapters from bypassing the canonical
-    /// Risk, Execution, and Portfolio composition path.
-    #[allow(dead_code)]
-    pub(crate) fn host_and_event_corpus_mut_v1(
-        &mut self,
-    ) -> Option<(&mut ProgramHostV2, &StrategyInputEventCorpusV1)> {
-        self.event_package
-            .as_ref()
-            .map(|package| (&mut self.host, package.corpus()))
+    /// Moves the persistent Host and its complete corpus into the in-crate Backtest adapter.
+    /// Keeping this seam crate-private prevents external adapters from selecting corpus members
+    /// or bypassing the canonical Risk, Execution, and Portfolio composition path.
+    pub(crate) fn into_event_corpus_parts_v1(
+        self,
+    ) -> Result<(ProgramHostV2, StrategyInputEventReplayPackageV1), ProgramHostV2Error> {
+        let package = self
+            .event_package
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+        if !package.has_valid_digest()
+            || package.corpus().digest() != self.binding.event_corpus_digest
+            || package.corpus().expected_count() != self.binding.event_corpus_count
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        Ok((self.host, package))
     }
 }
 
@@ -414,6 +419,7 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
     if !event_package.has_valid_digest() {
         return Err(ProgramPreparationFaultV2::Unavailable);
     }
+
     if !verify_instrument_master_readback(&instrument_master) {
         return Err(ProgramPreparationFaultV2::Unavailable);
     }

@@ -16,6 +16,7 @@ use vibe_data::owner::{
         SealedAcceptanceStrategyInputJoinCorpus, issue_strategy_input_join_corpus,
     },
     source_binding::BindingDigest,
+    strategy_input_binding::StrategyInputBindingReceipt,
     strategy_input_joined_cut::StrategyInputJoinedCutUnavailable,
 };
 use vibe_model::{
@@ -35,6 +36,7 @@ use crate::{
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
     program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
     program_host_v2_backtest_tests::stateful_plugin_module,
+    program_host_v2_tests::hold_plugin_module,
     strategy_design_v2::{
         INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1, InputJoinV2, LifecycleKindV2, PortBindingV2,
         PortContractV2, TypedConstantV2, ValueRefV2, ValueTypeV2,
@@ -395,8 +397,65 @@ fn fixture() -> (
 ) {
     let design = joined_design();
     let corpus = issue_strategy_input_join_corpus().expect("Owner-sealed joined corpus");
+    let (plan, artifact) = joined_plan_and_artifact(design, corpus.bindings());
+    (plan, artifact, corpus)
+}
+
+pub(crate) fn event_corpus_plan_and_artifact(
+    bindings: &[StrategyInputBindingReceipt],
+) -> (StrategyPlanV2, StrategyArtifactV2) {
+    let design = event_corpus_design();
+    let wasm = hold_plugin_module(&design.plugins[0]).expect("bounded HOLD plugin module");
+    plan_and_artifact(design, bindings, wasm)
+}
+
+fn event_corpus_design() -> crate::strategy_design_v2::StrategyDesignV2 {
+    let mut design = joined_design();
+    for input in &mut design.inputs {
+        input.timeframe = "TICK".into();
+        input.field_semantic_id = match input.semantic_id.as_str() {
+            AAPL_OPEN => "MARKET_DATA.QUOTE.BID.PRICE.V1",
+            AAPL_CLOSE => "MARKET_DATA.QUOTE.ASK.PRICE.V1",
+            MSFT_HOUR_CLOSE | QQQ_DAY_CLOSE => "MARKET_DATA.TRADE.LAST.PRICE.V1",
+            other => panic!("unexpected EVENT corpus role {other}"),
+        }
+        .into();
+    }
+    design.joins[0].max_staleness_ns = 3_000_000_000;
+    for reaction in &mut design.reactions {
+        for node in &mut reaction.nodes {
+            if reaction.kind == LifecycleKindV2::Bar {
+                for binding in &mut node.input_bindings {
+                    if matches!(binding.source, ValueRefV2::Input { .. }) {
+                        binding.source = timer_price();
+                    }
+                }
+            } else if reaction.kind == LifecycleKindV2::Event {
+                replace_input_binding(node, "input.open.v1", MSFT_HOUR_CLOSE);
+                replace_input_binding(node, "input.close.v1", QQQ_DAY_CLOSE);
+                replace_input_binding(node, "input.aapl-open.v1", AAPL_OPEN);
+                replace_input_binding(node, "input.aapl-close.v1", AAPL_CLOSE);
+            }
+        }
+    }
+    design
+}
+
+fn joined_plan_and_artifact(
+    design: crate::strategy_design_v2::StrategyDesignV2,
+    bindings: &[StrategyInputBindingReceipt],
+) -> (StrategyPlanV2, StrategyArtifactV2) {
     let manifest = &design.plugins[0];
     let wasm = stateful_plugin_module(manifest).expect("bounded stateful plugin module");
+    plan_and_artifact(design, bindings, wasm)
+}
+
+fn plan_and_artifact(
+    design: crate::strategy_design_v2::StrategyDesignV2,
+    bindings: &[StrategyInputBindingReceipt],
+    wasm: Vec<u8>,
+) -> (StrategyPlanV2, StrategyArtifactV2) {
+    let manifest = &design.plugins[0];
     let build = VerifiedPluginCargoBuildV2::verify(
         manifest,
         PluginCargoBuildEvidenceV2 {
@@ -422,14 +481,14 @@ fn fixture() -> (
             .map(|id| (id.clone(), 1))
             .collect(),
     );
-    let plan = match compile_strategy_design_v2(design, corpus.bindings(), &[receipt]) {
+    let plan = match compile_strategy_design_v2(design, bindings, &[receipt]) {
         StrategyCompilationV2::Compiled(plan) => plan,
         other => panic!("exact Owner-bound joined design compiles: {other:?}"),
     };
     let artifact = StrategyArtifactV2::issue(&plan, vec![build])
         .map_err(|error: StrategyArtifactV2Error| error.to_string())
         .expect("joined strategy artifact");
-    (*plan, artifact, corpus)
+    (*plan, artifact)
 }
 
 fn started_host(plan: &StrategyPlanV2, artifact: &StrategyArtifactV2) -> ProgramHostV2 {

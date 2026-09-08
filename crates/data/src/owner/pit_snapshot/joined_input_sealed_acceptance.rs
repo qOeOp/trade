@@ -82,6 +82,28 @@ const JOIN_ROLE_IDENTITIES: [[u8; 32]; 4] = [
         13, 236, 211, 5, 235, 209, 219, 25, 243, 56, 116, 79,
     ],
 ];
+const EVENT_DESIGN_IDENTITY: [u8; 32] = [
+    220, 56, 75, 21, 232, 77, 96, 21, 109, 74, 180, 178, 33, 246, 60, 177, 103, 27, 183, 237, 84,
+    192, 112, 130, 114, 84, 170, 28, 105, 92, 63, 252,
+];
+const EVENT_ROLE_IDENTITIES: [[u8; 32]; 4] = [
+    [
+        243, 75, 152, 138, 87, 85, 233, 125, 157, 236, 32, 78, 65, 190, 154, 144, 88, 43, 210, 108,
+        62, 235, 8, 194, 66, 17, 170, 146, 159, 53, 91, 31,
+    ],
+    [
+        242, 206, 120, 35, 163, 98, 30, 238, 189, 99, 129, 85, 77, 115, 146, 195, 39, 94, 219, 86,
+        146, 160, 189, 105, 33, 117, 74, 105, 110, 213, 75, 189,
+    ],
+    [
+        246, 98, 25, 142, 214, 192, 193, 147, 216, 173, 148, 162, 130, 155, 107, 157, 249, 134,
+        120, 244, 146, 35, 205, 78, 247, 173, 255, 107, 89, 84, 230, 156,
+    ],
+    [
+        153, 10, 116, 63, 47, 16, 180, 155, 96, 225, 162, 199, 163, 170, 55, 85, 42, 148, 99, 45,
+        135, 215, 165, 244, 202, 91, 254, 254, 196, 189, 157, 30,
+    ],
+];
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum JoinedInputSealedAcceptanceError {
@@ -350,6 +372,7 @@ fn issue_event_join_corpus_from_batches(
     )?;
     let mut aggregates = Vec::new();
     let mut batches = Vec::new();
+
     for (event_index, logical_time) in event_times.into_iter().enumerate() {
         let time_evidence = UntrustedPitSnapshotTimeEvidence {
             event_effective: UntrustedEventEffectiveTime::from_untrusted(
@@ -480,8 +503,8 @@ fn issue_event_join_corpus_from_batches(
         .map(|(index, (instrument, timeframe, field))| {
             binding_request(
                 &batches[0],
-                BindingDigest::from_untrusted_bytes(JOIN_DESIGN_IDENTITY),
-                BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[index]),
+                BindingDigest::from_untrusted_bytes(EVENT_DESIGN_IDENTITY),
+                BindingDigest::from_untrusted_bytes(EVENT_ROLE_IDENTITIES[index]),
                 instrument,
                 timeframe,
                 *field,
@@ -494,9 +517,10 @@ fn issue_event_join_corpus_from_batches(
         frames.push(bind_complete_strategy_input_event_frame(&bindings, batch)?);
     }
     let join_frames = split_strategy_input_event_frames_by_role(&frames);
-    let claim = join_claim(3_000_000_000);
+    let claim = event_join_claim(3_000_000_000);
     let mut cumulative = Vec::new();
     let mut events = Vec::new();
+
     for (index, event_time) in event_times.into_iter().enumerate() {
         cumulative.extend(
             join_frames
@@ -524,7 +548,7 @@ fn issue_event_join_corpus_from_batches(
         event_times[0],
     )?;
     let alternate_join_claim_for_negative_test = issue_strategy_input_joined_cut_v1(
-        &alternate_join_claim_for_negative_test(3_000_000_000),
+        &alternate_event_join_claim_for_negative_test(3_000_000_000),
         &bindings,
         &seal_strategy_input_join_census_v1(cumulative.clone())?,
         event_times[2],
@@ -538,7 +562,7 @@ fn issue_event_join_corpus_from_batches(
                 .filter(|frame| {
                     frame.trigger().lifecycle().logical_time() < event_times[2]
                         || frame.values()[0].input_role_identity()
-                            != BindingDigest::from_untrusted_bytes(JOIN_ROLE_IDENTITIES[0])
+                            != BindingDigest::from_untrusted_bytes(EVENT_ROLE_IDENTITIES[0])
                 })
                 .cloned()
                 .collect(),
@@ -866,6 +890,22 @@ fn issue_strategy_input_join_corpus_with_specs(
 }
 
 fn join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
+    join_claim_with_identities(max_staleness_ns, JOIN_DESIGN_IDENTITY, JOIN_ROLE_IDENTITIES)
+}
+
+fn event_join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
+    join_claim_with_identities(
+        max_staleness_ns,
+        EVENT_DESIGN_IDENTITY,
+        EVENT_ROLE_IDENTITIES,
+    )
+}
+
+fn join_claim_with_identities(
+    max_staleness_ns: u64,
+    design_identity: [u8; 32],
+    role_identities: [[u8; 32]; 4],
+) -> UntrustedStrategyInputJoinClaimV1 {
     let mut roles = [
         "research.input.open.v1",
         "research.input.close.v1",
@@ -873,7 +913,7 @@ fn join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
         "research.input.qqq-day-close.v1",
     ]
     .into_iter()
-    .zip(JOIN_ROLE_IDENTITIES)
+    .zip(role_identities)
     .map(|(semantic_id, identity)| StrategyInputJoinRoleClaimV1 {
         semantic_id: semantic_id.into(),
         input_role_identity: BindingDigest::from_untrusted_bytes(identity),
@@ -888,7 +928,7 @@ fn join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
     let alignment_semantic_id = "strategy.input-join.latest-not-after-trigger.v1";
     let trigger_input_id = "research.input.close.v1";
     UntrustedStrategyInputJoinClaimV1 {
-        strategy_design_identity: BindingDigest::from_untrusted_bytes(JOIN_DESIGN_IDENTITY),
+        strategy_design_identity: BindingDigest::from_untrusted_bytes(design_identity),
         join_semantic_id: join_semantic_id.into(),
         join_identity: derive_strategy_input_join_identity_v2(
             join_semantic_id,
@@ -907,7 +947,18 @@ fn join_claim(max_staleness_ns: u64) -> UntrustedStrategyInputJoinClaimV1 {
 fn alternate_join_claim_for_negative_test(
     max_staleness_ns: u64,
 ) -> UntrustedStrategyInputJoinClaimV1 {
-    let mut claim = join_claim(max_staleness_ns);
+    alternate_join_claim(join_claim(max_staleness_ns))
+}
+
+fn alternate_event_join_claim_for_negative_test(
+    max_staleness_ns: u64,
+) -> UntrustedStrategyInputJoinClaimV1 {
+    alternate_join_claim(event_join_claim(max_staleness_ns))
+}
+
+fn alternate_join_claim(
+    mut claim: UntrustedStrategyInputJoinClaimV1,
+) -> UntrustedStrategyInputJoinClaimV1 {
     claim.join_semantic_id = "research.input-join.alternate-negative-test.v1".into();
     let inputs = claim
         .roles
