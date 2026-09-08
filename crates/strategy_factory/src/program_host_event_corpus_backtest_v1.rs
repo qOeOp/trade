@@ -9,6 +9,7 @@ use serde::Serialize;
 use strategy_factory_program_sdk::lifecycle_v1::{
     EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
 };
+use vibe_backtest::{config::BacktestEngineConfig, engine::BacktestEngine};
 use vibe_common::actor::DataActor;
 use vibe_core::UnixNanos;
 use vibe_data::owner::{
@@ -315,6 +316,48 @@ impl DataActor for EventCorpusBacktestStrategyV1 {
     }
 }
 
+/// Consumes one prepared Owner EVENT corpus in the real Backtest engine and fails closed if any
+/// strategy callback rejected the run. The engine logs callback failures while stopping, so this
+/// adapter owns the terminal result boundary for the complete-corpus contract.
+fn run_prepared_owner_event_corpus_backtest_v1(
+    strategy_id: StrategyId,
+    handoff: PreparedProgramHostHandoffV2,
+    end: Option<UnixNanos>,
+) -> anyhow::Result<EventCorpusBacktestTraceV1> {
+    let trace = Rc::new(std::cell::RefCell::new(
+        EventCorpusBacktestTraceV1::default(),
+    ));
+    let (strategy, data) =
+        EventCorpusBacktestStrategyV1::from_handoff(strategy_id, handoff, Rc::clone(&trace))?;
+    run_owner_event_corpus_strategy_v1(strategy, data, end, &trace)
+}
+
+fn run_owner_event_corpus_strategy_v1(
+    strategy: EventCorpusBacktestStrategyV1,
+    data: Vec<Data>,
+    end: Option<UnixNanos>,
+    trace: &Rc<std::cell::RefCell<EventCorpusBacktestTraceV1>>,
+) -> anyhow::Result<EventCorpusBacktestTraceV1> {
+    let mut engine = BacktestEngine::new(BacktestEngineConfig {
+        bypass_logging: true,
+        run_analysis: false,
+        ..Default::default()
+    })?;
+    engine.add_strategy(strategy)?;
+    engine.add_data(data, None, true, true)?;
+    engine.run(None, end, Some("owner-event-corpus-v1".into()), false)?;
+
+    let observed = trace.borrow().clone();
+    if let Some(failure) = &observed.callback_failure {
+        anyhow::bail!("Owner EVENT corpus Backtest callback failed: {failure}");
+    }
+    anyhow::ensure!(
+        observed.transitions.len() == observed.expected_count,
+        "Owner EVENT corpus Backtest returned without complete consumption"
+    );
+    Ok(observed)
+}
+
 fn lifecycle_envelope(
     logical_time_ns: u64,
     event_time_ns: u64,
@@ -350,7 +393,6 @@ mod tests {
     use std::{cell::RefCell, rc::Rc};
 
     use rstest::rstest;
-    use vibe_backtest::{config::BacktestEngineConfig, engine::BacktestEngine};
     use vibe_data::owner::pit_snapshot::joined_input_sealed_acceptance::issue_strategy_input_event_replay_package_for_sealed_acceptance_v1;
     use vibe_model::identifiers::StrategyId;
 
@@ -361,8 +403,8 @@ mod tests {
 
     #[rstest]
     fn complete_owner_event_corpus_runs_repeatably_through_one_host_and_real_backtest() {
-        let first = run_event_corpus().expect("first complete EVENT Backtest run");
-        let repeated = run_event_corpus().expect("repeated complete EVENT Backtest run");
+        let first = run_event_corpus(None).expect("first complete EVENT Backtest run");
+        let repeated = run_event_corpus(None).expect("repeated complete EVENT Backtest run");
         assert_eq!(first, repeated);
         assert_eq!(first.expected_count, 3);
         assert_eq!(first.transitions.len(), first.expected_count);
@@ -382,7 +424,18 @@ mod tests {
         );
     }
 
-    fn run_event_corpus() -> anyhow::Result<EventCorpusBacktestTraceV1> {
+    #[rstest]
+    fn truncated_backtest_fails_at_the_complete_corpus_result_boundary() {
+        let error = run_event_corpus(Some(UnixNanos::from(3_000_000_000_u64)))
+            .expect_err("a truncated Owner EVENT corpus must not return a Backtest result");
+
+        assert!(
+            format!("{error:#}")
+                .contains("Backtest stopped before exhausting the Owner EVENT corpus")
+        );
+    }
+
+    fn run_event_corpus(end: Option<UnixNanos>) -> anyhow::Result<EventCorpusBacktestTraceV1> {
         let acceptance = issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()?;
         let (bindings, package) = acceptance.into_parts();
         let (plan, artifact) = event_corpus_plan_and_artifact(&bindings);
@@ -402,15 +455,16 @@ mod tests {
             package,
             Rc::clone(&trace),
         )?;
-        let mut engine = BacktestEngine::new(BacktestEngineConfig {
-            bypass_logging: true,
-            run_analysis: false,
-            ..Default::default()
-        })?;
-        engine.add_strategy(strategy)?;
-        engine.add_data(data, None, true, true)?;
-        engine.run(None, None, Some("owner-event-corpus-v1".into()), false)?;
-        let observed = trace.borrow().clone();
-        Ok(observed)
+        run_owner_event_corpus_strategy_v1(strategy, data, end, &trace)
+    }
+
+    #[rstest]
+    fn production_consumer_requires_the_move_only_prepared_handoff() {
+        let _consumer: fn(
+            StrategyId,
+            PreparedProgramHostHandoffV2,
+            Option<UnixNanos>,
+        ) -> anyhow::Result<EventCorpusBacktestTraceV1> =
+            run_prepared_owner_event_corpus_backtest_v1;
     }
 }
