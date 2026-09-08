@@ -1,4 +1,3 @@
-use sqlx::postgres::PgPoolOptions;
 use vibe_data::owner::{
     instrument_economic_terms_postgres_owner_from_environment_v1,
     instrument_economic_terms_postgres_v1::InstrumentEconomicTermsPostgresErrorV1,
@@ -8,6 +7,7 @@ use vibe_data::owner::{
         InstrumentEconomicTermsLocatorV1, InstrumentMarginMeaningV1,
     },
 };
+use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 fn fact() -> InstrumentEconomicTermsFactV1 {
     InstrumentEconomicTermsFactV1::seal(InstrumentEconomicTermsInputV1 {
@@ -49,12 +49,11 @@ fn fact() -> InstrumentEconomicTermsFactV1 {
 #[tokio::test]
 #[ignore = "requires INSTRUMENT_OWNER_DATABASE_URL"]
 async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
-    let url = std::env::var("INSTRUMENT_OWNER_DATABASE_URL").unwrap();
-    let pool = PgPoolOptions::new()
-        .max_connections(4)
-        .connect(&url)
-        .await
-        .unwrap();
+    let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+    let mutation = database.mutation();
+    let pool = mutation
+        .pool(CanonicalOwnerTestRoleV1::InstrumentOwner)
+        .clone();
     let owner = instrument_economic_terms_postgres_owner_from_environment_v1()
         .await
         .unwrap();
@@ -176,23 +175,12 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     .fetch_one(&pool)
     .await
     .unwrap();
-    let mut replication_connection = pool.acquire().await.unwrap();
-    sqlx::query("SET session_replication_role = replica")
-        .execute(&mut *replication_connection)
+    sqlx::query("SELECT vibe_test_admin.delete_instrument_economic_fact_as_replica_v1($1,$2)")
+        .bind(mutation.marker_identity())
+        .bind(second.locator().fact_identity().as_slice())
+        .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
-    sqlx::query(
-        "DELETE FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
-    )
-    .bind(second.locator().fact_identity().as_slice())
-    .execute(&mut *replication_connection)
-    .await
-    .unwrap();
-    sqlx::query("SET session_replication_role = origin")
-        .execute(&mut *replication_connection)
-        .await
-        .unwrap();
-    drop(replication_connection);
     assert_eq!(
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
@@ -319,10 +307,6 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .await
         .unwrap();
 
-    sqlx::query("CREATE ROLE instrument_economic_intruder LOGIN NOSUPERUSER")
-        .execute(&pool)
-        .await
-        .unwrap();
     sqlx::query("GRANT SELECT(fact_bytes) ON instrument_owner_private.economic_terms_facts_v1 TO instrument_economic_intruder")
         .execute(&pool)
         .await
@@ -361,8 +345,11 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("GRANT pg_write_all_data TO instrument_economic_intruder")
-        .execute(&pool)
+    sqlx::query(
+        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_intruder',true)",
+    )
+        .bind(mutation.marker_identity())
+        .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
     let derived_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
@@ -374,16 +361,18 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
     );
-    sqlx::query("REVOKE pg_write_all_data FROM instrument_economic_intruder")
-        .execute(&pool)
+    sqlx::query(
+        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_intruder',false)",
+    )
+        .bind(mutation.marker_identity())
+        .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
-    sqlx::query("CREATE ROLE instrument_economic_noinherit_intruder LOGIN NOSUPERUSER NOINHERIT")
-        .execute(&pool)
-        .await
-        .unwrap();
-    sqlx::query("GRANT pg_write_all_data TO instrument_economic_noinherit_intruder")
-        .execute(&pool)
+    sqlx::query(
+        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_noinherit_intruder',true)",
+    )
+        .bind(mutation.marker_identity())
+        .execute(database.owner_topology_admin_pool())
         .await
         .unwrap();
     let immediate_insert: bool = sqlx::query_scalar("SELECT has_table_privilege('instrument_economic_noinherit_intruder','instrument_owner_private.economic_terms_facts_v1','INSERT')")
@@ -398,26 +387,38 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
     .await
     .unwrap();
     assert!(can_set_role);
-    let mut attacker = pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL SESSION AUTHORIZATION instrument_economic_noinherit_intruder")
-        .execute(&mut *attacker)
-        .await
-        .unwrap();
-    sqlx::query("SET LOCAL ROLE pg_write_all_data")
-        .execute(&mut *attacker)
-        .await
-        .unwrap();
-    let set_role_insert: bool = sqlx::query_scalar("SELECT has_table_privilege(current_user,'instrument_owner_private.economic_terms_facts_v1','INSERT')")
-        .fetch_one(&mut *attacker)
-        .await
-        .unwrap();
-    assert!(set_role_insert);
-    attacker.rollback().await.unwrap();
     assert_eq!(
         restarted.resolve(first.locator()).await,
         Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
     );
-    sqlx::query("REVOKE pg_write_all_data FROM instrument_economic_noinherit_intruder")
+    sqlx::query(
+        "SELECT vibe_test_admin.set_instrument_economic_builtin_membership_v1($1,'instrument_economic_noinherit_intruder',false)",
+    )
+        .bind(mutation.marker_identity())
+        .execute(database.owner_topology_admin_pool())
+        .await
+        .unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await.unwrap().locator(),
+        first.locator()
+    );
+
+    let original_custody: Vec<u8> = sqlx::query_scalar(
+        "SELECT custody_digest FROM instrument_owner_private.economic_terms_facts_v1 WHERE fact_identity=$1",
+    )
+    .bind(first.locator().fact_identity().as_slice())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
+        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
+    assert_eq!(
+        restarted.resolve(first.locator()).await,
+        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+    );
+    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=$1 WHERE fact_identity=$2")
+        .bind(&original_custody)
+        .bind(first.locator().fact_identity().as_slice())
         .execute(&pool)
         .await
         .unwrap();
@@ -426,10 +427,42 @@ async fn atomic_exact_replay_restart_tamper_and_acl_fail_closed() {
         first.locator()
     );
 
-    sqlx::query("UPDATE instrument_owner_private.economic_terms_facts_v1 SET custody_digest=decode(repeat('00',32),'hex') WHERE fact_identity=$1")
-        .bind(first.locator().fact_identity().as_slice()).execute(&pool).await.unwrap();
+    sqlx::query("CREATE SCHEMA instrument_economic_inheritance_intruder")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE instrument_economic_inheritance_intruder.facts_child_v1 (LIKE instrument_owner_private.economic_terms_facts_v1 INCLUDING ALL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut topology_guard = pool.begin().await.unwrap();
+    sqlx::query(
+        "LOCK TABLE instrument_owner_private.economic_terms_facts_v1 IN SHARE ROW EXCLUSIVE MODE",
+    )
+    .execute(&mut *topology_guard)
+    .await
+    .unwrap();
+    let mut topology_mutator = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout='100ms'")
+        .execute(&mut *topology_mutator)
+        .await
+        .unwrap();
+    let blocked = sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
+        .execute(&mut *topology_mutator)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        blocked.as_database_error().and_then(|e| e.code()),
+        Some(code) if code == "55P03"
+    ));
+    topology_mutator.rollback().await.unwrap();
+    topology_guard.rollback().await.unwrap();
+    sqlx::query("ALTER TABLE instrument_economic_inheritance_intruder.facts_child_v1 INHERIT instrument_owner_private.economic_terms_facts_v1")
+        .execute(&pool)
+        .await
+        .unwrap();
     assert_eq!(
         restarted.resolve(first.locator()).await,
-        Err(InstrumentEconomicTermsPostgresErrorV1::CorruptReadback)
+        Err(InstrumentEconomicTermsPostgresErrorV1::AclUnavailable)
     );
 }
