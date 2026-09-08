@@ -807,10 +807,16 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
         return Err(ProgramHostV2Error::InputCoverage);
     }
     // Owner canonical component order is the sole ordering authority. The Host only verifies it.
-    if components.windows(2).any(|pair| {
-        pair[0].1.order_key == pair[1].1.order_key
-            || pair[0].1.order_key.event_identity == pair[1].1.order_key.event_identity
-    }) {
+    if components
+        .iter()
+        .enumerate()
+        .any(|(index, (_, envelope, _, _))| {
+            components[index + 1..].iter().any(|(_, other, _, _)| {
+                envelope.order_key.event_identity == other.order_key.event_identity
+                    && envelope.order_key != other.order_key
+            })
+        })
+    {
         return Err(ProgramHostV2Error::InputCoverage);
     }
     let inputs = components
@@ -3091,4 +3097,4 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ProgramHostV2Error> {
 #[path = "program_host_v2_input_join_backtest_tests.rs"]
 mod input_join_backtest_tests;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-pub(crate) use input_join_backtest_tests::joined_design;
+pub(crate) use input_join_backtest_tests::{event_corpus_plan_and_artifact, joined_design};

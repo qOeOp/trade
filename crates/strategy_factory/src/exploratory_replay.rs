@@ -369,6 +369,39 @@ impl SealedExploratoryReplayReadbackV2 {
     }
 }
 
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
+    request: ReplayRequestV2,
+) -> anyhow::Result<SealedExploratoryReplayReadbackV2> {
+    let canonical_request_bytes = request.to_canonical_bytes()?;
+    let meaning_digest = request.meaning_digest()?.as_str().to_owned();
+    let request_identity = request.request_identity().as_str().to_owned();
+    let mut receipt_hasher = Sha256::new();
+    receipt_hasher.update(b"rd.exploratory-replay.acceptance-receipt.v2\0");
+    receipt_hasher.update(&canonical_request_bytes);
+    let receipt_identity = format!("sha256:{:x}", receipt_hasher.finalize());
+    let mut seal_hasher = Sha256::new();
+    seal_hasher.update(b"rd.exploratory-replay.acceptance-seal.v2\0");
+    seal_hasher.update(receipt_identity.as_bytes());
+    seal_hasher.update(meaning_digest.as_bytes());
+    let seal_digest = format!("sha256:{:x}", seal_hasher.finalize());
+
+    Ok(SealedExploratoryReplayReadbackV2 {
+        request,
+        canonical_request_bytes,
+        meaning_digest: meaning_digest.clone(),
+        receipt: ExploratoryReplayCommitReceiptV2 {
+            schema_version: 2,
+            receipt_identity,
+            request_identity,
+            meaning_digest,
+            seal_digest,
+            committed_at_epoch_ms: 1,
+        },
+        owner_cut_epoch_ms: 1,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ExploratoryReplayReadResultV2 {

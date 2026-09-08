@@ -14,7 +14,10 @@ use vibe_data::owner::{
     },
     sealed_replay_input::SealedReplayInput,
     source_binding::BindingDigest,
-    strategy_input_binding::{StrategyInputBindingReceipt, StrategyInputEventKind},
+    strategy_input_binding::{
+        MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputEventKind,
+    },
+    strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
@@ -135,11 +138,65 @@ impl PreparedProgramHostCapabilityV2 {
         Ok(PreparedProgramHostHandoffV2 {
             host,
             request,
-            replay_input,
+            replay_input: Some(replay_input),
             instrument_master,
             input_bindings,
-            joined_cut,
-            sample_projection,
+            joined_cut: Some(joined_cut),
+            sample_projection: Some(sample_projection),
+            event_package: None,
+            binding,
+        })
+    }
+}
+
+/// Move-only preparation capability for the additive complete ordered EVENT corpus path.
+pub struct PreparedProgramHostEventCorpusCapabilityV2 {
+    plan: StrategyPlanV2,
+    artifact: StrategyArtifactV2,
+    request: ReplayRequestV2,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    event_package: StrategyInputEventReplayPackageV1,
+    binding: PreparedProgramBindingV2,
+}
+
+impl PreparedProgramHostEventCorpusCapabilityV2 {
+    /// Constructs one host only after rechecking the whole retained corpus binding, then transfers
+    /// that corpus exactly once into the inseparable handoff.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProgramHostV2Error::InputCoverage`] before Host construction if the retained corpus
+    /// no longer matches the exact preparation binding.
+    pub fn into_program_host_handoff_v2(
+        self,
+    ) -> Result<PreparedProgramHostHandoffV2, ProgramHostV2Error> {
+        let Self {
+            plan,
+            artifact,
+            request,
+            instrument_master,
+            input_bindings,
+            event_package,
+            binding,
+        } = self;
+
+        if !event_package.has_valid_digest()
+            || binding.event_corpus_digest != event_package.corpus().digest()
+            || binding.event_corpus_count != event_package.corpus().expected_count()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let host = construct_prepared_program_host_v2(plan, artifact)?;
+        Ok(PreparedProgramHostHandoffV2 {
+            host,
+            request,
+            replay_input: None,
+            instrument_master,
+            input_bindings,
+            joined_cut: None,
+            sample_projection: None,
+            event_package: Some(event_package),
             binding,
         })
     }
@@ -206,11 +263,12 @@ impl PreparedProgramHostCapabilityV2 {
 pub struct PreparedProgramHostHandoffV2 {
     host: ProgramHostV2,
     request: ReplayRequestV2,
-    replay_input: SealedReplayInput,
+    replay_input: Option<SealedReplayInput>,
     instrument_master: InstrumentMasterReadbackV1,
     input_bindings: Vec<StrategyInputBindingReceipt>,
-    joined_cut: StrategyInputJoinedCutReceiptV1,
-    sample_projection: StrategyInputSampleProjectionReadbackV2,
+    joined_cut: Option<StrategyInputJoinedCutReceiptV1>,
+    sample_projection: Option<StrategyInputSampleProjectionReadbackV2>,
+    event_package: Option<StrategyInputEventReplayPackageV1>,
     binding: PreparedProgramBindingV2,
 }
 
@@ -233,6 +291,35 @@ impl PreparedProgramHostHandoffV2 {
     /// Returns the complete Owner projection component count admitted with the Plan bindings.
     pub const fn sample_projection_component_count(&self) -> u32 {
         self.binding.sample_projection_component_count
+    }
+
+    /// Returns the complete EVENT corpus count, or zero for the historical single-event path.
+    pub const fn event_corpus_count(&self) -> usize {
+        self.binding.event_corpus_count
+    }
+
+    /// Returns the complete EVENT corpus digest, or zero for the historical single-event path.
+    pub const fn event_corpus_digest(&self) -> BindingDigest {
+        self.binding.event_corpus_digest
+    }
+
+    /// Moves the persistent Host and its complete corpus into the in-crate Backtest adapter.
+    /// Keeping this seam crate-private prevents external adapters from selecting corpus members
+    /// or bypassing the canonical Risk, Execution, and Portfolio composition path.
+    pub(crate) fn into_event_corpus_parts_v1(
+        self,
+    ) -> Result<(ProgramHostV2, StrategyInputEventReplayPackageV1), ProgramHostV2Error> {
+        let package = self
+            .event_package
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+        if !package.has_valid_digest()
+            || package.corpus().digest() != self.binding.event_corpus_digest
+            || package.corpus().expected_count() != self.binding.event_corpus_count
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        Ok((self.host, package))
     }
 }
 
@@ -259,6 +346,8 @@ pub(crate) struct PreparedProgramBindingV2 {
     sample_projection_digest: [u8; 32],
     sample_projection_subject: [u8; 32],
     sample_projection_component_count: u32,
+    event_corpus_digest: BindingDigest,
+    event_corpus_count: usize,
 }
 
 /// Prepares the sole ProgramHost package from R&D and Market Data Owner-sealed evidence.
@@ -309,6 +398,59 @@ pub fn prepare_program_host_from_owner_readbacks_v2(
         input_bindings,
         joined_cut,
         sample_projection,
+        binding,
+    })
+}
+
+/// Prepares one ProgramHost package carrying the complete Owner-sealed ordered EVENT corpus.
+///
+/// This is additive to [`prepare_program_host_from_owner_readbacks_v2`]. The historical single-event
+/// path and all existing V1/V2 wire identities remain unchanged.
+///
+/// # Errors
+///
+/// Returns [`ProgramPreparationFaultV2`] before a capability or Host exists if any corpus member is
+/// incompatible with the exact request, Plan bindings, or complete Market Data census.
+pub fn prepare_program_host_from_owner_event_corpus_v1(
+    replay: &SealedExploratoryReplayReadbackV2,
+    composer: &SealedDevelopComposerReadbackV2,
+    instrument_master: InstrumentMasterReadbackV1,
+    input_bindings: Vec<StrategyInputBindingReceipt>,
+    event_package: StrategyInputEventReplayPackageV1,
+) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2> {
+    if !event_package.has_valid_digest() {
+        return Err(ProgramPreparationFaultV2::Unavailable);
+    }
+
+    if !verify_instrument_master_readback(&instrument_master) {
+        return Err(ProgramPreparationFaultV2::Unavailable);
+    }
+    let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
+        replay,
+        composer,
+        event_package.replay_input(),
+        &instrument_master,
+    );
+    let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
+    let (plan, artifact, mut binding) =
+        prepare_program_event_corpus_package_v2(&claims, verified_bindings, &event_package)?;
+    for member in event_package.corpus().members() {
+        validate_joined_cut_plan_admission_v2(&plan, member.joined_cut())?;
+        validate_sample_projection_admission_v2(
+            member.projection(),
+            member.joined_cut(),
+            plan.input_bindings(),
+        )?;
+    }
+    binding.event_corpus_digest = event_package.corpus().digest();
+    binding.event_corpus_count = event_package.corpus().expected_count();
+    Ok(PreparedProgramHostEventCorpusCapabilityV2 {
+        plan,
+        artifact,
+        request: claims.request,
+        instrument_master,
+        input_bindings,
+        event_package,
         binding,
     })
 }
@@ -485,6 +627,62 @@ fn prepare_program_package_v2(
     current_bindings: VerifiedStrategyInputBindingsV2,
 ) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
 {
+    let expected_window_end = claims
+        .market
+        .observation_end
+        .checked_add(1)
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
+    prepare_program_package_with_replay_window_v2(
+        claims,
+        current_bindings,
+        claims.market.observation_start,
+        expected_window_end,
+    )
+}
+
+fn prepare_program_event_corpus_package_v2(
+    claims: &ProgramPreparationClaimsV2,
+    current_bindings: VerifiedStrategyInputBindingsV2,
+    event_package: &StrategyInputEventReplayPackageV1,
+) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
+{
+    let members = event_package.corpus().members();
+    let expected_window_start = members
+        .first()
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?
+        .order_key()
+        .event_time();
+    let expected_window_end = members
+        .last()
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?
+        .order_key()
+        .event_time()
+        .checked_add(1)
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
+    let request_window = &claims.request.as_dto().window;
+
+    if members.iter().any(|member| {
+        let event_time = member.order_key().event_time();
+        event_time < request_window.start_event_ns
+            || event_time >= request_window.end_event_ns_exclusive
+    }) {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
+    prepare_program_package_with_replay_window_v2(
+        claims,
+        current_bindings,
+        expected_window_start,
+        expected_window_end,
+    )
+}
+
+fn prepare_program_package_with_replay_window_v2(
+    claims: &ProgramPreparationClaimsV2,
+    current_bindings: VerifiedStrategyInputBindingsV2,
+    expected_window_start: u64,
+    expected_window_end: u64,
+) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
+{
     validate_request_seal(claims)?;
     validate_private_blob_digests(claims)?;
 
@@ -520,7 +718,12 @@ fn prepare_program_package_v2(
     }
 
     validate_request_program_equality(claims, &plan, &artifact)?;
-    validate_market_and_instrument_equality(claims, &plan)?;
+    validate_market_and_instrument_equality(
+        claims,
+        &plan,
+        expected_window_start,
+        expected_window_end,
+    )?;
 
     Ok((
         plan,
@@ -539,6 +742,8 @@ fn prepare_program_package_v2(
             sample_projection_digest: [0; 32],
             sample_projection_subject: [0; 32],
             sample_projection_component_count: 0,
+            event_corpus_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+            event_corpus_count: 0,
         },
     ))
 }
@@ -788,17 +993,14 @@ fn validate_request_program_equality(
 fn validate_market_and_instrument_equality(
     claims: &ProgramPreparationClaimsV2,
     plan: &StrategyPlanV2,
+    expected_window_start: u64,
+    expected_window_end: u64,
 ) -> Result<(), ProgramPreparationFaultV2> {
     let request = claims.request.as_dto();
-    let expected_end = claims
-        .market
-        .observation_end
-        .checked_add(1)
-        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
 
     if claims.market.frames.is_empty()
-        || claims.market.observation_start != request.window.start_event_ns
-        || expected_end != request.window.end_event_ns_exclusive
+        || expected_window_start != request.window.start_event_ns
+        || expected_window_end != request.window.end_event_ns_exclusive
         || !content_digest_matches(
             &request.pit_scope,
             DigestAlgorithmV2::Blake3,
@@ -906,7 +1108,8 @@ fn frame_matches_binding(
         && frame.channel == binding.channel()
         && frame.data_kind == binding.data_kind()
         && frame.timeframe == binding.timeframe()
-        && frame.field == binding.field_semantic_id()
+        && MarketDataFieldSemantic::from_identity(binding.field_semantic_id())
+            .is_some_and(|semantic| frame.field == semantic.row_field())
         && frame.scale == binding.scale()
 }
 
@@ -972,6 +1175,155 @@ fn canonical_blob_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn prepare_event_corpus_handoff_for_sealed_acceptance_v1()
+-> anyhow::Result<PreparedProgramHostHandoffV2> {
+    prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(None)
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+fn prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(
+    replay_window: Option<vibe_backtest_owner_contracts::ReplayWindowV2>,
+) -> anyhow::Result<PreparedProgramHostHandoffV2> {
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+        ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayWindowV2, VersionedIdentityV2,
+    };
+    use vibe_data::owner::pit_snapshot::joined_input_sealed_acceptance::issue_strategy_input_event_replay_package_for_sealed_acceptance_v1;
+
+    use crate::{
+        develop_composer_postgres_v2::issue_sealed_develop_composer_readback_for_acceptance_v2,
+        exploratory_replay::issue_sealed_exploratory_replay_readback_for_acceptance_v2,
+        program_host_v2::event_corpus_plan_and_artifact,
+    };
+
+    fn opaque(value: &str) -> anyhow::Result<OpaqueIdentityV2> {
+        OpaqueIdentityV2::try_from(value.to_owned()).map_err(Into::into)
+    }
+    fn digest_text(algorithm: &str, value: BindingDigest) -> String {
+        format!("{algorithm}:{}", hex(value.as_bytes()))
+    }
+    fn content(
+        algorithm: &str,
+        identity: BindingDigest,
+        digest: BindingDigest,
+    ) -> anyhow::Result<ContentIdentityV2> {
+        Ok(ContentIdentityV2 {
+            identity: opaque(&digest_text(algorithm, identity))?,
+            digest: CanonicalDigestV2::try_from(digest_text(algorithm, digest))?,
+        })
+    }
+    fn named_content(identity: String, digest: BindingDigest) -> anyhow::Result<ContentIdentityV2> {
+        Ok(ContentIdentityV2 {
+            identity: opaque(&identity)?,
+            digest: CanonicalDigestV2::try_from(digest_text("sha256", digest))?,
+        })
+    }
+    fn version(algorithm: &str, identity: BindingDigest) -> anyhow::Result<VersionedIdentityV2> {
+        Ok(VersionedIdentityV2 {
+            identity: opaque(&digest_text(algorithm, identity))?,
+            version: opaque(OWNER_SEMANTICS_VERSION_V2)?,
+        })
+    }
+    fn fixture_digest(value: u8) -> BindingDigest {
+        BindingDigest::from_untrusted_bytes([value; 32])
+    }
+
+    let acceptance = issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()?;
+    let (bindings, event_package, instrument_master) = acceptance.into_preparation_parts();
+    let (plan, artifact) = event_corpus_plan_and_artifact(&bindings);
+    let first_event_ns = event_package
+        .corpus()
+        .members()
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay corpus is empty"))?
+        .order_key()
+        .event_time();
+    let end_event_ns_exclusive = event_package
+        .corpus()
+        .members()
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay corpus is empty"))?
+        .order_key()
+        .event_time()
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay window overflow"))?;
+    let market = event_package.replay_input();
+    let artifact_locator = format!(
+        "rd-strategy-artifact-v2-{}",
+        hex(artifact.identity().as_bytes())
+    );
+    let request = ReplayRequestV2::try_from(ReplayRequestDtoV2 {
+        schema_version: 2,
+        request_identity: opaque("owner-event-corpus-replay-request-v2")?,
+        frozen_research_intent: named_content(
+            format!(
+                "rd-research-intent-v2-{}",
+                hex(plan.intent_identity().as_bytes())
+            ),
+            plan.intent_digest(),
+        )?,
+        trial_family: content("sha256", fixture_digest(1), fixture_digest(2))?,
+        trial_family_census_frontier: content("sha256", fixture_digest(3), fixture_digest(4))?,
+        replay_authority: ReplayAuthorityClaimV2::Exploratory,
+        strategy_design: content("sha256", plan.design_identity(), plan.design_digest())?,
+        strategy_plan: content(
+            "sha256",
+            plan.canonical_plan_digest(),
+            plan.canonical_plan_digest(),
+        )?,
+        artifact: named_content(artifact_locator, artifact.identity())?,
+        resolved_owner_inputs: content("blake3", fixture_digest(5), market.frame_census_digest())?,
+        pit_scope: content("blake3", fixture_digest(6), market.scope_digest())?,
+        pit_snapshot: content(
+            "blake3",
+            market.snapshot_identity(),
+            market.snapshot_fact_digest(),
+        )?,
+        universe_selection: content(
+            "blake3",
+            fixture_digest(7),
+            market.universe_selection_digest(),
+        )?,
+        correction_rule: version("blake3", market.snapshot_correction_rule_digest())?,
+        market_semantics: version("blake3", market.market_semantics_identity())?,
+        replay_configuration: content("sha256", fixture_digest(8), fixture_digest(9))?,
+        models: ReplayModelProfilesV2 {
+            runtime_kernel: version("sha256", fixture_digest(10))?,
+            simulator: version("sha256", fixture_digest(11))?,
+            cost: version("sha256", fixture_digest(12))?,
+            slippage: version("sha256", fixture_digest(13))?,
+            capacity: version("sha256", fixture_digest(14))?,
+        },
+        runner_operational_profile: version("sha256", fixture_digest(15))?,
+        diagnostic_policy: version("sha256", fixture_digest(16))?,
+        deterministic_seed: 17,
+        window: replay_window.unwrap_or(ReplayWindowV2 {
+            start_event_ns: first_event_ns,
+            end_event_ns_exclusive,
+        }),
+        calendar: version("sha256", fixture_digest(17))?,
+        session: version("sha256", fixture_digest(18))?,
+        time_zone: version("sha256", fixture_digest(19))?,
+        corporate_action_cut: content("sha256", fixture_digest(20), fixture_digest(21))?,
+        historical_membership_cut: content(
+            "blake3",
+            fixture_digest(22),
+            instrument_master.cut().digest(),
+        )?,
+    })?;
+    let replay = issue_sealed_exploratory_replay_readback_for_acceptance_v2(request)?;
+    let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)?;
+    Ok(prepare_program_host_from_owner_event_corpus_v1(
+        &replay,
+        &composer,
+        instrument_master,
+        bindings.into_vec(),
+        event_package,
+    )?
+    .into_program_host_handoff_v2()?)
+}
+
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ProgramPreparationFaultV2 {
     /// Complete sealed Owner evidence is unavailable.
@@ -1006,6 +1358,24 @@ mod preparation_tests {
             plugin_implementation_receipts_for_test,
         },
     };
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn event_corpus_member_outside_replay_window_fails_before_handoff() {
+        let result =
+            prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(Some(ReplayWindowV2 {
+                start_event_ns: 5_000_000_000,
+                end_event_ns_exclusive: 5_000_000_001,
+            }));
+        let error = result
+            .err()
+            .expect("a terminal-anchor-only Replay window must fail closed");
+
+        assert_eq!(
+            error.downcast_ref::<ProgramPreparationFaultV2>(),
+            Some(&ProgramPreparationFaultV2::OwnerMismatch)
+        );
+    }
 
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest]
@@ -1442,7 +1812,10 @@ mod preparation_tests {
                     channel: plan_binding.channel().to_owned(),
                     data_kind: plan_binding.data_kind().to_owned(),
                     timeframe: plan_binding.timeframe().to_owned(),
-                    field: plan_binding.field_semantic_id().to_owned(),
+                    field: MarketDataFieldSemantic::from_identity(plan_binding.field_semantic_id())
+                        .expect("prepared binding has canonical field semantic")
+                        .row_field()
+                        .to_owned(),
                     scale: plan_binding.scale(),
                     member_key: "member-1".to_owned(),
                     digest: binding(frame_meaning),

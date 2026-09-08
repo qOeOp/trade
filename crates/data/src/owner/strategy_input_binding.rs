@@ -138,7 +138,8 @@ impl MarketDataFieldSemantic {
         Self::ScalarValue,
     ];
 
-    const fn identity(self) -> &'static str {
+    /// Returns the canonical Market Data field semantic identity.
+    pub const fn identity(self) -> &'static str {
         match self {
             Self::BarOpenPrice => "MARKET_DATA.BAR.OPEN.PRICE.V1",
             Self::BarHighPrice => "MARKET_DATA.BAR.HIGH.PRICE.V1",
@@ -155,7 +156,8 @@ impl MarketDataFieldSemantic {
         }
     }
 
-    const fn row_field(self) -> &'static str {
+    /// Returns the canonical normalized observation field bound by this semantic.
+    pub const fn row_field(self) -> &'static str {
         match self {
             Self::BarOpenPrice => "OPEN",
             Self::BarHighPrice => "HIGH",
@@ -172,7 +174,8 @@ impl MarketDataFieldSemantic {
         }
     }
 
-    fn from_identity(identity: &str) -> Option<Self> {
+    /// Resolves an exact canonical semantic identity without accepting aliases.
+    pub fn from_identity(identity: &str) -> Option<Self> {
         Self::ALL
             .into_iter()
             .find(|semantic| semantic.identity() == identity)
@@ -810,6 +813,120 @@ pub fn bind_strategy_input_event_frame(
         trigger,
         values: values.into_boxed_slice(),
     })
+}
+
+/// Resolves the canonical four roles and their one native EVENT frame from one complete batch.
+///
+/// Unlike [`bind_strategy_input_event_frame`], this operation derives the static bindings and the
+/// frame together. Every observation must belong to exactly one requested role. No partial binding
+/// set or frame is returned.
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(in crate::owner) type StrategyInputEventCorpusBinding = (
+    Box<[StrategyInputBindingReceipt]>,
+    StrategyInputEventFrameReceipt,
+);
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(in crate::owner) fn bind_strategy_input_event_corpus(
+    requests: &[UntrustedStrategyInputBindingRequest],
+    batch: &VerifiedPitObservationBatch,
+) -> Result<StrategyInputEventCorpusBinding, StrategyInputBindingUnavailable> {
+    if requests.len() != 4 || batch.observations().len() != 4 {
+        return Err(StrategyInputBindingUnavailable::MissingField(
+            "event_corpus",
+        ));
+    }
+    let mut role_identities = BTreeSet::new();
+    let mut bindings = Vec::with_capacity(requests.len());
+    for request in requests {
+        validate_request(request)?;
+
+        if request.unit != request.field_semantic.unit() {
+            return Err(StrategyInputBindingUnavailable::UnitMismatch);
+        }
+
+        if !batch_matches_request(request, batch) {
+            return Err(StrategyInputBindingUnavailable::StaleBatch);
+        }
+
+        if !role_identities.insert(request.input_role_identity) {
+            return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+        }
+        bindings.push(bind_strategy_input_role(request, batch)?);
+    }
+
+    bindings.sort_by_key(|binding| binding.locator().input_role_identity());
+    let frame = bind_complete_strategy_input_event_frame(&bindings, batch)?;
+    Ok((bindings.into_boxed_slice(), frame))
+}
+
+pub(in crate::owner) fn bind_complete_strategy_input_event_frame(
+    bindings: &[StrategyInputBindingReceipt],
+    batch: &VerifiedPitObservationBatch,
+) -> Result<StrategyInputEventFrameReceipt, StrategyInputBindingUnavailable> {
+    if bindings.len() != 4 || batch.observations().len() != 4 {
+        return Err(StrategyInputBindingUnavailable::MissingField(
+            "event_corpus",
+        ));
+    }
+    let mut role_identities = BTreeSet::new();
+
+    if bindings
+        .iter()
+        .any(|binding| !role_identities.insert(binding.locator().input_role_identity()))
+    {
+        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+    }
+
+    if batch.observations().iter().any(|row| {
+        bindings
+            .iter()
+            .filter(|binding| static_binding_matches_row(binding, batch, row))
+            .count()
+            != 1
+    }) {
+        return Err(StrategyInputBindingUnavailable::NonUniqueResolution);
+    }
+    bind_strategy_input_event_frame(bindings, batch)
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub(in crate::owner) fn split_strategy_input_event_frames_by_role(
+    frames: &[StrategyInputEventFrameReceipt],
+) -> Box<[StrategyInputEventFrameReceipt]> {
+    frames
+        .iter()
+        .flat_map(|frame| {
+            frame
+                .values
+                .iter()
+                .cloned()
+                .map(|value| StrategyInputEventFrameReceipt {
+                    trigger: frame.trigger.clone(),
+                    values: Box::new([value]),
+                })
+        })
+        .collect::<Vec<_>>()
+        .into_boxed_slice()
+}
+
+fn static_binding_matches_row(
+    binding: &StrategyInputBindingReceipt,
+    batch: &VerifiedPitObservationBatch,
+    row: &VerifiedPitObservation,
+) -> bool {
+    let locator = binding.locator();
+    locator.source_binding_lineage_root == batch.source_binding_lineage_root()
+        && locator.market_semantics_identity == batch.market_semantics_identity()
+        && MarketDataFieldSemantic::from_identity(locator.field_semantic_identity)
+            .is_some_and(|semantic| row.field() == semantic.row_field())
+        && row.instrument() == locator.instrument
+        && row.channel() == locator.channel
+        && row.data_kind() == locator.data_kind
+        && row.timeframe() == locator.timeframe
+        && row.value_scale() == locator.scale
+        && row.correction_stream_identity() == locator.correction_stream_identity
+        && row.market_semantics_identity() == locator.market_semantics_identity
 }
 
 /// Derives and seals one exactly-two-member universe plus every requested role for every member.

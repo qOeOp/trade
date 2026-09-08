@@ -637,6 +637,18 @@ same-root conflicting versions, or conflicting component/event identity fails be
 guest, state, target or checkpoint mutation. The join is canonical Plan data consumed by the one generic Host and
 shared lifecycle kernel; it introduces no feature opcode, second interpreter, heuristic binding or raw-order path.
 
+For continuous EVENT replay, Strategy Factory accepts only the additive move-only
+`StrategyInputEventCorpusV1`. Its complete-set authority is the additive move-only Market Data
+`StrategyInputEventSourceV1`, issued from Owner frames resolved against verified PIT batches; `SealedReplayInput`
+V1 is not reinterpreted as multi-event authority. Preparation revalidates every retained joined cut and V2 projection against the exact
+Plan binding set and validates the whole corpus digest before constructing a Host. One
+`PreparedProgramHostHandoffV2` then transfers the complete corpus exactly once to one persistent Host consumer;
+there is no lazy resolution, caller-selected event vector, or Host-per-event reconstruction. Omission, duplication,
+noncanonical native order, BAR substitution, equal-valued cross-snapshot/batch substitution, or any
+request/census/frontier/cut/projection/native-trigger splice
+fails before Host construction, so no Host checkpoint can advance. The historical single-event preparation entry
+point remains separately available and retains its existing behavior.
+
 `StrategyArtifactV2` is one package containing the canonical `StrategyPlanV2` bytes and exactly one independently
 built Wasm module for each plugin declared by that Plan. Modules cannot be shared between plugin declarations.
 There is no generated outer or root strategy Wasm module: generic `ProgramHostV2` interprets the Plan graph,

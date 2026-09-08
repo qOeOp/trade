@@ -21,6 +21,7 @@ pub mod shared_time_evidence;
 pub mod source_binding;
 pub mod strategy_design_role_set;
 pub mod strategy_input_binding;
+pub mod strategy_input_event_corpus_v1;
 pub mod strategy_input_joined_cut;
 pub mod universe_selection;
 

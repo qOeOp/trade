@@ -874,6 +874,77 @@ fn seal_readback(
     })
 }
 
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn issue_sealed_develop_composer_readback_for_acceptance_v2(
+    plan: &crate::strategy_plan_v2::StrategyPlanV2,
+    artifact: &crate::artifact_v2::StrategyArtifactV2,
+) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+    use crate::develop_composer_operation_v2::DevelopComposerArtifactProjectionV2;
+
+    let request_identity = format!(
+        "sealed-event-composer-request-v2-{}",
+        hex(artifact.identity().as_bytes())
+    );
+    let artifact_locator = format!(
+        "rd-strategy-artifact-v2-{}",
+        hex(artifact.identity().as_bytes())
+    );
+    let plan_bytes = plan.durable_bytes();
+    let receipt_identity =
+        canonical_blob_digest(b"rd.develop.acceptance-operation-receipt.v2\0", &plan_bytes);
+    let response = DevelopComposerOperationResponseV2 {
+        schema_version: SEALED_READ_SCHEMA_V2,
+        request_identity: request_identity.clone(),
+        disposition: DevelopComposerOperationDispositionV2::Success,
+        receipt_identity: Some(receipt_identity),
+        artifact: Some(DevelopComposerArtifactProjectionV2 {
+            artifact_locator,
+            artifact_digest: artifact.identity(),
+            canonical_plan_digest: plan.canonical_plan_digest(),
+            design_digest: plan.design_digest(),
+        }),
+        coordinate: None,
+        reason: None,
+    };
+    let locator = DevelopComposerSealedReadLocatorV2::from_accepted_response(&response)?;
+    let build_receipt_identities = plan
+        .plugin_implementations()
+        .iter()
+        .map(|receipt| receipt.verified_build_receipt_digest())
+        .collect::<Vec<_>>();
+    let record = StoredDevelopComposerPositiveV2 {
+        request_identity,
+        request_digest: canonical_blob_digest(b"rd.develop.acceptance-request.v2\0", &plan_bytes),
+        research_request_identity: plan.research_request_identity(),
+        intent_identity: plan.intent_identity(),
+        design_identity: plan.design_identity(),
+        plan_digest: plan.canonical_plan_digest(),
+        artifact_identity: artifact.identity(),
+        build_attempt_identities: Vec::new(),
+        capsule_identities: Vec::new(),
+        build_receipt_bytes: build_receipt_identities
+            .iter()
+            .map(|identity| identity.as_bytes().to_vec())
+            .collect(),
+        build_receipt_identities,
+        design_bytes: plan.canonical_design_durable_bytes(),
+        plan_bytes,
+        artifact_package_bytes: artifact.durable_package_bytes(),
+        module_bytes: artifact.private_module_bytes(),
+        composer_receipt_bytes: receipt_identity.as_bytes().to_vec(),
+        host_receipt_bytes: artifact.identity().as_bytes().to_vec(),
+        operation_receipt_bytes: receipt_identity.as_bytes().to_vec(),
+        outbox_bytes: artifact.identity().as_bytes().to_vec(),
+        response_bytes: response.canonical_bytes(),
+    };
+    seal_readback(&locator, record, &response)
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 fn canonical_blob_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
     let mut hasher = Sha256::new();
     hasher.update(domain);
