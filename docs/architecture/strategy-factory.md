@@ -909,10 +909,20 @@ environment or caller fallback.
 
 The permanent TrialFamily binding and the R&D-owned request binding both repeat the exact two seal digests and
 cross-bind the same family identity and digest. Maker/taker fees and initial/maintenance margins are usable only
-with a distinct non-forgeable Instrument Owner provenance value binding the exact instrument fact, receipt and term
-bytes; the visible economic configuration cannot attest them, and a missing value never becomes zero or a native
-default. Any missing, noncanonical, mismatched or cross-spliced family, request, profile or Instrument Owner binding
-fails before `ProgramHostV2` or Backtest state exists.
+with a distinct non-forgeable Instrument Owner provenance value minted from its verified exact-locator readback.
+That readback can be issued only by the Owner opened from the deployment configuration root
+`INSTRUMENT_OWNER_DATABASE_URL`; the public boundary accepts no caller-selected pool, URL, expected store identity,
+or expected digest. Missing configuration and a separately created PostgreSQL store fail before provenance exists.
+The Owner also rejects any direct or role-derived effective access by a non-superuser login, including
+membership in the Owner role or PostgreSQL whole-database read/write roles.
+The private fact and atomic receipt bind public-fact identity/digest, venue, margin-account scope, half-open event
+validity, source/provenance, revision, quote/fee currency, and every exact term byte. The first version accepts only
+positive fixed `STANDARD_NOTIONAL_RATE` initial/maintenance values and explicitly selects
+`StandardMarginModel` (`notional * rate`, no leverage); it never infers `LeveragedMarginModel`. The visible economic
+configuration cannot attest those values, and a missing value never becomes zero or a native default. Wrong fact,
+receipt, terms, venue, account or time, and noncanonical, partial, extra, cross-spliced, tampered or ACL-drifted
+custody fail before `ProgramHostV2` or Backtest state exists. Existing profile canonical bytes and digest remain
+unchanged.
 
 Native engine materialization remains `UNAVAILABLE`. V1 represents liquidation only as disabled and supplies no
 numeric ratio; an adapter must separately prove that the native float-only inactive liquidation field is not read,
