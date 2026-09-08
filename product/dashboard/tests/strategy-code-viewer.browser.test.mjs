@@ -197,7 +197,8 @@ test(browserAcceptance
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
       const content = host?.querySelector('.cm-content');
       const scroller = host?.querySelector('.cm-scroller');
-      const fold = host?.querySelector('.cm-foldGutter .cm-gutterElement span[title]');
+      const fold = [...(host?.querySelectorAll('.cm-foldGutter .cm-gutterElement span[title]') ?? [])]
+        .find((marker) => marker.textContent === '⌄' && marker.getClientRects().length > 0);
       const range = document.createRange();
       const firstLine = content?.querySelector('.cm-line');
       if (firstLine) {
