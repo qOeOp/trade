@@ -32,13 +32,14 @@ test("Run detail unavailable state remains inside the rounded card body", async 
   assert.match(unavailableBranch, /<PanelFrameBody>[\s\S]*?<UnavailableState[\s\S]*?<\/PanelFrameBody>/u);
 });
 
-test("Bento unavailable content uses the same inset-card geometry as populated content", () => {
+test("Bento content stays inside one inset body instead of composing sibling cards", () => {
   assert.match(css, /\.panel-frame\.bento-page-frame \{ overflow: clip; \}/u);
   assert.doesNotMatch(css, /\.panel-frame\.bento-page-frame \{[^}]*overflow: (?:auto|hidden|scroll);/u);
   assert.match(
     css,
-    /\.bento-page-frame > \.panel-frame-body > \.unavailable-state \{[^}]*border-radius: var\(--panel-inner-radius\);[^}]*box-shadow: var\(--elevation-base\);/u,
+    /\.bento-page-frame > \.panel-frame-body \{[^}]*padding: 12px;[^}]*overflow: clip;[^}]*border-radius: var\(--panel-inner-radius\);[^}]*background: var\(--panel-body-bg\);/u,
   );
+  assert.match(css, /\.bento-page-frame > \.panel-frame-body > \.unavailable-state \{[^}]*border-radius: 0;[^}]*background: transparent;[^}]*box-shadow: none;/u);
 });
 
 test("Visible nested surfaces share one inner radius while structural joins stay flat", () => {
@@ -65,7 +66,9 @@ test("Visible nested surfaces share one inner radius while structural joins stay
   }
 
   assert.match(css, /\.prototype-notice \{[^}]*border: \.5px solid var\(--border-default\);[^}]*border-left: 3px solid var\(--status-warning\);/u);
-  assert.match(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
+  assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*border-radius: 0;/u);
+  assert.doesNotMatch(css, /\.bento-page-frame > \.panel-frame-body \{[^}]*overflow: hidden;/u);
+  assert.match(css, /\.split-bento > \.detail-inspector \{ position: sticky; top: 0; \}/u);
   assert.match(css, /\.operations-run-table-surface > \.panel-frame-footer \{[^}]*border-radius: 0;/u);
 });
 

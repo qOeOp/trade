@@ -23,6 +23,7 @@ export function PanelFrame({
     <Component
       {...props}
       className={["panel-frame", className].filter(Boolean).join(" ")}
+      data-geometry={variant === "framed" ? "shell-inset" : "flat"}
       data-slot="panel-frame"
       data-variant={variant}
     >
@@ -62,6 +63,7 @@ export function PanelFrameHeader({
       data-density={density}
       data-layout={layout}
       data-slot="panel-frame-header"
+      data-surface="frame"
     >
       <div className="panel-frame-heading">
         {eyebrow ? <span className="panel-frame-eyebrow">{eyebrow}</span> : null}
@@ -114,6 +116,7 @@ export function PanelFrameBody({
       data-density={density}
       data-mode={mode}
       data-slot="panel-frame-body"
+      data-surface="inset"
     >
       {content}
     </div>
@@ -168,6 +171,8 @@ export function PanelFrameFooter({
       {...props}
       className={["panel-frame-footer", className].filter(Boolean).join(" ")}
       data-layout={layout}
+      data-slot="panel-frame-footer"
+      data-surface="frame"
     >
       {children}
     </footer>

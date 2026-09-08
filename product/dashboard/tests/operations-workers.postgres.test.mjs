@@ -281,6 +281,47 @@ test(testName, { skip: !url }, async () => {
     assert.equal(surface.separatorWidth, "0.5px");
     assert.equal(surface.separatorTop, "10px");
     assert.equal(surface.separatorBottom, "10px");
+    const stickyDetail = await readBrowserValue(browser, `(async () => {
+      const viewport = document.querySelector('.page-viewport');
+      const body = document.querySelector('.operations-workers-panel > .panel-frame-body');
+      const layout = document.querySelector('.operations-workers-layout');
+      const detail = layout?.querySelector(':scope > .detail-inspector');
+      if (!viewport || !body || !layout || !detail) return null;
+      layout.style.minHeight = '1200px';
+      const spacer = document.createElement('div');
+      spacer.style.height = '800px';
+      layout.after(spacer);
+      const viewportTop = viewport.getBoundingClientRect().top;
+      const target = viewport.scrollTop + detail.getBoundingClientRect().top - viewportTop + 120;
+      viewport.scrollTo({ top: target, behavior: 'instant' });
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      let ancestor = detail.parentElement;
+      while (ancestor && ancestor !== document.body) {
+        const overflow = getComputedStyle(ancestor).overflowY;
+        if (overflow === 'auto' || overflow === 'scroll' || overflow === 'hidden') break;
+        ancestor = ancestor.parentElement;
+      }
+      return {
+        bodyOverflow: getComputedStyle(body).overflow,
+        bodyPaddingTop: Number.parseFloat(getComputedStyle(body).paddingTop),
+        detailPosition: getComputedStyle(detail).position,
+        detailTop: detail.getBoundingClientRect().top,
+        viewportTop: viewport.getBoundingClientRect().top,
+        scrollAncestorClass: ancestor?.className ?? '',
+      };
+    })()`);
+    assert.ok(stickyDetail);
+    assert.equal(stickyDetail.bodyOverflow, "clip");
+    assert.equal(stickyDetail.detailPosition, "sticky");
+    assert.ok(
+      Math.abs(
+        stickyDetail.detailTop
+          - stickyDetail.viewportTop
+          - stickyDetail.bodyPaddingTop,
+      ) <= 1,
+      JSON.stringify(stickyDetail),
+    );
+    assert.match(stickyDetail.scrollAncestorClass, /page-viewport/u);
     const openedLastRun = await readBrowserValue(browser, `(() => {
       const link = document.querySelector('a[href="/operations/runs/${queued.run_identity}"]');
       link?.click();
