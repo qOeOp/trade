@@ -2845,11 +2845,13 @@ mod tests {
         assert!(submitted_json["provider_invocation"].is_null());
 
         let rd_owner_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
-        let claim_count: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1")
-                .fetch_one(product_edge_pool)
-                .await
-                .unwrap();
+        let claim_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM product_edge_effect_invocation_claims_v1 WHERE attempt_identity=$1",
+        )
+        .bind(&attempt_identity)
+        .fetch_one(product_edge_pool)
+        .await
+        .unwrap();
         assert_eq!(claim_count, 0);
         let before = artifact_source_acceptance_snapshot(rd_owner_pool, product_edge_pool).await;
 
