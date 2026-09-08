@@ -432,7 +432,8 @@ pub fn prepare_program_host_from_owner_event_corpus_v1(
         &instrument_master,
     );
     let verified_bindings = VerifiedStrategyInputBindingsV2::from_owner_receipts(&input_bindings);
-    let (plan, artifact, mut binding) = prepare_program_package_v2(&claims, verified_bindings)?;
+    let (plan, artifact, mut binding) =
+        prepare_program_event_corpus_package_v2(&claims, verified_bindings, &event_package)?;
     for member in event_package.corpus().members() {
         validate_joined_cut_plan_admission_v2(&plan, member.joined_cut())?;
         validate_sample_projection_admission_v2(
@@ -626,6 +627,62 @@ fn prepare_program_package_v2(
     current_bindings: VerifiedStrategyInputBindingsV2,
 ) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
 {
+    let expected_window_end = claims
+        .market
+        .observation_end
+        .checked_add(1)
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
+    prepare_program_package_with_replay_window_v2(
+        claims,
+        current_bindings,
+        claims.market.observation_start,
+        expected_window_end,
+    )
+}
+
+fn prepare_program_event_corpus_package_v2(
+    claims: &ProgramPreparationClaimsV2,
+    current_bindings: VerifiedStrategyInputBindingsV2,
+    event_package: &StrategyInputEventReplayPackageV1,
+) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
+{
+    let members = event_package.corpus().members();
+    let expected_window_start = members
+        .first()
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?
+        .order_key()
+        .event_time();
+    let expected_window_end = members
+        .last()
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?
+        .order_key()
+        .event_time()
+        .checked_add(1)
+        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
+    let request_window = &claims.request.as_dto().window;
+
+    if members.iter().any(|member| {
+        let event_time = member.order_key().event_time();
+        event_time < request_window.start_event_ns
+            || event_time >= request_window.end_event_ns_exclusive
+    }) {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
+    prepare_program_package_with_replay_window_v2(
+        claims,
+        current_bindings,
+        expected_window_start,
+        expected_window_end,
+    )
+}
+
+fn prepare_program_package_with_replay_window_v2(
+    claims: &ProgramPreparationClaimsV2,
+    current_bindings: VerifiedStrategyInputBindingsV2,
+    expected_window_start: u64,
+    expected_window_end: u64,
+) -> Result<(StrategyPlanV2, StrategyArtifactV2, PreparedProgramBindingV2), ProgramPreparationFaultV2>
+{
     validate_request_seal(claims)?;
     validate_private_blob_digests(claims)?;
 
@@ -661,7 +718,12 @@ fn prepare_program_package_v2(
     }
 
     validate_request_program_equality(claims, &plan, &artifact)?;
-    validate_market_and_instrument_equality(claims, &plan)?;
+    validate_market_and_instrument_equality(
+        claims,
+        &plan,
+        expected_window_start,
+        expected_window_end,
+    )?;
 
     Ok((
         plan,
@@ -931,17 +993,14 @@ fn validate_request_program_equality(
 fn validate_market_and_instrument_equality(
     claims: &ProgramPreparationClaimsV2,
     plan: &StrategyPlanV2,
+    expected_window_start: u64,
+    expected_window_end: u64,
 ) -> Result<(), ProgramPreparationFaultV2> {
     let request = claims.request.as_dto();
-    let expected_end = claims
-        .market
-        .observation_end
-        .checked_add(1)
-        .ok_or(ProgramPreparationFaultV2::OwnerMismatch)?;
 
     if claims.market.frames.is_empty()
-        || claims.market.observation_start != request.window.start_event_ns
-        || expected_end != request.window.end_event_ns_exclusive
+        || expected_window_start != request.window.start_event_ns
+        || expected_window_end != request.window.end_event_ns_exclusive
         || !content_digest_matches(
             &request.pit_scope,
             DigestAlgorithmV2::Blake3,
@@ -1119,6 +1178,13 @@ fn canonical_blob_digest(domain: &[u8], bytes: &[u8]) -> BindingDigest {
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 pub(crate) fn prepare_event_corpus_handoff_for_sealed_acceptance_v1()
 -> anyhow::Result<PreparedProgramHostHandoffV2> {
+    prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(None)
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+fn prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(
+    replay_window: Option<vibe_backtest_owner_contracts::ReplayWindowV2>,
+) -> anyhow::Result<PreparedProgramHostHandoffV2> {
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
         ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayWindowV2, VersionedIdentityV2,
@@ -1166,6 +1232,22 @@ pub(crate) fn prepare_event_corpus_handoff_for_sealed_acceptance_v1()
     let acceptance = issue_strategy_input_event_replay_package_for_sealed_acceptance_v1()?;
     let (bindings, event_package, instrument_master) = acceptance.into_preparation_parts();
     let (plan, artifact) = event_corpus_plan_and_artifact(&bindings);
+    let first_event_ns = event_package
+        .corpus()
+        .members()
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay corpus is empty"))?
+        .order_key()
+        .event_time();
+    let end_event_ns_exclusive = event_package
+        .corpus()
+        .members()
+        .last()
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay corpus is empty"))?
+        .order_key()
+        .event_time()
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("EVENT replay window overflow"))?;
     let market = event_package.replay_input();
     let artifact_locator = format!(
         "rd-strategy-artifact-v2-{}",
@@ -1216,13 +1298,10 @@ pub(crate) fn prepare_event_corpus_handoff_for_sealed_acceptance_v1()
         runner_operational_profile: version("sha256", fixture_digest(15))?,
         diagnostic_policy: version("sha256", fixture_digest(16))?,
         deterministic_seed: 17,
-        window: ReplayWindowV2 {
-            start_event_ns: market.observation_start_event_time(),
-            end_event_ns_exclusive: market
-                .observation_end_event_time()
-                .checked_add(1)
-                .ok_or_else(|| anyhow::anyhow!("EVENT replay window overflow"))?,
-        },
+        window: replay_window.unwrap_or(ReplayWindowV2 {
+            start_event_ns: first_event_ns,
+            end_event_ns_exclusive,
+        }),
         calendar: version("sha256", fixture_digest(17))?,
         session: version("sha256", fixture_digest(18))?,
         time_zone: version("sha256", fixture_digest(19))?,
@@ -1279,6 +1358,24 @@ mod preparation_tests {
             plugin_implementation_receipts_for_test,
         },
     };
+
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
+    #[rstest]
+    fn event_corpus_member_outside_replay_window_fails_before_handoff() {
+        let result =
+            prepare_event_corpus_handoff_for_sealed_acceptance_window_v1(Some(ReplayWindowV2 {
+                start_event_ns: 5_000_000_000,
+                end_event_ns_exclusive: 5_000_000_001,
+            }));
+        let error = result
+            .err()
+            .expect("a terminal-anchor-only Replay window must fail closed");
+
+        assert_eq!(
+            error.downcast_ref::<ProgramPreparationFaultV2>(),
+            Some(&ProgramPreparationFaultV2::OwnerMismatch)
+        );
+    }
 
     #[cfg(feature = "sealed-strategy-input-acceptance")]
     #[rstest]
