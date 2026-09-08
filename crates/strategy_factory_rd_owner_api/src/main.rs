@@ -2750,9 +2750,8 @@ mod tests {
             replay_composition: None,
         };
         let headers = bearer_headers(token);
-        let research_request_identity = format!("strategy-source-research-{suffix}");
         let research = ProductEdgeOperationRequestV2 {
-            request_identity: research_request_identity,
+            request_identity: format!("strategy-source-research-{suffix}"),
             channel: ProductEdgeChannel::WindmillProductEdge,
             goal: SourcedResearchGoalV2 {
                 hypothesis: "A bounded momentum effect persists after exact costs.".to_string(),
@@ -2795,7 +2794,6 @@ mod tests {
             .as_str()
             .unwrap_or_else(|| panic!("research custody unavailable: {research_json}"))
             .to_string();
-
         let build_request_identity = format!("strategy-source-build-{suffix}");
         let attempt_identity = format!("strategy-source-attempt-{suffix}");
         let build = serde_json::json!({
@@ -2821,7 +2819,7 @@ mod tests {
             "request": build,
             "candidate": {
                 "schema_version": 1,
-                "candidate_identity": format!("strategy-source-candidate-{suffix}"),
+                "candidate_identity": format!("agent-program-candidate-v1-strategy-source-{suffix}"),
                 "intent_identity": intent_identity,
                 "intent_semantic_digest": intent_semantic_digest,
                 "logic": {

@@ -75,6 +75,7 @@ pub struct PostgresArtifactBuildOwnerV1 {
     pool: PgPool,
     database_endpoint_resource_fingerprint: String,
     sandbox: Arc<dyn ArtifactBuildSandboxPort>,
+    allow_providerless_sealed_acceptance: bool,
     attempt_timeout_ms: u64,
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
 }
@@ -305,6 +306,7 @@ impl PostgresArtifactBuildOwnerV1 {
             sandbox: Arc::new(UnixArtifactBuildSandboxV1::new(
                 "/schema-materialization-no-sandbox",
             )),
+            allow_providerless_sealed_acceptance: false,
             attempt_timeout_ms: 0,
             clock: Arc::new(current_epoch_ms),
         };
@@ -335,6 +337,7 @@ impl PostgresArtifactBuildOwnerV1 {
         Self::connect_with_sandbox(
             database_url,
             Arc::new(UnixArtifactBuildSandboxV1::new(sandbox_socket)),
+            false,
             attempt_timeout_ms,
         )
         .await
@@ -348,6 +351,7 @@ impl PostgresArtifactBuildOwnerV1 {
         Self::connect_with_sandbox(
             database_url,
             Arc::new(SealedArtifactSourceAcceptanceSandboxV1),
+            true,
             attempt_timeout_ms,
         )
         .await
@@ -356,6 +360,7 @@ impl PostgresArtifactBuildOwnerV1 {
     async fn connect_with_sandbox(
         database_url: &str,
         sandbox: Arc<dyn ArtifactBuildSandboxPort>,
+        allow_providerless_sealed_acceptance: bool,
         attempt_timeout_ms: u64,
     ) -> Result<Self, ArtifactBuildError> {
         let database_endpoint_resource_fingerprint =
@@ -371,6 +376,7 @@ impl PostgresArtifactBuildOwnerV1 {
             pool,
             database_endpoint_resource_fingerprint,
             sandbox,
+            allow_providerless_sealed_acceptance,
             attempt_timeout_ms,
             clock: Arc::new(current_epoch_ms),
         };
@@ -1078,9 +1084,18 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
             Err(e) => return Err(e),
         };
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        let custody = Box::pin(admit_attempt_custody_in_transaction(
+        let admission_mode =
+            if self.allow_providerless_sealed_acceptance && started_binding.is_none() {
+                DownstreamAdmissionModeV1::FirstMutation {
+                    read_cut_epoch_ms: self.now()?,
+                }
+            } else {
+                DownstreamAdmissionModeV1::Historical
+            };
+        let custody = Box::pin(admit_attempt_custody_with_admission_mode_in_transaction(
             &mut transaction,
             &request.build_request_identity,
+            admission_mode,
         ))
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt missing".to_string()))?;
@@ -1190,9 +1205,18 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
         );
         let review = artifact_review(&intent, &candidate, &artifact, build_receipt.clone());
         let mut transaction = self.pool.begin().await.map_err(storage)?;
-        let custody = Box::pin(admit_attempt_custody_in_transaction(
+        let admission_mode =
+            if self.allow_providerless_sealed_acceptance && started_binding.is_none() {
+                DownstreamAdmissionModeV1::FirstMutation {
+                    read_cut_epoch_ms: self.now()?,
+                }
+            } else {
+                DownstreamAdmissionModeV1::Historical
+            };
+        let custody = Box::pin(admit_attempt_custody_with_admission_mode_in_transaction(
             &mut transaction,
             &request.build_request_identity,
+            admission_mode,
         ))
         .await?
         .ok_or_else(|| ArtifactBuildError::Storage("attempt missing".to_string()))?;
