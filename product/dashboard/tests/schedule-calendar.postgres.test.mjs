@@ -92,9 +92,16 @@ async function openBrowser(executable) {
       if (message.error) reject(new Error(message.error.message));
       else resolve(message.result);
     });
-    const send = (method, params = {}) => new Promise((resolve, reject) => {
+    const send = (method, params = {}, timeoutMs = 5_000) => new Promise((resolve, reject) => {
       const requestId = ++id;
-      pending.set(requestId, { resolve, reject });
+      const timer = setTimeout(() => {
+        pending.delete(requestId);
+        reject(new Error(`calendar browser command timed out: ${method}`));
+      }, timeoutMs);
+      pending.set(requestId, {
+        resolve: (value) => { clearTimeout(timer); resolve(value); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       socket.send(JSON.stringify({ id: requestId, method, params }));
     });
     return { child, profile, close: () => socket.close(), send };
@@ -120,6 +127,25 @@ async function readBrowserValue(browser, expression) {
   const result = await browser.send("Runtime.evaluate", { expression, awaitPromise: true, returnByValue: true });
   if (result.exceptionDetails) throw new Error(result.exceptionDetails.text ?? "browser expression failed");
   return result.result?.value;
+}
+
+async function dispatchBrowserKey(browser, key) {
+  const keys = {
+    Enter: { code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+    Escape: { code: "Escape", windowsVirtualKeyCode: 27, text: "" },
+  };
+  const descriptor = keys[key];
+  assert.ok(descriptor, `unsupported browser key ${key}`);
+  for (const type of ["keyDown", "keyUp"]) {
+    await browser.send("Input.dispatchKeyEvent", {
+      type, key, code: descriptor.code,
+      windowsVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+      nativeVirtualKeyCode: descriptor.windowsVirtualKeyCode,
+      ...(type === "keyDown" && descriptor.text
+        ? { text: descriptor.text, unmodifiedText: descriptor.text }
+        : {}),
+    });
+  }
 }
 
 test(testName, { skip: !url }, async () => {
@@ -214,6 +240,8 @@ test(testName, { skip: !url }, async () => {
       assert.equal(browserEnvelope.schedules.length, descriptors.length);
       browser = await openBrowser(browserExecutable);
       await browser.send("Page.enable");
+      await browser.send("Page.bringToFront");
+      await browser.send("Input.setIgnoreInputEvents", { ignore: false });
       await browser.send("Page.navigate", { url: `${origin}/operations/schedules/` });
       const configuredOperations = JSON.stringify(descriptors.map((descriptor) => descriptor.operation_id));
       await waitForBrowserExpression(browser,
@@ -223,6 +251,118 @@ test(testName, { skip: !url }, async () => {
       });
       assert.match(visible.result.value, /observed/);
       assert.match(visible.result.value, /expected/);
+
+      const viewSlots = {
+        agenda: "calendar-agenda-view",
+        day: "calendar-day-view",
+        week: "calendar-week-view",
+        month: "calendar-month-view",
+        year: "calendar-year-view",
+      };
+      for (const [view, slot] of Object.entries(viewSlots)) {
+        const activated = await readBrowserValue(browser, `(() => {
+          const button = document.querySelector('button[aria-label="${view[0].toUpperCase()}${view.slice(1)} view"]');
+          button?.click();
+          return Boolean(button);
+        })()`);
+        assert.equal(activated, true, `${view} control exists`);
+        await waitForBrowserExpression(browser,
+          `Boolean(document.querySelector('[data-slot="${slot}"]'))
+            && document.querySelector('button[aria-label="${view[0].toUpperCase()}${view.slice(1)} view"]')
+              ?.getAttribute('aria-pressed') === 'true'`);
+      }
+
+      const keyboardTarget = await readBrowserValue(browser, `(() => {
+        const button = document.querySelector('button[aria-label="Day view"]');
+        button?.focus();
+        return {
+          focused: document.activeElement === button,
+          tagName: button?.tagName,
+          tabIndex: button?.tabIndex,
+        };
+      })()`);
+      assert.deepEqual(keyboardTarget, { focused: true, tagName: "BUTTON", tabIndex: 0 });
+      await dispatchBrowserKey(browser, "Enter");
+      await waitForBrowserExpression(browser,
+        `Boolean(document.querySelector('[data-slot="calendar-day-view"]'))
+          && document.querySelector('button[aria-label="Day view"]')?.getAttribute('aria-pressed') === 'true'`);
+
+      await readBrowserValue(browser,
+        `document.querySelector('button[aria-label="Month view"]')?.click()`);
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('[data-slot=\"calendar-month-view\"]'))");
+      for (const theme of ["dark", "light"]) {
+        const viewPalette = await readBrowserValue(browser, `(() => {
+          document.documentElement.dataset.theme = ${JSON.stringify(theme)};
+          const active = document.querySelector('button[aria-label="Month view"]');
+          const probe = document.createElement('i');
+          probe.style.cssText = 'position:absolute;background:var(--data-table-row-selected-bg)';
+          document.body.append(probe);
+          const token = getComputedStyle(probe).backgroundColor;
+          probe.remove();
+          return {
+            pressed: active?.getAttribute('aria-pressed'),
+            background: active ? getComputedStyle(active).backgroundColor : null,
+            token,
+          };
+        })()`);
+        assert.equal(viewPalette.pressed, "true", `${theme} active view`);
+        assert.equal(viewPalette.background, viewPalette.token, `${theme} active view token`);
+      }
+
+      const overflowOpened = await readBrowserValue(browser, `(() => {
+        const button = document.querySelector('button[aria-label^="Show "][aria-label*=" more schedule groups on "]');
+        button?.focus();
+        return Boolean(button && document.activeElement === button);
+      })()`);
+      assert.equal(overflowOpened, true, "dense schedule overflow is keyboard focusable");
+      await dispatchBrowserKey(browser, "Enter");
+      await waitForBrowserExpression(browser,
+        "Boolean(document.querySelector('dialog[open][aria-label$=\"UTC\"]'))");
+      const inspection = await readBrowserValue(browser, `(() => {
+        const dialog = document.querySelector('dialog[open]');
+        return {
+          text: dialog?.innerText ?? '',
+          modal: dialog?.matches(':modal') ?? false,
+          focusInside: Boolean(dialog?.contains(document.activeElement)),
+        };
+      })()`);
+      assert.match(inspection.text, /Expected triggers|Observed run reference/);
+      assert.equal(inspection.modal, true);
+      assert.equal(inspection.focusInside, true);
+      await dispatchBrowserKey(browser, "Escape");
+      await waitForBrowserExpression(browser, "document.querySelector('dialog[open]') === null");
+      assert.equal(await readBrowserValue(browser,
+        `document.activeElement?.matches('button[aria-label^="Show "][aria-label*=" more schedule groups on "]') ?? false`),
+      true, "closing schedule inspection returns focus to the overflow trigger");
+
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 760, height: 900, deviceScaleFactor: 1, mobile: false,
+      });
+      const narrowGeometry = await readBrowserValue(browser, `(() => {
+        const header = document.querySelector('[data-slot="schedule-calendar-header"]');
+        const controls = [...document.querySelectorAll('[aria-label="Calendar view"] button')];
+        return {
+          flexDirection: header ? getComputedStyle(header).flexDirection : null,
+          overflowX: header ? getComputedStyle(header).overflowX : null,
+          controls: controls.length,
+          documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      })()`);
+      assert.equal(narrowGeometry.flexDirection, "column");
+      assert.equal(narrowGeometry.overflowX, "auto");
+      assert.equal(narrowGeometry.controls, 5);
+      assert.ok(narrowGeometry.documentOverflow <= 1, JSON.stringify(narrowGeometry));
+      await browser.send("Emulation.setDeviceMetricsOverride", {
+        width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
+      });
+      const desktopGeometry = await readBrowserValue(browser, `(() => ({
+        flexDirection: getComputedStyle(document.querySelector('[data-slot="schedule-calendar-header"]')).flexDirection,
+        documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      }))()`);
+      assert.equal(desktopGeometry.flexDirection, "row");
+      assert.ok(desktopGeometry.documentOverflow <= 1, JSON.stringify(desktopGeometry));
+
       const tableOpened = await readBrowserValue(browser, `(() => {
         const settings = document.querySelector('summary[aria-label="Calendar settings"]');
         settings?.click();
