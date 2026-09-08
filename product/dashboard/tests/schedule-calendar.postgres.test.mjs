@@ -356,9 +356,12 @@ test(testName, { skip: !url }, async () => {
       await browser.send("Emulation.setDeviceMetricsOverride", {
         width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false,
       });
-      const desktopDirection = await readBrowserValue(browser,
-        "getComputedStyle(document.querySelector('[data-slot=\"schedule-calendar-header\"]')).flexDirection");
-      assert.equal(desktopDirection, "row");
+      const desktopGeometry = await readBrowserValue(browser, `(() => ({
+        flexDirection: getComputedStyle(document.querySelector('[data-slot="schedule-calendar-header"]')).flexDirection,
+        documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      }))()`);
+      assert.equal(desktopGeometry.flexDirection, "row");
+      assert.ok(desktopGeometry.documentOverflow <= 1, JSON.stringify(desktopGeometry));
 
       const tableOpened = await readBrowserValue(browser, `(() => {
         const settings = document.querySelector('summary[aria-label="Calendar settings"]');
