@@ -15,7 +15,7 @@ use vibe_indicators_kernel::{
     CatalogUnitRuleV1, PrimitiveCatalogV1, PrimitiveOperationV1, RoundingMode,
 };
 
-use crate::strategy_design_v2::{PluginManifestV2, StrategyDesignV2, ValueTypeV2};
+use crate::strategy_design_v2::{PluginManifestV2, StrategyDesignV2, ValueRefV2, ValueTypeV2};
 use crate::strategy_plan_v2::{
     StrategyDesignPreparationV2, plugin_manifest_digest, prepare_strategy_design_v2,
     strategy_input_role_identity_v2,
@@ -775,6 +775,15 @@ fn validate_inputs_and_constants(
         .iter()
         .map(|p| (p.semantic_id.as_str(), p))
         .collect();
+    let design_invocations = design
+        .reactions
+        .iter()
+        .flat_map(|reaction| &reaction.nodes)
+        .filter(|node| node.plugin_semantic_id == proposal.plugin_semantic_id)
+        .collect::<Vec<_>>();
+    if design_invocations.is_empty() {
+        return Err(BoundedFeatureProgramErrorV1::Input);
+    }
     let mut values = BTreeMap::new();
     let mut used_manifest_ports = BTreeSet::new();
     let mut role_ids = BTreeSet::new();
@@ -830,6 +839,15 @@ fn validate_inputs_and_constants(
         if port.value_type != ValueTypeV2::I128
             || port.max_bytes != 16
             || !used_manifest_ports.insert(port.semantic_id.as_str())
+            || design_invocations.iter().any(|node| {
+                !node.input_bindings.iter().any(|binding| {
+                    binding.port_id == input.value_port_semantic_id
+                        && matches!(
+                            &binding.source,
+                            ValueRefV2::Input { input_id } if input_id == &input.input_role_id
+                        )
+                })
+            })
         {
             return Err(BoundedFeatureProgramErrorV1::Input);
         }
@@ -3795,6 +3813,88 @@ pub(crate) mod tests {
             .retain(|port| port.value_type != ValueTypeV2::Bytes);
         assert!(matches!(
             validate_inputs_and_constants(&proposal, &design, &design.plugins[0], catalog),
+            Err(BoundedFeatureProgramErrorV1::Input)
+        ));
+    }
+
+    #[test]
+    fn value_ports_cannot_be_permuted_across_owner_input_roles() {
+        let (mut design, mut proposal, catalog) = candidate();
+        let mut second_role = design.inputs[0].clone();
+        second_role.semantic_id = "research.input.open.v1".into();
+        second_role.field_semantic_id = "MARKET_DATA.BAR.OPEN.PRICE.V1".into();
+        let second_role_identity = strategy_input_role_identity_v2(&second_role);
+        let second_coordinate_port = coordinate_port_id(second_role_identity);
+        design.inputs.push(second_role.clone());
+
+        let manifest = design
+            .plugins
+            .iter_mut()
+            .find(|plugin| plugin.semantic_id == proposal.plugin_semantic_id)
+            .expect("BFP manifest");
+        manifest.input_ports.push(PortContractV2 {
+            semantic_id: "input.open.v1".into(),
+            value_type: ValueTypeV2::I128,
+            max_bytes: 16,
+        });
+        manifest.input_ports.push(PortContractV2 {
+            semantic_id: second_coordinate_port.clone(),
+            value_type: ValueTypeV2::Bytes,
+            max_bytes: 308,
+        });
+        manifest
+            .input_ports
+            .sort_by(|left, right| left.semantic_id.cmp(&right.semantic_id));
+        for reaction in &mut design.reactions {
+            for node in &mut reaction.nodes {
+                if node.plugin_semantic_id != proposal.plugin_semantic_id {
+                    continue;
+                }
+                node.input_bindings.push(PortBindingV2 {
+                    port_id: "input.open.v1".into(),
+                    source: ValueRefV2::Input {
+                        input_id: second_role.semantic_id.clone(),
+                    },
+                });
+                node.input_bindings.push(PortBindingV2 {
+                    port_id: second_coordinate_port.clone(),
+                    source: ValueRefV2::OwnerSampleCoordinate {
+                        input_id: second_role.semantic_id.clone(),
+                        source_semantic_id: format!(
+                            "{OWNER_SAMPLE_COORDINATE_SOURCE_V1}({})",
+                            second_role.semantic_id
+                        ),
+                    },
+                });
+                node.input_bindings
+                    .sort_by(|left, right| left.port_id.cmp(&right.port_id));
+            }
+        }
+        let mut second_input = proposal.inputs[0].clone();
+        second_input.fact_type_semantic_id = second_role.field_semantic_id;
+        second_input.input_role_id = second_role.semantic_id;
+        second_input.input_role_identity = second_role_identity;
+        second_input.static_binding_receipt_digest = digest(9);
+        second_input.value_port_semantic_id = "input.open.v1".into();
+        second_input.update_clock = BoundedFeatureClockV1::Trigger {
+            input_role_id: second_input.input_role_id.clone(),
+        };
+        proposal.inputs.push(second_input);
+        let manifest = design
+            .plugins
+            .iter()
+            .find(|plugin| plugin.semantic_id == proposal.plugin_semantic_id)
+            .expect("BFP manifest");
+        proposal.plugin_manifest_digest = plugin_manifest_digest(manifest);
+
+        proposal.inputs.swap(0, 1);
+        let value_port = proposal.inputs[0].value_port_semantic_id.clone();
+        proposal.inputs[0].value_port_semantic_id =
+            proposal.inputs[1].value_port_semantic_id.clone();
+        proposal.inputs[1].value_port_semantic_id = value_port;
+
+        assert!(matches!(
+            validate_inputs_and_constants(&proposal, &design, manifest, catalog),
             Err(BoundedFeatureProgramErrorV1::Input)
         ));
     }
