@@ -334,6 +334,8 @@ test(browserAcceptance
         ariaReadonly: host?.getAttribute('aria-readonly'),
         contentEditable: content?.getAttribute('contenteditable'),
         renderedLineNumbers: [...(host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])]
+          .filter((lineNumber) => getComputedStyle(lineNumber).visibility !== 'hidden'
+            && lineNumber.getBoundingClientRect().height > 0)
           .map((lineNumber) => Number(lineNumber.textContent?.trim()))
           .filter(Number.isInteger),
         foldGutter: Boolean(host?.querySelector('.cm-foldGutter')),
