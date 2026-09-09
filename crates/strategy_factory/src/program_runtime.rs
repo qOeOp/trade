@@ -300,11 +300,16 @@ fn validate_plugin_candidate(
         .and_then(|value| value.checked_add((manifest.output_ports.len() + 1) * 8))
         .and_then(|value| value.checked_add(output_payload_bound as usize))
         .ok_or(ProgramRuntimeError::ResourceLimit("output bytes"))?;
-    if input.len() != input_bound {
+    let exact_capacity = manifest.abi_version == 3;
+    if (exact_capacity && input.len() != input_bound)
+        || (!exact_capacity && input.len() > input_bound)
+    {
         return Err(ProgramRuntimeError::ResourceLimit("input bytes"));
     }
 
-    if output.len() != output_bound {
+    if (exact_capacity && output.len() != output_bound)
+        || (!exact_capacity && output.len() > output_bound)
+    {
         return Err(ProgramRuntimeError::ResourceLimit("output bytes"));
     }
     Ok(())
@@ -766,15 +771,22 @@ mod tests {
     }
 
     #[rstest]
-    fn plugin_capacity_must_cover_the_exact_canonical_frame() {
+    fn abi_two_capacity_remains_bounded_while_abi_three_is_exact() {
         let manifest = plugin_manifest();
-        assert_eq!(
-            validate_plugin_candidate_v2(&plugin_module(None, 127, 128), &manifest),
-            Err(ProgramRuntimeError::ResourceLimit("input bytes"))
-        );
+        validate_plugin_candidate_v2(&plugin_module(None, 127, 128), &manifest).unwrap();
+        validate_plugin_candidate_v2(&plugin_module(None, 128, 127), &manifest).unwrap();
 
         let mut abi_three = manifest;
         abi_three.abi_version = 3;
+        let undersized_input = plugin_module(None, 127, 129);
+        assert_eq!(
+            validate_plugin_candidate_v3(
+                &undersized_input,
+                &abi_three,
+                undersized_input.len() as u32,
+            ),
+            Err(ProgramRuntimeError::ResourceLimit("input bytes"))
+        );
         let undersized_output = plugin_module(None, 128, 128);
         assert_eq!(
             validate_plugin_candidate_v3(

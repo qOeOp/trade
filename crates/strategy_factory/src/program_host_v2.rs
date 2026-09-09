@@ -2689,9 +2689,6 @@ pub(crate) fn validate_bfp_output_availability(
     if !is_bounded_feature_manifest(manifest) {
         return Ok(false);
     }
-    if output.state.bytes().len() != manifest.state.max_bytes as usize {
-        return Err(ProgramHostV2Error::Graph("plugin.post_state".into()));
-    }
     match output.output_availability {
         Some(PluginOutputAvailabilityV3::Ready) => Ok(false),
         Some(PluginOutputAvailabilityV3::Warming) => Ok(true),
