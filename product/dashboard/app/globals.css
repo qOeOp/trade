@@ -1203,9 +1203,31 @@ button.rd-research-item { cursor: pointer; }
 .detail-cluster-values code { max-width: 100%; padding: 5px 7px; overflow: hidden; border-radius: 7px; background: var(--surface-card); text-overflow: ellipsis; white-space: nowrap; }
 .detail-inspector-body > .detail-cluster-grid { min-width: 0; width: 100%; padding: var(--panel-content-padding); border-radius: 0; box-shadow: none; }
 .operations-legacy-status { margin-bottom: 2px; }
-.operations-runs-panel > .panel-frame-header { min-height: 84px; }
-.operations-runs-panel > .panel-frame-header h2 { margin: 5px 0 6px; font-size: 21px; }
-.operations-runs-panel > .panel-frame-header p { font-size: 12px; }
+.operations-runs-panel > .panel-frame-header { min-height: 0; padding-block: 18px; align-items: flex-end; }
+.operations-runs-panel > .panel-frame-header .panel-frame-heading { max-width: 760px; }
+.operations-runs-panel > .panel-frame-header h2 { margin: 7px 0 7px; font-size: clamp(22px, 1.8vw, 28px); line-height: 1.08; letter-spacing: -.035em; }
+.operations-runs-panel > .panel-frame-header p { max-width: 720px; font-size: 12px; line-height: 1.55; }
+.operations-run-summaries { grid-template-columns: minmax(260px, .95fr) minmax(0, 2.55fr); }
+.operations-run-summaries .insight-summary-lead { min-height: 154px; padding: 24px 28px; display: flex; flex-direction: column; justify-content: center; }
+.operations-run-summaries .insight-summary-eyebrow { font-size: 10px; letter-spacing: .1em; }
+.operations-run-summaries .insight-summary-label { margin-top: 19px; font-size: 11px; }
+.operations-run-summaries .insight-summary-lead > strong { margin-top: 8px; font-size: clamp(34px, 3vw, 46px); }
+.operations-run-summaries .insight-summary-lead > p { margin-top: 12px; font-size: 10px; line-height: 1.55; }
+.operations-run-summaries .insight-summary-facts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.operations-run-summaries .insight-summary-fact { min-height: 154px; padding: 22px 16px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.operations-run-summaries .insight-summary-fact dt { font-size: 10px; line-height: 1.35; }
+.operations-run-summaries .insight-summary-fact dd { margin-top: 10px; font-size: 22px; line-height: 1; }
+.run-detail-summaries .aggregate-summary-group { min-height: 164px; padding: 22px 26px; grid-template-columns: minmax(150px, .82fr) minmax(0, 1.48fr); grid-template-rows: auto minmax(0, 1fr); align-items: stretch; column-gap: 26px; }
+.run-detail-summaries .aggregate-summary-eyebrow { margin-bottom: 15px; font-size: 10px; letter-spacing: .1em; }
+.run-detail-summaries .aggregate-summary-lead { padding-right: 26px; display: flex; flex-direction: column; justify-content: center; }
+.run-detail-summaries .aggregate-summary-lead > span { font-size: 11px; }
+.run-detail-summaries .aggregate-summary-lead > strong { margin-top: 9px; font-size: clamp(27px, 2vw, 34px); line-height: 1.05; }
+.run-detail-summaries .aggregate-summary-lead > small { margin-top: 9px; font-size: 10px; }
+.run-detail-summaries .aggregate-summary-facts { grid-template-columns: repeat(3, minmax(0, 1fr)); align-content: stretch; gap: 0; }
+.run-detail-summaries .aggregate-summary-fact { min-height: 76px; padding: 7px 14px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.run-detail-summaries .aggregate-summary-fact + .aggregate-summary-fact { border-left: 1px solid var(--border-default); }
+.run-detail-summaries .aggregate-summary-fact dt { font-size: 10px; line-height: 1.35; }
+.run-detail-summaries .aggregate-summary-fact dd { margin-top: 8px; font-size: 14px; line-height: 1.25; white-space: normal; }
 .operations-run-table-surface .filter-toolbar { gap: 8px; }
 .operations-run-table-surface .filter-tabs { flex: 1 1 auto; }
 .operations-run-table-surface .filter-toolbar-group { flex: 0 0 auto; flex-wrap: nowrap; }
@@ -1233,6 +1255,9 @@ button.rd-research-item { cursor: pointer; }
   .split-bento[data-height-mode="viewport"] > .detail-inspector { position: static; overflow-y: visible; }
   .aggregate-summary { grid-template-columns: 1fr; }
   .aggregate-summary-group + .aggregate-summary-group { border-top: 1px solid var(--border-default); border-left: 0; }
+  .operations-run-summaries { grid-template-columns: minmax(240px, .85fr) minmax(0, 1.8fr); }
+  .operations-run-summaries .insight-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-run-summaries .insight-summary-fact { min-height: 96px; }
 }
 
 @media (max-width: 767px) {
@@ -1265,6 +1290,11 @@ button.rd-research-item { cursor: pointer; }
   .aggregate-summary-group { padding: 17px; grid-template-columns: 1fr; row-gap: 16px; }
   .aggregate-summary-lead { padding: 0 0 16px; border-right: 0; border-bottom: 1px solid var(--border-default); }
   .aggregate-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .run-detail-summaries .aggregate-summary-group { min-height: 0; padding: 18px; grid-template-columns: 1fr; row-gap: 16px; }
+  .run-detail-summaries .aggregate-summary-lead { padding: 0 0 16px; border-right: 0; border-bottom: 1px solid var(--border-default); }
+  .run-detail-summaries .aggregate-summary-facts { grid-template-columns: 1fr; }
+  .run-detail-summaries .aggregate-summary-fact { min-height: 64px; align-items: flex-start; text-align: left; }
+  .run-detail-summaries .aggregate-summary-fact + .aggregate-summary-fact { border-top: 1px solid var(--border-default); border-left: 0; }
   .backtest-diagnostic-category-grid { grid-template-columns: 1fr; }
   .backtest-diagnostic-category-grid article:nth-child(n) { padding-inline: 0; border-left: 0; }
   .filter-toolbar { align-items: stretch; flex-direction: column; }
@@ -1318,6 +1348,9 @@ button.rd-research-item { cursor: pointer; }
   .insight-summary-lead { border-right: 0; border-bottom: .5px solid var(--border-default); }
   .insight-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .insight-summary-fact { min-height: 92px; padding: 16px; }
+  .operations-run-summaries { grid-template-columns: 1fr; }
+  .operations-run-summaries .insight-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operations-run-summaries .insight-summary-fact { min-height: 88px; }
   .rd-detail-list-empty { min-height: 170px; }
   .rd-detail-body { padding: 13px; }
   .rd-detail-loader, .rd-detail-loader-artifact { grid-template-columns: 1fr; }
