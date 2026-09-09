@@ -121,9 +121,9 @@ pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4(
     {
         validate_joined_subject(transaction, &decoded).await?;
     }
-    validate_v3_dependencies(transaction, prepared.dependencies()).await?;
+    validate_v3_dependencies(transaction, prepared.dependencies(), true).await?;
     validate_exact_v3_components(transaction, &decoded, prepared.dependencies()).await?;
-    if let Some(existing) = load(transaction, prepared.receipt_digest()).await? {
+    if let Some(existing) = load(transaction, prepared.receipt_digest(), true).await? {
         if existing.canonical_bytes() != prepared.canonical_bytes()
             || existing.kind() != prepared.kind()
             || existing.subject_identity() != prepared.subject_identity()
@@ -158,7 +158,7 @@ pub(super) async fn persist_strategy_input_sample_projection_in_transaction_v4(
     sqlx::query("INSERT INTO market_data_private.strategy_input_sample_projection_outbox_v4(outbox_identity,payload,custody_digest) VALUES($1,$2,$3)")
         .bind(prepared.receipt_digest().as_slice()).bind(prepared.canonical_bytes()).bind(custody.as_slice())
         .execute(&mut **transaction).await.map_err(|e| map_insert(&e))?;
-    let stored = load(transaction, prepared.receipt_digest())
+    let stored = load(transaction, prepared.receipt_digest(), true)
         .await?
         .ok_or(StrategyInputSampleProjectionErrorV4::CommitInterrupted)?;
 
@@ -277,7 +277,7 @@ async fn resolve_from_pool(
         .execute(&mut *transaction)
         .await
         .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?;
-    let readback = load(&mut transaction, digest)
+    let readback = load(&mut transaction, digest, false)
         .await?
         .ok_or(StrategyInputSampleProjectionErrorV4::UnknownIdentity)?;
     transaction
@@ -290,6 +290,7 @@ async fn resolve_from_pool(
 async fn validate_v3_dependencies(
     transaction: &mut Transaction<'_, Postgres>,
     dependencies: &[ScheduleDependencyV4],
+    lock_dependencies: bool,
 ) -> Result<(), StrategyInputSampleProjectionErrorV4> {
     for expected in dependencies {
         let source_digest = expected.source_projection_digest;
@@ -305,7 +306,7 @@ async fn validate_v3_dependencies(
             transaction,
             &stored.decoded,
             &stored_dependencies,
-            true,
+            lock_dependencies,
         )
         .await
         .map_err(|_| StrategyInputSampleProjectionErrorV4::ScheduleDependencyMismatch)?;
@@ -335,6 +336,7 @@ async fn validate_v3_dependencies(
 async fn load(
     transaction: &mut Transaction<'_, Postgres>,
     digest: [u8; 32],
+    lock_dependencies: bool,
 ) -> Result<Option<StrategyInputSampleProjectionReadbackV4>, StrategyInputSampleProjectionErrorV4> {
     let row = sqlx::query(
         "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_v4($1)",
@@ -375,7 +377,7 @@ async fn load(
     {
         return Err(StrategyInputSampleProjectionErrorV4::StoreUntrusted);
     }
-    validate_v3_dependencies(transaction, &dependencies).await?;
+    validate_v3_dependencies(transaction, &dependencies, lock_dependencies).await?;
     validate_exact_v3_components(transaction, &decoded, &dependencies).await?;
     Ok(Some(
         StrategyInputSampleProjectionReadbackV4::from_verified(decoded),
