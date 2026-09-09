@@ -6,8 +6,10 @@ const panel = await readFile(new URL("../components/ui/panel-frame.tsx", import.
 const detailInspector = await readFile(new URL("../components/ui/detail-inspector.tsx", import.meta.url), "utf8");
 const animateIn = await readFile(new URL("../components/ui/animate-in.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+const theme = await readFile(new URL("../app/claude-theme.css", import.meta.url), "utf8");
 const runtimeFoundation = await readFile(new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url), "utf8");
 const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
+const runDetail = await readFile(new URL("../components/operations-run-detail.tsx", import.meta.url), "utf8");
 const frameChromeModules = await Promise.all([
   "market-data-owner-foundation-card.module.css",
   "runtime-foundation-not-ready-card.module.css",
@@ -89,19 +91,35 @@ test("detail inspectors keep chrome on the frame and one complete inset body", (
 });
 
 test("operational summaries preserve a legible metric hierarchy across viewports", () => {
-  assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+grid-template-areas: "eyebrow copy" "title copy";[^}]+align-items: center;/u);
-  assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+grid-area: copy;[^}]+border-left: \.5px solid var\(--border-default\);/u);
+  assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
+  assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.operations-run-summaries \{ grid-template-columns: minmax\(250px, \.95fr\) minmax\(0, 3\.05fr\); \}/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(22px, 1\.45vw, 27px\);[^}]+white-space: nowrap;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(18px, 1\.25vw, 22px\);[^}]+white-space: nowrap;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{[^}]+font-family: ui-monospace, monospace;[^}]+font-size: 12px;/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
+});
+
+test("run detail actions, locators, and state values expose deliberate hierarchy", () => {
+  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
+  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
+  assert.match(css, /\.run-detail-panel > \.panel-frame-header \.panel-frame-meta code \{[^}]+text-overflow: ellipsis;/u);
+  assert.match(runDetail, /data-action-variant="ghost"[\s\S]+?Copy locator/u);
+  assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
+  assert.match(runDetail, /compactIdentity\(run\.run_identity\)/u);
+  assert.match(runDetail, /AggregateSummaryFact label="Received"/u);
+  assert.doesNotMatch(runDetail, /Timing \/ received/u);
+  for (const token of ["positive", "warning", "info", "negative"]) {
+    assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
+    assert.match(css, new RegExp(`--status-${token}: var\\(--semantic-${token}\\)`, "u"));
+  }
 });
 
 test("foundation footers remain frame-level siblings of the sole inset body", () => {

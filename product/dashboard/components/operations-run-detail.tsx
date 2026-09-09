@@ -42,7 +42,7 @@ import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
-import { availabilityTone } from "./ui/status-tone-policy";
+import { availabilityTone, executionStateTone, ownerOutcomeTone } from "./ui/status-tone-policy";
 import { OperationsRunLogs } from "./operations-run-logs";
 import { OperationsRunAuxiliaryEvidence } from "./operations-run-auxiliary-evidence";
 
@@ -53,8 +53,13 @@ function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not started";
 }
 function displayDuration(value: number | null) {
-  if (value === null) return "Not complete";
+  if (value === null) return "In progress";
   return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(2)} s`;
+}
+
+function compactIdentity(value: string) {
+  if (value.length <= 34) return value;
+  return `${value.slice(0, 24)}…${value.slice(-8)}`;
 }
 
 const ownerLabels = {
@@ -286,43 +291,49 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         eyebrow={<>Exact operational readback · {new Date(result.observed_at).toLocaleString()}</>}
         title={run.operation_id}
         titleId="run-detail-title"
-        meta={<code>{run.run_identity}</code>}
+        meta={<code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>}
         actions={<>
-          <button type="button" onClick={() => void copyLocator()}>
+          <button type="button" data-action-variant="ghost" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
           </button>
-          <button type="button" onClick={() => void refresh()} disabled={pending}>
+          <button type="button" data-action-variant="secondary" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
           </button>
-          {operationalCancellation.state === "pending" ? <a href="#dependency-cancellation-panel">
+          {operationalCancellation.state === "pending" ? <a data-action-variant="warning" href="#dependency-cancellation-panel">
             <RunIcons.cancelled aria-hidden="true" size={12} /> Cancel queued dependency
           </a> : null}
           {run.owner_view.action_label === "Resolve same identity" ? <button
             type="button"
+            data-action-variant="primary"
             onClick={() => void resolveOwnerOutcome()}
             disabled={resolvingOwner}
           >
             <InterfaceIcons.autoRefresh aria-hidden="true" size={12} />
             {resolvingOwner ? "Resolving…" : "Resolve same identity"}
           </button> : null}
-          <Link href={run.owner_view.href}>
+          <Link data-action-variant="secondary" href={run.owner_view.href}>
             Open Owner view <InterfaceIcons.open aria-hidden="true" size={12} />
           </Link>
         </>}
       />
       <PanelFrameBody>
       <AggregateSummary className="run-detail-summaries" aria-label="Run summary">
-        <AggregateSummaryGroup eyebrow="Semantic boundary" label="Semantic"
-          value={run.owner_outcome_state} detail="Owner outcome class; never inferred from execution">
-          <AggregateSummaryFact label="Operational" value={run.state} />
-          <AggregateSummaryFact label="Terminal code" value={run.terminal_code ?? "Not terminal"} />
+        <AggregateSummaryGroup eyebrow="Semantic boundary" label="Owner outcome"
+          value={run.owner_outcome_state} detail="Owner state is never inferred from execution"
+          tone={ownerOutcomeTone(run.owner_outcome_state)}>
+          <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
+          <AggregateSummaryFact label="Terminal state" value={run.terminal_code ?? "In progress"}
+            tone={run.terminal_code ? executionStateTone(run.state) : "info"} />
           <AggregateSummaryFact label="Transition" value={run.transition_version} />
         </AggregateSummaryGroup>
         <AggregateSummaryGroup eyebrow="RunStore timing" label="Duration"
-          value={displayDuration(run.duration_ms)} detail="Operational timing only">
-          <AggregateSummaryFact label="Timing / received" value={displayTime(run.received_at)} />
+          value={displayDuration(run.duration_ms)} detail="Operational clock, independent of Owner state"
+          tone={run.duration_ms === null ? "info" : executionStateTone(run.state)}>
+          <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
           <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />
-          <AggregateSummaryFact label="Completed" value={displayTime(run.completed_at)} />
+          <AggregateSummaryFact label="Completed"
+            value={run.completed_at ? displayTime(run.completed_at) : "In progress"}
+            tone={run.completed_at ? executionStateTone(run.state) : "info"} />
         </AggregateSummaryGroup>
       </AggregateSummary>
 
