@@ -23,6 +23,7 @@ use super::{
             verify_stored_aggregate as verify_source_aggregate,
         },
     },
+    strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 
 const CONSUMER_ROLE: &str = "STRATEGY_FACTORY_RD_OWNER_API_V1";
@@ -267,6 +268,41 @@ impl SealedReplayInput {
     pub fn frames(&self) -> &[SealedReplayFrame] {
         &self.frames
     }
+}
+
+/// Checks that every component of an Owner-sealed joined cut belongs to this exact replay input.
+///
+/// Static bindings can survive a successor PIT batch, so binding equality alone cannot establish
+/// replay custody. This comparison binds the selected values to the replay's exact snapshot,
+/// observation batch, source/correction lineages, market semantics, and event-time census.
+#[must_use]
+pub fn sealed_replay_input_contains_joined_cut_v1(
+    replay: &SealedReplayInput,
+    joined_cut: &StrategyInputJoinedCutReceiptV1,
+) -> bool {
+    joined_cut.has_valid_digest()
+        && joined_cut.market_semantics_identity() == replay.market_semantics_identity()
+        && !joined_cut.components().is_empty()
+        && joined_cut.components().iter().all(|component| {
+            let trigger = component.frame().trigger();
+            let lifecycle = trigger.lifecycle();
+            let [value] = component.frame().values() else {
+                return false;
+            };
+
+            trigger.observation_batch_digest() == replay.normalized_records_digest()
+                && trigger.snapshot_identity() == replay.snapshot_identity()
+                && trigger.snapshot_fact_digest() == replay.snapshot_fact_digest()
+                && lifecycle.event_time() >= replay.observation_start_event_time()
+                && lifecycle.event_time() <= replay.observation_end_event_time()
+                && value.observation_batch_digest() == replay.normalized_records_digest()
+                && value.source_binding_lineage_root() == replay.source_binding_lineage_root()
+                && value.source_binding_lineage_version() == replay.source_binding_lineage_version()
+                && value.correction_stream_identity()
+                    == replay.correction_frontier().stream_identity
+                && value.correction_frontier_digest() == replay.correction_frontier().digest
+                && value.market_semantics_identity() == replay.market_semantics_identity()
+        })
 }
 
 pub(crate) mod sealed {

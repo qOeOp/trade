@@ -17,7 +17,7 @@ use vibe_data::owner::{
         StrategyInputSampleProjectionKindV4, StrategyInputSampleProjectionReadbackV4,
         StrategyInputSampleProjectionResolverV4,
     },
-    sealed_replay_input::SealedReplayInput,
+    sealed_replay_input::{SealedReplayInput, sealed_replay_input_contains_joined_cut_v1},
     source_binding::BindingDigest,
     strategy_input_binding::{
         MarketDataFieldSemantic, StrategyInputBindingReceipt, StrategyInputEventKind,
@@ -653,6 +653,9 @@ where
         .resolve_strategy_input_sample_projection_v4(native_join.locator())
         .await
         .map_err(|_| ProgramPreparationFaultV2::Unavailable)?;
+    if !sealed_replay_input_contains_joined_cut_v1(&replay_input, &joined_cut) {
+        return Err(ProgramPreparationFaultV2::OwnerMismatch);
+    }
     let claims = ProgramPreparationClaimsV2::from_owner_readbacks(
         replay,
         composer,
