@@ -493,6 +493,7 @@ pub(crate) struct VerifiedDevelopPluginBuildReadV3 {
 pub(crate) struct VerifiedDevelopPluginBuildV3 {
     receipt: DevelopPluginBuildReceiptV3,
     receipt_bytes: Box<[u8]>,
+    bfp_bytes: Box<[u8]>,
     wasm: Box<[u8]>,
 }
 
@@ -542,6 +543,10 @@ impl VerifiedDevelopPluginBuildV3 {
 
     pub(crate) fn canonical_receipt_bytes(&self) -> &[u8] {
         &self.receipt_bytes
+    }
+
+    pub(crate) fn bfp_bytes(&self) -> &[u8] {
+        &self.bfp_bytes
     }
 
     /// Consumes the build proof into the distinct ABI3 Cargo artifact boundary.
@@ -852,6 +857,7 @@ fn verify_current(
         )
     })?;
     Ok(VerifiedDevelopPluginBuildV3 {
+        bfp_bytes: capsule.value.bfp_canonical_bytes.into_boxed_slice(),
         receipt,
         receipt_bytes: receipt_bytes.into(),
         wasm: wasm.into(),
@@ -1592,6 +1598,7 @@ mod tests {
         let build = VerifiedDevelopPluginBuildV3 {
             receipt,
             receipt_bytes,
+            bfp_bytes: capsule.value.bfp_canonical_bytes.into_boxed_slice(),
             wasm: b"not-wasm".as_slice().into(),
         };
         let (design, _, _) = candidate();

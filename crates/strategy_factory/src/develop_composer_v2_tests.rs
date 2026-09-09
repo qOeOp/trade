@@ -157,13 +157,31 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
         (committed_state.as_slice(), committed_state.as_slice())
     );
 
+    let cross_design_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
+    let mut cross_design = design.clone();
+    cross_design
+        .parameters
+        .iter_mut()
+        .find(|parameter| parameter.semantic_id == "research.parameter.timer-close.v1")
+        .expect("BFP candidate has the timer close parameter")
+        .value = TypedConstantV2::I128 { value: 101 };
+    let (cross_design_proposal, cross_design_evidence) =
+        v3_composer_case(cross_design, custody.clone(), cross_design_build);
+    let terminal = into_terminal(DevelopComposerV2::default().compose(
+        &cross_design_proposal,
+        11,
+        &cross_design_evidence,
+    ));
+    assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);
+    assert_eq!(terminal.coordinate, "plugin_builds.joint_freeze_digest");
+
     let wrong_manifest_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
     let mut wrong_design = design.clone();
     wrong_design.plugins[0].max_fuel -= 1;
     let (wrong_proposal, wrong_evidence) =
         v3_composer_case(wrong_design, custody.clone(), wrong_manifest_build);
     let terminal =
-        into_terminal(DevelopComposerV2::default().compose(&wrong_proposal, 11, &wrong_evidence));
+        into_terminal(DevelopComposerV2::default().compose(&wrong_proposal, 12, &wrong_evidence));
     assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);
     assert_eq!(terminal.coordinate, "plugin_builds.manifest_digest");
 
@@ -176,7 +194,7 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
         v3_composer_case(v2_tagged_design, custody, cross_tag_build);
     let terminal = into_terminal(DevelopComposerV2::default().compose(
         &cross_tag_proposal,
-        12,
+        13,
         &cross_tag_evidence,
     ));
     assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);

@@ -538,6 +538,28 @@ fn joint_freeze_digest(
     BindingDigest::from_untrusted_bytes(hash.finalize().into())
 }
 
+pub(crate) fn joint_freeze_matches_current_design_v1(
+    custody: &CurrentResearchDevelopCustodyV2,
+    design: &StrategyDesignV2,
+    plugin_manifest_digest: BindingDigest,
+    program_digest: BindingDigest,
+    program_bytes: &[u8],
+    expected_joint_freeze_digest: BindingDigest,
+) -> bool {
+    let Ok(canonical_design) = prepare_canonical_strategy_design_v2(design) else {
+        return false;
+    };
+    joint_freeze_digest(
+        custody.custody_digest(),
+        canonical_design.design_identity(),
+        canonical_design.design_digest(),
+        plugin_manifest_digest,
+        program_digest,
+        canonical_design.canonical_bytes(),
+        program_bytes,
+    ) == expected_joint_freeze_digest
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

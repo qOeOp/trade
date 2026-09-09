@@ -19,6 +19,7 @@ use crate::{
         ResearchViewPhase,
     },
     program_runtime::validate_plugin_candidate_v2,
+    rd_bounded_feature_program_v1::joint_freeze_matches_current_design_v1,
     rd_owner_postgres_custody::VerifiedResearchCustodyV1,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
     strategy_plan_v2::{
@@ -474,6 +475,24 @@ impl VerifiedDevelopPluginBuildV2OrV3 {
         }
     }
 
+    fn matches_current_joint_freeze(
+        &self,
+        custody: &CurrentResearchDevelopCustodyV2,
+        design: &StrategyDesignV2,
+    ) -> bool {
+        match self {
+            Self::V2(_) => true,
+            Self::V3(build) => joint_freeze_matches_current_design_v1(
+                custody,
+                design,
+                build.manifest_digest(),
+                build.bfp_digest(),
+                build.bfp_bytes(),
+                build.joint_freeze_digest(),
+            ),
+        }
+    }
+
     fn wasm(&self) -> &[u8] {
         match self {
             Self::V2(build) => build.wasm(),
@@ -607,7 +626,7 @@ impl DevelopComposerV2 {
             Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
         };
         let (plugin_receipts, verified_builds) =
-            match resolve_plugin_builds(&proposal.design, &requested_plugins, builds) {
+            match resolve_plugin_builds(&custody, &proposal.design, &requested_plugins, builds) {
                 Ok(value) => value,
                 Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
             };
@@ -675,6 +694,7 @@ impl DevelopComposerV2 {
 }
 
 fn resolve_plugin_builds(
+    custody: &CurrentResearchDevelopCustodyV2,
     design: &StrategyDesignV2,
     requested: &[UntrustedPluginBuildLocatorV2],
     builds: Vec<VerifiedDevelopPluginBuildV2OrV3>,
@@ -740,6 +760,12 @@ fn resolve_plugin_builds(
             return Err(DevelopComposerTerminalV2::unsupported(
                 "plugin_builds.manifest_digest",
                 "verified build is sealed to a different canonical plugin manifest",
+            ));
+        }
+        if !build.matches_current_joint_freeze(custody, design) {
+            return Err(DevelopComposerTerminalV2::unsupported(
+                "plugin_builds.joint_freeze_digest",
+                "verified V3 build is sealed to a different Research custody or canonical Design",
             ));
         }
         let version = build.version();
