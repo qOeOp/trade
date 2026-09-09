@@ -15,6 +15,7 @@ import {
   DetailClusterGrid,
   DetailEmpty,
   DetailInspector,
+  DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
@@ -48,41 +49,43 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
           {worker.lease_state}
         </StatusBadge>}
       />
-      <DetailClusterGrid>
-        <DetailCluster label="Lease" meta={worker.lease_state}>
-          <DetailClusterFact label="Registered"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
-          <DetailClusterFact label="Expires"><time dateTime={worker.lease_expires_at}>{displayTime(worker.lease_expires_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Activity" meta={`${worker.active_job_count} active`}>
-          <DetailClusterFact label="Claimed"><b>{worker.job_count}</b></DetailClusterFact>
-          <DetailClusterFact label="Heartbeat"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
-          <DetailClusterFact label="Run">
-            {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
-              <code title={worker.last_run_identity}>{worker.last_run_identity}</code><InterfaceIcons.open aria-hidden="true" size={12} />
-            </a> : <span>Unavailable</span>}
-          </DetailClusterFact>
-          <DetailClusterFact label="Claimed at">{worker.last_run_at
-            ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
-            : <span>Unavailable</span>}</DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
-          <DetailClusterFact label="Registered operations" wide>
-            <span className="detail-cluster-values">
-              {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
-            </span>
-          </DetailClusterFact>
-        </DetailCluster>
-      </DetailClusterGrid>
-      <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Heartbeat history unavailable">
-        RunStore retains registration, latest heartbeat and lease deadline only. Memory and host are not inferred.
-      </DetailNotice>
-      <DetailInspectorFooter>
-        <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
-        <span>Artifact identity only · no unbound-run readiness claim</span>
-        {exact ? <a href="/operations/workers">Back to worker list</a> : null}
-      </DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailClusterGrid>
+          <DetailCluster label="Lease" meta={worker.lease_state}>
+            <DetailClusterFact label="Registered"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
+            <DetailClusterFact label="Expires"><time dateTime={worker.lease_expires_at}>{displayTime(worker.lease_expires_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Activity" meta={`${worker.active_job_count} active`}>
+            <DetailClusterFact label="Claimed"><b>{worker.job_count}</b></DetailClusterFact>
+            <DetailClusterFact label="Heartbeat"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
+            <DetailClusterFact label="Run">
+              {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
+                <code title={worker.last_run_identity}>{worker.last_run_identity}</code><InterfaceIcons.open aria-hidden="true" size={12} />
+              </a> : <span>Unavailable</span>}
+            </DetailClusterFact>
+            <DetailClusterFact label="Claimed at">{worker.last_run_at
+              ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
+              : <span>Unavailable</span>}</DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
+            <DetailClusterFact label="Registered operations" wide>
+              <span className="detail-cluster-values">
+                {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
+              </span>
+            </DetailClusterFact>
+          </DetailCluster>
+        </DetailClusterGrid>
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Heartbeat history unavailable">
+          RunStore retains registration, latest heartbeat and lease deadline only. Memory and host are not inferred.
+        </DetailNotice>
+        <DetailInspectorFooter>
+          <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
+          <span>Artifact identity only · no unbound-run readiness claim</span>
+          {exact ? <a href="/operations/workers">Back to worker list</a> : null}
+        </DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }
@@ -92,8 +95,10 @@ function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: st
     <DetailInspector aria-label={`Worker ${workerIdentity}`}>
       <DetailInspectorHeader eyebrow="Exact worker readback" title={workerIdentity} titleAttribute={workerIdentity}
         status={<StatusBadge tone="unavailable">unavailable</StatusBadge>} />
-      <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
-      <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><a href="/operations/workers">Back to worker list</a></DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
+        <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><a href="/operations/workers">Back to worker list</a></DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 const panel = await readFile(new URL("../components/ui/panel-frame.tsx", import.meta.url), "utf8");
+const detailInspector = await readFile(new URL("../components/ui/detail-inspector.tsx", import.meta.url), "utf8");
 const animateIn = await readFile(new URL("../components/ui/animate-in.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const runtimeFoundation = await readFile(new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url), "utf8");
@@ -34,6 +35,8 @@ test("panel atoms retain the pinned Vibe source hierarchy", () => {
   assert.match(panel, /toolbar\?: ReactNode/);
   assert.match(panel, /mode\?: "static" \| "scroll" \| "flex"/);
   assert.match(panel, /PanelFrameCloseButton/);
+  assert.match(detailInspector, /data-slot="detail-inspector-body"/);
+  assert.match(detailInspector, /data-surface="inset"/);
 });
 
 test("source motion is retained and obeys route/reduced-motion semantics", () => {
@@ -60,7 +63,8 @@ test("panel adaptation uses shared tokens rather than private colors", () => {
   assert.doesNotMatch(css, /\.panel-frame\[data-geometry="shell-inset"\] > \.panel-frame-body[^}]+overflow: hidden;/);
   assert.doesNotMatch(css, /\.panel-frame[^{}]*> \.panel-frame-body:has\(\+ \.panel-frame-footer\)[^}]+border-radius/);
   assert.doesNotMatch(css, /\.panel-frame[^{}]*> \.panel-frame-footer:last-child[^}]+border-radius/);
-  assert.match(css, /\.detail-inspector > \.detail-inspector-header,[\s\S]*\.detail-inspector > \.detail-inspector-footer \{ background: var\(--panel-chrome-bg\); \}/);
+  assert.match(css, /\.detail-inspector-header \{[^}]+border-radius: 0;[^}]+background: transparent;/u);
+  assert.match(css, /\.detail-inspector-body \{[^}]+overflow: clip;[^}]+border-radius: var\(--panel-inner-radius\);[^}]+background: var\(--panel-body-bg\);/u);
 });
 
 test("framed corner rules never clip flat page-title frames", () => {
@@ -76,8 +80,9 @@ test("framed corner rules never clip flat page-title frames", () => {
   assert.doesNotMatch(css, /^\.panel-frame-header \{[^}]+background: var\(--panel-chrome-bg\)/mu);
 });
 
-test("shared panel chrome is the single header and footer color authority", () => {
-  assert.match(css, /\.detail-inspector > :last-child:not\(\.detail-inspector-header\) \{[^}]+border-radius: 0 0 var\(--panel-inner-radius\) var\(--panel-inner-radius\)/u);
+test("detail inspectors keep chrome on the frame and one complete inset body", () => {
+  assert.doesNotMatch(css, /\.detail-inspector > \.detail-inspector-(?:header|footer)[^{]*\{[^}]+background:/u);
+  assert.doesNotMatch(css, /\.detail-inspector-body > [^{]*\{[^}]+border-radius: (?!0;)/u);
   for (const moduleCss of frameChromeModules) {
     assert.doesNotMatch(moduleCss, /\.frame :global\(\.panel-frame-header\),\s*\.frame :global\(\.panel-frame-footer\)/u);
   }

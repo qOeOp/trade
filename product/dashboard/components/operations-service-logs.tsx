@@ -21,6 +21,7 @@ import {
   DetailClusterFact,
   DetailClusterGrid,
   DetailInspector,
+  DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
@@ -146,20 +147,22 @@ function ServiceInstanceCard({ instance, cutDigest }: {
         titleAttribute={instance.instance_identity}
         status={<StatusBadge tone={availabilityTone(instance.readiness)}>{instance.readiness}</StatusBadge>}
       />
-      <DetailClusterGrid>
-        <DetailCluster label="Identity" meta={instance.instance_kind}>
-          <DetailClusterFact label="Instance" wide><code title={instance.instance_identity}>{instance.instance_identity}</code></DetailClusterFact>
-          <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Evidence" meta={`${instance.services.length} services`}>
-          <DetailClusterFact label="Services" wide><span>{instance.services.join(" · ")}</span></DetailClusterFact>
-          <DetailClusterFact label="Source cut" wide><code title={instance.source_cut}>{instance.source_cut}</code></DetailClusterFact>
-        </DetailCluster>
-      </DetailClusterGrid>
-      <DetailInspectorFooter>
-        <code title={cutDigest}>{cutDigest}</code>
-        <span>Exact filter-cut digest · host identity is not projected</span>
-      </DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailClusterGrid>
+          <DetailCluster label="Identity" meta={instance.instance_kind}>
+            <DetailClusterFact label="Instance" wide><code title={instance.instance_identity}>{instance.instance_identity}</code></DetailClusterFact>
+            <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Evidence" meta={`${instance.services.length} services`}>
+            <DetailClusterFact label="Services" wide><span>{instance.services.join(" · ")}</span></DetailClusterFact>
+            <DetailClusterFact label="Source cut" wide><code title={instance.source_cut}>{instance.source_cut}</code></DetailClusterFact>
+          </DetailCluster>
+        </DetailClusterGrid>
+        <DetailInspectorFooter>
+          <code title={cutDigest}>{cutDigest}</code>
+          <span>Exact filter-cut digest · host identity is not projected</span>
+        </DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }

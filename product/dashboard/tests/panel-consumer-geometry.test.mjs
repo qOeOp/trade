@@ -71,7 +71,7 @@ test("Worker detail keeps its outer cluster grid on the shared content axis", as
     read("components/operations-workers-preview.tsx"),
   ]);
   assert.match(worker, /<DetailClusterGrid>/u);
-  sharedPadding(css, ".detail-inspector > .detail-cluster-grid");
+  sharedPadding(css, ".detail-inspector-body > .detail-cluster-grid");
 });
 
 test("Bento empty and unavailable children remain inset cards", async () => {
@@ -101,8 +101,8 @@ test("Run Detail conditional action fields stay on the shared content axis", asy
   ]);
   assert.match(detail, /className="dependency-cancellation-panel"[\s\S]*?className="run-cache-delete-field"/u);
   assert.match(detail, /className="run-cache-delete-panel"[\s\S]*?className="run-cache-delete-confirmation"/u);
-  sharedPadding(css, ".detail-inspector > .run-cache-delete-field");
-  sharedPadding(css, ".detail-inspector > .run-cache-delete-confirmation");
+  sharedPadding(css, ".detail-inspector-body > .run-cache-delete-field");
+  sharedPadding(css, ".detail-inspector-body > .run-cache-delete-confirmation");
   assert.match(inspector, /layout\?: "stack" \| "split"/u);
   assert.match(inspector, /data-layout=\{layout\}/u);
   const actionFooters = [...detail.matchAll(/<DetailInspectorFooter layout="split">([\s\S]*?)<\/DetailInspectorFooter>/gu)];
@@ -114,6 +114,20 @@ test("Run Detail conditional action fields stay on the shared content axis", asy
   assert.match(css, /\.detail-inspector-footer\[data-layout="split"\] \{[^}]*display: flex;[^}]*justify-content: space-between;/u);
   assert.match(css, /\.detail-inspector-footer\[data-layout="split"\] > \.filter-action \{[^}]*margin-top: 0;[^}]*flex: 0 0 auto;/u);
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.detail-inspector-footer\[data-layout="split"\] \{[^}]*align-items: stretch;[^}]*flex-direction: column;[^}]*\}[\s\S]*?\.detail-inspector-footer\[data-layout="split"\] > \.filter-action \{[^}]*width: 100%;[^}]*\}/u);
+});
+
+test("every DetailInspector consumer uses one explicit inset body", async () => {
+  for (const path of [
+    "components/operations-workers-preview.tsx",
+    "components/operations-service-logs.tsx",
+    "components/operations-run-detail.tsx",
+  ]) {
+    const source = await read(path);
+    const inspectors = [...source.matchAll(/<DetailInspector(?=[\s>])/gu)].length;
+    const bodies = [...source.matchAll(/<DetailInspectorBody(?=[\s>])/gu)].length;
+    assert.ok(inspectors > 0, path);
+    assert.equal(bodies, inspectors, path);
+  }
 });
 
 test("Readback and Portfolio body surfaces consume the shared inner radius", async () => {
