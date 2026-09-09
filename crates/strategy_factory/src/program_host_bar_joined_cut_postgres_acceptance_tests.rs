@@ -12,7 +12,7 @@ use vibe_data::owner::{
     instrument_master::InstrumentMasterReadbackV1,
     replay_market_facts_v2::ReplayCompositionOwnerV1,
     sample_projection_v4::StrategyInputSampleProjectionResolverV4,
-    sealed_replay_input::SealedReplayInput,
+    sealed_replay_input::{SealedReplayInput, sealed_replay_input_contains_joined_cut_v1},
     source_binding::BindingDigest,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
@@ -86,6 +86,10 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     .await?;
     let (replay_input, instrument_master, bindings, joined_cut, native_request) =
         fixture.into_parts();
+    anyhow::ensure!(sealed_replay_input_contains_joined_cut_v1(
+        &replay_input,
+        &joined_cut
+    ));
     let replay = acceptance_replay_readback(&plan, &artifact, &replay_input, &instrument_master)?;
 
     let market_owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
