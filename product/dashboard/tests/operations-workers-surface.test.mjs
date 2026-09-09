@@ -33,8 +33,9 @@ test("Workers is a GET-only RunStore projection wired into the exact Operations 
 });
 
 test("Workers keeps one compact summary, one dense table, and one exact detail surface", async () => {
-  const [workers, css] = await Promise.all([
+  const [workers, statusBar, css] = await Promise.all([
     source("components/operations-workers-preview.tsx"),
+    source("components/ui/compact-status-bar.tsx"),
     source("app/globals.css"),
   ]);
 
@@ -51,13 +52,13 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
-  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*min-height: 50px;[^}]*border-radius: 14px;/u);
-  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*background: transparent;/u);
-  assert.match(css, /\.compact-status-group-label \{[^}]*text-transform: none;/u);
-  assert.match(css, /\.compact-status-bar \{[^}]*background: var\(--surface-card\);[^}]*box-shadow: var\(--elevation-summary\);/u);
-  assert.match(css, /\.compact-status-group-label::after \{ content: "›";[^}]*margin-left: 48px;/u);
-  assert.match(css, /\.compact-status-item \{[^}]*padding: 0 32px;[^}]*justify-content: center;[^}]*gap: 14px;/u);
-  assert.match(css, /\.compact-status-item dd \{[^}]*font-size: 13px;[^}]*line-height: 1;[^}]*letter-spacing: 0;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*min-height: 44px;[^}]*border-radius: 8px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 34px;[^}]*align-items: center;[^}]*text-transform: lowercase;/u);
+  assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*box-shadow:/u);
+  assert.match(statusBar, /<span className="compact-status-group-chevron" aria-hidden="true">›<\/span>/u);
+  assert.match(css, /\.compact-status-group-chevron \{[^}]*align-items: center;[^}]*justify-content: center;/u);
+  assert.match(css, /\.compact-status-item \{[^}]*padding: 0 clamp\(20px, 2\.5vw, 38px\);[^}]*justify-content: center;[^}]*gap: 13px;/u);
+  assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
   assert.match(css, /\.compact-status-item \+ \.compact-status-item \{ border-left: \.5px solid var\(--border-default\); \}/u);
   assert.doesNotMatch(css, /^\.compact-status-item \{[^}]*border-left:/mu);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
@@ -65,7 +66,7 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   for (const label of ["available", "expired", "claimed", "active"]) {
     assert.match(workers, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
-  assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: 999px;/u);
+  assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: (?:14px|999px)/u);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);
 });

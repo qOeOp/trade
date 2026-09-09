@@ -1,5 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
 
+type CompactStatusTone = "neutral" | "info" | "success" | "warning" | "danger" | "unavailable";
+
 export function CompactStatusBar({
   children,
   className,
@@ -21,7 +23,10 @@ export function CompactStatusGroup({
 }) {
   return (
     <div className="compact-status-group">
-      <span className="compact-status-group-label">{label}</span>
+      <span className="compact-status-group-label">
+        {label}
+        <span className="compact-status-group-chevron" aria-hidden="true">›</span>
+      </span>
       <dl>{children}</dl>
     </div>
   );
@@ -30,12 +35,14 @@ export function CompactStatusGroup({
 export function CompactStatusItem({
   label,
   value,
+  tone = "neutral",
 }: {
   label: ReactNode;
   value: ReactNode;
+  tone?: CompactStatusTone;
 }) {
   return (
-    <div className="compact-status-item">
+    <div className="compact-status-item" data-tone={tone}>
       <dt>{label}</dt>
       <dd>{value}</dd>
     </div>

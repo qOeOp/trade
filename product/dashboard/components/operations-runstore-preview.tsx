@@ -7,7 +7,7 @@ import {
   type RunListBrowserEnvelopeV1,
   type RunListItemV1,
 } from "../lib/run-list-contract";
-import { InsightSummary, InsightSummaryFact } from "./ui/insight-summary";
+import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { summarizeRunsForPresentation } from "../lib/operations-presentation";
 import { UnavailableState } from "./ui/evidence-strip";
 import {
@@ -259,15 +259,15 @@ export function OperationsRunStorePreview() {
         actions={<PanelFrameInfo><b>Data scope</b><p>This view reads one verified operational snapshot. Result ownership and execution state remain separate.</p></PanelFrameInfo>}
       />
       <PanelFrameBody>
-      <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary" variant="flow"
-        eyebrow="current view" label="loaded runs"
-        value={result?.availability === "available" ? runs.length : "Unavailable"}
-        detail="Runs shown on this page.">
-        <InsightSummaryFact label="active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
-        <InsightSummaryFact label="failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
-        <InsightSummaryFact label="result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-        <InsightSummaryFact label="result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
-      </InsightSummary>
+      <CompactStatusBar className="operations-run-summaries" aria-label="Loaded run summary">
+        <CompactStatusGroup label="current view">
+          <CompactStatusItem label="loaded runs" value={result?.availability === "available" ? runs.length : "unavailable"} />
+          <CompactStatusItem label="active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
+          <CompactStatusItem label="failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
+          <CompactStatusItem label="result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
+          <CompactStatusItem label="result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
+        </CompactStatusGroup>
+      </CompactStatusBar>
       {result?.availability === "available" ? (
         <>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={

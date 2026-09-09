@@ -5,6 +5,7 @@ import { readFile } from "node:fs/promises";
 const componentUrl = new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
 const cssUrl = new URL("../components/runtime-foundation-not-ready-card.module.css", import.meta.url);
+const globalCssUrl = new URL("../app/globals.css", import.meta.url);
 
 test("Runtime foundation card preserves the fixed source identity and dependency order", async () => {
   const source = await readFile(componentUrl, "utf8");
@@ -36,15 +37,19 @@ test("all Runtime routes render the admitted fixed not-ready foundation card", a
 
 test("Runtime card uses compact grouped theme surfaces without a literal palette", async () => {
   const css = await readFile(cssUrl, "utf8");
+  const globalCss = await readFile(globalCssUrl, "utf8");
   const source = await readFile(componentUrl, "utf8");
-  assert.match(css, /\.statusBar \{[\s\S]*border-radius: 999px/);
-  assert.match(css, /\.statusBar small \{[^}]*text-transform: none;/u);
-  assert.match(source, /<small>foundation state<\/small>/u);
-  assert.match(source, /<small>revalidation dependencies<\/small>/u);
-  assert.match(source, /<small>source revision<\/small>/u);
+  assert.match(source, /<CompactStatusBar aria-label="Runtime foundation status">/u);
+  assert.match(source, /<CompactStatusGroup label="foundation">/u);
+  assert.match(source, /<CompactStatusItem label="state" value="not ready" tone="warning" \/>/u);
+  assert.match(source, /<CompactStatusItem label="dependencies" value="4 required" \/>/u);
+  assert.match(source, /<CompactStatusItem label="source revision"/u);
+  assert.match(globalCss, /\.compact-status-bar \{[^}]*min-height: 44px;[^}]*border-radius: 8px;/u);
+  assert.match(globalCss, /\.compact-status-item\[data-tone="warning"\] dd \{ color: var\(--status-warning\); \}/u);
+  assert.doesNotMatch(css, /\.statusBar|\.statusIcon/u);
   assert.match(css, /\.sectionHeader \{[\s\S]*background: color-mix\(in oklch, var\(--status-warning\) 5%, var\(--panel-chrome-bg\)\)/);
   assert.match(css, /\.dependencies li \+ li \{[\s\S]*border-top:/);
-  assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
+  assert.doesNotMatch(css + globalCss, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 });
 
 test("Runtime card exposes no unadmitted readiness or effect surface", async () => {

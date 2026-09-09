@@ -55,7 +55,6 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     ".evidence-actions",
     ".summary-metric",
     ".aggregate-summary",
-    ".insight-summary",
     ".technical-disclosure",
     ".prototype-notice",
   ];

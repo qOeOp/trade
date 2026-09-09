@@ -3,7 +3,8 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
-import { EvidenceIcons, InterfaceIcons, ModuleIcons } from "./ui/iconography";
+import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
+import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -75,21 +76,15 @@ export function RuntimeFoundationNotReadyCard() {
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <div className={styles.statusBar} aria-label="Runtime foundation status">
-          <span className={styles.statusIcon} aria-hidden="true"><ModuleIcons.cpu size={18} /></span>
-          <div>
-            <small>foundation state</small>
-            <strong>NotReady</strong>
-          </div>
-          <div>
-            <small>revalidation dependencies</small>
-            <strong>4 required</strong>
-          </div>
-          <div>
-            <small>source revision</small>
-            <code>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code>
-          </div>
-        </div>
+        <CompactStatusBar aria-label="Runtime foundation status">
+          <CompactStatusGroup label="foundation">
+            <CompactStatusItem label="state" value="not ready" tone="warning" />
+            <CompactStatusItem label="dependencies" value="4 required" />
+            <CompactStatusItem label="source revision" value={(
+              <code title={FOUNDATION_SOURCE_REVISION}>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code>
+            )} />
+          </CompactStatusGroup>
+        </CompactStatusBar>
 
         <section className={styles.dependencies} aria-labelledby="runtime-dependencies-title">
           <header className={styles.sectionHeader}>
