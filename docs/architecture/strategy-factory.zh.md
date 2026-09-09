@@ -218,6 +218,12 @@ ID、implicit cast、implicit rescale、unit mismatch、unbounded window 或与 
 generation 前成为 `UNSUPPORTED`。规范排序只使用 schema 定义的 byte key，不使用 source order、map
 iteration、locale、platform、enum ordinal 或 caller-provided digest。对规范 bytes 再 canonicalize 必须字节一致。
 
+对于每个 output rule 为 `AvailableFixedAndCoordinate` 的 catalog row，value 与其 provenance coordinate 构成
+一个原子 pair。只有 value projection 可以被引用；引用它即为 graph closure 原子消费 coordinate sidecar。
+两个 projection 必须始终具有相同 availability。value consumer 必须声明 `require_ready = true`，并且 pair 为
+`WARMING` 时两个 projection 都不可读。coordinate 不得被独立引用，也不得进入 primitive input、strategy
+state、lifecycle terminal 或 manifest output。
+
 首个 primitive catalog 必须版本化并由 `vibe-indicators-kernel` 拥有。Strategy Factory 只引用每个 primitive
 的 semantic ID 与已 pin catalog/source digest，不得复制、重新解释或独立实现公式。首个 catalog 至少包括：
 
@@ -250,7 +256,19 @@ counter、已存 sample coordinate、plugin/BFP/kernel state、lifecycle output�
 checkpoint bytes 必须和 event 前逐字节相同。执行前发现的 validation failure 仍是 `UNSUPPORTED`，且不生成
 Artifact。合法 warm-up event 不是 numeric failure：它推进已声明 state，并暴露没有可读 value 的类型化
 `WARMING` availability。下游 node 不能读取 `WARMING` value；warm-up 期间的 lifecycle output 必须由 Design
-把 availability 显式 wiring 到现有 `HOLD` semantic。
+把 availability 显式 wiring 到现有 `HOLD` semantic。每个成功的 ABI 3 output frame 都必须在第一个 manifest
+output value 之前紧接一个规范 availability byte：`0 = READY`、`1 = WARMING`；其他值均为 unsupported。
+该 tag 纳入规范 frame length 与 identity，不能从 lifecycle value 或 post-state 推断。每次 ABI 3 BFP
+warm-up invocation 仍必须返回一份按 manifest 顺序排列的完整 output frame：position intent 是
+`kernel.position.hold.v1`，target variant 是
+`kernel.target.keep.v1`，protection variant 是 `kernel.protection.keep.v1`；在这两个 Keep variant 下被忽略的
+八个 scalar field——target position units、target weight micros、rebalance sequence、reconciliation target
+units、stop-loss ticks、take-profit ticks、trailing-distance ticks 与 trailing-stop ticks——必须是各自准确宽度的
+规范零值。post-state 是本次已接纳 coordinate 推进所有适用 primitive 与 BFP state cell 后的规范 state。对于
+绑定 BFP V1 的 ABI 3 manifest，`ProgramHostV2` 必须在提交 scratch bundle 前复核 `WARMING` tag、三个
+lifecycle value、八个 scalar 零值与规范 post-state；tag 缺失或矛盾、非零 ignored scalar 或不完整 warm-up
+frame 必须 fail closed。`READY` frame 即使返回 `HOLD`/Keep/Keep，也绝不能作为 warm-up 证据。该规则不重新
+解释既有 ABI 2 output byte 与 Host semantic。
 
 以下 V1 定义为规范语义：
 
@@ -291,7 +309,7 @@ unsigned 8-bit field；保存的 Owner coordinate 使用 `StrategyInputSampleCoo
 canonical field。所有 integer 在规范 state bytes 中使用 little-endian。Rust layout、`usize`、pointer width、
 platform alignment、map order 与 JSON number parsing 均无 authority。
 
-primitive catalog 原子发布整个 family。下列清单是封闭的 V1 namespace：
+primitive catalog 原子发布整个 family。下列清单是封闭的 V1 namespace，共准确 57 行：
 
 - Numeric policy：`bfp.numeric.fixed-i128.max-scale-38.explicit-rescale.i256-single-round.v1`、
   `bfp.round.toward-zero.v1`、`bfp.round.nearest-ties-to-even.v1` 与
@@ -330,8 +348,9 @@ primitive catalog 原子发布整个 family。下列清单是封闭的 V1 namesp
   `bfp.range-fraction.closed-unit-rational.nearest-ties-to-even.v1`。
 - Kernel output reference：`kernel.position.enter.v1`、`kernel.position.add.v1`、
   `kernel.position.reduce.v1`、`kernel.position.exit.v1`、`kernel.position.hold.v1`、
-  `kernel.target.position.v1`、`kernel.target.weight.v1`、`kernel.target.rebalance.v1`、
-  `kernel.protection.stop-loss.v1`、`kernel.protection.take-profit.v1` 与
+  `kernel.target.keep.v1`、`kernel.target.position.v1`、`kernel.target.weight.v1`、
+  `kernel.target.rebalance.v1`、`kernel.protection.keep.v1`、`kernel.protection.clear.v1`、
+  `kernel.protection.replace.v1`、`kernel.protection.stop-loss.v1`、`kernel.protection.take-profit.v1` 与
   `kernel.protection.trailing-adjust.v1`。
 
 其他 primitive、alias、optional subset 或 extension 都不属于 catalog V1。每一行都在规范 catalog bytes 中
@@ -390,6 +409,27 @@ protection field。Host 校验这些 bytes、封存 proposal identity/order，�
 只有内核解释 `ENTER`、`ADD`、`REDUCE`、`EXIT`、`HOLD`、target position/weight、stop-loss、take-profit、
 trailing protection 与 fill reconciliation。BFP/plugin 绝不能输出 order、`Action::Submit`、Risk permit、
 Execution request 或 external effect。
+
+动态 lifecycle 选择只能通过规范 BFP 含义中的一个有界 whole-proposal decision table 表达。该表包含有限的
+branch，各 branch 具有唯一显式 priority，并且必须有一个 default。每个 priority 都是规范 little-endian
+`u16`；数值越小优先级越高，branch 按 priority 升序 canonicalize，caller collection order 没有 authority。
+`max_decision_branches` 是非零 `u16`，不得超过 64，并约束 branch 数量。`READY` invocation 按该顺序求值
+predicate，选择第一个为 true 的 branch；没有 predicate 为 true 时选择 default。每个 branch 与 default 都
+原子提供完整 lifecycle terminal tuple：position action、target variant 及全部 target scalar、
+protection variant 及全部 protection scalar，以及其他所有 required scalar output。field 可以引用类型相容的
+DAG value 或规范 constant，但任何 branch 都不能省略、继承或合并 field。duplicate priority、default 缺失、
+tuple 不完整、选出多个 proposal，或 ordering 无法确定唯一 whole proposal 的 encoding，都必须在执行前成为
+`UNSUPPORTED`。唯一 first match 之后的其他 true predicate 不产生额外 proposal。`WARMING` 绕过该表，使用
+上文完整的 HOLD/Keep/Keep/zero-scalar frame。
+
+所有声明的 primitive 与 strategy state cell 共用一个规范 plugin-state bundle。空 pre-state 是唯一初始化
+encoding，表示每个 cell 的声明 initial value。每次成功或 `WARMING` invocation 后，post-state 准确等于所有
+cell 完整规范 bytes 的拼接；cell 按 `state_id` bytes 的 lexical order 排列，不能有 gap、alignment byte 或
+padding。primitive cell 使用该 primitive 既有的规范 state bytes。strategy-defined writable slot 具有一个
+声明 fixed width，其 declared maximum 必须准确等于该 width，并且只有 owning node 可以写入。对于非空 cell
+set，即使某个 cell 未改变，每份 post-state 也必须包含完整拼接宽度；非初始化 pre-state 必须具有相同的准确
+总宽度。total size 错误、boundary 截断或重叠、undeclared byte、padding、variable-width strategy slot 或其他
+非规范 cell boundary，都必须在执行前成为 `UNSUPPORTED`，且不推进任何 state。
 
 #### Sample-coordinate 契约
 
@@ -469,30 +509,35 @@ lineage root 与 Market Semantics identity 不变，lineage version 不递减，
 由 numeric value equality 决定。
 
 TARGET Design/Plan seam 是版本化 source semantic
-`strategy.value-ref.owner-sample-coordinate.v1(input_role_id)`。对于每个被 sample-clock node 使用的 BFP
-role，lowerer 必须创建一个 manifest input port，其 literal semantic ID 是
+`strategy.value-ref.owner-sample-coordinate.v1(input_role_id)`。每个 BFP input role（包括 trigger role）都必须
+准确具有一个 value binding 与一个 coordinate binding。lowerer 必须为每个这样的 role 创建一个 manifest
+input port，其 literal semantic ID 是
 `strategy.input.sample-coordinate.v1.<role_identity_hex>`，其中 `role_identity_hex` 准确为该 role
 `[u8; 32]` identity 的 64 个 lowercase hex character。uppercase、非 64-length suffix 或与绑定 role 不等的
-suffix 都是 noncanonical。该 port 的 type 为 `ValueTypeV2::Bytes`，准确 `max_bytes = 308`。BFP role input
-port 按 `(role_identity_bytes, kind_tag)` 排序，其中 `kind_tag = 0` 是 role value port，`kind_tag = 1` 是其
-coordinate port，因此每个存在的 coordinate 准确跟随自己的 value，而不依赖 source order。
-`StrategyPlanV2` 绑定 role、完整 derived port ID、coordinate-source semantic ID、port ordinal、static
-binding、coordinate codec/digest rule 与 update clock。不含这一 tagged source 的既有 Design 保持逐字节
-相同的 V2 含义。
+suffix 都是 noncanonical。该 port 的 type 为 `ValueTypeV2::Bytes`，准确 `max_bytes = 308`。规范 BFP
+role-binding table 按 `(role_identity_bytes, kind_tag)` 排序，其中 `kind_tag = 0` 是 role value binding，
+`kind_tag = 1` 是其 coordinate binding；该顺序证明准确的 value-coordinate 配对，但不定义 ABI wire order。
+manifest input frame 仍只按规范 `PluginManifestV2.input_ports` 顺序排列，每个 role-binding-table entry 都绑定
+其准确 manifest port ordinal。`StrategyPlanV2` 绑定 role、完整 derived port ID、coordinate-source semantic
+ID、port ordinal、static binding、coordinate codec/digest rule 与 update clock。Plan 只能从准确的 Owner-verified
+coordinate projection 投影该 source；Plan 与 Host 都不得接受 caller 提供或重建的 coordinate bytes。不含这一
+tagged source 的既有 Design 保持逐字节相同的 V2 含义。
 
 唯一通用 `ProgramHostV2` 扩展其既有 Owner-event evidence adapter，而不是扩展 graph opcode set 或 runtime，
-以保留已经验证的 coordinate bytes 并解析该 Plan-bound metadata source。它拒绝未被已接纳 Market Data
-receipt cross-bind 的 coordinate，随后把准确 308 Owner bytes 复制到普通 typed plugin input port。guest 不会
-收到 caller coordinate，也不能请求另一个 role。这是唯一接纳的 transport；禁止从 I128 value、driver
-envelope、trigger count、local hash 或 guest state 派生 coordinate。
+以保留 Owner-verified projection 的准确 coordinate bytes 并解析该 Plan-bound metadata source。它拒绝未被
+已接纳 Market Data receipt cross-bind 的 coordinate，随后把这准确 308 Owner bytes 复制到其 Plan 绑定 manifest
+ordinal 的 coordinate port。guest 不会收到 caller coordinate，也不能请求另一个 role。这是唯一接纳的
+transport；禁止从 I128 value、driver envelope、trigger count、local hash 或 guest state 派生 coordinate。
 
-trigger-clock node 对每个新接纳 trigger coordinate 推进一步。sample-clock node 只有在其命名 role 收到严格
-新的 Owner-sealed sample coordinate 时才推进。同一 1-hour sample 被多个 1-minute trigger 携带时，必须复用
-旧 sample-clock state 而不推进，即使其他 trigger value 改变；新封存的 1-hour sample 即使 OHLC 数值与前一个
-完全相同，也必须准确推进一次。value comparison、caller time、trigger count、arrival order、narrowed R04 或
-event hash、本地派生 timestamp 都不是合法替代。缺失、stale、duplicate-conflicting、cross-role、
-cross-timeframe、cross-lineage、regressed-version、receipt-mismatched 或非规范 coordinate，都必须在 guest
-调用或任何 BFP/plugin/lifecycle/target/protection/trace/checkpoint mutation 前失败。
+trigger-clock node 对其命名 trigger role 的每个新接纳 coordinate 推进一步。sample-clock node 只有在其命名
+sample role 收到严格新的 Owner-sealed sample coordinate 时才推进。因此每个 clock 都消费与其命名 role 配对
+的准确 coordinate；trigger coordinate 不能代替另一 role 的 sample coordinate。同一 1-hour sample 被多个
+1-minute trigger 携带时，必须复用旧 sample-clock state 而不推进，即使其他 trigger value 改变；新封存的
+1-hour sample 即使 OHLC 数值与前一个完全相同，也必须准确推进一次。value comparison、caller time、trigger
+count、arrival order、narrowed R04 或 event hash、本地派生 timestamp 都不是合法替代。缺失、stale、
+duplicate-conflicting、cross-role、cross-timeframe、cross-lineage、regressed-version、receipt-mismatched 或
+非规范 coordinate，都必须在 guest 调用或任何 BFP/plugin/lifecycle/target/protection/trace/checkpoint mutation
+前失败。
 
 已接纳 correction 是具有准确 series/correction predecessor 的 immutable successor sample。它创建新的
 fact、receipt、identity 与 coordinate，并让 sample clock 准确推进一次；绝不 rewrite、追溯 replace 或
@@ -516,8 +561,10 @@ Host feature opcode 或第二 runtime。既有 ABI 2 manifest、frame bytes、re
 `PluginManifestV2.abi_version = 3` 与
 `failure_semantic_id = bfp.numeric.failure.no-state-change.v1`；Plan、V3 build receipt、
 `PluginImplementationReceiptV2`、module identity 与 Artifact 全部绑定这两个值。ABI 3 保留规范 port-entry
-layout，frame header 使用 ABI `u16 = 3`，只改变 invocation status map：nonnegative 值是规范 output length，
-`-1` 是 `NUMERIC_FAILURE_NO_STATE_CHANGE`，其他所有 negative 值都是 unsupported/unknown guest status。
+layout，frame header 使用 ABI `u16 = 3`，并在每个成功 output body 的 manifest output value 之前加上上文定义
+的规范 one-byte availability tag；该 byte 不是 manifest port entry。除此以外，它只改变 invocation status
+map：nonnegative 值是规范 output length，`-1` 是 `NUMERIC_FAILURE_NO_STATE_CHANGE`，其他所有 negative 值
+都是 unsupported/unknown guest status。
 
 当 ABI 3 status 为 `-1` 时，`ProgramHostV2` 不 decode output，丢弃 scratch guest/BFP/kernel bundle，发出绑定
 已接纳 event 与 plugin identity 的命名 terminal，并证明 pre-event checkpoint bytes/digest 未改变。output
@@ -558,6 +605,10 @@ Fibonacci range fraction，在命名的 1-hour-close/1-day-close sample clock �
 reaction 准确消费该完整 join role set。有界 holding、add-count、high-water 与 protection state 驱动一段连续
 event sequence，其中包含
 `ENTER -> ADD -> REDUCE -> EXIT` 和显式 `HOLD`，并输出动态 stop-loss、take-profit 与 trailing protection。
+每个 `READY` frame 的 `ProtectionVariantV1` 必须准确属于 `ProgramHostV2` 已识别的 variant：
+`kernel.protection.keep.v1`、`kernel.protection.clear.v1`、`kernel.protection.trailing-adjust.v1` 或
+`kernel.protection.replace.v1`。Host 只按该准确 variant 读取 protection scalar field；corpus 覆盖 Keep、Clear、
+trailing adjustment 与 Replace，且不引入第二套 protection 解释。
 
 验收要求规范 BFP 两次 lowering 得到字节一致 source，两次 build 得到字节一致 Wasm 与 tagged V3 receipt，
 经 Composer 进入同一 `StrategyArtifactV2`，并通过真实 `ProgramHostV2`/Backtest shared-kernel path 执行。

@@ -18,13 +18,14 @@ use crate::{
         CurrentResearchDevelopCustodyV2, DevelopComposerEvidencePortV2, DevelopComposerPositiveV2,
         DevelopComposerReceiptV2, DevelopComposerResultV2, DevelopComposerTerminalKindV2,
         DevelopComposerTerminalV2, DevelopComposerV2, UntrustedDevelopComposerProposalV2,
-        UntrustedPluginBuildLocatorV2,
+        UntrustedPluginBuildLocatorV2, VerifiedDevelopPluginBuildV2OrV3,
     },
     develop_plugin_build_v2::{
         DevelopPluginBuildProducerV2, DevelopPluginBuildReceiptV2, DevelopPluginBuildResultV2,
         UntrustedDevelopPluginCapsuleV2, VerifiedDevelopPluginBuildReadV2,
-        VerifiedDevelopPluginBuildV2, validated_capsule_digest_v2,
+        validated_capsule_digest_v2,
     },
+    develop_plugin_build_v3::VerifiedDevelopPluginBuildV3,
     program_host_v2::ProgramHostV2,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
     strategy_plan_v2::{
@@ -39,6 +40,8 @@ pub use crate::develop_plugin_build_v2::{
 };
 
 const OPERATION_SCHEMA_V2: u16 = 2;
+const BUILD_RECEIPT_TAG_V2: u16 = 2;
+const BUILD_RECEIPT_TAG_V3: u16 = 3;
 const MAX_REQUEST_IDENTITY_BYTES: usize = 256;
 const MAX_PLUGIN_CAPSULES: usize = 64;
 
@@ -314,12 +317,49 @@ pub(crate) struct StoredDevelopComposerPositiveV2 {
     pub(crate) plan_bytes: Vec<u8>,
     pub(crate) artifact_package_bytes: Vec<u8>,
     pub(crate) module_bytes: Vec<Box<[u8]>>,
+    pub(crate) build_receipt_tags: Vec<u16>,
     pub(crate) build_receipt_bytes: Vec<Vec<u8>>,
     pub(crate) composer_receipt_bytes: Vec<u8>,
     pub(crate) host_receipt_bytes: Vec<u8>,
     pub(crate) operation_receipt_bytes: Vec<u8>,
     pub(crate) outbox_bytes: Vec<u8>,
     pub(crate) response_bytes: Vec<u8>,
+}
+
+impl StoredDevelopComposerPositiveV2 {
+    pub(crate) fn build_receipt_tags(&self) -> &[u16] {
+        &self.build_receipt_tags
+    }
+}
+
+/// Current Owner evidence required to restart one durable ABI3 build. Implementations can return
+/// this move-only proof only by calling the strict V3 restart boundary with two current lowerings
+/// and the stored capsule, receipt, and module bytes.
+pub(crate) trait DevelopComposerV3BuildRestartPortV2 {
+    fn restart(
+        &self,
+        manifest: &PluginManifestV2,
+        capsule_identity: BindingDigest,
+        receipt_bytes: &[u8],
+        module_bytes: &[u8],
+    ) -> Result<VerifiedDevelopPluginBuildV3, DevelopComposerTerminalV2>;
+}
+
+struct UnavailableV3BuildRestartV2;
+
+impl DevelopComposerV3BuildRestartPortV2 for UnavailableV3BuildRestartV2 {
+    fn restart(
+        &self,
+        _manifest: &PluginManifestV2,
+        _capsule_identity: BindingDigest,
+        _receipt_bytes: &[u8],
+        _module_bytes: &[u8],
+    ) -> Result<VerifiedDevelopPluginBuildV3, DevelopComposerTerminalV2> {
+        Err(unavailable(
+            "build_receipt.v3_owner_evidence",
+            "current Owner-derived V3 restart evidence is unavailable",
+        ))
+    }
 }
 
 pub(crate) trait DevelopComposerA0BuildPortV2 {
@@ -488,7 +528,7 @@ impl DevelopComposerFinalEvidencePortV2 for SealedDevelopComposerAcceptanceEvide
 
 struct ComposerEvidenceV2 {
     locked: DevelopComposerLockedEvidenceV2,
-    builds: RefCell<Vec<VerifiedDevelopPluginBuildV2>>,
+    builds: RefCell<Vec<VerifiedDevelopPluginBuildV2OrV3>>,
 }
 
 impl DevelopComposerEvidencePortV2 for ComposerEvidenceV2 {
@@ -518,7 +558,7 @@ impl DevelopComposerEvidencePortV2 for ComposerEvidenceV2 {
         &self,
         _manifests: &[PluginManifestV2],
         _locators: &[UntrustedPluginBuildLocatorV2],
-    ) -> Result<Vec<VerifiedDevelopPluginBuildV2>, DevelopComposerTerminalV2> {
+    ) -> Result<Vec<VerifiedDevelopPluginBuildV2OrV3>, DevelopComposerTerminalV2> {
         Ok(std::mem::take(&mut *self.builds.borrow_mut()))
     }
 }
@@ -538,7 +578,15 @@ pub(crate) struct DevelopComposerPreflightV2 {
 pub(crate) struct PreparedDevelopComposerA0V2 {
     preflight: DevelopComposerPreflightV2,
     build_reads: Vec<VerifiedDevelopPluginBuildReadV2>,
+    build_receipt_tags: Vec<u16>,
     build_receipt_bytes: Vec<Vec<u8>>,
+}
+
+struct BuildReceiptCustodyV2 {
+    attempt_identities: Vec<BindingDigest>,
+    capsule_identities: Vec<BindingDigest>,
+    tags: Vec<u16>,
+    bytes: Vec<Vec<u8>>,
 }
 
 impl PreparedDevelopComposerA0V2 {
@@ -667,6 +715,7 @@ pub(crate) fn prepare_develop_composer_a0_v2(
 
     Ok(PreparedDevelopComposerA0V2 {
         preflight,
+        build_receipt_tags: vec![BUILD_RECEIPT_TAG_V2; build_receipt_bytes.len()],
         build_reads,
         build_receipt_bytes,
     })
@@ -686,6 +735,7 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
     let PreparedDevelopComposerA0V2 {
         preflight,
         build_reads,
+        build_receipt_tags,
         build_receipt_bytes,
     } = prepared;
 
@@ -709,6 +759,7 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
     let verified_builds = build_reads
         .into_iter()
         .map(VerifiedDevelopPluginBuildReadV2::into_composer_build)
+        .map(VerifiedDevelopPluginBuildV2OrV3::from)
         .collect();
     let composer_evidence = ComposerEvidenceV2 {
         locked: final_locked.clone(),
@@ -733,9 +784,12 @@ pub(crate) fn finish_positive_record_from_prepared_a0_v2(
         preflight.request_digest,
         &composer_evidence.locked.research,
         &positive,
-        preflight.build_attempt_identities,
-        preflight.capsule_identities,
-        build_receipt_bytes,
+        BuildReceiptCustodyV2 {
+            attempt_identities: preflight.build_attempt_identities,
+            capsule_identities: preflight.capsule_identities,
+            tags: build_receipt_tags,
+            bytes: build_receipt_bytes,
+        },
     )?;
     Ok((record, final_locked))
 }
@@ -745,10 +799,14 @@ fn finish_positive(
     request_digest: BindingDigest,
     research: &CurrentResearchDevelopCustodyV2,
     positive: &DevelopComposerPositiveV2,
-    build_attempt_identities: Vec<BindingDigest>,
-    capsule_identities: Vec<BindingDigest>,
-    build_receipt_bytes: Vec<Vec<u8>>,
+    build_custody: BuildReceiptCustodyV2,
 ) -> Result<StoredDevelopComposerPositiveV2, DevelopComposerTerminalV2> {
+    let BuildReceiptCustodyV2 {
+        attempt_identities: build_attempt_identities,
+        capsule_identities,
+        tags: build_receipt_tags,
+        bytes: build_receipt_bytes,
+    } = build_custody;
     ProgramHostV2::new(positive.plan().clone(), positive.artifact().clone()).map_err(|e| {
         unavailable(
             "program_host",
@@ -809,10 +867,16 @@ fn finish_positive(
             b"rd.develop.private-module-set.v2\0",
             module_bytes.iter().map(|bytes| bytes.as_ref()),
         ),
-        build_receipt_set_digest: ordered_private_bytes_digest(
-            b"rd.develop.build-receipt-set.v2\0",
-            build_receipt_bytes.iter().map(Vec::as_slice),
-        ),
+        build_receipt_set_digest: versioned_build_receipt_set_digest(
+            &build_receipt_tags,
+            &build_receipt_bytes,
+        )
+        .ok_or_else(|| {
+            unavailable(
+                "build_receipt_tags",
+                "Build Receipt tags are missing, unknown, mixed, or partially cover receipt bytes",
+            )
+        })?,
         composer_receipt_bytes_digest: private_bytes_digest(
             b"rd.develop.composer-receipt.canonical-bytes.v2\0",
             &composer_receipt_bytes,
@@ -873,6 +937,7 @@ fn finish_positive(
         plan_bytes,
         artifact_package_bytes,
         module_bytes,
+        build_receipt_tags,
         build_receipt_bytes,
         composer_receipt_bytes,
         host_receipt_bytes,
@@ -886,6 +951,14 @@ fn finish_positive(
 pub(crate) fn resolve_positive_record_v2(
     record: &StoredDevelopComposerPositiveV2,
     current: DevelopComposerLockedEvidenceV2,
+) -> Result<DevelopComposerOperationResponseV2, DevelopComposerTerminalV2> {
+    resolve_positive_record_with_v3_restart_v2(record, current, &UnavailableV3BuildRestartV2)
+}
+
+pub(crate) fn resolve_positive_record_with_v3_restart_v2(
+    record: &StoredDevelopComposerPositiveV2,
+    current: DevelopComposerLockedEvidenceV2,
+    v3_restart: &impl DevelopComposerV3BuildRestartPortV2,
 ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerTerminalV2> {
     if current.research.research_request_identity() != record.research_request_identity
         || current.research.intent_identity() != record.intent_identity
@@ -925,6 +998,8 @@ pub(crate) fn resolve_positive_record_v2(
     }
 
     if record.build_receipt_bytes.len() != artifact.modules().len()
+        || record.build_receipt_tags.len() != artifact.modules().len()
+        || record.build_receipt_identities.len() != artifact.modules().len()
         || record.build_attempt_identities.len() != artifact.modules().len()
         || record.capsule_identities.len() != artifact.modules().len()
     {
@@ -934,29 +1009,77 @@ pub(crate) fn resolve_positive_record_v2(
         ));
     }
 
-    for (ordinal, (((bytes, expected_identity), module), manifest)) in record
-        .build_receipt_bytes
+    if !record
+        .build_receipt_tags
         .iter()
+        .all(|tag| *tag == BUILD_RECEIPT_TAG_V2)
+        && !record
+            .build_receipt_tags
+            .iter()
+            .all(|tag| *tag == BUILD_RECEIPT_TAG_V3)
+    {
+        return Err(unavailable(
+            "build_receipt_tags",
+            "Build Receipt tags are unknown or mixed",
+        ));
+    }
+
+    for (ordinal, ((((tag, bytes), expected_identity), module), manifest)) in record
+        .build_receipt_tags
+        .iter()
+        .zip(&record.build_receipt_bytes)
         .zip(&record.build_receipt_identities)
         .zip(artifact.modules())
         .zip(plan.canonical_plugin_manifests())
         .enumerate()
     {
-        let receipt = DevelopPluginBuildReceiptV2::parse_canonical(bytes)
-            .ok_or_else(|| unavailable("build_receipt", "canonical Build Receipt is invalid"))?;
-
-        if !receipt.validates_for_restart(manifest, *expected_identity, module.module_digest())
-            || receipt.receipt_digest() != module.verified_build_receipt_digest()
-            || receipt.implementation_capsule_digest() != record.capsule_identities[ordinal]
-            || build_attempt_identity_v2(&manifest.semantic_id, record.capsule_identities[ordinal])
-                != record.build_attempt_identities[ordinal]
-        {
+        if manifest.abi_version != *tag {
             return Err(unavailable(
-                "build_receipt.binding",
-                "Build Receipt binding mismatch",
+                "build_receipt.tag_binding",
+                "Build Receipt tag does not match the canonical plugin manifest ABI",
             ));
         }
+        match *tag {
+            BUILD_RECEIPT_TAG_V2 => validate_v2_build_receipt(
+                bytes,
+                *expected_identity,
+                module.module_digest(),
+                module.verified_build_receipt_digest(),
+                manifest,
+                record.capsule_identities[ordinal],
+                record.build_attempt_identities[ordinal],
+            )?,
+            BUILD_RECEIPT_TAG_V3 => {
+                let build = v3_restart.restart(
+                    manifest,
+                    record.capsule_identities[ordinal],
+                    bytes,
+                    module.wasm(),
+                )?;
+                if build.plugin_semantic_id() != manifest.semantic_id
+                    || build.manifest_digest()
+                        != crate::strategy_plan_v2::plugin_manifest_digest(manifest)
+                    || build.capsule_digest() != record.capsule_identities[ordinal]
+                    || build.module_digest() != module.module_digest()
+                    || build.verified_build_receipt_digest() != *expected_identity
+                    || build.verified_build_receipt_digest()
+                        != module.verified_build_receipt_digest()
+                    || build.canonical_receipt_bytes() != bytes
+                    || build_attempt_identity_v2(
+                        &manifest.semantic_id,
+                        record.capsule_identities[ordinal],
+                    ) != record.build_attempt_identities[ordinal]
+                {
+                    return Err(unavailable(
+                        "build_receipt.binding",
+                        "V3 Build Receipt binding mismatch",
+                    ));
+                }
+            }
+            _ => unreachable!("receipt tag set was validated before dispatch"),
+        }
     }
+
     let composer = DevelopComposerReceiptV2::parse_canonical(&record.composer_receipt_bytes)
         .ok_or_else(|| unavailable("composer_receipt", "canonical Composer receipt is invalid"))?;
 
@@ -1004,10 +1127,16 @@ pub(crate) fn resolve_positive_record_v2(
                 record.module_bytes.iter().map(|bytes| bytes.as_ref()),
             )
         || operation.build_receipt_set_digest
-            != ordered_private_bytes_digest(
-                b"rd.develop.build-receipt-set.v2\0",
-                record.build_receipt_bytes.iter().map(Vec::as_slice),
+            != versioned_build_receipt_set_digest(
+                &record.build_receipt_tags,
+                &record.build_receipt_bytes,
             )
+            .ok_or_else(|| {
+                unavailable(
+                    "build_receipt_tags",
+                    "Build Receipt tags are missing, unknown, mixed, or partially cover receipt bytes",
+                )
+            })?
         || operation.composer_receipt_bytes_digest
             != private_bytes_digest(
                 b"rd.develop.composer-receipt.canonical-bytes.v2\0",
@@ -1411,6 +1540,32 @@ fn map_build_terminal(
     }
 }
 
+fn validate_v2_build_receipt(
+    bytes: &[u8],
+    expected_identity: BindingDigest,
+    expected_module_digest: BindingDigest,
+    artifact_receipt_identity: BindingDigest,
+    manifest: &PluginManifestV2,
+    capsule_identity: BindingDigest,
+    build_attempt_identity: BindingDigest,
+) -> Result<(), DevelopComposerTerminalV2> {
+    let receipt = DevelopPluginBuildReceiptV2::parse_canonical(bytes)
+        .ok_or_else(|| unavailable("build_receipt", "canonical V2 Build Receipt is invalid"))?;
+    if !receipt.validates_for_restart(manifest, expected_identity, expected_module_digest)
+        || receipt.receipt_digest() != expected_identity
+        || receipt.receipt_digest() != artifact_receipt_identity
+        || receipt.implementation_capsule_digest() != capsule_identity
+        || build_attempt_identity_v2(&manifest.semantic_id, capsule_identity)
+            != build_attempt_identity
+    {
+        return Err(unavailable(
+            "build_receipt.binding",
+            "V2 Build Receipt binding mismatch",
+        ));
+    }
+    Ok(())
+}
+
 fn strict_decode<T>(bytes: &[u8], coordinate: &str) -> Result<T, DevelopComposerTerminalV2>
 where
     T: for<'de> Deserialize<'de> + Serialize,
@@ -1477,6 +1632,46 @@ fn ordered_private_bytes_digest<'a>(
         .map(|bytes| private_bytes_digest(b"rd.develop.private-member.v2\0", bytes))
         .collect::<Vec<_>>();
     domain_digest(domain, &durable_encode(&member_digests))
+}
+
+fn versioned_build_receipt_set_digest(tags: &[u16], values: &[Vec<u8>]) -> Option<BindingDigest> {
+    if tags.len() != values.len() || tags.is_empty() {
+        return None;
+    }
+    if tags.iter().all(|tag| *tag == BUILD_RECEIPT_TAG_V2) {
+        return Some(ordered_private_bytes_digest(
+            b"rd.develop.build-receipt-set.v2\0",
+            values.iter().map(Vec::as_slice),
+        ));
+    }
+    if !tags.iter().all(|tag| *tag == BUILD_RECEIPT_TAG_V3) {
+        return None;
+    }
+    let tagged = tags
+        .iter()
+        .copied()
+        .zip(values.iter().map(Vec::as_slice))
+        .collect::<Vec<_>>();
+    Some(domain_digest(
+        b"rd.develop.versioned-build-receipt-set.v1\0",
+        &durable_encode(&tagged),
+    ))
+}
+
+#[cfg(test)]
+pub(crate) fn versioned_build_receipt_set_digest_for_test(
+    tags: &[u16],
+    values: &[Vec<u8>],
+) -> Option<BindingDigest> {
+    versioned_build_receipt_set_digest(tags, values)
+}
+
+#[cfg(test)]
+pub(crate) fn legacy_build_receipt_set_digest_for_test(values: &[Vec<u8>]) -> BindingDigest {
+    ordered_private_bytes_digest(
+        b"rd.develop.build-receipt-set.v2\0",
+        values.iter().map(Vec::as_slice),
+    )
 }
 
 fn public_response_digest_without_receipt(

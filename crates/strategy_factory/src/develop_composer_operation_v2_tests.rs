@@ -17,8 +17,9 @@ use super::{
         DevelopComposerA0BuildPortV2, DevelopComposerDurableEvidenceLocatorV2,
         DevelopComposerFinalEvidencePortV2, DevelopComposerLockedEvidenceV2,
         DevelopComposerOperationDispositionV2, DevelopComposerRunRequestV2,
-        LocalDevelopComposerOperationV2, positive_write_boundary_count, request_digest,
-        rewrite_outbox_request_identity_for_test,
+        LocalDevelopComposerOperationV2, legacy_build_receipt_set_digest_for_test,
+        positive_write_boundary_count, request_digest, rewrite_outbox_request_identity_for_test,
+        versioned_build_receipt_set_digest_for_test,
     },
     develop_composer_postgres_v2::resolve_loaded_record_with_evidence,
     develop_composer_v2::{
@@ -220,6 +221,93 @@ fn build_receipt_roundtrips_and_every_critical_field_mutation_fails_closed() {
         assert!(
             !remains_valid,
             "each critical mutation must fail restart validation"
+        );
+    }
+}
+
+#[rstest]
+fn versioned_build_receipt_tags_preserve_v2_and_fail_closed_on_wrong_custody() {
+    let (request, builder, evidence, _, _) = fixture();
+    let operation = LocalDevelopComposerOperationV2::new(builder, evidence);
+    assert_eq!(
+        operation.run(&request, 10).disposition,
+        DevelopComposerOperationDispositionV2::Success
+    );
+    let record = operation.record_for_test();
+    assert_eq!(record.build_receipt_tags(), &[2]);
+    assert_eq!(
+        versioned_build_receipt_set_digest_for_test(
+            record.build_receipt_tags(),
+            &record.build_receipt_bytes,
+        ),
+        Some(legacy_build_receipt_set_digest_for_test(
+            &record.build_receipt_bytes
+        )),
+        "tagged custody must leave the pure V2 digest algorithm byte-for-byte unchanged",
+    );
+
+    let v3_digest = versioned_build_receipt_set_digest_for_test(&[3], &record.build_receipt_bytes)
+        .expect("uniform V3 tags select the versioned digest domain");
+    assert_ne!(
+        v3_digest,
+        legacy_build_receipt_set_digest_for_test(&record.build_receipt_bytes)
+    );
+    let mut changed_bytes = record.build_receipt_bytes.clone();
+    changed_bytes[0][0] ^= 1;
+    assert_ne!(
+        versioned_build_receipt_set_digest_for_test(&[3], &changed_bytes),
+        Some(v3_digest),
+        "the V3 digest must bind raw canonical receipt bytes",
+    );
+
+    assert_eq!(
+        versioned_build_receipt_set_digest_for_test(&[], &record.build_receipt_bytes),
+        None,
+        "missing tags must fail closed",
+    );
+    assert_eq!(
+        versioned_build_receipt_set_digest_for_test(&[9], &record.build_receipt_bytes),
+        None,
+        "unknown tags must fail closed",
+    );
+    assert_eq!(
+        versioned_build_receipt_set_digest_for_test(
+            &[2, 3],
+            &[
+                record.build_receipt_bytes[0].clone(),
+                record.build_receipt_bytes[0].clone(),
+            ],
+        ),
+        None,
+        "mixed tags must fail closed",
+    );
+    assert_eq!(
+        versioned_build_receipt_set_digest_for_test(&[2, 2], &record.build_receipt_bytes),
+        None,
+        "partial tag/receipt coverage must fail closed",
+    );
+
+    type ReceiptMutation =
+        fn(&mut super::develop_composer_operation_v2::StoredDevelopComposerPositiveV2);
+    let mutations: [ReceiptMutation; 4] = [
+        |record| {
+            record.build_receipt_tags.clear();
+        },
+        |record| record.build_receipt_tags[0] = 9,
+        |record| record.build_receipt_tags[0] = 3,
+        |record| record.build_receipt_bytes[0] = b"canonical-v3-shaped-receipt".to_vec(),
+    ];
+    for mutation in mutations {
+        let (request, builder, evidence, _, _) = fixture();
+        let operation = LocalDevelopComposerOperationV2::new(builder, evidence);
+        assert_eq!(
+            operation.run(&request, 10).disposition,
+            DevelopComposerOperationDispositionV2::Success
+        );
+        operation.mutate_record_for_test(mutation);
+        assert_eq!(
+            operation.resolve(&request.request_identity, 12).disposition,
+            DevelopComposerOperationDispositionV2::Unavailable,
         );
     }
 }

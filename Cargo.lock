@@ -10479,6 +10479,7 @@ version = "0.62.0"
 dependencies = [
  "libm",
  "rstest",
+ "sha2 0.10.9",
 ]
 
 [[package]]
@@ -11275,6 +11276,7 @@ dependencies = [
  "vibe-data",
  "vibe-deployment-attestation",
  "vibe-fred",
+ "vibe-indicators-kernel",
  "vibe-model",
  "vibe-operator-authorization",
  "vibe-persistence",

@@ -35,7 +35,10 @@ use vibe_model::{
 use super::{
     artifact_v2::{StrategyArtifactV2, StrategyArtifactV2Error},
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
-    plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2, TypedValueV2},
+    plugin_wire_v2::{
+        PLUGIN_FRAME_ABI_V3, PluginFrameKindV2, PluginFrameV2, PluginOutputAvailabilityV3,
+        TypedValueV2,
+    },
     program_host_backtest_v2::{BacktestProgramHostStrategyV2, BacktestProgramHostTraceV2},
     program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
     strategy_design_v2::{
@@ -1407,6 +1410,7 @@ fn sample_input_frame(manifest: &PluginManifestV2) -> PluginFrameV2 {
         manifest_digest: BindingDigest::from_untrusted_bytes([1; 32]),
         module_identity: BindingDigest::from_untrusted_bytes([2; 32]),
         invocation_identity: [3; 16],
+        output_availability: None,
         values,
         state: TypedValueV2::new(ValueTypeV2::Bytes, vec![0]).unwrap(),
     }
@@ -1494,6 +1498,8 @@ fn output_frame(manifest: &PluginManifestV2, phase: Phase) -> PluginFrameV2 {
         manifest_digest: BindingDigest::from_untrusted_bytes([1; 32]),
         module_identity: BindingDigest::from_untrusted_bytes([2; 32]),
         invocation_identity: [3; 16],
+        output_availability: (manifest.abi_version == PLUGIN_FRAME_ABI_V3)
+            .then_some(PluginOutputAvailabilityV3::Ready),
         values,
         state: TypedValueV2::new(ValueTypeV2::Bytes, vec![state]).unwrap(),
     }

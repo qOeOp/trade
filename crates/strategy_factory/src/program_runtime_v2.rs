@@ -9,7 +9,8 @@ use wasmi::{
 
 use crate::{
     artifact_v2::StrategyArtifactModuleV2,
-    plugin_wire_v2::{PluginFrameKindV2, PluginFrameV2},
+    bounded_feature_program_v1::BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
+    plugin_wire_v2::{PLUGIN_FRAME_ABI_V3, PluginFrameKindV2, PluginFrameV2},
     program_runtime::{
         PLUGIN_INPUT_CAPACITY_EXPORT_V2, PLUGIN_INPUT_PTR_EXPORT_V2, PLUGIN_INVOKE_EXPORT_V2,
         PLUGIN_OUTPUT_CAPACITY_EXPORT_V2, PLUGIN_OUTPUT_PTR_EXPORT_V2,
@@ -22,6 +23,8 @@ const MEMORY_EXPORT: &str = "memory";
 
 #[derive(Clone, Debug, Error, Eq, PartialEq)]
 pub enum ProgramPluginRuntimeV2Error {
+    #[error("plugin reported {semantic_id} with no output or post-state")]
+    NumericFailureNoStateChange { semantic_id: &'static str },
     #[error("unsupported plugin at {coordinate}: {reason}")]
     Unsupported {
         coordinate: &'static str,
@@ -104,6 +107,11 @@ impl ProgramPluginRuntimeV2 {
                     .map_err(|_| unsupported("input_frame", "frame length exceeds i32"))?,
             )
             .map_err(|e| map_execution(&e))?;
+        if is_numeric_failure_no_state_change(status, manifest) {
+            return Err(ProgramPluginRuntimeV2Error::NumericFailureNoStateChange {
+                semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
+            });
+        }
         if status < 0 {
             return Err(unsupported(
                 "guest_status",
@@ -132,6 +140,12 @@ impl ProgramPluginRuntimeV2 {
         )
         .map_err(|e| unsupported("output_frame", e.to_string()))
     }
+}
+
+fn is_numeric_failure_no_state_change(status: i32, manifest: &PluginManifestV2) -> bool {
+    status == -1
+        && manifest.abi_version == PLUGIN_FRAME_ABI_V3
+        && manifest.failure_semantic_id == BOUNDED_FEATURE_NUMERIC_FAILURE_V1
 }
 
 fn exported_range(
@@ -183,5 +197,54 @@ fn unsupported(coordinate: &'static str, reason: impl Into<String>) -> ProgramPl
     ProgramPluginRuntimeV2Error::Unsupported {
         coordinate,
         reason: reason.into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::strategy_design_v2::{PluginStateContractV2, ValueTypeV2};
+
+    fn manifest(abi_version: u16, failure_semantic_id: &str) -> PluginManifestV2 {
+        PluginManifestV2 {
+            semantic_id: "test.bfp.plugin.v1".to_owned(),
+            abi_version,
+            input_ports: Vec::new(),
+            output_ports: Vec::new(),
+            state: PluginStateContractV2 {
+                pre_port_id: "state.pre".to_owned(),
+                post_port_id: "state.post".to_owned(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 8,
+            },
+            capability_ids: Vec::new(),
+            max_fuel: 1,
+            max_linear_memory_bytes: 65_536,
+            max_invocations_per_event: 1,
+            failure_semantic_id: failure_semantic_id.to_owned(),
+        }
+    }
+
+    #[test]
+    fn only_the_exact_abi_three_status_maps_to_numeric_failure() {
+        assert!(is_numeric_failure_no_state_change(
+            -1,
+            &manifest(PLUGIN_FRAME_ABI_V3, BOUNDED_FEATURE_NUMERIC_FAILURE_V1)
+        ));
+        assert!(!is_numeric_failure_no_state_change(
+            -1,
+            &manifest(2, "strategy.plugin.failure.unsupported.v1")
+        ));
+        assert!(!is_numeric_failure_no_state_change(
+            -1,
+            &manifest(
+                PLUGIN_FRAME_ABI_V3,
+                "strategy.plugin.failure.unsupported.v1"
+            )
+        ));
+        assert!(!is_numeric_failure_no_state_change(
+            -2,
+            &manifest(PLUGIN_FRAME_ABI_V3, BOUNDED_FEATURE_NUMERIC_FAILURE_V1)
+        ));
     }
 }

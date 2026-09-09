@@ -4,7 +4,7 @@ use std::{
 };
 
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 
 use crate::{
     AuthorizationReadModeV1, ExpiredManifestRecoveryEpochV1, GENESIS_REVOCATION_FRONTIER,
@@ -283,6 +283,65 @@ impl OperatorAuthorizationIssuerPostgresV1 {
         let owner = Self { pool };
         owner.migrate().await?;
         Ok(owner)
+    }
+
+    /// Connects the canonical writer to an already provisioned Owner topology without running DDL.
+    pub async fn connect_existing(database_url: &str) -> Result<Self, OperatorAuthorizationError> {
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        let admitted: bool = sqlx::query_scalar(
+            "SELECT session_user = 'operator_authorization_writer'
+                    AND current_user = 'operator_authorization_writer'
+                    AND NOT pg_catalog.pg_is_in_recovery()
+                    AND role.rolcanlogin
+                    AND role.rolinherit
+                    AND NOT role.rolsuper
+                    AND NOT role.rolcreatedb
+                    AND NOT role.rolcreaterole
+                    AND NOT role.rolreplication
+                    AND NOT role.rolbypassrls
+                    AND (
+                      SELECT pg_catalog.count(*) = 1
+                        FROM pg_catalog.pg_auth_members membership
+                        JOIN pg_catalog.pg_roles granted
+                          ON granted.oid = membership.roleid
+                       WHERE membership.member = role.oid
+                         AND granted.rolname = 'operator_authorization_owner'
+                         AND membership.set_option
+                    )
+                    AND (
+                      SELECT pg_catalog.count(*) = 1
+                        FROM pg_catalog.pg_auth_members membership
+                       WHERE membership.member = role.oid
+                    )
+                    AND (
+                      SELECT pg_catalog.count(*) = 4
+                        FROM pg_catalog.pg_class relation
+                        JOIN pg_catalog.pg_namespace namespace
+                          ON namespace.oid = relation.relnamespace
+                       WHERE namespace.nspname = 'operator_authorization_private'
+                         AND relation.relname = ANY(ARRAY[
+                           'operator_authorization_issuances_v1',
+                           'operator_authorization_revocation_frontiers_v1',
+                           'operator_authorization_revocation_heads_v1',
+                           'operator_authorization_owner_outbox_v1'
+                         ]::pg_catalog.text[])
+                         AND relation.relkind = 'r'
+                         AND relation.relowner = pg_catalog.to_regrole('operator_authorization_owner')::oid
+                    )
+               FROM pg_catalog.pg_roles role
+              WHERE role.rolname = current_user",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(storage)?;
+        if !admitted {
+            return Err(OperatorAuthorizationError::Unavailable);
+        }
+        Ok(Self { pool })
     }
 
     /// Connects the issuer for expired-manifest recovery and prepares only the

@@ -36,7 +36,10 @@ use crate::{
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
-    DevelopComposerAcceptanceWriteBoundaryV2, PreparedDevelopComposerRunInTransactionV2,
+    DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
+    DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
+    PreparedDevelopComposerRunInTransactionV2, SealedDevelopComposerReadbackV2,
+    read_accepted_in_transaction,
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1335,6 +1338,42 @@ where
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
 pub struct SealedPostgresSourceResearchComposerV2 {
     inner: PostgresSourceResearchComposerV2<SealedSourceResearchComposerBindingOwnerV2>,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[async_trait::async_trait]
+impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 {
+    async fn read_accepted(
+        &self,
+        locator: &DevelopComposerSealedReadLocatorV2,
+    ) -> Result<SealedDevelopComposerReadbackV2, DevelopComposerSealedReadErrorV2> {
+        // This first read selects immutable lookup keys only. The final sealed read below
+        // revalidates the Composer record against Owner evidence in the same transaction.
+        let durable = self
+            .inner
+            .store
+            .durable_evidence_locator(&locator.request_identity)
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?
+            .ok_or(DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let mut transaction = self
+            .inner
+            .store
+            .begin_read_transaction()
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let locked = self
+            .inner
+            .lock_resolve_evidence(&mut transaction, &durable, current_read_cut_epoch_ms())
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let readback = read_accepted_in_transaction(&mut transaction, locator, locked).await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        Ok(readback)
+    }
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]

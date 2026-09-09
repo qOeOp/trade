@@ -1,4 +1,5 @@
 use core::cmp::Ordering;
+use core::num::NonZeroU32;
 
 use crate::i256::{I256, Sign};
 
@@ -98,6 +99,57 @@ impl RoundingMode {
             1 => Ok(Self::TowardZero),
             2 => Ok(Self::NearestTiesToEven),
             _ => Err(CanonicalDecodeError::UnknownTag),
+        }
+    }
+}
+
+/// Frozen comparison argument for the equal-scale compare primitive.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ComparisonPredicateV1 {
+    Less,
+    LessOrEqual,
+    Equal,
+    NotEqual,
+    GreaterOrEqual,
+    Greater,
+}
+
+impl ComparisonPredicateV1 {
+    pub const CANONICAL_LEN: usize = 1;
+
+    #[must_use]
+    pub const fn to_canonical_bytes(self) -> [u8; Self::CANONICAL_LEN] {
+        [match self {
+            Self::Less => 1,
+            Self::LessOrEqual => 2,
+            Self::Equal => 3,
+            Self::NotEqual => 4,
+            Self::GreaterOrEqual => 5,
+            Self::Greater => 6,
+        }]
+    }
+
+    pub fn from_canonical_bytes(bytes: &[u8]) -> Result<Self, CanonicalDecodeError> {
+        match decode_one_byte(bytes)? {
+            0 => Err(CanonicalDecodeError::ReservedTag),
+            1 => Ok(Self::Less),
+            2 => Ok(Self::LessOrEqual),
+            3 => Ok(Self::Equal),
+            4 => Ok(Self::NotEqual),
+            5 => Ok(Self::GreaterOrEqual),
+            6 => Ok(Self::Greater),
+            _ => Err(CanonicalDecodeError::UnknownTag),
+        }
+    }
+
+    const fn matches(self, ordering: Ordering) -> bool {
+        match self {
+            Self::Less => matches!(ordering, Ordering::Less),
+            Self::LessOrEqual => !matches!(ordering, Ordering::Greater),
+            Self::Equal => matches!(ordering, Ordering::Equal),
+            Self::NotEqual => !matches!(ordering, Ordering::Equal),
+            Self::GreaterOrEqual => !matches!(ordering, Ordering::Less),
+            Self::Greater => matches!(ordering, Ordering::Greater),
         }
     }
 }
@@ -227,20 +279,42 @@ impl FixedI128 {
 
     /// Adds equal-scale values through the I256 boundary.
     pub fn checked_add(self, rhs: Self) -> Result<Self, NumericFailure> {
+        self.checked_add_to_scale(rhs, self.scale, None)
+    }
+
+    /// Adds equal-scale operands and rounds the complete wide sum once.
+    ///
+    /// The intermediate sum need not fit I128 before conversion to `output_scale`.
+    pub fn checked_add_to_scale(
+        self,
+        rhs: Self,
+        output_scale: DecimalScale,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
         self.require_same_scale(rhs)?;
         let value = to_i256(self.coefficient)
             .checked_add(to_i256(rhs.coefficient))
             .ok_or(NumericFailure::I256Overflow)?;
-        finish(value, I256::ONE, self.scale, None)
+        self.finish_at_scale(value, output_scale, rounding)
     }
 
     /// Subtracts equal-scale values through the I256 boundary.
     pub fn checked_sub(self, rhs: Self) -> Result<Self, NumericFailure> {
+        self.checked_sub_to_scale(rhs, self.scale, None)
+    }
+
+    /// Subtracts equal-scale operands and rounds the complete wide difference once.
+    pub fn checked_sub_to_scale(
+        self,
+        rhs: Self,
+        output_scale: DecimalScale,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
         self.require_same_scale(rhs)?;
         let value = to_i256(self.coefficient)
             .checked_sub(to_i256(rhs.coefficient))
             .ok_or(NumericFailure::I256Overflow)?;
-        finish(value, I256::ONE, self.scale, None)
+        self.finish_at_scale(value, output_scale, rounding)
     }
 
     /// Multiplies two values and rounds once into `output_scale`.
@@ -291,9 +365,17 @@ impl FixedI128 {
         output_scale: DecimalScale,
         rounding: Option<RoundingMode>,
     ) -> Result<Self, NumericFailure> {
+        self.finish_at_scale(to_i256(self.coefficient), output_scale, rounding)
+    }
+
+    fn finish_at_scale(
+        self,
+        coefficient: I256,
+        output_scale: DecimalScale,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
         let exponent = i16::from(output_scale.get()) - i16::from(self.scale.get());
-        let (numerator, denominator) =
-            apply_decimal_exponent(to_i256(self.coefficient), I256::ONE, exponent)?;
+        let (numerator, denominator) = apply_decimal_exponent(coefficient, I256::ONE, exponent)?;
         finish(numerator, denominator, output_scale, rounding)
     }
 
@@ -301,6 +383,16 @@ impl FixedI128 {
     pub fn checked_cmp(self, rhs: Self) -> Result<Ordering, NumericFailure> {
         self.require_same_scale(rhs)?;
         Ok(self.coefficient.cmp(&rhs.coefficient))
+    }
+
+    /// Evaluates a declared comparison relation, producing a typed selection condition.
+    pub fn checked_compare(
+        self,
+        rhs: Self,
+        predicate: ComparisonPredicateV1,
+    ) -> Result<bool, NumericFailure> {
+        self.checked_cmp(rhs)
+            .map(|ordering| predicate.matches(ordering))
     }
 
     /// Selects one equal-scale value without rescaling either branch.
@@ -311,6 +403,54 @@ impl FixedI128 {
     ) -> Result<Self, NumericFailure> {
         when_true.require_same_scale(when_false)?;
         Ok(if condition { when_true } else { when_false })
+    }
+
+    /// Computes one seeded EMA step with one final rounding operation.
+    ///
+    /// `self` is the previous value. The state owner seeds the first sample and
+    /// admits the update clock; this operation neither owns nor mutates state.
+    pub fn checked_ema_next(
+        self,
+        sample: Self,
+        period: NonZeroU32,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
+        self.smooth_next(sample, 2, i128::from(period.get()) + 1, rounding)
+    }
+
+    /// Computes one seeded Wilder step with one final rounding operation.
+    ///
+    /// Seed and update-clock admission belong to the state owner, as for EMA.
+    pub fn checked_wilder_next(
+        self,
+        sample: Self,
+        period: NonZeroU32,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
+        self.smooth_next(sample, 1, i128::from(period.get()), rounding)
+    }
+
+    fn smooth_next(
+        self,
+        sample: Self,
+        weight: i128,
+        divisor: i128,
+        rounding: Option<RoundingMode>,
+    ) -> Result<Self, NumericFailure> {
+        self.require_same_scale(sample)?;
+        let previous = to_i256(self.coefficient);
+        let denominator = to_i256(divisor);
+        let change = to_i256(sample.coefficient)
+            .checked_sub(previous)
+            .and_then(|difference| difference.checked_mul(to_i256(weight)))
+            .ok_or(NumericFailure::I256Overflow)?;
+        // Rounding the change before adding the previous value changes both
+        // ties-to-even parity and the sign used by truncation toward zero.
+        let numerator = previous
+            .checked_mul(denominator)
+            .and_then(|base| base.checked_add(change))
+            .ok_or(NumericFailure::I256Overflow)?;
+        finish(numerator, denominator, self.scale, rounding)
     }
 
     fn require_same_scale(self, rhs: Self) -> Result<(), NumericFailure> {
@@ -347,7 +487,7 @@ fn power_of_ten(exponent: u8) -> Result<I256, NumericFailure> {
     Ok(result)
 }
 
-fn apply_decimal_exponent(
+pub(super) fn apply_decimal_exponent(
     numerator: I256,
     denominator: I256,
     exponent: i16,
@@ -367,7 +507,7 @@ fn apply_decimal_exponent(
     }
 }
 
-fn finish(
+pub(super) fn finish(
     numerator: I256,
     denominator: I256,
     output_scale: DecimalScale,
@@ -520,6 +660,125 @@ mod tests {
             Err(NumericFailure::RoundingRequired)
         );
         assert_eq!(fixed(20, 1).rescale(scale(0), None), Ok(fixed(2, 0)));
+    }
+
+    #[rstest]
+    fn smoothing_rounds_the_complete_result_and_preserves_wide_differences() {
+        let two = NonZeroU32::new(2).unwrap();
+        let three = NonZeroU32::new(3).unwrap();
+        let even = Some(RoundingMode::NearestTiesToEven);
+        let truncate = Some(RoundingMode::TowardZero);
+
+        assert_eq!(
+            fixed(1, 0).checked_ema_next(fixed(2, 0), three, even),
+            Ok(fixed(2, 0))
+        );
+        assert_eq!(
+            fixed(1, 0).checked_wilder_next(fixed(2, 0), two, even),
+            Ok(fixed(2, 0))
+        );
+        assert_eq!(
+            fixed(1, 0).checked_ema_next(fixed(0, 0), three, truncate),
+            Ok(fixed(0, 0))
+        );
+        assert_eq!(
+            fixed(-1, 0).checked_wilder_next(fixed(0, 0), two, truncate),
+            Ok(fixed(0, 0))
+        );
+
+        for rounding in [truncate, even] {
+            let low = fixed(i128::MIN, 38);
+            let high = fixed(i128::MAX, 38);
+            assert_eq!(
+                low.checked_ema_next(high, three, rounding),
+                Ok(fixed(0, 38))
+            );
+            assert_eq!(
+                high.checked_wilder_next(low, two, rounding),
+                Ok(fixed(0, 38))
+            );
+            assert_eq!(
+                low.checked_ema_next(high, NonZeroU32::MIN, rounding),
+                Ok(high)
+            );
+            assert_eq!(
+                high.checked_wilder_next(low, NonZeroU32::MIN, rounding),
+                Ok(low)
+            );
+        }
+    }
+
+    #[rstest]
+    fn smoothing_matches_independent_weighted_average_oracle() {
+        for previous in -6_i128..=6 {
+            for sample in -6_i128..=6 {
+                for period in [1_u32, 2, 3, 4, 17, u32::MAX] {
+                    let nonzero = NonZeroU32::new(period).unwrap();
+                    let p = i128::from(period);
+                    // Weighted sums avoid the implementation's difference form.
+                    let ema_numerator = (p - 1) * previous + 2 * sample;
+                    let wilder_numerator = (p - 1) * previous + sample;
+
+                    for rounding in [RoundingMode::TowardZero, RoundingMode::NearestTiesToEven] {
+                        for decimal_scale in [0, 19, 38] {
+                            let old = fixed(previous, decimal_scale);
+                            let next = fixed(sample, decimal_scale);
+                            assert_eq!(
+                                old.checked_ema_next(next, nonzero, Some(rounding)),
+                                Ok(fixed(
+                                    reference_round(ema_numerator, p + 1, rounding),
+                                    decimal_scale
+                                )),
+                            );
+                            assert_eq!(
+                                old.checked_wilder_next(next, nonzero, Some(rounding)),
+                                Ok(fixed(
+                                    reference_round(wilder_numerator, p, rounding),
+                                    decimal_scale
+                                )),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[rstest]
+    fn smoothing_rejects_invalid_arithmetic_without_changing_input_bytes() {
+        let previous = fixed(1, 2);
+        let sample = fixed(2, 2);
+        let before = (previous.to_canonical_bytes(), sample.to_canonical_bytes());
+        let two = NonZeroU32::new(2).unwrap();
+        let three = NonZeroU32::new(3).unwrap();
+        assert_eq!(
+            previous.checked_ema_next(sample, three, None),
+            Err(NumericFailure::RoundingRequired)
+        );
+        assert_eq!(
+            previous.checked_wilder_next(sample, two, None),
+            Err(NumericFailure::RoundingRequired)
+        );
+        assert_eq!(
+            previous.checked_ema_next(fixed(2, 3), three, None),
+            Err(NumericFailure::ScaleMismatch)
+        );
+        assert_eq!(
+            previous.checked_wilder_next(fixed(2, 3), two, None),
+            Err(NumericFailure::ScaleMismatch)
+        );
+        assert_eq!(
+            previous.checked_ema_next(sample, NonZeroU32::MIN, None),
+            Ok(sample)
+        );
+        assert_eq!(
+            previous.checked_wilder_next(sample, NonZeroU32::MIN, None),
+            Ok(sample)
+        );
+        assert_eq!(
+            (previous.to_canonical_bytes(), sample.to_canonical_bytes()),
+            before
+        );
     }
 
     #[rstest]
@@ -734,6 +993,207 @@ mod tests {
             RoundingMode::from_canonical_bytes(&[1, 0]),
             Err(CanonicalDecodeError::InvalidLength)
         );
+    }
+
+    #[rstest]
+    fn add_sub_rescale_keeps_wide_intermediates_until_final_rounding() {
+        let max = fixed(i128::MAX, 1);
+        let min = fixed(i128::MIN, 1);
+        let toward_zero = Some(RoundingMode::TowardZero);
+        let nearest = Some(RoundingMode::NearestTiesToEven);
+        let truncated = 34_028_236_692_093_846_346_337_460_743_176_821_145_i128;
+        assert_eq!(max.checked_add(max), Err(NumericFailure::FinalI128Overflow));
+        assert_eq!(max.checked_sub(min), Err(NumericFailure::FinalI128Overflow));
+        assert_eq!(
+            max.checked_add_to_scale(max, scale(0), nearest),
+            Ok(fixed(truncated, 0))
+        );
+        assert_eq!(
+            min.checked_add_to_scale(min, scale(0), toward_zero),
+            Ok(fixed(-truncated, 0))
+        );
+        assert_eq!(
+            min.checked_add_to_scale(min, scale(0), nearest),
+            Ok(fixed(-truncated - 1, 0))
+        );
+        assert_eq!(
+            max.checked_sub_to_scale(min, scale(0), toward_zero),
+            Ok(fixed(truncated, 0))
+        );
+        assert_eq!(
+            max.checked_sub_to_scale(min, scale(0), nearest),
+            Ok(fixed(truncated + 1, 0))
+        );
+        assert_eq!(
+            min.checked_sub_to_scale(max, scale(0), nearest),
+            Ok(fixed(-truncated - 1, 0))
+        );
+        assert_eq!(
+            max.checked_add_to_scale(fixed(3, 1), scale(0), None),
+            Ok(fixed(17_014_118_346_046_923_173_168_730_371_588_410_573, 0))
+        );
+    }
+
+    #[rstest]
+    fn add_sub_output_scale_does_not_align_operands_or_hide_failures() {
+        for output_scale in [0, 1, 38] {
+            assert_eq!(
+                fixed(1, 0).checked_add_to_scale(fixed(1, 1), scale(output_scale), None),
+                Err(NumericFailure::ScaleMismatch)
+            );
+            assert_eq!(
+                fixed(1, 0).checked_sub_to_scale(fixed(1, 1), scale(output_scale), None),
+                Err(NumericFailure::ScaleMismatch)
+            );
+        }
+
+        assert_eq!(
+            fixed(i128::MAX, 0).checked_add_to_scale(fixed(1, 0), scale(0), None),
+            Err(NumericFailure::FinalI128Overflow)
+        );
+        assert_eq!(
+            fixed(i128::MIN, 0).checked_sub_to_scale(fixed(1, 0), scale(0), None),
+            Err(NumericFailure::FinalI128Overflow)
+        );
+        assert_eq!(
+            fixed(1, 0).checked_add_to_scale(fixed(1, 0), scale(38), None),
+            Err(NumericFailure::FinalI128Overflow)
+        );
+        assert_eq!(
+            fixed(0, 0).checked_sub_to_scale(fixed(2, 0), scale(38), None),
+            Err(NumericFailure::FinalI128Overflow)
+        );
+        assert_eq!(
+            fixed(i128::MAX, 0).checked_sub_to_scale(fixed(i128::MAX, 0), scale(38), None),
+            Ok(fixed(0, 38))
+        );
+        assert_eq!(
+            fixed(i128::MIN, 0).checked_add_to_scale(fixed(i128::MAX, 0), scale(38), None),
+            Ok(fixed(
+                -100_000_000_000_000_000_000_000_000_000_000_000_000,
+                38
+            ))
+        );
+    }
+
+    #[rstest]
+    fn add_sub_declared_scales_match_bounded_integer_oracle() {
+        for left in -10_i128..=10 {
+            for right in -10_i128..=10 {
+                for input_scale in 0_u8..=3 {
+                    for output_scale in 0_u8..=3 {
+                        let exponent = i16::from(output_scale) - i16::from(input_scale);
+                        let (factor, divisor) = if exponent >= 0 {
+                            (10_i128.pow(exponent as u32), 1)
+                        } else {
+                            (1, 10_i128.pow((-exponent) as u32))
+                        };
+                        let lhs = fixed(left, input_scale);
+                        let rhs = fixed(right, input_scale);
+
+                        for rounding in [
+                            None,
+                            Some(RoundingMode::TowardZero),
+                            Some(RoundingMode::NearestTiesToEven),
+                        ] {
+                            let expected = |value: i128| {
+                                let numerator = value * factor;
+
+                                if let Some(mode) = rounding {
+                                    Ok(fixed(
+                                        reference_round(numerator, divisor, mode),
+                                        output_scale,
+                                    ))
+                                } else if numerator % divisor == 0 {
+                                    Ok(fixed(numerator / divisor, output_scale))
+                                } else {
+                                    Err(NumericFailure::RoundingRequired)
+                                }
+                            };
+                            assert_eq!(
+                                lhs.checked_add_to_scale(rhs, scale(output_scale), rounding),
+                                expected(left + right)
+                            );
+                            assert_eq!(
+                                lhs.checked_sub_to_scale(rhs, scale(output_scale), rounding),
+                                expected(left - right)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[rstest]
+    fn comparison_predicates_have_closed_canonical_tags() {
+        let predicates = [
+            ComparisonPredicateV1::Less,
+            ComparisonPredicateV1::LessOrEqual,
+            ComparisonPredicateV1::Equal,
+            ComparisonPredicateV1::NotEqual,
+            ComparisonPredicateV1::GreaterOrEqual,
+            ComparisonPredicateV1::Greater,
+        ];
+
+        for (index, predicate) in predicates.into_iter().enumerate() {
+            let bytes = [index as u8 + 1];
+            assert_eq!(predicate.to_canonical_bytes(), bytes);
+            assert_eq!(
+                ComparisonPredicateV1::from_canonical_bytes(&bytes),
+                Ok(predicate)
+            );
+        }
+
+        assert_eq!(
+            ComparisonPredicateV1::from_canonical_bytes(&[0]),
+            Err(CanonicalDecodeError::ReservedTag)
+        );
+
+        for tag in 7..=u8::MAX {
+            assert_eq!(
+                ComparisonPredicateV1::from_canonical_bytes(&[tag]),
+                Err(CanonicalDecodeError::UnknownTag)
+            );
+        }
+
+        assert_eq!(
+            ComparisonPredicateV1::from_canonical_bytes(&[]),
+            Err(CanonicalDecodeError::InvalidLength)
+        );
+        assert_eq!(
+            ComparisonPredicateV1::from_canonical_bytes(&[1, 0]),
+            Err(CanonicalDecodeError::InvalidLength)
+        );
+    }
+
+    #[rstest]
+    fn frozen_comparison_composes_with_select_without_an_implicit_cast() {
+        for left in [i128::MIN, -1, 0, 1, i128::MAX] {
+            for right in [i128::MIN, -1, 0, 1, i128::MAX] {
+                let cases = [
+                    (ComparisonPredicateV1::Less, left < right),
+                    (ComparisonPredicateV1::LessOrEqual, left <= right),
+                    (ComparisonPredicateV1::Equal, left == right),
+                    (ComparisonPredicateV1::NotEqual, left != right),
+                    (ComparisonPredicateV1::GreaterOrEqual, left >= right),
+                    (ComparisonPredicateV1::Greater, left > right),
+                ];
+
+                for (predicate, expected) in cases {
+                    let condition = fixed(left, 38).checked_compare(fixed(right, 38), predicate);
+                    assert_eq!(condition, Ok(expected));
+                    let selected = condition.and_then(|value| {
+                        FixedI128::checked_select(value, fixed(100, 2), fixed(200, 2))
+                    });
+                    assert_eq!(selected, Ok(fixed(if expected { 100 } else { 200 }, 2)));
+                    assert_eq!(
+                        fixed(left, 38).checked_compare(fixed(right, 37), predicate),
+                        Err(NumericFailure::ScaleMismatch)
+                    );
+                }
+            }
+        }
     }
 
     fn reference_round(numerator: i128, denominator: i128, rounding: RoundingMode) -> i128 {

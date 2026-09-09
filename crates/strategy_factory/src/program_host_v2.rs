@@ -13,6 +13,9 @@ use strategy_factory_program_sdk::lifecycle_v2::{
 };
 use thiserror::Error;
 use vibe_data::owner::{
+    sample_projection_v4::{
+        StrategyInputSampleProjectionKindV4, StrategyInputSampleProjectionReadbackV4,
+    },
     source_binding::BindingDigest,
     strategy_input_binding::{
         STRATEGY_INPUT_FIXED_I128_LE_V1, StrategyInputEventFrameReceipt, StrategyInputEventKind,
@@ -25,8 +28,10 @@ use vibe_data::owner::{
 
 use crate::{
     artifact_v2::{StrategyArtifactModuleV2, StrategyArtifactV2, StrategyArtifactV2Error},
+    bounded_feature_program_v1::BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
     plugin_wire_v2::{
-        PluginFrameKindV2, PluginFrameV2, TypedValueV2, aggregate_plugin_state_set_digest_v2,
+        PLUGIN_FRAME_ABI_V3, PluginFrameKindV2, PluginFrameV2, PluginOutputAvailabilityV3,
+        TypedValueV2, aggregate_plugin_state_set_digest_v2,
     },
     program_runtime_v2::{ProgramPluginRuntimeV2, ProgramPluginRuntimeV2Error},
     strategy_design_v2::{
@@ -34,7 +39,10 @@ use crate::{
         LifecycleContextV2, LifecycleKindV2, PluginManifestV2, TypedConstantV2, ValueRefV2,
         ValueTypeV2,
     },
-    strategy_plan_v2::{StrategyPlanV2, strategy_input_role_identity_v2},
+    strategy_plan_v2::{
+        BfpRoleBindingKindV1, OwnerSampleCoordinateDigestRuleV1, StrategyPlanV2,
+        strategy_input_role_identity_v2,
+    },
 };
 
 const HOST_IDENTITY_DOMAIN: &[u8] = b"strategy.program-host.identity.v2\0";
@@ -48,6 +56,9 @@ const BACKTEST_PREPARED_TARGET_SET_DOMAIN: &[u8] = b"strategy.backtest.prepared-
 const CHECKPOINT_MAGIC: [u8; 4] = *b"SFCB";
 const CHECKPOINT_CODEC_V2: u16 = 5;
 const PROGRAM_HOST_SCHEMA_V2: u16 = 2;
+const OWNER_SAMPLE_COORDINATE_SCHEMA_V1: u16 = 1;
+const OWNER_SAMPLE_COORDINATE_BYTES_V1: u16 = 308;
+const OWNER_SAMPLE_COORDINATE_DIGEST_DOMAIN_V1: &str = "strategy.input.sample-coordinate.v1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ProgramEventInputV2 {
@@ -57,7 +68,32 @@ struct ProgramEventInputV2 {
     owner_event: OwnerEventEvidenceV2,
 }
 
-type ProgramInputMapV2<'a> = BTreeMap<(&'a str, Option<u8>), &'a TypedValueV2>;
+#[derive(Clone, Copy)]
+struct ProgramInputValueV2<'a> {
+    value: &'a TypedValueV2,
+    owner_coordinate: Option<&'a OwnerSampleCoordinateEvidenceV2>,
+}
+
+type ProgramInputMapV2<'a> = BTreeMap<(&'a str, Option<u8>), ProgramInputValueV2<'a>>;
+
+#[derive(Clone, Copy)]
+struct ResolveContextV2<'a> {
+    envelope: LifecycleEnvelopeV1,
+    strategy_digest: BindingDigest,
+    plugin_digest: BindingDigest,
+    plugin_input: Option<(&'a str, &'a str, u16)>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OwnerSampleCoordinateEvidenceV2 {
+    canonical: [u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize],
+    projection_receipt_digest: BindingDigest,
+    projection_subject_identity: BindingDigest,
+    schedule_dependency_set_digest: BindingDigest,
+    timeframe_projection_digest: BindingDigest,
+    sample_identity: BindingDigest,
+    sample_receipt_digest: BindingDigest,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct OwnerEventEvidenceV2 {
@@ -68,6 +104,7 @@ struct OwnerEventEvidenceV2 {
     observation_batch_digest: BindingDigest,
     component_envelope_digest: BindingDigest,
     scale: u8,
+    sample_coordinate: Option<OwnerSampleCoordinateEvidenceV2>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -175,6 +212,7 @@ impl AdmittedProgramEventV2 {
                         envelope.envelope_digest,
                     ),
                     scale: binding.scale(),
+                    sample_coordinate: None,
                 },
             });
         }
@@ -213,6 +251,54 @@ impl AdmittedProgramEventV2 {
             input_join_identity: None,
             universe_frame: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn issue_for_plan_test_with_owner_sample_projection(
+        plan: &StrategyPlanV2,
+        envelope: LifecycleEnvelopeV1,
+        values: Vec<(&str, TypedValueV2)>,
+    ) -> Self {
+        let mut event = Self::issue_for_plan_test(plan, envelope, values);
+        for input in &mut event.inputs {
+            let mut canonical = [0_u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize];
+            canonical[..4].copy_from_slice(&1_u32.to_le_bytes());
+            canonical[4..36].copy_from_slice(input.owner_event.input_role_identity.as_bytes());
+            canonical[36..68].copy_from_slice(input.owner_event.event_receipt_digest.as_bytes());
+            for offset in [116, 124, 132, 236] {
+                canonical[offset..offset + 8]
+                    .copy_from_slice(&envelope.order_key.logical_time_ns.to_le_bytes());
+            }
+            let evidence_digest = |domain| domain_digest(domain, &canonical);
+            input.owner_event.sample_coordinate = Some(OwnerSampleCoordinateEvidenceV2 {
+                canonical,
+                projection_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-sample-projection-receipt.v4\0",
+                ),
+                projection_subject_identity: input.owner_event.observation_batch_digest,
+                schedule_dependency_set_digest: evidence_digest(
+                    b"strategy.program-host.test-schedule-dependency-set.v1\0",
+                ),
+                timeframe_projection_digest: evidence_digest(
+                    b"strategy.program-host.test-timeframe-projection.v1\0",
+                ),
+                sample_identity: evidence_digest(
+                    b"strategy.program-host.test-sample-identity.v1\0",
+                ),
+                sample_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-sample-receipt.v1\0",
+                ),
+            });
+        }
+        event.identity = admitted_event_identity(
+            plan,
+            event.envelope,
+            &event.inputs,
+            &event.source_binding_lineages,
+            event.input_join_identity,
+            event.universe_frame,
+        );
+        event
     }
 
     #[cfg(test)]
@@ -603,6 +689,7 @@ pub(crate) fn admit_market_data_program_event_v2(
                     envelope.envelope_digest,
                 ),
                 scale: value.value_scale(),
+                sample_coordinate: None,
             },
         });
     }
@@ -760,6 +847,7 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
                         envelope.envelope_digest,
                     ),
                     scale: value.value_scale(),
+                    sample_coordinate: None,
                 },
             },
             SourceBindingLineageVersionV2 {
@@ -852,6 +940,113 @@ pub(crate) fn admit_market_data_joined_program_event_v2(
         input_join_identity,
         universe_frame: None,
     })
+}
+
+/// Admits one BAR joined cut only when its exact Owner-verified V4 projection supplies every BFP
+/// value/coordinate role pair.
+pub(crate) fn admit_market_data_bar_joined_cut_program_event_v4(
+    plan: &StrategyPlanV2,
+    receipt: &StrategyInputJoinedCutReceiptV1,
+    projection: &StrategyInputSampleProjectionReadbackV4,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let event = admit_market_data_joined_program_event_v2(plan, receipt)?;
+    attach_owner_sample_coordinates_v4(
+        plan,
+        event,
+        projection,
+        StrategyInputSampleProjectionKindV4::JoinedCut,
+        receipt.digest(),
+    )
+}
+
+fn attach_owner_sample_coordinates_v4(
+    plan: &StrategyPlanV2,
+    mut event: AdmittedProgramEventV2,
+    projection: &StrategyInputSampleProjectionReadbackV4,
+    expected_kind: StrategyInputSampleProjectionKindV4,
+    expected_subject: BindingDigest,
+) -> Result<AdmittedProgramEventV2, ProgramHostV2Error> {
+    let role_bindings = plan.bfp_role_bindings();
+    if role_bindings.is_empty()
+        || event.envelope.order_key.kind != lifecycle_v1::LifecycleKind::Bar
+        || projection.kind() != expected_kind
+        || projection.subject_identity() != *expected_subject.as_bytes()
+        || projection.receipt_digest() == [0; 32]
+        || projection.schedule_dependency_set_digest() == [0; 32]
+        || usize::try_from(projection.component_count()).ok() != Some(event.inputs.len())
+        || projection.components().len() != event.inputs.len()
+    {
+        return Err(ProgramHostV2Error::InputCoverage);
+    }
+
+    for input in &mut event.inputs {
+        let role_rows = role_bindings
+            .iter()
+            .filter(|binding| {
+                binding.input_role_identity() == input.owner_event.input_role_identity
+            })
+            .collect::<Vec<_>>();
+        if role_rows.len() != 2
+            || !role_rows
+                .iter()
+                .any(|binding| binding.kind() == BfpRoleBindingKindV1::Value)
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        let coordinate_binding = role_rows
+            .iter()
+            .find(|binding| binding.kind() == BfpRoleBindingKindV1::Coordinate)
+            .copied()
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+        let component = projection
+            .component_for_role(*input.owner_event.input_role_identity.as_bytes())
+            .ok_or(ProgramHostV2Error::InputCoverage)?;
+
+        if coordinate_binding.input_role_id() != input.role_semantic_id
+            || coordinate_binding.static_binding_receipt_digest()
+                != input.owner_event.binding_receipt_digest
+            || coordinate_binding.coordinate_codec_schema_version()
+                != OWNER_SAMPLE_COORDINATE_SCHEMA_V1
+            || coordinate_binding.coordinate_canonical_bytes() != OWNER_SAMPLE_COORDINATE_BYTES_V1
+            || coordinate_binding.coordinate_digest_rule()
+                != OwnerSampleCoordinateDigestRuleV1::Sha256DomainSeparated
+            || coordinate_binding.coordinate_digest_domain()
+                != OWNER_SAMPLE_COORDINATE_DIGEST_DOMAIN_V1
+            || component.binding_receipt_digest()
+                != *input.owner_event.binding_receipt_digest.as_bytes()
+        {
+            return Err(ProgramHostV2Error::InputCoverage);
+        }
+        input.owner_event.sample_coordinate = Some(OwnerSampleCoordinateEvidenceV2 {
+            canonical: *component.coordinate(),
+            projection_receipt_digest: BindingDigest::from_untrusted_bytes(
+                projection.receipt_digest(),
+            ),
+            projection_subject_identity: BindingDigest::from_untrusted_bytes(
+                projection.subject_identity(),
+            ),
+            schedule_dependency_set_digest: BindingDigest::from_untrusted_bytes(
+                projection.schedule_dependency_set_digest(),
+            ),
+            timeframe_projection_digest: BindingDigest::from_untrusted_bytes(
+                component.timeframe_projection_digest(),
+            ),
+            sample_identity: BindingDigest::from_untrusted_bytes(component.sample_identity()),
+            sample_receipt_digest: BindingDigest::from_untrusted_bytes(
+                component.sample_receipt_digest(),
+            ),
+        });
+    }
+
+    event.identity = admitted_event_identity(
+        plan,
+        event.envelope,
+        &event.inputs,
+        &event.source_binding_lineages,
+        event.input_join_identity,
+        event.universe_frame,
+    );
+    Ok(event)
 }
 
 pub(crate) fn admit_market_data_universe_program_event_v2(
@@ -995,6 +1190,7 @@ pub(crate) fn admit_market_data_universe_program_event_v2(
                         envelope.envelope_digest,
                     ),
                     scale: value.value_scale(),
+                    sample_coordinate: None,
                 },
             });
         }
@@ -1228,6 +1424,17 @@ impl ProgramHostV2 {
         receipt: &StrategyInputJoinedCutReceiptV1,
     ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
         let event = admit_market_data_joined_program_event_v2(&self.plan, receipt)?;
+        self.apply_event(&event)
+    }
+
+    /// Applies one BFP BAR joined cut with the exact Market Data Owner V4 coordinate readback.
+    pub fn apply_market_data_bar_joined_cut_v4(
+        &mut self,
+        receipt: &StrategyInputJoinedCutReceiptV1,
+        projection: &StrategyInputSampleProjectionReadbackV4,
+    ) -> Result<SemanticTraceV1, ProgramHostV2Error> {
+        let event =
+            admit_market_data_bar_joined_cut_program_event_v4(&self.plan, receipt, projection)?;
         self.apply_event(&event)
     }
 
@@ -1732,6 +1939,7 @@ impl ProgramHostV2 {
         }
         let mut values = BTreeMap::new();
         let mut frame = None;
+        let bfp_coordinates_required = !self.plan.bfp_role_bindings().is_empty();
 
         for input in inputs {
             let role = declared
@@ -1758,6 +1966,7 @@ impl ProgramHostV2 {
                     == BindingDigest::from_untrusted_bytes([0; 32])
                 || input.owner_event.input_role_identity != role_identity
                 || input.owner_event.scale != role.scale
+                || (bfp_coordinates_required != input.owner_event.sample_coordinate.is_some())
                 || (universe && input.member_ordinal.is_none_or(|ordinal| ordinal >= 2))
                 || (!universe && input.member_ordinal.is_some())
                 || (input_join_identity.is_none()
@@ -1776,7 +1985,10 @@ impl ProgramHostV2 {
                 || values
                     .insert(
                         (input.role_semantic_id.as_str(), input.member_ordinal),
-                        &input.value,
+                        ProgramInputValueV2 {
+                            value: &input.value,
+                            owner_coordinate: input.owner_event.sample_coordinate.as_ref(),
+                        },
                     )
                     .is_some()
             {
@@ -1816,12 +2028,13 @@ impl ProgramHostV2 {
         let mut outputs = BTreeMap::<(String, String), TypedValueV2>::new();
         let prior_strategy_digest = strategy_state_digest(&self.strategy_state);
         let prior_plugin_digest = plugin_state_digest(&self.plugin_state);
+        let mut bfp_warming = false;
 
         for (call_index, node) in reaction.nodes.iter().enumerate() {
             let manifest = self.manifest(&node.plugin_semantic_id)?.clone();
             let module = self.module(&node.plugin_semantic_id)?.clone();
             let mut frame_values = Vec::with_capacity(manifest.input_ports.len());
-            for port in &manifest.input_ports {
+            for (port_ordinal, port) in manifest.input_ports.iter().enumerate() {
                 let binding = node
                     .input_bindings
                     .iter()
@@ -1831,18 +2044,32 @@ impl ProgramHostV2 {
                     &binding.source,
                     inputs,
                     &outputs,
-                    envelope,
-                    prior_strategy_digest,
-                    prior_plugin_digest,
+                    ResolveContextV2 {
+                        envelope,
+                        strategy_digest: prior_strategy_digest,
+                        plugin_digest: prior_plugin_digest,
+                        plugin_input: Some(
+                            (
+                                manifest.semantic_id.as_str(),
+                                port.semantic_id.as_str(),
+                                u16::try_from(port_ordinal).map_err(|_| {
+                                    ProgramHostV2Error::Graph(node.semantic_id.clone())
+                                })?,
+                            ),
+                        ),
+                    },
                 )?);
             }
             let state = self.resolve(
                 &node.pre_state,
                 inputs,
                 &outputs,
-                envelope,
-                prior_strategy_digest,
-                prior_plugin_digest,
+                ResolveContextV2 {
+                    envelope,
+                    strategy_digest: prior_strategy_digest,
+                    plugin_digest: prior_plugin_digest,
+                    plugin_input: None,
+                },
             )?;
 
             if state.value_type() != manifest.state.value_type
@@ -1864,6 +2091,7 @@ impl ProgramHostV2 {
                 manifest_digest: module.manifest_digest(),
                 module_identity: module.module_identity(),
                 invocation_identity,
+                output_availability: None,
                 values: frame_values,
                 state,
             };
@@ -1872,6 +2100,8 @@ impl ProgramHostV2 {
                 .plugin_calls
                 .checked_add(1)
                 .ok_or_else(|| ProgramHostV2Error::Graph("plugin_calls".into()))?;
+
+            bfp_warming |= validate_bfp_output_availability(&manifest, &output)?;
 
             for (contract, value) in manifest.output_ports.iter().zip(output.values) {
                 outputs.insert(
@@ -1885,14 +2115,37 @@ impl ProgramHostV2 {
             );
         }
 
-        for write in &reaction.state_writes {
-            let value = self.resolve(
-                &write.source,
+        if bfp_warming {
+            let wiring = reaction
+                .proposal
+                .as_ref()
+                .ok_or_else(|| ProgramHostV2Error::Graph("proposal".into()))?;
+            if wiring.member_target_set.is_some() {
+                return Err(ProgramHostV2Error::Graph("proposal.warming".into()));
+            }
+            let fields = resolve_bfp_warming_fields(
+                self,
+                wiring,
                 inputs,
                 &outputs,
                 envelope,
                 prior_strategy_digest,
                 prior_plugin_digest,
+            )?;
+            validate_bfp_warming_fields(&fields)?;
+        }
+
+        for write in &reaction.state_writes {
+            let value = self.resolve(
+                &write.source,
+                inputs,
+                &outputs,
+                ResolveContextV2 {
+                    envelope,
+                    strategy_digest: prior_strategy_digest,
+                    plugin_digest: prior_plugin_digest,
+                    plugin_input: None,
+                },
             )?;
             let state = self
                 .strategy_state
@@ -1933,9 +2186,12 @@ impl ProgramHostV2 {
                 reference,
                 inputs,
                 &outputs,
-                envelope,
-                strategy_digest,
-                plugin_digest,
+                ResolveContextV2 {
+                    envelope,
+                    strategy_digest,
+                    plugin_digest,
+                    plugin_input: None,
+                },
             )?;
 
             if value.value_type() != ValueTypeV2::Bytes || value.bytes().len() != TARGET_SET_BYTES {
@@ -1972,23 +2228,54 @@ impl ProgramHostV2 {
         reference: &ValueRefV2,
         inputs: &ProgramInputMapV2<'_>,
         outputs: &BTreeMap<(String, String), TypedValueV2>,
-        envelope: LifecycleEnvelopeV1,
-        strategy_digest: BindingDigest,
-        plugin_digest: BindingDigest,
+        context: ResolveContextV2<'_>,
     ) -> Result<TypedValueV2, ProgramHostV2Error> {
         match reference {
             ValueRefV2::Input { input_id } => inputs
                 .get(&(input_id.as_str(), None))
-                .copied()
-                .cloned()
+                .map(|input| input.value.clone())
                 .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone())),
+            ValueRefV2::OwnerSampleCoordinate {
+                input_id,
+                source_semantic_id,
+            } => {
+                let (plugin_semantic_id, port_id, ordinal) = context
+                    .plugin_input
+                    .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
+                let binding = self
+                    .plan
+                    .bfp_role_bindings()
+                    .iter()
+                    .find(|binding| {
+                        binding.kind() == BfpRoleBindingKindV1::Coordinate
+                            && binding.input_role_id() == input_id
+                            && binding.plugin_semantic_id() == plugin_semantic_id
+                            && binding.manifest_port_id() == port_id
+                            && binding.manifest_port_ordinal() == ordinal
+                            && binding.coordinate_source_semantic_id() == source_semantic_id
+                            && binding.update_clock_source_semantic_id() == source_semantic_id
+                    })
+                    .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
+                let coordinate = inputs
+                    .get(&(input_id.as_str(), None))
+                    .and_then(|input| input.owner_coordinate)
+                    .filter(|_| {
+                        self.plan.input_roles().iter().any(|role| {
+                            role.semantic_id == *input_id
+                                && strategy_input_role_identity_v2(role)
+                                    == binding.input_role_identity()
+                        })
+                    })
+                    .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone()))?;
+                TypedValueV2::new(ValueTypeV2::Bytes, coordinate.canonical.as_slice())
+                    .map_err(|error| ProgramHostV2Error::Type(error.to_string()))
+            }
             ValueRefV2::UniverseMemberInput {
                 input_id,
                 member_ordinal,
             } => inputs
                 .get(&(input_id.as_str(), Some(*member_ordinal)))
-                .copied()
-                .cloned()
+                .map(|input| input.value.clone())
                 .ok_or_else(|| ProgramHostV2Error::Graph(input_id.clone())),
             ValueRefV2::Parameter { parameter_id } => self
                 .plan
@@ -2011,10 +2298,10 @@ impl ProgramHostV2 {
                 .ok_or_else(|| ProgramHostV2Error::Graph(format!("{node_id}.{port_id}"))),
             ValueRefV2::LifecycleContext { field } => Ok(match field {
                 LifecycleContextV2::IntentIdentity => {
-                    TypedValueV2::stable_identity(intent_identity(&self.plan, envelope))
+                    TypedValueV2::stable_identity(intent_identity(&self.plan, context.envelope))
                 }
                 LifecycleContextV2::EnvelopeDigest => TypedValueV2::digest(
-                    BindingDigest::from_untrusted_bytes(envelope.envelope_digest),
+                    BindingDigest::from_untrusted_bytes(context.envelope.envelope_digest),
                 ),
                 LifecycleContextV2::CurrentPositionUnits => {
                     TypedValueV2::i64(self.kernel.checkpoint().reconciled_position_units)
@@ -2022,8 +2309,12 @@ impl ProgramHostV2 {
                 LifecycleContextV2::RebalanceSequence => {
                     TypedValueV2::u64(rebalance_sequence(self.kernel.checkpoint().target))
                 }
-                LifecycleContextV2::StrategyStateDigest => TypedValueV2::digest(strategy_digest),
-                LifecycleContextV2::PluginStateDigest => TypedValueV2::digest(plugin_digest),
+                LifecycleContextV2::StrategyStateDigest => {
+                    TypedValueV2::digest(context.strategy_digest)
+                }
+                LifecycleContextV2::PluginStateDigest => {
+                    TypedValueV2::digest(context.plugin_digest)
+                }
             }),
         }
     }
@@ -2434,6 +2725,93 @@ impl ProgramHostV2 {
     }
 }
 
+fn is_bounded_feature_manifest(manifest: &PluginManifestV2) -> bool {
+    manifest.abi_version == PLUGIN_FRAME_ABI_V3
+        && manifest.failure_semantic_id == BOUNDED_FEATURE_NUMERIC_FAILURE_V1
+}
+
+pub(crate) fn validate_bfp_output_availability(
+    manifest: &PluginManifestV2,
+    output: &PluginFrameV2,
+) -> Result<bool, ProgramHostV2Error> {
+    if !is_bounded_feature_manifest(manifest) {
+        return Ok(false);
+    }
+    match output.output_availability {
+        Some(PluginOutputAvailabilityV3::Ready) => Ok(false),
+        Some(PluginOutputAvailabilityV3::Warming) => Ok(true),
+        None => Err(ProgramHostV2Error::Graph(
+            "plugin.output_availability".into(),
+        )),
+    }
+}
+
+fn resolve_bfp_warming_fields(
+    host: &ProgramHostV2,
+    wiring: &crate::strategy_design_v2::ProposalWiringV2,
+    inputs: &ProgramInputMapV2<'_>,
+    outputs: &BTreeMap<(String, String), TypedValueV2>,
+    envelope: LifecycleEnvelopeV1,
+    strategy_digest: BindingDigest,
+    plugin_digest: BindingDigest,
+) -> Result<BTreeMap<&'static str, TypedValueV2>, ProgramHostV2Error> {
+    let resolve = |reference: &ValueRefV2| {
+        host.resolve(
+            reference,
+            inputs,
+            outputs,
+            ResolveContextV2 {
+                envelope,
+                strategy_digest,
+                plugin_digest,
+                plugin_input: None,
+            },
+        )
+    };
+    let mut fields = BTreeMap::new();
+    for (name, reference) in [
+        ("position", &wiring.position_intent),
+        ("target_variant", &wiring.target_variant),
+        ("target_position", &wiring.target_position_units),
+        ("target_weight", &wiring.target_weight_micros),
+        ("rebalance_sequence", &wiring.rebalance_sequence),
+        ("reconciliation_target", &wiring.reconciliation_target_units),
+        ("protection_variant", &wiring.protection_variant),
+        ("stop_loss", &wiring.stop_loss_ticks),
+        ("take_profit", &wiring.take_profit_ticks),
+        ("trailing_distance", &wiring.trailing_distance_ticks),
+        ("trailing_stop", &wiring.trailing_stop_ticks),
+    ] {
+        fields.insert(name, resolve(reference)?);
+    }
+    Ok(fields)
+}
+
+pub(crate) fn validate_bfp_warming_fields(
+    fields: &BTreeMap<&str, TypedValueV2>,
+) -> Result<(), ProgramHostV2Error> {
+    let get = |name: &str| {
+        fields
+            .get(name)
+            .ok_or_else(|| ProgramHostV2Error::Graph("proposal.warming".into()))
+    };
+    let valid = semantic(get("position")?)? == lifecycle_v1::HOLD_SEMANTIC_ID
+        && semantic(get("target_variant")?)? == "kernel.target.keep.v1"
+        && exact_i64(get("target_position")?)? == 0
+        && exact_i32(get("target_weight")?)? == 0
+        && exact_u64(get("rebalance_sequence")?)? == 0
+        && exact_i64(get("reconciliation_target")?)? == 0
+        && semantic(get("protection_variant")?)? == "kernel.protection.keep.v1"
+        && exact_i64(get("stop_loss")?)? == 0
+        && exact_i64(get("take_profit")?)? == 0
+        && exact_u64(get("trailing_distance")?)? == 0
+        && exact_i64(get("trailing_stop")?)? == 0;
+    if !valid {
+        return Err(ProgramHostV2Error::Graph("proposal.warming".into()));
+    }
+    Ok(())
+}
+
 fn proposal_from_wiring(
     host: &ProgramHostV2,
     wiring: &crate::strategy_design_v2::ProposalWiringV2,
@@ -2448,9 +2826,12 @@ fn proposal_from_wiring(
             reference,
             inputs,
             outputs,
-            envelope,
-            strategy_digest,
-            plugin_digest,
+            ResolveContextV2 {
+                envelope,
+                strategy_digest,
+                plugin_digest,
+                plugin_input: None,
+            },
         )
     };
     let position = match semantic(&resolve(&wiring.position_intent)?)? {
@@ -2476,8 +2857,8 @@ fn proposal_from_wiring(
         },
         _ => return Err(ProgramHostV2Error::Graph("proposal.target_variant".into())),
     };
-    let reconciliation = exact_i64(&resolve(&wiring.reconciliation_target_units)?)?;
-    let reconciliation = (target != TargetProposalV1::Keep).then_some(reconciliation);
+    let reconciliation_target = exact_i64(&resolve(&wiring.reconciliation_target_units)?)?;
+    let reconciliation = (target != TargetProposalV1::Keep).then_some(reconciliation_target);
     let protection_variant_value = resolve(&wiring.protection_variant)?;
     let protection_variant = semantic(&protection_variant_value)?;
     let protection = match protection_variant {
@@ -2757,7 +3138,9 @@ fn reaction_input_roles(
         .ok_or_else(|| ProgramHostV2Error::Graph("reaction".into()))?;
     let mut ids = std::collections::BTreeSet::new();
     let mut add = |reference: &ValueRefV2| match reference {
-        ValueRefV2::Input { input_id } | ValueRefV2::UniverseMemberInput { input_id, .. } => {
+        ValueRefV2::Input { input_id }
+        | ValueRefV2::OwnerSampleCoordinate { input_id, .. }
+        | ValueRefV2::UniverseMemberInput { input_id, .. } => {
             ids.insert(input_id.clone());
         }
         _ => {}
@@ -2821,6 +3204,15 @@ fn admitted_event_identity(
         bytes.extend(input.owner_event.trigger_digest.as_bytes());
         bytes.extend(input.owner_event.binding_receipt_digest.as_bytes());
         bytes.extend(input.owner_event.event_receipt_digest.as_bytes());
+        if let Some(coordinate) = &input.owner_event.sample_coordinate {
+            bytes.extend(coordinate.projection_receipt_digest.as_bytes());
+            bytes.extend(coordinate.projection_subject_identity.as_bytes());
+            bytes.extend(coordinate.schedule_dependency_set_digest.as_bytes());
+            bytes.extend(coordinate.timeframe_projection_digest.as_bytes());
+            bytes.extend(coordinate.sample_identity.as_bytes());
+            bytes.extend(coordinate.sample_receipt_digest.as_bytes());
+            bytes.extend(coordinate.canonical);
+        }
         if input_join_identity.is_some() {
             bytes.extend(input.owner_event.component_envelope_digest.as_bytes());
         }

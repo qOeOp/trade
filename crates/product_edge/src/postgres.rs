@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Postgres, Row, Transaction};
+use sqlx::{PgPool, Postgres, Row, Transaction, postgres::PgPoolOptions};
 use vibe_operator_authorization::{
     AuthorizationReadModeV1, ExpiredManifestRecoveryEpochV1, ExpiredManifestRecoveryTransitionV1,
     OperationManifestBindingV1, OperatorAuthorizationError, OperatorAuthorizationLocatorV1,
@@ -1254,6 +1254,85 @@ impl ProductEdgePostgresOwnerV1 {
         };
         owner.migrate().await?;
         Ok(owner)
+    }
+
+    /// Connects the canonical Owner to an already provisioned topology without running DDL.
+    pub async fn connect_existing(
+        database_url: &str,
+        deployment_identity: impl Into<String>,
+        authorization_trust: ProductEdgeAuthorizationTrustV1,
+    ) -> Result<Self, ProductEdgeError> {
+        let deployment_identity = deployment_identity.into();
+        if deployment_identity.trim().is_empty() {
+            return Err(ProductEdgeError::InvalidProposal("deployment locator"));
+        }
+        authorization_trust.validate()?;
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        let admitted: bool = sqlx::query_scalar(
+            "SELECT session_user = 'product_edge_owner'
+                    AND current_user = 'product_edge_owner'
+                    AND NOT pg_catalog.pg_is_in_recovery()
+                    AND role.rolcanlogin
+                    AND role.rolinherit
+                    AND NOT role.rolsuper
+                    AND NOT role.rolcreatedb
+                    AND NOT role.rolcreaterole
+                    AND NOT role.rolreplication
+                    AND NOT role.rolbypassrls
+                    AND NOT EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.pg_auth_members membership
+                       WHERE membership.member = role.oid
+                          OR membership.roleid = role.oid
+                    )
+                    AND EXISTS (
+                      SELECT 1
+                        FROM pg_catalog.pg_namespace namespace
+                       WHERE namespace.nspname = 'product_edge_api'
+                         AND namespace.nspowner = role.oid
+                    )
+                    AND (
+                      SELECT pg_catalog.count(*) = 13
+                        FROM pg_catalog.pg_class relation
+                        JOIN pg_catalog.pg_namespace namespace
+                          ON namespace.oid = relation.relnamespace
+                       WHERE namespace.nspname = 'public'
+                         AND relation.relname = ANY(ARRAY[
+                           'product_edge_operation_manifests_v1',
+                           'product_edge_deployment_bindings_v1',
+                           'product_edge_deployment_supersessions_v1',
+                           'product_edge_binding_manifests_v1',
+                           'product_edge_deployment_heads_v1',
+                           'product_edge_request_admissions_v1',
+                           'product_edge_effect_invocation_admissions_v1',
+                           'product_edge_effect_invocation_claims_v1',
+                           'product_edge_effect_invocation_states_v1',
+                           'product_edge_owner_outbox_v1',
+                           'product_edge_admission_event_stream_v1',
+                           'product_edge_admission_events_v1',
+                           'product_edge_expired_manifest_recoveries_v1'
+                         ]::pg_catalog.text[])
+                         AND relation.relkind = 'r'
+                         AND relation.relowner = role.oid
+                    )
+               FROM pg_catalog.pg_roles role
+              WHERE role.rolname = current_user",
+        )
+        .fetch_one(&pool)
+        .await
+        .map_err(storage)?;
+        if !admitted {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        Ok(Self {
+            pool,
+            deployment_identity,
+            authorization_trust,
+        })
     }
 
     /// Connects the Owner for expired-manifest recovery and prepares only the

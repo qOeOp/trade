@@ -8,6 +8,7 @@ use vibe_data::owner::source_binding::BindingDigest;
 use crate::{
     program_runtime::{
         ProgramRuntimeBudget, validate_candidate_for_artifact, validate_plugin_candidate_v2,
+        validate_plugin_candidate_v3,
     },
     strategy_design_v2::PluginManifestV2,
     strategy_plan_v2::plugin_manifest_digest,
@@ -76,6 +77,16 @@ pub(crate) struct PluginCargoBuildEvidenceV2<'a> {
     pub(crate) verified_build_receipt_digest: BindingDigest,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct PluginCargoBuildEvidenceV3<'a> {
+    pub(crate) wasm_one: &'a [u8],
+    pub(crate) wasm_two: &'a [u8],
+    pub(crate) capsule_digest: BindingDigest,
+    pub(crate) source_set_digest: BindingDigest,
+    pub(crate) verified_build_receipt_digest: BindingDigest,
+    pub(crate) max_wasm_bytes: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct VerifiedPluginCargoBuildV2 {
     plugin_semantic_id: String,
@@ -84,6 +95,17 @@ pub(crate) struct VerifiedPluginCargoBuildV2 {
     module_digest: BindingDigest,
     implementation_capsule_digest: BindingDigest,
     source_entry_digest: BindingDigest,
+    verified_build_receipt_digest: BindingDigest,
+}
+
+/// Move-only proof that two reproducible ABI3 builds passed the strict module envelope.
+pub(crate) struct VerifiedPluginCargoBuildV3 {
+    plugin_semantic_id: String,
+    manifest_digest: BindingDigest,
+    wasm: Box<[u8]>,
+    module_digest: BindingDigest,
+    capsule_digest: BindingDigest,
+    source_set_digest: BindingDigest,
     verified_build_receipt_digest: BindingDigest,
 }
 
@@ -285,6 +307,74 @@ impl VerifiedPluginCargoBuildV2 {
     }
 }
 
+impl VerifiedPluginCargoBuildV3 {
+    pub(crate) fn verify(
+        manifest: &PluginManifestV2,
+        evidence: PluginCargoBuildEvidenceV3<'_>,
+    ) -> Result<Self, CargoArtifactError> {
+        if evidence.wasm_one != evidence.wasm_two {
+            return Err(CargoArtifactError::NonReproducible);
+        }
+        let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+        if [
+            evidence.capsule_digest,
+            evidence.source_set_digest,
+            evidence.verified_build_receipt_digest,
+        ]
+        .contains(&zero)
+        {
+            return Err(CargoArtifactError::Recipe(
+                "ABI3 plugin build provenance digest is zero".to_owned(),
+            ));
+        }
+        validate_plugin_candidate_v3(evidence.wasm_one, manifest, evidence.max_wasm_bytes)
+            .map_err(|error| CargoArtifactError::RuntimeProfile(error.to_string()))?;
+        Ok(Self {
+            plugin_semantic_id: manifest.semantic_id.clone(),
+            manifest_digest: plugin_manifest_digest(manifest),
+            wasm: evidence.wasm_one.into(),
+            module_digest: BindingDigest::from_untrusted_bytes(
+                Sha256::digest(evidence.wasm_one).into(),
+            ),
+            capsule_digest: evidence.capsule_digest,
+            source_set_digest: evidence.source_set_digest,
+            verified_build_receipt_digest: evidence.verified_build_receipt_digest,
+        })
+    }
+
+    pub(crate) fn plugin_semantic_id(&self) -> &str {
+        &self.plugin_semantic_id
+    }
+
+    pub(crate) const fn manifest_digest(&self) -> BindingDigest {
+        self.manifest_digest
+    }
+
+    pub(crate) fn wasm(&self) -> &[u8] {
+        &self.wasm
+    }
+
+    pub(crate) const fn module_digest(&self) -> BindingDigest {
+        self.module_digest
+    }
+
+    pub(crate) const fn capsule_digest(&self) -> BindingDigest {
+        self.capsule_digest
+    }
+
+    pub(crate) const fn source_set_digest(&self) -> BindingDigest {
+        self.source_set_digest
+    }
+
+    pub(crate) const fn verified_build_receipt_digest(&self) -> BindingDigest {
+        self.verified_build_receipt_digest
+    }
+
+    pub(crate) fn into_wasm(self) -> Box<[u8]> {
+        self.wasm
+    }
+}
+
 fn validate_recipe(bytes: &[u8]) -> Result<BuildRecipeV1, CargoArtifactError> {
     let recipe: BuildRecipeV1 =
         serde_json::from_slice(bytes).map_err(|e| CargoArtifactError::Recipe(e.to_string()))?;
@@ -369,6 +459,133 @@ mod tests {
     use super::*;
     use rstest::rstest;
 
+    use crate::strategy_design_v2::{PluginStateContractV2, PortContractV2, ValueTypeV2};
+
+    fn plugin_manifest(abi_version: u16) -> PluginManifestV2 {
+        PluginManifestV2 {
+            semantic_id: format!("test.plugin.cargo-artifact.abi{abi_version}"),
+            abi_version,
+            input_ports: vec![PortContractV2 {
+                semantic_id: "test.input.v1".to_owned(),
+                value_type: ValueTypeV2::I64,
+                max_bytes: 8,
+            }],
+            output_ports: vec![PortContractV2 {
+                semantic_id: "test.output.v1".to_owned(),
+                value_type: ValueTypeV2::I64,
+                max_bytes: 8,
+            }],
+            state: PluginStateContractV2 {
+                pre_port_id: "test.state.pre.v1".to_owned(),
+                post_port_id: "test.state.post.v1".to_owned(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 8,
+            },
+            capability_ids: vec![],
+            max_fuel: 10_000,
+            max_linear_memory_bytes: 65_536,
+            max_invocations_per_event: 1,
+            failure_semantic_id: "strategy.plugin.failure.unsupported.v1".to_owned(),
+        }
+    }
+
+    fn plugin_module(output_capacity: i32, float_type: bool) -> Vec<u8> {
+        let mut wasm = b"\0asm\x01\0\0\0".to_vec();
+        let mut types = vec![2 + u8::from(float_type)];
+        types.extend([0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
+        if float_type {
+            types.extend([0x60, 1, 0x7d, 0]);
+        }
+        section(&mut wasm, 1, &types);
+
+        let mut functions = vec![5 + u8::from(float_type), 0, 0, 0, 0, 1];
+        if float_type {
+            functions.push(2);
+        }
+        section(&mut wasm, 3, &functions);
+        section(&mut wasm, 5, &[1, 1, 1, 1]);
+
+        let mut exports = vec![6];
+        export(&mut exports, "memory", 2, 0);
+        for (name, index) in [
+            ("strategy_factory_plugin_input_ptr_v2", 0),
+            ("strategy_factory_plugin_input_capacity_v2", 1),
+            ("strategy_factory_plugin_output_ptr_v2", 2),
+            ("strategy_factory_plugin_output_capacity_v2", 3),
+            ("strategy_factory_plugin_invoke_v2", 4),
+        ] {
+            export(&mut exports, name, 0, index);
+        }
+        section(&mut wasm, 7, &exports);
+
+        let mut code = vec![5 + u8::from(float_type)];
+        for value in [1024, 128, 8192, output_capacity, 0] {
+            function_body(&mut code, &i32_const(value));
+        }
+        if float_type {
+            function_body(&mut code, &[]);
+        }
+        section(&mut wasm, 10, &code);
+        wasm
+    }
+
+    fn plugin_v3_evidence(wasm: &[u8]) -> PluginCargoBuildEvidenceV3<'_> {
+        PluginCargoBuildEvidenceV3 {
+            wasm_one: wasm,
+            wasm_two: wasm,
+            capsule_digest: BindingDigest::from_untrusted_bytes([11; 32]),
+            source_set_digest: BindingDigest::from_untrusted_bytes([12; 32]),
+            verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([13; 32]),
+            max_wasm_bytes: wasm.len() as u32,
+        }
+    }
+
+    fn section(wasm: &mut Vec<u8>, id: u8, payload: &[u8]) {
+        wasm.push(id);
+        u32_leb(wasm, payload.len() as u32);
+        wasm.extend(payload);
+    }
+
+    fn export(bytes: &mut Vec<u8>, export_name: &str, kind: u8, index: u32) {
+        u32_leb(bytes, export_name.len() as u32);
+        bytes.extend(export_name.as_bytes());
+        bytes.push(kind);
+        u32_leb(bytes, index);
+    }
+
+    fn function_body(code: &mut Vec<u8>, operators: &[u8]) {
+        let mut body = vec![0];
+        body.extend(operators);
+        body.push(0x0b);
+        u32_leb(code, body.len() as u32);
+        code.extend(body);
+    }
+
+    fn i32_const(value: i32) -> Vec<u8> {
+        let mut bytes = vec![0x41];
+        let mut value = value;
+        loop {
+            let byte = value as u8 & 0x7f;
+            value >>= 7;
+            let done = (value == 0 && byte & 0x40 == 0) || (value == -1 && byte & 0x40 != 0);
+            bytes.push(if done { byte } else { byte | 0x80 });
+            if done {
+                return bytes;
+            }
+        }
+    }
+
+    fn u32_leb(bytes: &mut Vec<u8>, mut value: u32) {
+        loop {
+            let byte = value as u8 & 0x7f;
+            value >>= 7;
+            bytes.push(if value == 0 { byte } else { byte | 0x80 });
+            if value == 0 {
+                return;
+            }
+        }
+    }
+
     fn sandbox_recipe() -> Vec<u8> {
         let mut bytes = serde_json::to_vec(&SandboxedBuildRecipeV2 {
             build_platform: BUILD_PLATFORM.to_string(),
@@ -447,5 +664,120 @@ mod tests {
             }),
             Err(CargoArtifactError::RuntimeProfile(_))
         ));
+    }
+
+    #[rstest]
+    fn abi_three_cargo_artifact_binds_identity_provenance_and_wasm() {
+        let manifest = plugin_manifest(3);
+        let wasm = plugin_module(129, false);
+        let evidence = plugin_v3_evidence(&wasm);
+        let verified = VerifiedPluginCargoBuildV3::verify(&manifest, evidence).unwrap();
+
+        assert_eq!(verified.plugin_semantic_id(), manifest.semantic_id);
+        assert_eq!(
+            verified.manifest_digest(),
+            plugin_manifest_digest(&manifest)
+        );
+        assert_eq!(verified.wasm(), wasm);
+        assert_eq!(
+            verified.module_digest(),
+            BindingDigest::from_untrusted_bytes(Sha256::digest(&wasm).into())
+        );
+        assert_eq!(verified.capsule_digest(), evidence.capsule_digest);
+        assert_eq!(verified.source_set_digest(), evidence.source_set_digest);
+        assert_eq!(
+            verified.verified_build_receipt_digest(),
+            evidence.verified_build_receipt_digest
+        );
+        assert_eq!(verified.into_wasm().as_ref(), wasm);
+    }
+
+    #[rstest]
+    fn abi_three_cargo_artifact_rejects_abi_two_float_and_invalid_modules() {
+        let wasm = plugin_module(129, false);
+        assert!(matches!(
+            VerifiedPluginCargoBuildV3::verify(&plugin_manifest(2), plugin_v3_evidence(&wasm)),
+            Err(CargoArtifactError::RuntimeProfile(_))
+        ));
+
+        let float_wasm = plugin_module(129, true);
+        assert!(matches!(
+            VerifiedPluginCargoBuildV3::verify(
+                &plugin_manifest(3),
+                plugin_v3_evidence(&float_wasm)
+            ),
+            Err(CargoArtifactError::RuntimeProfile(_))
+        ));
+
+        let invalid = b"not wasm";
+        assert!(matches!(
+            VerifiedPluginCargoBuildV3::verify(&plugin_manifest(3), plugin_v3_evidence(invalid)),
+            Err(CargoArtifactError::RuntimeProfile(_))
+        ));
+    }
+
+    #[rstest]
+    fn abi_three_cargo_artifact_rejects_budget_provenance_and_nonreproducibility() {
+        let manifest = plugin_manifest(3);
+        let wasm = plugin_module(129, false);
+        let valid = plugin_v3_evidence(&wasm);
+
+        assert!(matches!(
+            VerifiedPluginCargoBuildV3::verify(
+                &manifest,
+                PluginCargoBuildEvidenceV3 {
+                    max_wasm_bytes: (wasm.len() - 1) as u32,
+                    ..valid
+                }
+            ),
+            Err(CargoArtifactError::RuntimeProfile(_))
+        ));
+
+        for evidence in [
+            PluginCargoBuildEvidenceV3 {
+                capsule_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+                ..valid
+            },
+            PluginCargoBuildEvidenceV3 {
+                source_set_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+                ..valid
+            },
+            PluginCargoBuildEvidenceV3 {
+                verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([0; 32]),
+                ..valid
+            },
+        ] {
+            assert!(matches!(
+                VerifiedPluginCargoBuildV3::verify(&manifest, evidence),
+                Err(CargoArtifactError::Recipe(_))
+            ));
+        }
+
+        let mut different = wasm.clone();
+        different.push(0);
+        assert!(matches!(
+            VerifiedPluginCargoBuildV3::verify(
+                &manifest,
+                PluginCargoBuildEvidenceV3 {
+                    wasm_two: &different,
+                    ..valid
+                }
+            ),
+            Err(CargoArtifactError::NonReproducible)
+        ));
+    }
+
+    #[rstest]
+    fn legacy_plugin_cargo_artifact_still_accepts_abi_two() {
+        let manifest = plugin_manifest(2);
+        let wasm = plugin_module(128, false);
+        let evidence = PluginCargoBuildEvidenceV2 {
+            wasm_one: &wasm,
+            wasm_two: &wasm,
+            implementation_capsule_digest: BindingDigest::from_untrusted_bytes([21; 32]),
+            source_entry_digest: BindingDigest::from_untrusted_bytes([22; 32]),
+            verified_build_receipt_digest: BindingDigest::from_untrusted_bytes([23; 32]),
+        };
+        assert!(VerifiedPluginCargoBuildV2::verify(&manifest, evidence).is_ok());
     }
 }

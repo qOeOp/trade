@@ -232,6 +232,13 @@ unbounded windows, or a bound inconsistent with the manifest are `UNSUPPORTED` b
 sorting is by schema-defined byte keys, never source order, map iteration, locale, platform, enum ordinal, or
 caller-provided digest. Re-canonicalizing canonical bytes must be byte-identical.
 
+For every catalog row with the `AvailableFixedAndCoordinate` output rule, the value and its provenance coordinate
+form one atomic pair. Only the value projection may be referenced; referencing it atomically consumes the
+coordinate sidecar for graph-closure purposes. Both projections always have the same availability. A value
+consumer must declare `require_ready = true`, and neither projection is readable while the pair is `WARMING`.
+The coordinate cannot be referenced independently or routed into a primitive input, strategy state, lifecycle
+terminal, or manifest output.
+
 The first primitive catalog is versioned and owned by `vibe-indicators-kernel`. Strategy Factory references each
 primitive's semantic ID and the pinned catalog/source digest; it must not copy, reinterpret, or independently
 implement a formula. The first catalog must include:
@@ -266,7 +273,20 @@ trace, and checkpoint bytes remain identical to their pre-event bytes. Validatio
 execution remain `UNSUPPORTED` with no Artifact. A valid warm-up event is not a numeric failure: it advances the
 declared state and exposes a typed `WARMING` availability with no readable value. A downstream node cannot read a
 `WARMING` value; a lifecycle output during warm-up must be an explicit Design wiring from availability to the
-existing `HOLD` semantic.
+existing `HOLD` semantic. Every successful ABI 3 output frame begins, immediately before its first manifest output
+value, with one canonical availability byte: `0 = READY` and `1 = WARMING`; every other value is unsupported.
+The tag is covered by the canonical frame length and identity and cannot be inferred from lifecycle values or
+post-state. Every ABI 3 BFP warm-up invocation nevertheless returns one complete manifest-ordered output frame:
+position intent is `kernel.position.hold.v1`, target variant is `kernel.target.keep.v1`, protection
+variant is `kernel.protection.keep.v1`, and the eight scalar fields ignored under those Keep variants - target
+position units, target weight micros, rebalance sequence, reconciliation target units, stop-loss ticks, take-profit
+ticks, trailing-distance ticks, and trailing-stop ticks - are their exact-width canonical zero. Post-state is the
+canonical state after this admitted coordinate has advanced every applicable primitive and BFP state cell. For an
+ABI 3 manifest bound to BFP V1, `ProgramHostV2` verifies the `WARMING` tag, all three lifecycle values, all eight
+zero scalars, and the canonical post-state before committing the scratch bundle; a missing or contradictory tag,
+nonzero ignored scalar, or partial warm-up frame fails closed. A `READY` frame is never accepted as evidence of
+warm-up merely because it returns `HOLD`/Keep/Keep. Existing ABI 2 output bytes and Host semantics are not
+reinterpreted by this rule.
 
 The following V1 definitions are normative:
 
@@ -309,7 +329,8 @@ fixed-width canonical fields of `StrategyInputSampleCoordinateV1`. All integers 
 state bytes. Rust layout, `usize`, pointer width, platform alignment, map order, and JSON number parsing have no
 authority.
 
-The primitive catalog publishes this family atomically. The following list is the closed V1 namespace:
+The primitive catalog publishes this family atomically. The following list is the closed V1 namespace and contains
+exactly 57 rows:
 
 - Numeric policy: `bfp.numeric.fixed-i128.max-scale-38.explicit-rescale.i256-single-round.v1`,
   `bfp.round.toward-zero.v1`, `bfp.round.nearest-ties-to-even.v1`, and
@@ -348,8 +369,9 @@ The primitive catalog publishes this family atomically. The following list is th
   `bfp.range-fraction.closed-unit-rational.nearest-ties-to-even.v1`.
 - Kernel output references: `kernel.position.enter.v1`, `kernel.position.add.v1`,
   `kernel.position.reduce.v1`, `kernel.position.exit.v1`, `kernel.position.hold.v1`,
-  `kernel.target.position.v1`, `kernel.target.weight.v1`, `kernel.target.rebalance.v1`,
-  `kernel.protection.stop-loss.v1`, `kernel.protection.take-profit.v1`, and
+  `kernel.target.keep.v1`, `kernel.target.position.v1`, `kernel.target.weight.v1`,
+  `kernel.target.rebalance.v1`, `kernel.protection.keep.v1`, `kernel.protection.clear.v1`,
+  `kernel.protection.replace.v1`, `kernel.protection.stop-loss.v1`, `kernel.protection.take-profit.v1`, and
   `kernel.protection.trailing-adjust.v1`.
 
 No other primitive, alias, optional subset, or extension belongs to catalog V1. Every row binds its exact formula,
@@ -408,6 +430,30 @@ proposal identity and order, and hands the proposal to the shared lifecycle kern
 `ENTER`, `ADD`, `REDUCE`, `EXIT`, `HOLD`, target position/weight, stop-loss, take-profit, trailing protection, and
 fill reconciliation. A BFP/plugin can never emit an order, `Action::Submit`, Risk permit, Execution request, or
 external effect.
+
+Dynamic lifecycle choice is expressed only by one bounded whole-proposal decision table in canonical BFP meaning.
+It contains a finite list of branches with unique explicit priorities and one mandatory default. Each priority is
+one canonical little-endian `u16`; a smaller numeric value has precedence, branches canonicalize in ascending
+priority order, and caller collection order has no authority. `max_decision_branches` is a nonzero `u16`, cannot
+exceed 64, and bounds the branch count. On a `READY` invocation, predicates are evaluated in that order and the
+first true branch is selected; the default is selected when none is true. Each branch and the default atomically
+supply the complete lifecycle terminal tuple:
+position action, target variant and every target scalar, protection variant and every protection scalar, and every
+other required scalar output. A field may be a type-compatible DAG value or canonical constant, but no branch may
+omit, inherit, or merge a field. Duplicate priority, missing default, partial tuple, more than one selected proposal,
+or any encoding whose ordering cannot identify one whole proposal is `UNSUPPORTED` before execution. Later true
+predicates after the unique first match do not create additional proposals. `WARMING` bypasses this table and uses
+the complete HOLD/Keep/Keep/zero-scalar frame above.
+
+All declared primitive and strategy state cells share one canonical plugin-state bundle. Empty pre-state is the
+sole initialization encoding and means every cell's declared initial value. After any successful or `WARMING`
+invocation, post-state is exactly the concatenation of every cell's complete canonical bytes, with cells sorted
+lexically by `state_id` bytes and with no gap, alignment byte, or padding. A primitive cell uses that primitive's
+existing canonical state bytes. A strategy-defined writable slot has one declared fixed width and its declared
+maximum is exactly that width; only its owning node may write it. For a nonempty cell set, every post-state contains
+the full concatenated width even when a cell is unchanged. A non-initial pre-state must have that same exact total
+width. Wrong total size, a truncated or overlapping boundary, undeclared bytes, padding, a variable-width strategy
+slot, or any other noncanonical cell boundary is `UNSUPPORTED` before execution and advances no state.
 
 #### Sample-coordinate contract
 
@@ -490,32 +536,38 @@ tuple. Cross-lineage coordinates are not comparable and fail closed. These equal
 value equality, decide state advancement.
 
 The TARGET Design/Plan seam is the versioned source semantic
-`strategy.value-ref.owner-sample-coordinate.v1(input_role_id)`. For each BFP role used by a sample-clock node, the
-lowerer must create one manifest input port whose literal semantic ID is
+`strategy.value-ref.owner-sample-coordinate.v1(input_role_id)`. Every BFP input role, including the trigger role,
+has exactly one value binding and exactly one coordinate binding. For each such role, the lowerer must create one
+manifest input port whose literal semantic ID is
 `strategy.input.sample-coordinate.v1.<role_identity_hex>`, where `role_identity_hex` is exactly the 64 lowercase
 hex characters of that role's `[u8; 32]` identity. Uppercase, a non-64-length suffix, or a suffix unequal to the
-bound role is noncanonical. The port has type `ValueTypeV2::Bytes` and exact `max_bytes = 308`. BFP role input ports
-are ordered by `(role_identity_bytes, kind_tag)`, where `kind_tag = 0` is the role's value port and `kind_tag = 1`
-is its coordinate port, so each present coordinate follows exactly its own value without relying on source order.
-`StrategyPlanV2` binds the role, full derived port ID, coordinate-source semantic ID, port ordinal, static binding,
-coordinate codec/digest rule, and update clock. Existing Designs without this tagged source retain byte-identical
-V2 meaning.
+bound role is noncanonical. The port has type `ValueTypeV2::Bytes` and exact `max_bytes = 308`. The canonical BFP
+role-binding table is ordered by `(role_identity_bytes, kind_tag)`, where `kind_tag = 0` is the role's value binding
+and `kind_tag = 1` is its coordinate binding; this order proves exact value-coordinate pairing and does not define
+ABI wire order. The manifest input frame remains ordered only by canonical `PluginManifestV2.input_ports` order,
+and every role-binding-table entry binds its exact manifest port ordinal. `StrategyPlanV2` binds the role, full
+derived port ID, coordinate-source semantic ID, port ordinal, static binding, coordinate codec/digest rule, and
+update clock. Plan may project that source only from the exact Owner-verified coordinate projection; neither Plan
+nor Host may accept caller-provided or reconstructed coordinate bytes. Existing Designs without this tagged source
+retain byte-identical V2 meaning.
 
 The one generic `ProgramHostV2` extends its existing Owner-event evidence adapter, not its graph opcode set or
-runtime, to retain the already verified coordinate bytes and resolve that Plan-bound metadata source. It rejects a
-coordinate not cross-bound by the admitted Market Data receipt, then copies the exact 308 Owner bytes into the
-ordinary typed plugin input port. The guest receives no caller coordinate and cannot request another role. This is
-the sole admitted transport; deriving a coordinate from the I128 value, driver envelope, trigger count, local hash,
-or guest state is prohibited.
+runtime, to retain the Owner-verified projection's exact coordinate bytes and resolve that Plan-bound metadata
+source. It rejects a coordinate not cross-bound by the admitted Market Data receipt, then copies those exact 308
+Owner bytes into the coordinate port at its Plan-bound manifest ordinal. The guest receives no caller coordinate
+and cannot request another role. This is the sole admitted transport; deriving a coordinate from the I128 value,
+driver envelope, trigger count, local hash, or guest state is prohibited.
 
-A trigger-clock node advances once for each newly admitted trigger coordinate. A sample-clock node advances only
-when its named role receives a strictly new Owner-sealed sample coordinate. Repeating the same 1-hour sample across
-many 1-minute triggers must reuse the prior sample-clock state without advancing it, even when other trigger
-values change. A newly sealed 1-hour sample must advance exactly once even when its numeric OHLC values are
-identical to the preceding sample. Value comparison, caller time, trigger count, arrival order, a narrowed R04 or
-event hash, and locally derived timestamps are not valid substitutes. Missing, stale, duplicate-conflicting,
-cross-role, cross-timeframe, cross-lineage, regressed-version, receipt-mismatched, or noncanonical coordinates fail
-before guest invocation or any BFP, plugin, lifecycle, target, protection, trace, or checkpoint mutation.
+A trigger-clock node advances once for each newly admitted coordinate of the named trigger role. A sample-clock
+node advances only when its named sample role receives a strictly new Owner-sealed sample coordinate. Each clock
+therefore consumes the exact coordinate paired with its named role; no trigger coordinate stands in for another
+role's sample coordinate. Repeating the same 1-hour sample across many 1-minute triggers must reuse the prior
+sample-clock state without advancing it, even when other trigger values change. A newly sealed 1-hour sample must
+advance exactly once even when its numeric OHLC values are identical to the preceding sample. Value comparison,
+caller time, trigger count, arrival order, a narrowed R04 or event hash, and locally derived timestamps are not
+valid substitutes. Missing, stale, duplicate-conflicting, cross-role, cross-timeframe, cross-lineage,
+regressed-version, receipt-mismatched, or noncanonical coordinates fail before guest invocation or any BFP,
+plugin, lifecycle, target, protection, trace, or checkpoint mutation.
 
 An accepted correction is an immutable successor sample with exact series and correction predecessors. It creates
 a new fact, receipt, identity, and coordinate and advances the sample clock exactly once; it never rewrites,
@@ -540,9 +592,10 @@ receipts, and the `strategy.plugin.failure.unsupported.v1` handling remain byte-
 plugin instead uses `PluginManifestV2.abi_version = 3` and
 `failure_semantic_id = bfp.numeric.failure.no-state-change.v1`; the Plan, V3 build receipt,
 `PluginImplementationReceiptV2`, module identity, and Artifact all bind both values. ABI 3 retains the canonical
-port-entry layout, uses frame header ABI `u16 = 3`, and changes only the invocation status map: nonnegative is the
-canonical output length, `-1` is `NUMERIC_FAILURE_NO_STATE_CHANGE`, and every other negative value is an
-unsupported/unknown guest status.
+port-entry layout, uses frame header ABI `u16 = 3`, and prefixes the manifest output values in every successful
+output body with the canonical one-byte availability tag defined above; that byte is not a manifest port entry.
+It otherwise changes only the invocation status map: nonnegative is the canonical output length, `-1` is
+`NUMERIC_FAILURE_NO_STATE_CHANGE`, and every other negative value is an unsupported/unknown guest status.
 
 On ABI 3 status `-1`, `ProgramHostV2` decodes no output, discards the scratch guest/BFP/kernel bundle, emits the
 named terminal bound to the admitted event and plugin identity, and proves the pre-event checkpoint bytes and
@@ -587,7 +640,11 @@ swings, and rational Fibonacci range fractions. On the named 1-hour-close and 1-
 multi-timeframe regime state. The reaction consumes exactly that complete join role set. Bounded holding,
 add-count, high-water and protection state drives a
 continuous event sequence containing `ENTER -> ADD -> REDUCE -> EXIT` and explicit `HOLD`, with dynamic stop-loss,
-take-profit and trailing-protection outputs.
+take-profit and trailing-protection outputs. Every `READY` frame's `ProtectionVariantV1` is exactly one of the
+variants already recognized by `ProgramHostV2`: `kernel.protection.keep.v1`, `kernel.protection.clear.v1`,
+`kernel.protection.trailing-adjust.v1`, or `kernel.protection.replace.v1`. The Host reads protection scalar fields
+only according to that exact variant, and the corpus exercises Keep, Clear, trailing adjustment, and Replace
+without introducing a second protection interpretation.
 
 Acceptance requires the canonical BFP to lower twice to byte-identical source, build twice to byte-identical Wasm
 and tagged V3 receipt, pass Composer into the same `StrategyArtifactV2`, and execute through the real

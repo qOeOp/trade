@@ -68,6 +68,53 @@ pub struct StrategyInputSampleProjectionReadbackV4 {
     decoded: DecodedStrategyInputSampleProjectionV4,
 }
 
+/// Read-only evidence for one component of an Owner-verified V4 projection.
+///
+/// The private fields prevent callers from constructing coordinate authority. Every instance is
+/// decoded from the exact canonical bytes before the enclosing readback crosses the Owner boundary.
+#[derive(Debug, Eq, PartialEq)]
+pub struct StrategyInputSampleProjectionComponentV4 {
+    role_identity: StrategyInputSampleProjectionIdentityV4,
+    binding_receipt_digest: StrategyInputSampleProjectionIdentityV4,
+    timeframe_projection_digest: StrategyInputSampleProjectionIdentityV4,
+    sample_identity: StrategyInputSampleProjectionIdentityV4,
+    sample_receipt_digest: StrategyInputSampleProjectionIdentityV4,
+    coordinate: [u8; 308],
+}
+
+impl StrategyInputSampleProjectionComponentV4 {
+    #[must_use]
+    pub const fn role_identity(&self) -> StrategyInputSampleProjectionIdentityV4 {
+        self.role_identity
+    }
+
+    #[must_use]
+    pub const fn binding_receipt_digest(&self) -> StrategyInputSampleProjectionIdentityV4 {
+        self.binding_receipt_digest
+    }
+
+    #[must_use]
+    pub const fn timeframe_projection_digest(&self) -> StrategyInputSampleProjectionIdentityV4 {
+        self.timeframe_projection_digest
+    }
+
+    #[must_use]
+    pub const fn sample_identity(&self) -> StrategyInputSampleProjectionIdentityV4 {
+        self.sample_identity
+    }
+
+    #[must_use]
+    pub const fn sample_receipt_digest(&self) -> StrategyInputSampleProjectionIdentityV4 {
+        self.sample_receipt_digest
+    }
+
+    /// Returns the exact Owner-proven sample coordinate from the canonical V4 component.
+    #[must_use]
+    pub const fn coordinate(&self) -> &[u8; 308] {
+        &self.coordinate
+    }
+}
+
 impl StrategyInputSampleProjectionReadbackV4 {
     #[must_use]
     pub const fn receipt_digest(&self) -> StrategyInputSampleProjectionIdentityV4 {
@@ -92,6 +139,25 @@ impl StrategyInputSampleProjectionReadbackV4 {
     #[must_use]
     pub const fn component_count(&self) -> u32 {
         self.decoded.component_count
+    }
+
+    /// Returns components in their canonical ascending role order.
+    #[must_use]
+    pub fn components(&self) -> &[StrategyInputSampleProjectionComponentV4] {
+        &self.decoded.components
+    }
+
+    /// Finds the component whose exact role identity was verified by the Owner.
+    #[must_use]
+    pub fn component_for_role(
+        &self,
+        role_identity: StrategyInputSampleProjectionIdentityV4,
+    ) -> Option<&StrategyInputSampleProjectionComponentV4> {
+        self.decoded
+            .components
+            .binary_search_by_key(&role_identity, |component| component.role_identity)
+            .ok()
+            .map(|index| &self.decoded.components[index])
     }
 
     #[must_use]
@@ -183,6 +249,7 @@ pub(super) struct DecodedStrategyInputSampleProjectionV4 {
     subject_identity: [u8; 32],
     schedule_dependency_set_digest: [u8; 32],
     component_count: u32,
+    components: Box<[StrategyInputSampleProjectionComponentV4]>,
 }
 
 impl DecodedStrategyInputSampleProjectionV4 {
@@ -346,6 +413,10 @@ fn prepare_v4(
     let schedule_dependency_set_digest = schedule_set_digest(&dependencies);
     let component_count = u32::try_from(exact_components.len())
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
+    let components = exact_components
+        .iter()
+        .map(|component| decode_component_v4(component))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut bytes = Vec::with_capacity(HEADER_LEN_V4 + COMPONENT_LEN_V4 * exact_components.len());
     bytes.extend_from_slice(&SCHEMA_V4.to_le_bytes());
     bytes.extend_from_slice(&0_u16.to_le_bytes());
@@ -366,6 +437,7 @@ fn prepare_v4(
             subject_identity,
             schedule_dependency_set_digest,
             component_count,
+            components: components.into_boxed_slice(),
         },
         dependencies: dependencies.into_boxed_slice(),
     })
@@ -423,15 +495,16 @@ pub(super) fn decode_v4(
         return Err(StrategyInputSampleProjectionErrorV4::CountMismatch);
     }
     let mut previous = None;
+    let mut components = Vec::with_capacity(component_count as usize);
 
-    for component in bytes[HEADER_LEN_V4..].chunks_exact(COMPONENT_LEN_V4) {
-        let role: [u8; 32] = component[..32]
-            .try_into()
-            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
+    for component_bytes in bytes[HEADER_LEN_V4..].chunks_exact(COMPONENT_LEN_V4) {
+        let component = decode_component_v4(component_bytes)?;
+        let role = component.role_identity;
         if role == [0; 32] || previous.is_some_and(|prior| prior >= role) {
             return Err(StrategyInputSampleProjectionErrorV4::NonCanonicalOrder);
         }
         previous = Some(role);
+        components.push(component);
     }
     let actual = digest(RECEIPT_DOMAIN_V4, bytes);
     if actual != expected_digest {
@@ -444,6 +517,35 @@ pub(super) fn decode_v4(
         subject_identity,
         schedule_dependency_set_digest,
         component_count,
+        components: components.into_boxed_slice(),
+    })
+}
+
+fn decode_component_v4(
+    bytes: &[u8],
+) -> Result<StrategyInputSampleProjectionComponentV4, StrategyInputSampleProjectionErrorV4> {
+    if bytes.len() != COMPONENT_LEN_V4 {
+        return Err(StrategyInputSampleProjectionErrorV4::InvalidLength);
+    }
+    Ok(StrategyInputSampleProjectionComponentV4 {
+        role_identity: bytes[0..32]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
+        binding_receipt_digest: bytes[32..64]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
+        timeframe_projection_digest: bytes[176..208]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
+        sample_identity: bytes[208..240]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
+        sample_receipt_digest: bytes[240..272]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
+        coordinate: bytes[304..612]
+            .try_into()
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
     })
 }
 
@@ -561,6 +663,87 @@ mod tests {
     }
 
     #[rstest]
+    fn verified_readback_recovers_exact_coordinate_and_source_evidence() {
+        let (projection, dependencies) = frame_fixture();
+        let prepared = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
+            projection: &projection,
+            dependencies: &dependencies,
+        })
+        .unwrap();
+        let readback = StrategyInputSampleProjectionReadbackV4::from_verified(
+            decode_v4(prepared.canonical_bytes(), prepared.receipt_digest()).unwrap(),
+        );
+        let source = &projection.components()[0];
+        let component = readback.component_for_role(source.role_identity()).unwrap();
+
+        assert_eq!(readback.components(), std::slice::from_ref(component));
+        assert_eq!(component.role_identity(), source.role_identity());
+        assert_eq!(
+            component.binding_receipt_digest(),
+            source.binding_receipt_digest()
+        );
+        assert_eq!(
+            component.timeframe_projection_digest(),
+            source.timeframe_projection_digest()
+        );
+        assert_eq!(component.sample_identity(), source.sample_identity());
+        assert_eq!(
+            component.sample_receipt_digest(),
+            source.sample_receipt_digest()
+        );
+        assert_eq!(component.coordinate(), source.coordinate());
+        assert!(readback.component_for_role([0xff; 32]).is_none());
+    }
+
+    #[rstest]
+    fn verified_component_views_preserve_canonical_role_order_and_association() {
+        let (projection, dependencies) = frame_fixture();
+        let prepared = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
+            projection: &projection,
+            dependencies: &dependencies,
+        })
+        .unwrap();
+        let source_component = &prepared.canonical_bytes()[HEADER_LEN_V4..];
+        let mut first = source_component.to_vec();
+        first[..32].copy_from_slice(&[1; 32]);
+        first[32..64].copy_from_slice(&[11; 32]);
+        first[304..612].fill(21);
+        let mut second = source_component.to_vec();
+        second[..32].copy_from_slice(&[2; 32]);
+        second[32..64].copy_from_slice(&[12; 32]);
+        second[304..612].fill(22);
+
+        let mut bytes = prepared.canonical_bytes()[..HEADER_LEN_V4].to_vec();
+        bytes[70..74].copy_from_slice(&2_u32.to_le_bytes());
+        bytes.extend_from_slice(&first);
+        bytes.extend_from_slice(&second);
+        let expected_digest = digest(RECEIPT_DOMAIN_V4, &bytes);
+        let readback = StrategyInputSampleProjectionReadbackV4::from_verified(
+            decode_v4(&bytes, expected_digest).unwrap(),
+        );
+
+        assert_eq!(
+            readback
+                .components()
+                .iter()
+                .map(StrategyInputSampleProjectionComponentV4::role_identity)
+                .collect::<Vec<_>>(),
+            vec![[1; 32], [2; 32]]
+        );
+        assert_eq!(
+            readback.component_for_role([1; 32]).unwrap().coordinate(),
+            &[21; 308]
+        );
+        assert_eq!(
+            readback
+                .component_for_role([2; 32])
+                .unwrap()
+                .binding_receipt_digest(),
+            [12; 32]
+        );
+    }
+
+    #[rstest]
     fn schedule_or_component_substitution_changes_or_rejects_identity() {
         let (projection, mut dependencies) = frame_fixture();
         let original = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
@@ -612,6 +795,27 @@ mod tests {
         trailing.push(0);
         assert_eq!(
             decode_v4(&trailing, prepared.receipt_digest()).unwrap_err(),
+            StrategyInputSampleProjectionErrorV4::CountMismatch
+        );
+    }
+
+    #[rstest]
+    fn decoder_rejects_corrupted_or_truncated_coordinate_bytes() {
+        let (projection, dependencies) = frame_fixture();
+        let prepared = prepare_frame_v4(VerifiedV3ProjectionSourceV4 {
+            projection: &projection,
+            dependencies: &dependencies,
+        })
+        .unwrap();
+        let mut corrupt = prepared.canonical_bytes().to_vec();
+        corrupt[HEADER_LEN_V4 + 304] ^= 1;
+        assert_eq!(
+            decode_v4(&corrupt, prepared.receipt_digest()).unwrap_err(),
+            StrategyInputSampleProjectionErrorV4::DigestMismatch
+        );
+        let truncated = &prepared.canonical_bytes()[..prepared.canonical_bytes().len() - 1];
+        assert_eq!(
+            decode_v4(truncated, prepared.receipt_digest()).unwrap_err(),
             StrategyInputSampleProjectionErrorV4::CountMismatch
         );
     }

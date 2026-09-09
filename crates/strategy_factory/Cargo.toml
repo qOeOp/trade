@@ -53,6 +53,7 @@ vibe-core = { workspace = true }
 vibe-data = { workspace = true }
 vibe-deployment-attestation = { workspace = true }
 vibe-fred = { workspace = true }
+vibe-indicators-kernel = { workspace = true }
 vibe-model = { workspace = true }
 vibe-persistence = { workspace = true }
 vibe-product-edge = { workspace = true }

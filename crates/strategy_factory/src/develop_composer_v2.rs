@@ -1,8 +1,8 @@
 //! R&D-owned, failure-atomic Strategy Design V2 Develop composition.
 //!
 //! This crate-local first vertical deliberately uses an in-memory join store. It proves the Owner
-//! contract and the sole V2 compiler/Artifact path, but does not claim durable PostgreSQL, API, or
-//! workflow readiness.
+//! contract and the versioned plugin compiler/Artifact path, but does not claim durable PostgreSQL,
+//! API, or workflow readiness.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -11,14 +11,17 @@ use sha2::{Digest, Sha256};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use crate::{
-    artifact_v2::StrategyArtifactV2,
-    cargo_artifact::VerifiedPluginCargoBuildV2,
+    artifact_v2::{StrategyArtifactV2, VerifiedPluginArtifactBuildV2OrV3},
     develop_plugin_build_v2::VerifiedDevelopPluginBuildV2,
+    develop_plugin_build_v3::VerifiedDevelopPluginBuildV3,
     product_edge::{
         FrozenResearchGoalIntent, ResearchRequestDisposition, ResearchViewAvailability,
         ResearchViewPhase,
     },
     program_runtime::validate_plugin_candidate_v2,
+    rd_bounded_feature_program_v1::{
+        frozen_program_matches_current_static_bindings_v1, joint_freeze_matches_current_design_v1,
+    },
     rd_owner_postgres_custody::VerifiedResearchCustodyV1,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
     strategy_plan_v2::{
@@ -30,6 +33,10 @@ use crate::{
 };
 
 const RECEIPT_SCHEMA_V2: u16 = 2;
+const PLUGIN_ABI_VERSION_V2: u16 = 2;
+const PLUGIN_ABI_VERSION_V3: u16 = 3;
+const PLUGIN_FAILURE_SEMANTIC_ID_V2: &str = "strategy.plugin.failure.unsupported.v1";
+const PLUGIN_FAILURE_SEMANTIC_ID_V3: &str = "bfp.numeric.failure.no-state-change.v1";
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -272,6 +279,26 @@ impl CurrentResearchDevelopCustodyV2 {
         self.custody_digest
     }
 
+    #[cfg(test)]
+    pub(crate) fn joint_bfp_test_fixture(design: &StrategyDesignV2) -> Self {
+        Self {
+            request_locator: "test-research-request-v2".to_owned(),
+            research_request_identity: design.research_request_identity,
+            intent_identity: design.intent_identity,
+            intent_digest: design.intent_digest,
+            falsifier: design.falsifier.clone(),
+            research_receipt_identity: "test-research-receipt-v2".to_owned(),
+            research_receipt_semantic_digest: "sha256:test-research-receipt-v2".to_owned(),
+            research_view_identity: "test-research-view-v2".to_owned(),
+            research_view_source_cut: "test-research-source-cut-v2".to_owned(),
+            trial_family_identity: "test-trial-family-v2".to_owned(),
+            trial_family_root_digest: "sha256:test-trial-family-root-v2".to_owned(),
+            trial_family_frontier_identity: "test-trial-family-frontier-v2".to_owned(),
+            trial_family_frontier_digest: "sha256:test-trial-family-frontier-v2".to_owned(),
+            custody_digest: BindingDigest::from_untrusted_bytes([4; 32]),
+        }
+    }
+
     #[allow(
         dead_code,
         reason = "the first crate-local vertical has no admitted PostgreSQL composition root"
@@ -408,7 +435,115 @@ pub(crate) trait DevelopComposerEvidencePortV2 {
         &self,
         manifests: &[PluginManifestV2],
         locators: &[UntrustedPluginBuildLocatorV2],
-    ) -> Result<Vec<VerifiedDevelopPluginBuildV2>, DevelopComposerTerminalV2>;
+    ) -> Result<Vec<VerifiedDevelopPluginBuildV2OrV3>, DevelopComposerTerminalV2>;
+}
+
+/// Move-only Composer evidence boundary for the two admitted build receipt versions.
+pub(crate) enum VerifiedDevelopPluginBuildV2OrV3 {
+    V2(VerifiedDevelopPluginBuildV2),
+    V3(VerifiedDevelopPluginBuildV3),
+}
+
+impl From<VerifiedDevelopPluginBuildV2> for VerifiedDevelopPluginBuildV2OrV3 {
+    fn from(value: VerifiedDevelopPluginBuildV2) -> Self {
+        Self::V2(value)
+    }
+}
+
+impl From<VerifiedDevelopPluginBuildV3> for VerifiedDevelopPluginBuildV2OrV3 {
+    fn from(value: VerifiedDevelopPluginBuildV3) -> Self {
+        Self::V3(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PluginBuildVersion {
+    V2,
+    V3,
+}
+
+impl VerifiedDevelopPluginBuildV2OrV3 {
+    fn plugin_semantic_id(&self) -> &str {
+        match self {
+            Self::V2(build) => build.plugin_semantic_id(),
+            Self::V3(build) => build.plugin_semantic_id(),
+        }
+    }
+
+    const fn manifest_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.manifest_digest(),
+            Self::V3(build) => build.manifest_digest(),
+        }
+    }
+
+    fn matches_current_joint_freeze(
+        &self,
+        custody: &CurrentResearchDevelopCustodyV2,
+        design: &StrategyDesignV2,
+    ) -> bool {
+        match self {
+            Self::V2(_) => true,
+            Self::V3(build) => joint_freeze_matches_current_design_v1(
+                custody,
+                design,
+                build.manifest_digest(),
+                build.bfp_digest(),
+                build.bfp_bytes(),
+                build.joint_freeze_digest(),
+            ),
+        }
+    }
+
+    fn matches_current_static_bindings(
+        &self,
+        design: &StrategyDesignV2,
+        bindings: &VerifiedStrategyInputBindingsV2,
+    ) -> bool {
+        match self {
+            Self::V2(_) => true,
+            Self::V3(build) => frozen_program_matches_current_static_bindings_v1(
+                design,
+                build.bfp_bytes(),
+                bindings,
+            ),
+        }
+    }
+
+    fn wasm(&self) -> &[u8] {
+        match self {
+            Self::V2(build) => build.wasm(),
+            Self::V3(build) => build.wasm(),
+        }
+    }
+
+    const fn verified_build_receipt_digest(&self) -> BindingDigest {
+        match self {
+            Self::V2(build) => build.verified_build_receipt_digest(),
+            Self::V3(build) => build.verified_build_receipt_digest(),
+        }
+    }
+
+    const fn version(&self) -> PluginBuildVersion {
+        match self {
+            Self::V2(_) => PluginBuildVersion::V2,
+            Self::V3(_) => PluginBuildVersion::V3,
+        }
+    }
+
+    fn into_verified_for_composer(
+        self,
+        manifest: &PluginManifestV2,
+    ) -> Result<VerifiedPluginArtifactBuildV2OrV3, DevelopComposerTerminalV2> {
+        match self {
+            Self::V2(build) => build
+                .into_verified_for_composer(manifest)
+                .map(VerifiedPluginArtifactBuildV2OrV3::from),
+            Self::V3(build) => build
+                .into_verified_for_composer(manifest)
+                .map(VerifiedPluginArtifactBuildV2OrV3::from),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -507,11 +642,16 @@ impl DevelopComposerV2 {
             Ok(value) => value,
             Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
         };
-        let (plugin_receipts, verified_builds) =
-            match resolve_plugin_builds(&proposal.design, &requested_plugins, builds) {
-                Ok(value) => value,
-                Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
-            };
+        let (plugin_receipts, verified_builds) = match resolve_plugin_builds(
+            &custody,
+            &proposal.design,
+            &requested_plugins,
+            builds,
+            &bindings,
+        ) {
+            Ok(value) => value,
+            Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
+        };
 
         let compilation = compile_strategy_design_v2_with_verified_bindings(
             proposal.design.clone(),
@@ -526,7 +666,7 @@ impl DevelopComposerV2 {
                 );
             }
         };
-        let artifact = match StrategyArtifactV2::issue(&plan, verified_builds) {
+        let artifact = match StrategyArtifactV2::issue_versioned(&plan, verified_builds) {
             Ok(value) => value,
             Err(e) => {
                 return DevelopComposerResultV2::Terminal(DevelopComposerTerminalV2::unsupported(
@@ -576,13 +716,15 @@ impl DevelopComposerV2 {
 }
 
 fn resolve_plugin_builds(
+    custody: &CurrentResearchDevelopCustodyV2,
     design: &StrategyDesignV2,
     requested: &[UntrustedPluginBuildLocatorV2],
-    builds: Vec<VerifiedDevelopPluginBuildV2>,
+    builds: Vec<VerifiedDevelopPluginBuildV2OrV3>,
+    bindings: &VerifiedStrategyInputBindingsV2,
 ) -> Result<
     (
         Vec<crate::strategy_plan_v2::PluginImplementationReceiptV2>,
-        Vec<VerifiedPluginCargoBuildV2>,
+        Vec<VerifiedPluginArtifactBuildV2OrV3>,
     ),
     DevelopComposerTerminalV2,
 > {
@@ -643,12 +785,28 @@ fn resolve_plugin_builds(
                 "verified build is sealed to a different canonical plugin manifest",
             ));
         }
-        validate_plugin_candidate_v2(build.wasm(), manifest).map_err(|e| {
-            DevelopComposerTerminalV2::unsupported(
-                "plugin_builds.module",
-                &format!("verified module does not match the current manifest: {e}"),
-            )
-        })?;
+        if !build.matches_current_joint_freeze(custody, design) {
+            return Err(DevelopComposerTerminalV2::unsupported(
+                "plugin_builds.joint_freeze_digest",
+                "verified V3 build is sealed to a different Research custody or canonical Design",
+            ));
+        }
+        if !build.matches_current_static_bindings(design, bindings) {
+            return Err(DevelopComposerTerminalV2::unsupported(
+                "plugin_builds.static_binding_receipt_digest",
+                "frozen BFP inputs do not match the exact current Owner binding receipts",
+            ));
+        }
+        let version = build.version();
+        validate_build_version_for_manifest(version, manifest)?;
+        if version == PluginBuildVersion::V2 {
+            validate_plugin_candidate_v2(build.wasm(), manifest).map_err(|e| {
+                DevelopComposerTerminalV2::unsupported(
+                    "plugin_builds.module",
+                    &format!("verified module does not match the current manifest: {e}"),
+                )
+            })?;
+        }
         let build = build.into_verified_for_composer(manifest)?;
         let receipt = issue_plugin_implementation_receipt_v2(
             manifest,
@@ -668,6 +826,80 @@ fn resolve_plugin_builds(
         verified.push(build);
     }
     Ok((receipts, verified))
+}
+
+fn validate_build_version_for_manifest(
+    version: PluginBuildVersion,
+    manifest: &PluginManifestV2,
+) -> Result<(), DevelopComposerTerminalV2> {
+    if manifest_matches_build_version(version, manifest.abi_version, &manifest.failure_semantic_id)
+    {
+        Ok(())
+    } else {
+        Err(DevelopComposerTerminalV2::unsupported(
+            "plugin_builds.version",
+            "verified build version does not exactly match the manifest ABI and failure semantics",
+        ))
+    }
+}
+
+fn manifest_matches_build_version(
+    version: PluginBuildVersion,
+    abi_version: u16,
+    failure_semantic_id: &str,
+) -> bool {
+    match version {
+        PluginBuildVersion::V2 => {
+            abi_version == PLUGIN_ABI_VERSION_V2
+                && failure_semantic_id == PLUGIN_FAILURE_SEMANTIC_ID_V2
+        }
+        PluginBuildVersion::V3 => {
+            abi_version == PLUGIN_ABI_VERSION_V3
+                && failure_semantic_id == PLUGIN_FAILURE_SEMANTIC_ID_V3
+        }
+    }
+}
+
+#[cfg(test)]
+mod version_dispatch_tests {
+    use super::{
+        PLUGIN_FAILURE_SEMANTIC_ID_V2, PLUGIN_FAILURE_SEMANTIC_ID_V3, PluginBuildVersion,
+        manifest_matches_build_version,
+    };
+
+    #[test]
+    fn build_versions_require_the_exact_abi_and_failure_pair() {
+        assert!(manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
+        assert!(manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
+    }
 }
 
 fn canonical_proposal_digest(proposal: &UntrustedDevelopComposerProposalV2) -> BindingDigest {

@@ -10,6 +10,7 @@ use crate::strategy_design_v2::{PluginManifestV2, PortContractV2, ValueTypeV2};
 pub const PLUGIN_FRAME_HEADER_BYTES_V2: usize = 96;
 pub const PLUGIN_FRAME_CODEC_V2: u16 = 2;
 pub const PLUGIN_FRAME_ABI_V2: u16 = 2;
+pub const PLUGIN_FRAME_ABI_V3: u16 = 3;
 pub const PLUGIN_STATE_ORDINAL_V2: u16 = u16::MAX;
 const ENTRY_HEADER_BYTES: usize = 8;
 const INPUT_MAGIC: [u8; 4] = *b"SFPI";
@@ -27,6 +28,29 @@ impl PluginFrameKindV2 {
         match self {
             Self::Input => INPUT_MAGIC,
             Self::Output => OUTPUT_MAGIC,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PluginOutputAvailabilityV3 {
+    Ready,
+    Warming,
+}
+
+impl PluginOutputAvailabilityV3 {
+    const fn tag(self) -> u8 {
+        match self {
+            Self::Ready => 0,
+            Self::Warming => 1,
+        }
+    }
+
+    const fn from_tag(tag: u8) -> Option<Self> {
+        match tag {
+            0 => Some(Self::Ready),
+            1 => Some(Self::Warming),
+            _ => None,
         }
     }
 }
@@ -97,6 +121,7 @@ impl TypedValueV2 {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PluginFrameV2 {
     pub kind: PluginFrameKindV2,
+    pub output_availability: Option<PluginOutputAvailabilityV3>,
     pub manifest_digest: BindingDigest,
     pub module_identity: BindingDigest,
     pub invocation_identity: [u8; 16],
@@ -121,7 +146,8 @@ pub enum PluginWireV2Error {
 impl PluginFrameV2 {
     pub fn encode(&self, manifest: &PluginManifestV2) -> Result<Vec<u8>, PluginWireV2Error> {
         let ports = ports(self.kind, manifest);
-        if manifest.abi_version != PLUGIN_FRAME_ABI_V2
+        if !supported_frame_abi(manifest.abi_version)
+            || !valid_output_availability(manifest.abi_version, self.kind, self.output_availability)
             || self.values.len() != ports.len()
             || self.state.value_type != manifest.state.value_type
             || self.state.bytes.len() > manifest.state.max_bytes as usize
@@ -130,6 +156,9 @@ impl PluginFrameV2 {
             return Err(PluginWireV2Error::Coverage);
         }
         let mut body = Vec::new();
+        if let Some(availability) = self.output_availability {
+            body.push(availability.tag());
+        }
 
         for (ordinal, (value, contract)) in self.values.iter().zip(ports).enumerate() {
             if value.value_type != contract.value_type
@@ -145,7 +174,7 @@ impl PluginFrameV2 {
         let mut output = vec![0; PLUGIN_FRAME_HEADER_BYTES_V2];
         output[..4].copy_from_slice(&self.kind.magic());
         output[4..6].copy_from_slice(&PLUGIN_FRAME_CODEC_V2.to_le_bytes());
-        output[6..8].copy_from_slice(&PLUGIN_FRAME_ABI_V2.to_le_bytes());
+        output[6..8].copy_from_slice(&manifest.abi_version.to_le_bytes());
         output[8..40].copy_from_slice(self.manifest_digest.as_bytes());
         output[40..72].copy_from_slice(self.module_identity.as_bytes());
         output[72..88].copy_from_slice(&self.invocation_identity);
@@ -164,10 +193,10 @@ impl PluginFrameV2 {
         invocation_identity: [u8; 16],
     ) -> Result<Self, PluginWireV2Error> {
         if bytes.len() < PLUGIN_FRAME_HEADER_BYTES_V2
-            || manifest.abi_version != PLUGIN_FRAME_ABI_V2
+            || !supported_frame_abi(manifest.abi_version)
             || bytes[..4] != kind.magic()
             || read_u16(bytes, 4)? != PLUGIN_FRAME_CODEC_V2
-            || read_u16(bytes, 6)? != PLUGIN_FRAME_ABI_V2
+            || read_u16(bytes, 6)? != manifest.abi_version
             || bytes[8..40] != *manifest_digest.as_bytes()
             || bytes[40..72] != *module_identity.as_bytes()
             || bytes[72..88] != invocation_identity
@@ -185,6 +214,14 @@ impl PluginFrameV2 {
             return Err(PluginWireV2Error::Header);
         }
         let mut cursor = PLUGIN_FRAME_HEADER_BYTES_V2;
+        let output_availability =
+            if manifest.abi_version == PLUGIN_FRAME_ABI_V3 && kind == PluginFrameKindV2::Output {
+                let tag = *bytes.get(cursor).ok_or(PluginWireV2Error::Header)?;
+                cursor += 1;
+                Some(PluginOutputAvailabilityV3::from_tag(tag).ok_or(PluginWireV2Error::Header)?)
+            } else {
+                None
+            };
         let mut values = Vec::with_capacity(ports.len());
         for (ordinal, contract) in ports.iter().enumerate() {
             let (found_ordinal, value, next) = decode_entry(bytes, cursor)?;
@@ -208,6 +245,7 @@ impl PluginFrameV2 {
         }
         let frame = Self {
             kind,
+            output_availability,
             manifest_digest,
             module_identity,
             invocation_identity,
@@ -220,6 +258,23 @@ impl PluginFrameV2 {
         }
         Ok(frame)
     }
+}
+
+const fn supported_frame_abi(abi_version: u16) -> bool {
+    matches!(abi_version, PLUGIN_FRAME_ABI_V2 | PLUGIN_FRAME_ABI_V3)
+}
+
+const fn valid_output_availability(
+    abi_version: u16,
+    kind: PluginFrameKindV2,
+    availability: Option<PluginOutputAvailabilityV3>,
+) -> bool {
+    matches!(
+        (abi_version, kind, availability),
+        (PLUGIN_FRAME_ABI_V3, PluginFrameKindV2::Output, Some(_))
+            | (PLUGIN_FRAME_ABI_V2, _, None)
+            | (PLUGIN_FRAME_ABI_V3, PluginFrameKindV2::Input, None)
+    )
 }
 
 pub fn aggregate_plugin_state_set_digest_v2<'a>(
@@ -381,4 +436,169 @@ fn read_u32(bytes: &[u8], offset: usize) -> Result<u32, PluginWireV2Error> {
             .and_then(|v| v.try_into().ok())
             .ok_or(PluginWireV2Error::Header)?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        bounded_feature_program_v1::BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
+        strategy_design_v2::PluginStateContractV2,
+    };
+
+    #[test]
+    fn abi_three_retains_the_canonical_entry_layout_and_binds_the_header() {
+        let manifest = PluginManifestV2 {
+            semantic_id: "test.bfp.plugin.v1".to_owned(),
+            abi_version: PLUGIN_FRAME_ABI_V3,
+            input_ports: Vec::new(),
+            output_ports: Vec::new(),
+            state: PluginStateContractV2 {
+                pre_port_id: "state.pre".to_owned(),
+                post_port_id: "state.post".to_owned(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 8,
+            },
+            capability_ids: Vec::new(),
+            max_fuel: 1,
+            max_linear_memory_bytes: 65_536,
+            max_invocations_per_event: 1,
+            failure_semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1.to_owned(),
+        };
+        let manifest_digest = BindingDigest::from_untrusted_bytes([1; 32]);
+        let module_identity = BindingDigest::from_untrusted_bytes([2; 32]);
+        let invocation_identity = [3; 16];
+        let frame = PluginFrameV2 {
+            kind: PluginFrameKindV2::Input,
+            output_availability: None,
+            manifest_digest,
+            module_identity,
+            invocation_identity,
+            values: Vec::new(),
+            state: TypedValueV2::new(ValueTypeV2::Bytes, []).expect("empty state is canonical"),
+        };
+
+        let bytes = frame.encode(&manifest).expect("ABI 3 frame");
+        assert_eq!(&bytes[6..8], &PLUGIN_FRAME_ABI_V3.to_le_bytes());
+        assert_eq!(
+            PluginFrameV2::decode_exact(
+                &bytes,
+                PluginFrameKindV2::Input,
+                &manifest,
+                manifest_digest,
+                module_identity,
+                invocation_identity,
+            ),
+            Ok(frame)
+        );
+
+        let mut abi_two_header = bytes;
+        abi_two_header[6..8].copy_from_slice(&PLUGIN_FRAME_ABI_V2.to_le_bytes());
+        assert_eq!(
+            PluginFrameV2::decode_exact(
+                &abi_two_header,
+                PluginFrameKindV2::Input,
+                &manifest,
+                manifest_digest,
+                module_identity,
+                invocation_identity,
+            ),
+            Err(PluginWireV2Error::Header)
+        );
+    }
+
+    #[test]
+    fn abi_three_output_prefixes_entries_with_canonical_availability() {
+        let manifest = PluginManifestV2 {
+            semantic_id: "test.bfp.plugin.v1".to_owned(),
+            abi_version: PLUGIN_FRAME_ABI_V3,
+            input_ports: Vec::new(),
+            output_ports: Vec::new(),
+            state: PluginStateContractV2 {
+                pre_port_id: "state.pre".to_owned(),
+                post_port_id: "state.post".to_owned(),
+                value_type: ValueTypeV2::Bytes,
+                max_bytes: 8,
+            },
+            capability_ids: Vec::new(),
+            max_fuel: 1,
+            max_linear_memory_bytes: 65_536,
+            max_invocations_per_event: 1,
+            failure_semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1.to_owned(),
+        };
+        let manifest_digest = BindingDigest::from_untrusted_bytes([1; 32]);
+        let module_identity = BindingDigest::from_untrusted_bytes([2; 32]);
+        let invocation_identity = [3; 16];
+        let frame = PluginFrameV2 {
+            kind: PluginFrameKindV2::Output,
+            output_availability: Some(PluginOutputAvailabilityV3::Warming),
+            manifest_digest,
+            module_identity,
+            invocation_identity,
+            values: Vec::new(),
+            state: TypedValueV2::new(ValueTypeV2::Bytes, []).expect("empty state is canonical"),
+        };
+
+        let bytes = frame.encode(&manifest).expect("ABI 3 output frame");
+        assert_eq!(bytes[PLUGIN_FRAME_HEADER_BYTES_V2], 1);
+        assert_eq!(read_u16(&bytes, 88), Ok(1));
+        assert_eq!(
+            read_u32(&bytes, 92),
+            Ok(u32::try_from(bytes.len() - PLUGIN_FRAME_HEADER_BYTES_V2)
+                .expect("test frame length fits u32"))
+        );
+        assert_eq!(
+            read_u16(&bytes, PLUGIN_FRAME_HEADER_BYTES_V2 + 1),
+            Ok(PLUGIN_STATE_ORDINAL_V2)
+        );
+        assert_eq!(
+            PluginFrameV2::decode_exact(
+                &bytes,
+                PluginFrameKindV2::Output,
+                &manifest,
+                manifest_digest,
+                module_identity,
+                invocation_identity,
+            ),
+            Ok(frame.clone())
+        );
+
+        let ready = PluginFrameV2 {
+            output_availability: Some(PluginOutputAvailabilityV3::Ready),
+            ..frame.clone()
+        };
+        assert_eq!(
+            ready.encode(&manifest).expect("READY output frame")[PLUGIN_FRAME_HEADER_BYTES_V2],
+            0
+        );
+
+        let mut unknown = bytes;
+        unknown[PLUGIN_FRAME_HEADER_BYTES_V2] = 2;
+        assert_eq!(
+            PluginFrameV2::decode_exact(
+                &unknown,
+                PluginFrameKindV2::Output,
+                &manifest,
+                manifest_digest,
+                module_identity,
+                invocation_identity,
+            ),
+            Err(PluginWireV2Error::Header)
+        );
+
+        let missing = PluginFrameV2 {
+            output_availability: None,
+            ..frame.clone()
+        };
+        assert_eq!(missing.encode(&manifest), Err(PluginWireV2Error::Coverage));
+
+        let contradictory = PluginFrameV2 {
+            kind: PluginFrameKindV2::Input,
+            ..frame
+        };
+        assert_eq!(
+            contradictory.encode(&manifest),
+            Err(PluginWireV2Error::Coverage)
+        );
+    }
 }

@@ -12,6 +12,12 @@ pub mod artifact_build_sandbox;
 pub mod artifact_v2;
 mod binance_program_application;
 mod binance_program_data;
+#[allow(
+    dead_code,
+    reason = "the BFP lowerer awaits its tagged V3 build and durable Composer consumer"
+)]
+mod bounded_feature_program_lowerer_v1;
+pub mod bounded_feature_program_v1;
 #[allow(dead_code)]
 mod cargo_artifact;
 #[allow(dead_code)]
@@ -52,6 +58,11 @@ mod develop_plugin_build_v2;
 mod develop_plugin_build_v2_sandbox;
 #[cfg(test)]
 mod develop_plugin_build_v2_tests;
+#[allow(
+    dead_code,
+    reason = "V3 build boundary awaits executable BFP lowering and durable Composer custody"
+)]
+mod develop_plugin_build_v3;
 mod dual_tsmom;
 mod experiment;
 pub mod exploratory_replay;
@@ -96,6 +107,11 @@ mod program_project;
 mod program_runtime;
 pub mod program_runtime_v2;
 mod program_session;
+#[allow(
+    dead_code,
+    reason = "R&D joint BFP freeze awaits its PostgreSQL Owner composition root"
+)]
+mod rd_bounded_feature_program_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
