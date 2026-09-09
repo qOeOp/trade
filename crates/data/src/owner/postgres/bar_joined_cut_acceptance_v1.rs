@@ -48,7 +48,6 @@ use crate::owner::{
     sealed_replay_input::{
         SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
     },
-    shared_time_evidence::build_head_fact,
     source_binding::{
         BindingDigest, MarketDataClockAdmission, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
@@ -208,8 +207,17 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         )
         .await
         .map_err(BarJoinedCutAcceptanceBasisUnavailableV1::Source)?;
-    let head = build_head_fact(&clock, None)
-        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
+    let head = async {
+        let mut transaction = owner.pool.begin().await.map_err(|_| ())?;
+        let head = super::load_current_clock_fact_for_update(&mut transaction)
+            .await
+            .map_err(|_| ())?
+            .ok_or(())?;
+        transaction.commit().await.map_err(|_| ())?;
+        Ok::<_, ()>(head)
+    }
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
     owner
         .append_instrument_master_fact(acceptance_instrument_fact(), head.handoff.locator())
         .await
@@ -548,7 +556,7 @@ fn acceptance_clock() -> MarketDataClockAdmission {
     MarketDataClockAdmission::seal_for_test(
         "12345678901234567890123456789012",
         "abcdefghijklmnopqrstuvwxyzABCDEF",
-        1,
+        2,
         100,
         100,
         160,
@@ -617,7 +625,7 @@ fn acceptance_source_proposal() -> UntrustedSourceBindingProposal {
             claimed_evidence_identity: digest(0),
             clock_identity: "12345678901234567890123456789012".into(),
             clock_epoch: "abcdefghijklmnopqrstuvwxyzABCDEF".into(),
-            monotonic_sequence: 1,
+            monotonic_sequence: 2,
             restart_continuity_digest: digest(90),
             skew_bound: 2,
             uncertainty_bound: 1,
