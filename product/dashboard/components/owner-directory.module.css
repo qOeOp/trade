@@ -8,6 +8,12 @@
   overscroll-behavior: contain;
 }
 
+.tableSurface :global(.unavailable-state) {
+  min-height: 180px;
+  justify-content: center;
+  border-top: 0;
+}
+
 .identityCell {
   min-width: 0;
   display: grid;
