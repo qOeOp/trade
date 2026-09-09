@@ -112,6 +112,24 @@ pub struct PreparedProgramHostCapabilityV2 {
 /// The caller supplies selectors and sealed Owner readbacks, but never coordinate bytes. The V4
 /// projection is resolved through a sealed Market Data resolver and is retained with the exact
 /// joined cut until the real Backtest consumer takes ownership.
+///
+/// The capability is move-only:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostBarCapabilityV1;
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<PreparedProgramHostBarCapabilityV1>();
+/// ```
+///
+/// Its private evidence cannot be extracted or replaced:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::PreparedProgramHostBarCapabilityV1;
+/// fn split(value: PreparedProgramHostBarCapabilityV1) {
+///     let PreparedProgramHostBarCapabilityV1 { native_join, .. } = value;
+///     drop(native_join);
+/// }
+/// ```
 pub struct PreparedProgramHostBarCapabilityV1 {
     plan: StrategyPlanV2,
     artifact: StrategyArtifactV2,
@@ -129,6 +147,14 @@ pub struct PreparedProgramHostBarCapabilityV1 {
 ///
 /// This carrier shortens the preparation boundary without granting authority to construct any of
 /// its sealed values. The preparation path still revalidates every equality before Host creation.
+///
+/// It cannot be copied into a second preparation attempt:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::OwnerBarJoinedCutPreparationV1;
+/// fn require_clone<T: Clone>() {}
+/// require_clone::<OwnerBarJoinedCutPreparationV1>();
+/// ```
 pub struct OwnerBarJoinedCutPreparationV1 {
     replay_input: SealedReplayInput,
     instrument_master: InstrumentMasterReadbackV1,
@@ -380,6 +406,18 @@ pub struct PreparedProgramHostHandoffV2 {
 /// Public observations expose identities only. The joined cut, exact coordinate projection and
 /// resolver-authenticated native join remain private and move exactly once into the in-crate
 /// Backtest adapter.
+///
+/// The real Backtest consumer can take the handoff only once:
+///
+/// ```compile_fail
+/// use vibe_strategy_factory::{
+///     PreparedProgramHostBarHandoffV1, run_prepared_owner_bar_joined_cut_backtest_v1,
+/// };
+/// fn replay(value: PreparedProgramHostBarHandoffV1) {
+///     let _first = run_prepared_owner_bar_joined_cut_backtest_v1(value);
+///     let _second = run_prepared_owner_bar_joined_cut_backtest_v1(value);
+/// }
+/// ```
 pub struct PreparedProgramHostBarHandoffV1 {
     host: ProgramHostV2,
     request: ReplayRequestV2,
