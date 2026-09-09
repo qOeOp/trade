@@ -224,6 +224,7 @@ test(browserAcceptance
   assert.equal(ownerProjection.wasm_preview_reason, "WASM_PREVIEW_NOT_RUN");
   const source = ownerProjection.source;
   assert.equal(typeof source, "string");
+  const sourceLineCount = source.split("\n").length;
   const firstSourceLine = source.split("\n", 1)[0];
   const sourceSentinel = source.split("\n").find((line) =>
     line.includes("strategy_factory_on_event_v1"));
@@ -332,7 +333,9 @@ test(browserAcceptance
       return {
         ariaReadonly: host?.getAttribute('aria-readonly'),
         contentEditable: content?.getAttribute('contenteditable'),
-        lineNumbers: host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement').length ?? 0,
+        renderedLineNumbers: [...(host?.querySelectorAll('.cm-lineNumbers .cm-gutterElement') ?? [])]
+          .map((lineNumber) => Number(lineNumber.textContent?.trim()))
+          .filter(Number.isInteger),
         foldGutter: Boolean(host?.querySelector('.cm-foldGutter')),
         folded: Boolean(host?.querySelector('.cm-foldPlaceholder')),
         selected: window.getSelection()?.toString() ?? '',
@@ -342,7 +345,12 @@ test(browserAcceptance
     })()`);
     assert.equal(surface.ariaReadonly, "true");
     assert.equal(surface.contentEditable, "false");
-    assert.ok(surface.lineNumbers >= 10, JSON.stringify(surface));
+    assert.ok(surface.renderedLineNumbers.length > 0, JSON.stringify(surface));
+    assert.ok(surface.renderedLineNumbers.every((lineNumber, index, lineNumbers) =>
+      lineNumber >= 1
+        && lineNumber <= sourceLineCount
+        && (index === 0 || lineNumber > lineNumbers[index - 1])), JSON.stringify(surface));
+    assert.equal(surface.renderedLineNumbers.at(-1), sourceLineCount, JSON.stringify(surface));
     assert.equal(surface.foldGutter, true);
     assert.equal(surface.folded, true);
     assert.equal(surface.selected, firstSourceLine);
