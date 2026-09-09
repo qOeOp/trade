@@ -67,7 +67,7 @@ use crate::owner::{
         UntrustedStrategyInputJoinClaimV1, derive_strategy_input_join_identity_v2,
     },
     universe_selection::{
-        UntrustedUniverseSelectionRequestV1,
+        UniverseSelectionErrorV1, UntrustedUniverseSelectionRequestV1,
         authority::{
             CanonicalUniverseSelectionRuleEvaluatorV1, HistoricalMembershipFactProposalV1,
         },
@@ -256,33 +256,46 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
             .begin()
             .await
             .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-        super::universe_selection::persist_historical_membership_frontier_v1(
-            &mut transaction,
-            membership_frontier,
-            vec![HistoricalMembershipFactProposalV1 {
-                member_key: INSTRUMENT.as_bytes().to_vec(),
-                instrument: INSTRUMENT.as_bytes().to_vec(),
-                predecessor_identity: None,
-                effective_from_ns: 1,
-                effective_until_ns: None,
-                provider_available_ns: 90,
-                retrieval_ns: 92,
-                correction_publication_ns: 91,
-                owner_observation_ns: 99,
-                decision_cut: 100,
-                source_binding_lineage_root: source.fact().lineage_root(),
-                correction_frontier_digest: digest(86),
-            }],
-        )
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-        let readback = super::universe_selection::resolve_universe_selection_in_transaction_v1(
-            &mut transaction,
-            &universe_request,
-            Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
-        )
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        let readback =
+            match super::universe_selection::resolve_universe_selection_in_transaction_v1(
+                &mut transaction,
+                &universe_request,
+                Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+            )
+            .await
+            {
+                Ok(readback) => readback,
+                Err(UniverseSelectionErrorV1::UnknownIdentity) => {
+                    super::universe_selection::persist_historical_membership_frontier_v1(
+                        &mut transaction,
+                        membership_frontier,
+                        vec![HistoricalMembershipFactProposalV1 {
+                            member_key: INSTRUMENT.as_bytes().to_vec(),
+                            instrument: INSTRUMENT.as_bytes().to_vec(),
+                            predecessor_identity: None,
+                            effective_from_ns: 1,
+                            effective_until_ns: None,
+                            provider_available_ns: 90,
+                            retrieval_ns: 92,
+                            correction_publication_ns: 91,
+                            owner_observation_ns: 99,
+                            decision_cut: 100,
+                            source_binding_lineage_root: source.fact().lineage_root(),
+                            correction_frontier_digest: digest(86),
+                        }],
+                    )
+                    .await
+                    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+                    super::universe_selection::resolve_universe_selection_in_transaction_v1(
+                        &mut transaction,
+                        &universe_request,
+                        Some(&CanonicalUniverseSelectionRuleEvaluatorV1),
+                    )
+                    .await
+                    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
+                }
+                Err(_) => return Err(BarJoinedCutAcceptanceUnavailableV1),
+            };
         transaction
             .commit()
             .await
