@@ -1275,6 +1275,10 @@ pub(crate) fn issue_backtest_universe_successor_for_test(
 }
 
 impl ProgramHostV2 {
+    pub(crate) const fn plan(&self) -> &StrategyPlanV2 {
+        &self.plan
+    }
+
     fn clone_for_scratch(&self) -> Self {
         Self {
             plan: self.plan.clone(),

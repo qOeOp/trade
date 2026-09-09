@@ -78,8 +78,10 @@ mod legacy_prepared_attempt_drain;
 )]
 mod native_replay_v2;
 pub use native_replay_v2::{
-    PreparedProgramHostCapabilityV2, PreparedProgramHostEventCorpusCapabilityV2,
-    PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
+    OwnerBarJoinedCutPreparationV1, PreparedProgramHostBarCapabilityV1,
+    PreparedProgramHostBarHandoffV1, PreparedProgramHostCapabilityV2,
+    PreparedProgramHostEventCorpusCapabilityV2, PreparedProgramHostHandoffV2,
+    ProgramPreparationFaultV2, prepare_program_host_from_owner_bar_joined_cut_v1,
     prepare_program_host_from_owner_event_corpus_v1, prepare_program_host_from_owner_readbacks_v2,
 };
 mod pairs_relative_value;
@@ -94,6 +96,10 @@ mod program_host;
 mod program_host_backtest_target_set_v2;
 #[allow(dead_code)]
 mod program_host_backtest_v2;
+mod program_host_bar_joined_cut_backtest_v1;
+pub use program_host_bar_joined_cut_backtest_v1::{
+    OwnerBarJoinedCutBacktestReadbackV1, run_prepared_owner_bar_joined_cut_backtest_v1,
+};
 #[allow(dead_code)]
 mod program_host_event_corpus_backtest_v1;
 pub mod program_host_v2;

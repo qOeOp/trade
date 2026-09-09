@@ -57,6 +57,26 @@ pub struct ReplayCompositionOwnerV1 {
     pub(in crate::owner) rd_role_set_pool: sqlx::PgPool,
 }
 
+impl super::sample_projection_v4::sealed::Sealed for ReplayCompositionOwnerV1 {}
+
+#[async_trait::async_trait]
+impl super::sample_projection_v4::StrategyInputSampleProjectionResolverV4
+    for ReplayCompositionOwnerV1
+{
+    async fn resolve_strategy_input_sample_projection_v4(
+        &self,
+        locator: &UntrustedStrategyInputSampleProjectionLocatorV4,
+    ) -> Result<
+        super::sample_projection_v4::StrategyInputSampleProjectionReadbackV4,
+        super::sample_projection_v4::StrategyInputSampleProjectionResolveErrorV4,
+    > {
+        self.owner
+            .resolve_strategy_input_sample_projection_v4(locator)
+            .await
+            .map_err(|_| super::sample_projection_v4::StrategyInputSampleProjectionResolveErrorV4)
+    }
+}
+
 /// Untrusted selectors for the exact existing Market Data custody used by sealed Composer.
 ///
 /// These locators carry no fact authority. Market Data re-resolves every referenced receipt and
