@@ -89,10 +89,14 @@ test("detail inspectors keep chrome on the frame and one complete inset body", (
 });
 
 test("operational summaries preserve a legible metric hierarchy across viewports", () => {
+  assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+grid-template-areas: "eyebrow copy" "title copy";[^}]+align-items: center;/u);
+  assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+grid-area: copy;[^}]+border-left: \.5px solid var\(--border-default\);/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(27px, 2vw, 34px\);/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(25px, 1\.85vw, 31px\);[^}]+white-space: normal;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: flex-start;[^}]+justify-content: center;[^}]+text-align: left;/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
