@@ -54,8 +54,10 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*min-height: 50px;[^}]*border-radius: 14px;/u);
   assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*background: transparent;/u);
   assert.match(css, /\.compact-status-group-label \{[^}]*text-transform: none;/u);
-  assert.match(css, /\.compact-status-group-label::after \{ content: "›";[^}]*margin-left: 42px;/u);
-  assert.match(css, /\.compact-status-item \{[^}]*justify-content: center;[^}]*gap: 14px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]*background: var\(--surface-card\);[^}]*box-shadow: var\(--elevation-summary\);/u);
+  assert.match(css, /\.compact-status-group-label::after \{ content: "›";[^}]*margin-left: 48px;/u);
+  assert.match(css, /\.compact-status-item \{[^}]*padding: 0 32px;[^}]*justify-content: center;[^}]*gap: 14px;/u);
+  assert.match(css, /\.compact-status-item dd \{[^}]*font-size: 13px;[^}]*line-height: 1;[^}]*letter-spacing: 0;/u);
   assert.match(css, /\.compact-status-item \+ \.compact-status-item \{ border-left: \.5px solid var\(--border-default\); \}/u);
   assert.doesNotMatch(css, /^\.compact-status-item \{[^}]*border-left:/mu);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
