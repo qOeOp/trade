@@ -100,11 +100,12 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   for (const label of ["loaded runs", "active", "failed", "result ready", "result pending"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
-  assert.match(css, /\.compact-status-bar \{[^}]+min-height: 44px;[^}]+align-items: center;[^}]+border-radius: 8px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]+display: grid;[^}]+align-items: stretch;[^}]+gap: 12px;/u);
+  assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
-  assert.match(css, /\.compact-status-item \+ \.compact-status-item \{ border-left: \.5px solid var\(--border-default\); \}/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(118px, 1fr\)\); \}/u);
-  assert.match(css, /@media \(max-width: 520px\)[\s\S]+\.compact-status-group \{ display: grid; grid-template-columns: minmax\(0, 1fr\);[^}]*\}[\s\S]+\.compact-status-group dl \{ width: 100%; display: grid; grid-template-columns: minmax\(0, 1fr\); \}/u);
+  assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
+  assert.match(css, /@container compact-status \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
+  assert.match(css, /@container compact-status \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group \{[^}]+grid-template-columns: minmax\(0, 1fr\) minmax\(0, 3fr\);/u);

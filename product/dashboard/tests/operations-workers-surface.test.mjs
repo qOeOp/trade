@@ -52,21 +52,25 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
-  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*min-height: 44px;[^}]*border-radius: 8px;/u);
-  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 34px;[^}]*align-items: center;[^}]*text-transform: lowercase;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*display: grid;[^}]*gap: 12px;/u);
+  assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
+  assert.match(css, /\.compact-status-group \{[^}]*position: relative;[^}]*padding-top: 20px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*position: absolute;[^}]*min-width: 116px;[^}]*min-height: 24px;[^}]*border-radius: 9px 9px 0 0;[^}]*text-transform: lowercase;/u);
+  assert.match(css, /\.compact-status-group-label::after \{[^}]*radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*box-shadow:/u);
-  assert.match(statusBar, /<span className="compact-status-group-chevron" aria-hidden="true">›<\/span>/u);
-  assert.match(css, /\.compact-status-group-chevron \{[^}]*align-items: center;[^}]*justify-content: center;/u);
-  assert.match(css, /\.compact-status-item \{[^}]*padding: 0 clamp\(20px, 2\.5vw, 38px\);[^}]*justify-content: center;[^}]*gap: 13px;/u);
+  assert.doesNotMatch(statusBar + css, /compact-status-group-chevron/u);
+  assert.match(css, /\.compact-status-group dl \{[^}]*padding: 8px;[^}]*gap: 8px;[^}]*border-radius: 0 12px 12px 12px;/u);
+  assert.match(css, /\.compact-status-item \{[^}]*padding: 9px clamp\(14px, 1\.8vw, 28px\);[^}]*justify-content: space-between;[^}]*gap: 20px;[^}]*border: 0;[^}]*border-radius: 8px;/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
-  assert.match(css, /\.compact-status-item \+ \.compact-status-item \{ border-left: \.5px solid var\(--border-default\); \}/u);
-  assert.doesNotMatch(css, /^\.compact-status-item \{[^}]*border-left:/mu);
+  assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background:/u);
+  assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
+  assert.match(css, /@container compact-status \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
   assert.match(workers, /<CompactStatusGroup label="workload">/u);
   for (const label of ["available", "expired", "claimed", "active"]) {
     assert.match(workers, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
-  assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: (?:14px|999px)/u);
+  assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: 999px/u);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);
 });

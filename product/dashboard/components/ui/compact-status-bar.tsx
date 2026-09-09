@@ -23,10 +23,7 @@ export function CompactStatusGroup({
 }) {
   return (
     <div className="compact-status-group">
-      <span className="compact-status-group-label">
-        {label}
-        <span className="compact-status-group-chevron" aria-hidden="true">›</span>
-      </span>
+      <span className="compact-status-group-label"><span>{label}</span></span>
       <dl>{children}</dl>
     </div>
   );

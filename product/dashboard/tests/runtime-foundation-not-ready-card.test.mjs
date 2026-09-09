@@ -44,7 +44,8 @@ test("Runtime card uses compact grouped theme surfaces without a literal palette
   assert.match(source, /<CompactStatusItem label="state" value="not ready" tone="warning" \/>/u);
   assert.match(source, /<CompactStatusItem label="dependencies" value="4 required" \/>/u);
   assert.match(source, /<CompactStatusItem label="source revision"/u);
-  assert.match(globalCss, /\.compact-status-bar \{[^}]*min-height: 44px;[^}]*border-radius: 8px;/u);
+  assert.match(globalCss, /\.compact-status-bar \{[^}]*display: grid;[^}]*gap: 12px;/u);
+  assert.doesNotMatch(globalCss, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(globalCss, /\.compact-status-item\[data-tone="warning"\] dd \{ color: var\(--status-warning\); \}/u);
   assert.doesNotMatch(css, /\.statusBar|\.statusIcon/u);
   assert.match(css, /\.sectionHeader \{[\s\S]*background: color-mix\(in oklch, var\(--status-warning\) 5%, var\(--panel-chrome-bg\)\)/);
