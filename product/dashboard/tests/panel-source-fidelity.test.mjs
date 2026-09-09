@@ -94,10 +94,11 @@ test("detail inspectors keep chrome on the frame and one complete inset body", (
 test("operational summaries preserve a legible metric hierarchy across viewports", () => {
   assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
-  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \{[^}]+min-height: 62px;[^}]+overflow-x: auto;[^}]+border-radius: 16px;/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \{[^}]+width: 100%;[^}]+min-height: 50px;[^}]+overflow-x: auto;[^}]+border-radius: 14px;/u);
   assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title \{[^}]+align-items: center;[^}]+color: var\(--text-muted\);/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title \{[^}]+(?:background|border-radius):/u);
-  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-metric::before \{ content: "›";/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title::after \{ content: "›";[^}]+margin-left: 48px;/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact \{[^}]+flex: 1 0 max-content;[^}]+justify-content: center;/u);
   assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact \{ border-left: \.5px solid var\(--border-default\); \}/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact::before/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
