@@ -118,6 +118,33 @@ impl OwnerBarJoinedCutAcceptanceBasisV1 {
 #[error("disposable Market Data BAR joined-cut acceptance issuance was unavailable")]
 pub struct BarJoinedCutAcceptanceUnavailableV1;
 
+/// Bounded phase where the disposable basis issuance became unavailable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum BarJoinedCutAcceptanceBasisUnavailableV1 {
+    #[error("disposable Market Data BAR joined-cut acceptance claims were unavailable")]
+    Claims,
+    #[error("disposable Market Data BAR joined-cut acceptance Owner connection was unavailable")]
+    OwnerConnection,
+    #[error("disposable Market Data BAR joined-cut acceptance source was unavailable")]
+    Source,
+    #[error("disposable Market Data BAR joined-cut acceptance clock head was unavailable")]
+    ClockHead,
+    #[error("disposable Market Data BAR joined-cut acceptance instrument append was unavailable")]
+    InstrumentAppend,
+    #[error("disposable Market Data BAR joined-cut acceptance instrument readback was unavailable")]
+    InstrumentReadback,
+    #[error("disposable Market Data BAR joined-cut acceptance universe was unavailable")]
+    Universe,
+    #[error("disposable Market Data BAR joined-cut acceptance PIT was unavailable")]
+    Pit,
+    #[error("disposable Market Data BAR joined-cut acceptance R0 was unavailable")]
+    R0,
+    #[error("disposable Market Data BAR joined-cut acceptance semantics were unavailable")]
+    Semantics,
+    #[error("disposable Market Data BAR joined-cut acceptance bindings were unavailable")]
+    Bindings,
+}
+
 /// Move-only output from one real PostgreSQL Owner issuance chain.
 #[derive(Debug)]
 pub struct OwnerBarJoinedCutAcceptanceFixtureV1 {
@@ -162,12 +189,13 @@ impl OwnerBarJoinedCutAcceptanceFixtureV1 {
 pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     database: &CanonicalOwnerPostgresTestDatabaseV1,
     claims: UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
-) -> Result<OwnerBarJoinedCutAcceptanceBasisV1, BarJoinedCutAcceptanceUnavailableV1> {
-    validate_initial_claims(&claims)?;
+) -> Result<OwnerBarJoinedCutAcceptanceBasisV1, BarJoinedCutAcceptanceBasisUnavailableV1> {
+    validate_initial_claims(&claims)
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Claims)?;
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let owner = MarketDataOwnerPostgres::connect(owner_url)
         .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::OwnerConnection)?;
     let clock = acceptance_clock();
     let source = owner
         .commit_source_initial(
@@ -178,19 +206,20 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
             &clock,
         )
         .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let head = build_head_fact(&clock, None).map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Source)?;
+    let head = build_head_fact(&clock, None)
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
     owner
         .append_instrument_master_fact(acceptance_instrument_fact(), head.handoff.locator())
         .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentAppend)?;
     let instrument = owner
         .resolve_instrument_master(
             &acceptance_instrument_request(head.handoff.locator().clone()),
             None,
         )
         .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback)?;
 
     let membership_frontier = digest(170);
     let universe_request = UntrustedUniverseSelectionRequestV1::new(
@@ -206,7 +235,7 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         digest(86),
         digest(173),
     );
-    let universe = {
+    let universe = async {
         let mut transaction = owner
             .pool
             .begin()
@@ -243,8 +272,10 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
             .commit()
             .await
             .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-        readback
-    };
+        Ok::<_, BarJoinedCutAcceptanceUnavailableV1>(readback)
+    }
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Universe)?;
 
     let (pit, batch) = Box::pin(persist_pit_and_reread(
         &owner,
@@ -253,8 +284,11 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         &instrument,
         universe.record().identity(),
     ))
-    .await?;
-    let r0 = persist_r0(&owner, &pit, &source).await?;
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Pit)?;
+    let r0 = persist_r0(&owner, &pit, &source)
+        .await
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::R0)?;
     Box::pin(persist_market_semantics(
         &owner,
         &pit,
@@ -263,13 +297,14 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         &instrument,
         &r0,
     ))
-    .await?;
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Semantics)?;
     let binding_requests = acceptance_binding_requests(&claims, &batch);
     let input_bindings = binding_requests
         .iter()
         .map(|request| bind_strategy_input_role(request, &batch))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Bindings)?;
 
     Ok(OwnerBarJoinedCutAcceptanceBasisV1 {
         owner,
