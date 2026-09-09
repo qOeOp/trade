@@ -337,35 +337,22 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
         .map(|binding| bind_strategy_input_event_frame(std::slice::from_ref(binding), &batch))
         .collect::<Result<Vec<_>, _>>()
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let semantic_ids = [
-        "minute-open",
-        "minute-high",
-        "minute-low",
-        "minute-close",
-        "hour-close",
-        "exchange-session-day-close",
-    ];
-    let trigger_input_id = semantic_ids[3].to_owned();
-    let semantic_id_strings = semantic_ids.map(str::to_owned);
+    let [validated_join] = role_set.joins.as_slice() else {
+        return Err(BarJoinedCutAcceptanceUnavailableV1);
+    };
     let join_claim = UntrustedStrategyInputJoinClaimV1 {
         strategy_design_identity: claims.strategy_design_identity,
-        join_semantic_id: "replay-composition-six-role-v1".into(),
-        join_identity: derive_strategy_input_join_identity_v2(
-            "replay-composition-six-role-v1",
-            &semantic_id_strings,
-            "strategy.input-join.latest-not-after-trigger.v1",
-            &trigger_input_id,
-            1,
-        ),
-        alignment_semantic_id: "strategy.input-join.latest-not-after-trigger.v1".into(),
-        trigger_input_id,
-        max_staleness_ns: 1,
-        roles: semantic_ids
+        join_semantic_id: validated_join.semantic_id.clone(),
+        join_identity: validated_join.join_identity,
+        alignment_semantic_id: validated_join.alignment_semantic_id.clone(),
+        trigger_input_id: validated_join.trigger_input_id.clone(),
+        max_staleness_ns: validated_join.max_staleness_ns,
+        roles: validated_join
+            .roles
             .iter()
-            .zip(&claims.input_role_identities)
-            .map(|(semantic_id, identity)| StrategyInputJoinRoleClaimV1 {
-                semantic_id: (*semantic_id).into(),
-                input_role_identity: *identity,
+            .map(|role| StrategyInputJoinRoleClaimV1 {
+                semantic_id: role.semantic_id.clone(),
+                input_role_identity: role.role_identity,
             })
             .collect(),
     };
