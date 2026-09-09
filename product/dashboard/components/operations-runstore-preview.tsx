@@ -260,13 +260,13 @@ export function OperationsRunStorePreview() {
       />
       <PanelFrameBody>
       <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary" variant="flow"
-        eyebrow="Current view" label="Loaded runs"
+        eyebrow="current view" label="loaded runs"
         value={result?.availability === "available" ? runs.length : "Unavailable"}
         detail="Runs shown on this page.">
-        <InsightSummaryFact label="Active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
-        <InsightSummaryFact label="Failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
-        <InsightSummaryFact label="Result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-        <InsightSummaryFact label="Result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
+        <InsightSummaryFact label="active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
+        <InsightSummaryFact label="failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
+        <InsightSummaryFact label="result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
+        <InsightSummaryFact label="result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
       </InsightSummary>
       {result?.availability === "available" ? (
         <>

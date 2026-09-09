@@ -1235,7 +1235,7 @@ button.rd-research-item { cursor: pointer; }
 .operations-runs-panel > .panel-frame-header p { max-width: 720px; margin-top: 10px; font-size: 11px; line-height: 1.55; }
 .operations-run-summaries[data-variant="flow"] { width: 100%; max-width: 100%; min-height: 50px; padding: 4px 12px; display: flex; align-items: center; gap: 0; overflow-x: auto; border-radius: 14px; white-space: nowrap; scrollbar-width: none; }
 .operations-run-summaries[data-variant="flow"]::-webkit-scrollbar { display: none; }
-.operations-run-summaries[data-variant="flow"] .insight-summary-flow-title { min-width: max-content; min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; color: var(--text-muted); font: 700 10px/1.15 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
+.operations-run-summaries[data-variant="flow"] .insight-summary-flow-title { min-width: max-content; min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; color: var(--text-muted); font: 700 10px/1.15 ui-monospace, monospace; letter-spacing: .08em; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-title::after { content: "›"; margin-left: 48px; color: var(--text-muted); font-size: 20px; font-weight: 350; line-height: 1; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-metric,
 .operations-run-summaries[data-variant="flow"] .insight-summary-fact { min-width: max-content; min-height: 30px; padding: 0 32px; display: inline-flex; flex: 1 0 max-content; align-items: center; justify-content: center; gap: 14px; background: transparent; }

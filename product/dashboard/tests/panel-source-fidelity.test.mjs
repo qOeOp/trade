@@ -153,7 +153,8 @@ test("operational surfaces keep implementation language behind information contr
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
   assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
-  assert.match(runs, /variant="flow"[\s\S]+?eyebrow="Current view"/u);
+  assert.match(runs, /variant="flow"[\s\S]+?eyebrow="current view" label="loaded runs"/u);
+  assert.doesNotMatch(runs, /label="(?:Active|Failed|Result ready|Result pending)"/u);
   assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
