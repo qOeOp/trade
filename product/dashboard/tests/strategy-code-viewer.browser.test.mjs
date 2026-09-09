@@ -12,17 +12,18 @@ const acceptanceCandidate = process.env.DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CAN
 const browserExecutable = process.env.DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE ?? "";
 const dashboardRoot = new URL("../", import.meta.url);
 const browserVersion = browserAcceptance
-  ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8" }).trim()
+  ? execFileSync(browserExecutable, ["--version"], { encoding: "utf8", timeout: 5_000 }).trim()
   : "";
 
 async function stopProcess(child) {
   if (!child || child.exitCode !== null) return;
   const exited = once(child, "exit");
   child.kill("SIGTERM");
-  if (!await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) {
-    child.kill("SIGKILL");
-    await exited;
-  }
+  if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
+  child.kill("SIGKILL");
+  if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
+  child.unref();
+  throw new Error("strategy viewer child process did not exit after SIGKILL");
 }
 
 async function waitForHttp(url, child, timeoutMs = 60_000) {
@@ -42,8 +43,10 @@ async function waitForHttp(url, child, timeoutMs = 60_000) {
 
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-strategy-viewer-browser-"));
+  console.error("[strategy-viewer-browser] launching browser");
   const child = spawn(executable, [
     "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
+    "--no-sandbox", "--disable-dev-shm-usage",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
@@ -61,11 +64,13 @@ async function openBrowser(executable) {
       }
     }
     if (!devTools?.[0]) throw new Error("strategy viewer browser debugging endpoint unavailable");
+    console.error("[strategy-viewer-browser] devtools endpoint ready");
     const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
       method: "PUT",
       signal: AbortSignal.timeout(15_000),
     });
     if (!target.ok) throw new Error(`strategy viewer browser target failed with ${target.status}`);
+    console.error("[strategy-viewer-browser] target ready");
     const { webSocketDebuggerUrl } = await target.json();
     const debuggerEndpoint = new URL(webSocketDebuggerUrl);
     debuggerEndpoint.hostname = "127.0.0.1";
@@ -84,6 +89,7 @@ async function openBrowser(executable) {
         reject(error);
       }, { once: true });
     });
+    console.error("[strategy-viewer-browser] websocket ready");
     let id = 0;
     const pending = new Map();
     socket.addEventListener("message", (event) => {
@@ -140,10 +146,10 @@ test(browserAcceptance
 { skip: !browserAcceptance }, async () => {
   assert.match(acceptanceCandidate, /^[0-9a-f]{40}$/u);
   assert.equal(execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: dashboardRoot, encoding: "utf8",
+    cwd: dashboardRoot, encoding: "utf8", timeout: 5_000,
   }).trim(), acceptanceCandidate);
   assert.equal(execFileSync("git", ["status", "--porcelain"], {
-    cwd: dashboardRoot, encoding: "utf8",
+    cwd: dashboardRoot, encoding: "utf8", timeout: 5_000,
   }), "");
 
   const ownerUrl = process.env.RD_OWNER_API_URL ?? "";
@@ -204,8 +210,10 @@ test(browserAcceptance
     const origin = `http://127.0.0.1:${port}`;
     const route = `${origin}/rd/artifacts/${buildRequestIdentity}/attempts/${attemptIdentity}/`;
     await waitForHttp(route, preview);
+    console.error("[strategy-viewer-browser] preview ready");
     browser = await openBrowser(browserExecutable);
     await browser.send("Page.enable");
+    console.error("[strategy-viewer-browser] navigating source route");
     await browser.send("Page.navigate", { url: route });
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
