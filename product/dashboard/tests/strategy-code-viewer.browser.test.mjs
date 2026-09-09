@@ -260,11 +260,11 @@ test(browserAcceptance
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
-    await readBrowserValue(browser, `(() => {
+    assert.equal(await readBrowserValue(browser, `(() => {
       const content = document.querySelector('[data-slot="strategy-read-only-code"] .cm-content');
       content?.focus();
       return document.activeElement === content;
-    })()`);
+    })()`), true);
     const selectAllModifier = process.platform === "darwin" ? 4 : 2;
     for (const [code, key, virtualKeyCode] of [["KeyA", "a", 65], ["KeyC", "c", 67]]) {
       await browser.send("Input.dispatchKeyEvent", {
