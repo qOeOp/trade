@@ -500,6 +500,18 @@ impl VerifiedStrategyInputBindingsV2 {
             .map(BindingProjectionV2::receipt_digest)
             .collect()
     }
+
+    pub(crate) fn receipt_digest_for_role(
+        &self,
+        input_role_identity: BindingDigest,
+    ) -> Option<BindingDigest> {
+        let mut matches = self
+            .projections
+            .iter()
+            .filter(|projection| projection.input_role_identity() == input_role_identity);
+        let receipt_digest = matches.next()?.receipt_digest();
+        matches.next().is_none().then_some(receipt_digest)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]

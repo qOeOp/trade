@@ -73,14 +73,47 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
     all(target_os = "linux", target_arch = "aarch64")
 ))]
 fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact() {
-    let (design, bfp_proposal, catalog) = bfp_composer_candidate();
+    let (design, mut bfp_proposal, catalog) = bfp_composer_candidate();
     let state_id = design.state[0].semantic_id.clone();
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
+
+    let mut mismatched_producer = DevelopPluginBuildProducerV3::default();
+    let mismatched_frozen = freeze_research_bounded_feature_program_v1(
+        &custody,
+        &design,
+        bfp_proposal.clone(),
+        catalog,
+    )
+    .expect("joint Owner BFP freeze with a stale static binding receipt");
+    let mismatched_build = real_v3_plugin_build(
+        &mut mismatched_producer,
+        &design.plugins[0],
+        &mismatched_frozen,
+    );
+    let (mismatched_proposal, mismatched_evidence) =
+        v3_composer_case(design.clone(), custody.clone(), mismatched_build);
+    let terminal = into_terminal(DevelopComposerV2::default().compose(
+        &mismatched_proposal,
+        9,
+        &mismatched_evidence,
+    ));
+    assert_eq!(terminal.kind, DevelopComposerTerminalKindV2::Unsupported);
+    assert_eq!(
+        terminal.coordinate,
+        "plugin_builds.static_binding_receipt_digest"
+    );
+
+    let current_binding = bindings(&design)
+        .into_iter()
+        .find(|(role, _)| role.semantic_id == bfp_proposal.inputs[0].input_role_id)
+        .expect("BFP input has one current Owner binding")
+        .1;
+    bfp_proposal.inputs[0].static_binding_receipt_digest = current_binding;
+    let mut producer = DevelopPluginBuildProducerV3::default();
     let frozen =
         freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal, catalog)
             .expect("joint Owner BFP freeze");
     let manifest = design.plugins[0].clone();
-    let mut producer = DevelopPluginBuildProducerV3::default();
 
     let positive_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
     let capsule_digest = positive_build.build().capsule_digest();

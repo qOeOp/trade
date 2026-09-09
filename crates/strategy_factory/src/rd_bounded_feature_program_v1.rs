@@ -18,7 +18,10 @@ use crate::{
     },
     develop_composer_v2::CurrentResearchDevelopCustodyV2,
     strategy_design_v2::StrategyDesignV2,
-    strategy_plan_v2::{StrategyCompilationV2, prepare_canonical_strategy_design_v2},
+    strategy_plan_v2::{
+        StrategyCompilationV2, VerifiedStrategyInputBindingsV2,
+        prepare_canonical_strategy_design_v2,
+    },
 };
 
 const JOINT_FREEZE_SCHEMA_V1: u16 = 1;
@@ -558,6 +561,27 @@ pub(crate) fn joint_freeze_matches_current_design_v1(
         canonical_design.canonical_bytes(),
         program_bytes,
     ) == expected_joint_freeze_digest
+}
+
+pub(crate) fn frozen_program_matches_current_static_bindings_v1(
+    design: &StrategyDesignV2,
+    program_bytes: &[u8],
+    bindings: &VerifiedStrategyInputBindingsV2,
+) -> bool {
+    let Ok(catalog) = PrimitiveCatalogV1::verify() else {
+        return false;
+    };
+    let Ok(program) = crate::bounded_feature_program_v1::parse_bounded_feature_program_v1(
+        program_bytes,
+        design,
+        catalog,
+    ) else {
+        return false;
+    };
+    program.program().inputs.iter().all(|input| {
+        bindings.receipt_digest_for_role(input.input_role_identity)
+            == Some(input.static_binding_receipt_digest)
+    })
 }
 
 #[cfg(test)]

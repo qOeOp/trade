@@ -19,7 +19,9 @@ use crate::{
         ResearchViewPhase,
     },
     program_runtime::validate_plugin_candidate_v2,
-    rd_bounded_feature_program_v1::joint_freeze_matches_current_design_v1,
+    rd_bounded_feature_program_v1::{
+        frozen_program_matches_current_static_bindings_v1, joint_freeze_matches_current_design_v1,
+    },
     rd_owner_postgres_custody::VerifiedResearchCustodyV1,
     strategy_design_v2::{PluginManifestV2, StrategyDesignV2},
     strategy_plan_v2::{
@@ -493,6 +495,21 @@ impl VerifiedDevelopPluginBuildV2OrV3 {
         }
     }
 
+    fn matches_current_static_bindings(
+        &self,
+        design: &StrategyDesignV2,
+        bindings: &VerifiedStrategyInputBindingsV2,
+    ) -> bool {
+        match self {
+            Self::V2(_) => true,
+            Self::V3(build) => frozen_program_matches_current_static_bindings_v1(
+                design,
+                build.bfp_bytes(),
+                bindings,
+            ),
+        }
+    }
+
     fn wasm(&self) -> &[u8] {
         match self {
             Self::V2(build) => build.wasm(),
@@ -625,11 +642,16 @@ impl DevelopComposerV2 {
             Ok(value) => value,
             Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
         };
-        let (plugin_receipts, verified_builds) =
-            match resolve_plugin_builds(&custody, &proposal.design, &requested_plugins, builds) {
-                Ok(value) => value,
-                Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
-            };
+        let (plugin_receipts, verified_builds) = match resolve_plugin_builds(
+            &custody,
+            &proposal.design,
+            &requested_plugins,
+            builds,
+            &bindings,
+        ) {
+            Ok(value) => value,
+            Err(terminal) => return DevelopComposerResultV2::Terminal(terminal),
+        };
 
         let compilation = compile_strategy_design_v2_with_verified_bindings(
             proposal.design.clone(),
@@ -698,6 +720,7 @@ fn resolve_plugin_builds(
     design: &StrategyDesignV2,
     requested: &[UntrustedPluginBuildLocatorV2],
     builds: Vec<VerifiedDevelopPluginBuildV2OrV3>,
+    bindings: &VerifiedStrategyInputBindingsV2,
 ) -> Result<
     (
         Vec<crate::strategy_plan_v2::PluginImplementationReceiptV2>,
@@ -766,6 +789,12 @@ fn resolve_plugin_builds(
             return Err(DevelopComposerTerminalV2::unsupported(
                 "plugin_builds.joint_freeze_digest",
                 "verified V3 build is sealed to a different Research custody or canonical Design",
+            ));
+        }
+        if !build.matches_current_static_bindings(design, bindings) {
+            return Err(DevelopComposerTerminalV2::unsupported(
+                "plugin_builds.static_binding_receipt_digest",
+                "frozen BFP inputs do not match the exact current Owner binding receipts",
             ));
         }
         let version = build.version();
