@@ -1,18 +1,22 @@
 use rstest::rstest;
 use vibe_data::owner::{
     instrument_master::InstrumentMasterReadbackV1,
+    replay_market_facts_v2::ReplayCompositionOwnerV1,
     sample_projection::StrategyInputSampleProjectionReadbackV2,
     sealed_replay_input::SealedReplayInput, strategy_input_binding::StrategyInputBindingReceipt,
     strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
 use vibe_strategy_factory::{
+    OwnerBarJoinedCutBacktestReadbackV1, OwnerBarJoinedCutPreparationV1,
+    PreparedProgramHostBarCapabilityV1, PreparedProgramHostBarHandoffV1,
     PreparedProgramHostCapabilityV2, PreparedProgramHostEventCorpusCapabilityV2,
     PreparedProgramHostHandoffV2, ProgramPreparationFaultV2,
     develop_composer_postgres_v2::SealedDevelopComposerReadbackV2,
     exploratory_replay::SealedExploratoryReplayReadbackV2,
+    prepare_program_host_from_owner_bar_joined_cut_v1,
     prepare_program_host_from_owner_event_corpus_v1, prepare_program_host_from_owner_readbacks_v2,
-    program_host_v2::ProgramHostV2Error,
+    program_host_v2::ProgramHostV2Error, run_prepared_owner_bar_joined_cut_backtest_v1,
 };
 
 type OwnerSealedIssuerV2 = fn(
@@ -49,6 +53,16 @@ type OwnerEventCorpusIssuerV2 =
     ) -> Result<PreparedProgramHostEventCorpusCapabilityV2, ProgramPreparationFaultV2>;
 
 fn accepts_exact_backtest_consumer(_: ExactBacktestConsumerV2) {}
+
+fn accepts_bar_handoff_transition(
+    _: impl FnOnce(
+        PreparedProgramHostBarCapabilityV1,
+    ) -> Result<PreparedProgramHostBarHandoffV1, ProgramHostV2Error>,
+) {
+}
+
+type OwnerBarBacktestConsumerV1 =
+    fn(PreparedProgramHostBarHandoffV1) -> anyhow::Result<OwnerBarJoinedCutBacktestReadbackV1>;
 
 #[allow(dead_code)]
 fn public_owner_projection_consumer(
@@ -97,7 +111,16 @@ fn external_backtest_application_compiles_the_real_consuming_handoff() {
 
     let _owner_sealed_issuer = issuer;
     let _owner_event_corpus_issuer = corpus_issuer;
+    let _owner_bar_issuer =
+        prepare_program_host_from_owner_bar_joined_cut_v1::<ReplayCompositionOwnerV1>;
+    let _owner_bar_inputs = OwnerBarJoinedCutPreparationV1::new;
+    let bar_transition = |capability: PreparedProgramHostBarCapabilityV1| {
+        capability.into_program_host_bar_handoff_v1()
+    };
+    let bar_consumer: OwnerBarBacktestConsumerV1 = run_prepared_owner_bar_joined_cut_backtest_v1;
     accepts_handoff_transition(transition);
+    accepts_bar_handoff_transition(bar_transition);
     accepts_backtest_consumer(consumer);
     accepts_exact_backtest_consumer(consumer);
+    let _bar_consumer = bar_consumer;
 }

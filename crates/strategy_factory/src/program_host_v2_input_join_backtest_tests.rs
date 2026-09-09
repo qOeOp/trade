@@ -55,6 +55,12 @@ const AAPL_OPEN: &str = "research.input.open.v1";
 const AAPL_CLOSE: &str = "research.input.close.v1";
 const MSFT_HOUR_CLOSE: &str = "research.input.msft-hour-close.v1";
 const QQQ_DAY_CLOSE: &str = "research.input.qqq-day-close.v1";
+pub(crate) const BAR_MINUTE_OPEN: &str = "minute-open";
+pub(crate) const BAR_MINUTE_HIGH: &str = "minute-high";
+pub(crate) const BAR_MINUTE_LOW: &str = "minute-low";
+pub(crate) const BAR_MINUTE_CLOSE: &str = "minute-close";
+pub(crate) const BAR_HOUR_CLOSE: &str = "hour-close";
+pub(crate) const BAR_SESSION_DAY_CLOSE: &str = "exchange-session-day-close";
 
 #[rstest]
 fn exact_owner_coordinate_evidence_changes_the_admitted_event_identity() {
@@ -477,13 +483,137 @@ fn event_corpus_design() -> crate::strategy_design_v2::StrategyDesignV2 {
     design
 }
 
-fn joined_plan_and_artifact(
+pub(crate) fn joined_plan_and_artifact(
     design: crate::strategy_design_v2::StrategyDesignV2,
     bindings: &[StrategyInputBindingReceipt],
 ) -> (StrategyPlanV2, StrategyArtifactV2) {
     let manifest = &design.plugins[0];
     let wasm = stateful_plugin_module(manifest).expect("bounded stateful plugin module");
     plan_and_artifact(design, bindings, wasm)
+}
+
+pub(crate) fn six_role_bar_design() -> crate::strategy_design_v2::StrategyDesignV2 {
+    let mut design = joined_design();
+    for input in &mut design.inputs {
+        let (semantic_id, instrument, timeframe, field_semantic_id) =
+            match input.semantic_id.as_str() {
+                AAPL_OPEN => (
+                    BAR_MINUTE_OPEN,
+                    "AAPL",
+                    "1M",
+                    "MARKET_DATA.BAR.OPEN.PRICE.V1",
+                ),
+                AAPL_CLOSE => (
+                    BAR_MINUTE_CLOSE,
+                    "AAPL",
+                    "1M",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                MSFT_HOUR_CLOSE => (
+                    BAR_HOUR_CLOSE,
+                    "AAPL",
+                    "1H",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                QQQ_DAY_CLOSE => (
+                    BAR_SESSION_DAY_CLOSE,
+                    "AAPL",
+                    "1D",
+                    "MARKET_DATA.BAR.CLOSE.PRICE.V1",
+                ),
+                other => panic!("unexpected joined BAR role {other}"),
+            };
+        input.semantic_id = semantic_id.into();
+        input.instrument = instrument.into();
+        input.timeframe = timeframe.into();
+        input.field_semantic_id = field_semantic_id.into();
+    }
+    let minute_open = design
+        .inputs
+        .iter()
+        .find(|input| input.semantic_id == BAR_MINUTE_OPEN)
+        .expect("minute OPEN role")
+        .clone();
+    let mut minute_high = minute_open.clone();
+    minute_high.semantic_id = BAR_MINUTE_HIGH.into();
+    minute_high.field_semantic_id = "MARKET_DATA.BAR.HIGH.PRICE.V1".into();
+    let mut minute_low = minute_open;
+    minute_low.semantic_id = BAR_MINUTE_LOW.into();
+    minute_low.field_semantic_id = "MARKET_DATA.BAR.LOW.PRICE.V1".into();
+    design.inputs.extend([minute_high, minute_low]);
+    design.joins = vec![InputJoinV2 {
+        semantic_id: "replay-composition-six-role-v1".into(),
+        inputs: [
+            BAR_MINUTE_OPEN,
+            BAR_MINUTE_HIGH,
+            BAR_MINUTE_LOW,
+            BAR_MINUTE_CLOSE,
+            BAR_HOUR_CLOSE,
+            BAR_SESSION_DAY_CLOSE,
+        ]
+        .map(str::to_owned)
+        .to_vec(),
+        alignment_semantic_id: INPUT_JOIN_LATEST_NOT_AFTER_TRIGGER_V1.into(),
+        trigger_input_id: BAR_MINUTE_CLOSE.into(),
+        max_staleness_ns: 1,
+    }];
+    design.resources.max_inputs = 6;
+    design.plugins[0].input_ports.extend([
+        PortContractV2 {
+            semantic_id: "input.minute-high.v1".into(),
+            value_type: ValueTypeV2::I128,
+            max_bytes: 16,
+        },
+        PortContractV2 {
+            semantic_id: "input.minute-low.v1".into(),
+            value_type: ValueTypeV2::I128,
+            max_bytes: 16,
+        },
+    ]);
+    for reaction in &mut design.reactions {
+        for node in &mut reaction.nodes {
+            for binding in &mut node.input_bindings {
+                if let ValueRefV2::Input { input_id } = &mut binding.source {
+                    *input_id = match input_id.as_str() {
+                        AAPL_OPEN => BAR_MINUTE_OPEN,
+                        AAPL_CLOSE => BAR_MINUTE_CLOSE,
+                        MSFT_HOUR_CLOSE => BAR_HOUR_CLOSE,
+                        QQQ_DAY_CLOSE => BAR_SESSION_DAY_CLOSE,
+                        other => panic!("unexpected joined BAR node input {other}"),
+                    }
+                    .into();
+                }
+            }
+            let minute_high = if reaction.kind == LifecycleKindV2::Bar {
+                ValueRefV2::Input {
+                    input_id: BAR_MINUTE_HIGH.into(),
+                }
+            } else {
+                timer_price()
+            };
+            let minute_low = if reaction.kind == LifecycleKindV2::Bar {
+                ValueRefV2::Input {
+                    input_id: BAR_MINUTE_LOW.into(),
+                }
+            } else {
+                timer_price()
+            };
+            node.input_bindings.extend([
+                PortBindingV2 {
+                    port_id: "input.minute-high.v1".into(),
+                    source: minute_high,
+                },
+                PortBindingV2 {
+                    port_id: "input.minute-low.v1".into(),
+                    source: minute_low,
+                },
+            ]);
+            node.input_bindings.sort();
+        }
+    }
+    design.inputs.sort();
+    design.plugins[0].input_ports.sort();
+    design
 }
 
 fn plan_and_artifact(

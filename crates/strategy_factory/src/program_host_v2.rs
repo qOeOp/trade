@@ -253,7 +253,13 @@ impl AdmittedProgramEventV2 {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "aarch64")
+        )
+    ))]
     pub(crate) fn issue_for_plan_test_with_owner_sample_projection(
         plan: &StrategyPlanV2,
         envelope: LifecycleEnvelopeV1,
@@ -3493,4 +3499,8 @@ fn read_u64(bytes: &[u8], offset: usize) -> Result<u64, ProgramHostV2Error> {
 #[path = "program_host_v2_input_join_backtest_tests.rs"]
 mod input_join_backtest_tests;
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-pub(crate) use input_join_backtest_tests::{event_corpus_plan_and_artifact, joined_design};
+pub(crate) use input_join_backtest_tests::{
+    BAR_HOUR_CLOSE, BAR_MINUTE_CLOSE, BAR_MINUTE_HIGH, BAR_MINUTE_LOW, BAR_MINUTE_OPEN,
+    BAR_SESSION_DAY_CLOSE, event_corpus_plan_and_artifact, joined_design, joined_plan_and_artifact,
+    six_role_bar_design,
+};

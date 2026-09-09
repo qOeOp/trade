@@ -100,6 +100,8 @@ mod program_host_bar_joined_cut_backtest_v1;
 pub use program_host_bar_joined_cut_backtest_v1::{
     OwnerBarJoinedCutBacktestReadbackV1, run_prepared_owner_bar_joined_cut_backtest_v1,
 };
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+mod program_host_bar_joined_cut_postgres_acceptance_tests;
 #[allow(dead_code)]
 mod program_host_event_corpus_backtest_v1;
 pub mod program_host_v2;

@@ -84,6 +84,7 @@ pub struct OwnerBarJoinedCutBacktestReadbackV1 {
     event_identity: [u8; 16],
     checkpoint_before: [u8; 32],
     checkpoint_after: [u8; 32],
+    terminal_checkpoint: [u8; 32],
     semantic_trace: Vec<u8>,
     plugin_calls: u64,
     consumed: bool,
@@ -103,6 +104,16 @@ impl OwnerBarJoinedCutBacktestReadbackV1 {
     #[must_use]
     pub const fn schedule_dependency_set_digest(&self) -> [u8; 32] {
         self.schedule_dependency_set_digest
+    }
+
+    #[must_use]
+    pub const fn checkpoint_after(&self) -> [u8; 32] {
+        self.checkpoint_after
+    }
+
+    #[must_use]
+    pub const fn terminal_checkpoint(&self) -> [u8; 32] {
+        self.terminal_checkpoint
     }
 
     #[must_use]
@@ -260,6 +271,9 @@ impl OwnerBarJoinedCutBacktestStrategyV1 {
         )?;
         let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         self.host.apply_event(&event)?;
+        let mut trace = self.trace.borrow_mut();
+        trace.terminal_checkpoint = *self.host.checkpoint().digest().as_bytes();
+        trace.plugin_calls = self.host.plugin_calls();
         Ok(())
     }
 

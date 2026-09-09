@@ -40,6 +40,8 @@ pub(crate) mod time_zone;
 
 #[cfg(feature = "sealed-strategy-input-acceptance")]
 pub use pit_snapshot::sealed_acceptance;
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub use postgres::bar_joined_cut_acceptance_v1;
 
 mod postgres;
 mod store_admission;

@@ -9,6 +9,8 @@
     reason = "private durable Owner composition is exercised by disposable PostgreSQL tests until product composition exists"
 )]
 
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+pub mod bar_joined_cut_acceptance_v1;
 mod calendar;
 mod corporate_action;
 mod market_semantics;

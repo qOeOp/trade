@@ -1105,6 +1105,29 @@ pub(crate) fn issue_sealed_develop_composer_readback_for_acceptance_v2(
 }
 
 #[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn issue_strategy_design_role_set_for_acceptance_v1(
+    composer: &SealedDevelopComposerReadbackV2,
+) -> Result<StrategyDesignRoleSetReceiptV1, StrategyDesignRoleSetErrorV1> {
+    let locator = composer.locator();
+    project_strategy_design_role_set_v1(
+        composer.plan_bytes(),
+        composer.design_bytes(),
+        composer.design_bytes_digest(),
+        StrategyDesignRoleSetLocatorV1 {
+            schema_version: locator.schema_version,
+            request_identity: locator.request_identity.clone(),
+            operation_receipt_identity: locator.operation_receipt_identity,
+            artifact_locator: locator.artifact_locator.clone(),
+            artifact_identity: locator.artifact_identity,
+            canonical_plan_digest: locator.canonical_plan_digest,
+            design_digest: locator.design_digest,
+        },
+        composer.research_request_identity(),
+        composer.intent_identity(),
+    )
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

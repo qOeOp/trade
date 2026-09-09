@@ -1,15 +1,16 @@
 use std::cell::{Cell, RefCell};
 
 use rstest::rstest;
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 use strategy_factory_program_sdk::lifecycle_v1::{
     EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
 };
 use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
-    artifact_v2::StrategyArtifactV2,
-    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
-    bounded_feature_program_v1::tests::candidate as bfp_candidate,
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
     develop_composer_v2::{
         CurrentResearchDevelopCustodyV2, DevelopComposerEvidencePortV2, DevelopComposerResultV2,
@@ -18,26 +19,36 @@ use super::{
         VerifiedDevelopPluginBuildV2OrV3,
     },
     develop_plugin_build_v2::portable_sealed_composer_test_evidence,
+    program_host_v2::ProgramHostV2,
+    program_host_v2_backtest_tests::stateful_plugin_module,
+    program_host_v2_tests::executable_design,
+    strategy_design_v2::{ParameterV2, PluginManifestV2, TypedConstantV2, ValueRefV2, ValueTypeV2},
+    strategy_design_v2_tests::bindings,
+    strategy_plan_v2::{
+        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, prepare_strategy_design_v2,
+        verified_strategy_input_bindings_for_test,
+    },
+};
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
+use super::{
+    artifact_v2::StrategyArtifactV2,
+    bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
+    bounded_feature_program_v1::tests::candidate as bfp_candidate,
     develop_plugin_build_v3::{
         DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3, DevelopPluginBuildResultV3,
         VerifiedDevelopPluginBuildReadV3,
     },
     plugin_wire_v2::TypedValueV2,
-    program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
-    program_host_v2_backtest_tests::stateful_plugin_module,
-    program_host_v2_tests::executable_design,
+    program_host_v2::AdmittedProgramEventV2,
     rd_bounded_feature_program_v1::{
         FrozenResearchBoundedFeatureProgramV1, freeze_research_bounded_feature_program_v1,
     },
-    strategy_design_v2::{
-        LifecycleKindV2, ParameterV2, PluginManifestV2, StrategyDesignV2, TypedConstantV2,
-        ValueRefV2, ValueTypeV2,
-    },
-    strategy_design_v2_tests::bindings,
-    strategy_plan_v2::{
-        StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, durable_decode,
-        prepare_strategy_design_v2, verified_strategy_input_bindings_for_test,
-    },
+    strategy_design_v2::{LifecycleKindV2, StrategyDesignV2},
+    strategy_plan_v2::durable_decode,
 };
 
 #[cfg(any(
@@ -750,6 +761,10 @@ fn assert_terminal(result: DevelopComposerResultV2, expected: DevelopComposerTer
     }
 }
 
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn into_terminal(result: DevelopComposerResultV2) -> DevelopComposerTerminalV2 {
     match result {
         DevelopComposerResultV2::Terminal(terminal) => terminal,
