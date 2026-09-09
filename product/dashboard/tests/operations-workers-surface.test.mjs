@@ -33,7 +33,10 @@ test("Workers is a GET-only RunStore projection wired into the exact Operations 
 });
 
 test("Workers keeps one compact summary, one dense table, and one exact detail surface", async () => {
-  const workers = await source("components/operations-workers-preview.tsx");
+  const [workers, css] = await Promise.all([
+    source("components/operations-workers-preview.tsx"),
+    source("app/globals.css"),
+  ]);
 
   assert.match(workers, /<CompactStatusBar[^>]*aria-label="Worker summary"/);
   assert.match(workers, /<DataWorkspaceTable<WorkerBrowserProjectionV1>/);
@@ -48,6 +51,9 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
+  assert.match(css, /\.compact-status-bar \{[^}]*min-height: 52px;[^}]*border-radius: 16px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*border-radius: 11px;/u);
+  assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: 999px;/u);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);
 });
