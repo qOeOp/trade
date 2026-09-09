@@ -193,7 +193,7 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     validate_initial_claims(&claims)
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Claims)?;
     let owner_url = database.database_url(CanonicalOwnerTestRoleV1::MarketDataOwner);
-    let owner = MarketDataOwnerPostgres::connect(owner_url)
+    let owner = MarketDataOwnerPostgres::connect_existing(owner_url)
         .await
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::OwnerConnection)?;
     let clock = acceptance_clock();
