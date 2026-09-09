@@ -149,8 +149,22 @@ pub enum BarJoinedCutAcceptanceBasisUnavailableV1 {
 pub enum BarJoinedCutAcceptanceCompletionUnavailableV1 {
     #[error("disposable Market Data BAR joined-cut acceptance role set was unavailable")]
     RoleSet,
-    #[error("disposable Market Data BAR joined-cut acceptance registry was unavailable")]
-    Registry,
+    #[error("disposable Market Data BAR joined-cut acceptance registry request was unavailable")]
+    RegistryRequest,
+    #[error("disposable Market Data BAR joined-cut acceptance registry PIT was unavailable")]
+    RegistryPit,
+    #[error("disposable Market Data BAR joined-cut acceptance registry universe was unavailable")]
+    RegistryUniverse,
+    #[error("disposable Market Data BAR joined-cut acceptance registry source was unavailable")]
+    RegistrySource,
+    #[error("disposable Market Data BAR joined-cut acceptance registry instrument was unavailable")]
+    RegistryInstrument,
+    #[error("disposable Market Data BAR joined-cut acceptance registry semantics were unavailable")]
+    RegistrySemantics,
+    #[error("disposable Market Data BAR joined-cut acceptance registry binding was unavailable")]
+    RegistryBinding,
+    #[error("disposable Market Data BAR joined-cut acceptance registry store was unavailable")]
+    RegistryStore,
     #[error("disposable Market Data BAR joined-cut acceptance registry readback mismatched")]
     RegistryReadback,
     #[error("disposable Market Data BAR joined-cut acceptance frames were unavailable")]
@@ -401,15 +415,15 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .pool
             .begin()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
         let declaration =
             register_acceptance_binding(&mut transaction, request, &binding_requests, &role_set)
                 .await
-                .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
+                .map_err(|error| map_registry_completion_error(&error))?;
         transaction
             .commit()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore)?;
         registered_bindings.push(declaration.binding().clone());
     }
     if registered_bindings != input_bindings {
@@ -496,6 +510,41 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
         joined_cut,
         native_join_request,
     })
+}
+
+fn map_registry_completion_error(
+    error: &super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1,
+) -> BarJoinedCutAcceptanceCompletionUnavailableV1 {
+    use super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1 as Registry;
+
+    match error {
+        Registry::InvalidRequest | Registry::CapacityExceeded | Registry::CodecMismatch => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryRequest
+        }
+        Registry::PitUnavailable => BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryPit,
+        Registry::UniverseUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryUniverse
+        }
+        Registry::SourceUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySource
+        }
+        Registry::InstrumentMasterUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrument
+        }
+        Registry::MarketSemanticsUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics
+        }
+        Registry::BindingUnavailable(_) => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryBinding
+        }
+        Registry::StrategyDesignRoleSetUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet
+        }
+        Registry::UnknownDeclaration
+        | Registry::RequestConflict
+        | Registry::StoreUnavailable
+        | Registry::StoreUntrusted => BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryStore,
+    }
 }
 
 fn digest(value: u8) -> BindingDigest {
