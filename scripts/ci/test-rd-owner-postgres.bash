@@ -61,6 +61,7 @@ readonly nextest_graph_args=(
 # The incoming Makefile union also contains workspace-root features that none of
 # the three selected packages expose. Keep the archive projection package-scoped.
 readonly nextest_archive_features='vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance'
+readonly schema_materialization_features="${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance"
 readonly nextest_execution_args=(--fail-fast --run-ignored ignored-only)
 
 check_nextest_graph_contract() {
@@ -99,8 +100,9 @@ check_nextest_graph_contract() {
   fi
   if [[ "${nextest_graph_args[*]}" != '--locked --package vibe-strategy-factory --package vibe-strategy-factory-rd-owner-api --package vibe-product-edge --package vibe-backtest-owner --package vibe-data --lib --tests' ]] ||
     [[ "$nextest_archive_features" != 'vibe-strategy-factory/sealed-develop-composer-acceptance,vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance' ]] ||
+    [[ "$schema_materialization_features" != "${nextest_archive_features},vibe-strategy-factory-rd-owner-api/sealed-develop-composer-acceptance" ]] ||
     [[ "${nextest_execution_args[*]}" != '--fail-fast --run-ignored ignored-only' ]]; then
-    echo "ERROR: shared nextest graph or sequential ignored-only execution changed." >&2
+    echo "ERROR: shared nextest graph, schema feature union, or sequential ignored-only execution changed." >&2
     return 1
   fi
 
@@ -830,7 +832,7 @@ RD_OWNER_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:$
   --package vibe-strategy-factory-rd-owner-api \
   --bin strategy-factory-rd-owner-api \
   --profile "$cargo_ci_profile" \
-  --features "$nextest_archive_features" \
+  --features "$schema_materialization_features" \
   -- \
   --materialize-schema
 
