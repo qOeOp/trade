@@ -83,6 +83,14 @@ export function ReadOnlyCodeMirror({
                 editor.dispatch({ selection: { anchor: 0, head: editor.state.doc.length } });
                 return true;
               },
+            }, {
+              key: "Mod-c",
+              run: (editor) => {
+                const { from, to } = editor.state.selection.main;
+                if (from === to) return false;
+                void navigator.clipboard.writeText(editor.state.sliceDoc(from, to)).catch(() => undefined);
+                return true;
+              },
             }]),
             EditorView.lineWrapping,
             EditorView.theme({

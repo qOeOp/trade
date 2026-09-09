@@ -141,6 +141,7 @@ test("component retains real CodeMirror read-only affordances and no execution p
     "EditorView.editable.of(false)",
     'EditorView.contentAttributes.of({ tabindex: "0" })',
     'key: "Mod-a"',
+    'key: "Mod-c"',
     "@codemirror/lang-wast",
     "PanelFrameHeader",
     "PanelFrameBody",

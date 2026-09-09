@@ -282,6 +282,8 @@ test(browserAcceptance
         windowsVirtualKeyCode: virtualKeyCode,
       });
     }
+    await waitForBrowserExpression(browser,
+      `navigator.clipboard.readText().then((value) => value === ${JSON.stringify(source)})`);
     assert.equal(await readBrowserValue(browser, `navigator.clipboard.readText()`), source);
     await readBrowserValue(browser, `navigator.clipboard.writeText('')`);
     const preparedInteraction = await readBrowserValue(browser, `(() => {
