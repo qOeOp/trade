@@ -144,6 +144,29 @@ pub enum BarJoinedCutAcceptanceBasisUnavailableV1 {
     Bindings,
 }
 
+/// Bounded phase where completion of the disposable Owner fixture became unavailable.
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum BarJoinedCutAcceptanceCompletionUnavailableV1 {
+    #[error("disposable Market Data BAR joined-cut acceptance role set was unavailable")]
+    RoleSet,
+    #[error("disposable Market Data BAR joined-cut acceptance registry was unavailable")]
+    Registry,
+    #[error("disposable Market Data BAR joined-cut acceptance registry readback mismatched")]
+    RegistryReadback,
+    #[error("disposable Market Data BAR joined-cut acceptance frames were unavailable")]
+    Frames,
+    #[error("disposable Market Data BAR joined-cut acceptance join claim was unavailable")]
+    JoinClaim,
+    #[error("disposable Market Data BAR joined-cut acceptance census was unavailable")]
+    Census,
+    #[error("disposable Market Data BAR joined-cut acceptance projections were unavailable")]
+    Projections,
+    #[error("disposable Market Data BAR joined-cut acceptance sealing inputs were unavailable")]
+    SealingInputs,
+    #[error("disposable Market Data BAR joined-cut acceptance replay seal was unavailable")]
+    ReplaySeal,
+}
+
 /// Move-only output from one real PostgreSQL Owner issuance chain.
 #[derive(Debug)]
 pub struct OwnerBarJoinedCutAcceptanceFixtureV1 {
@@ -359,8 +382,9 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
 pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
     basis: OwnerBarJoinedCutAcceptanceBasisV1,
     role_set: StrategyDesignRoleSetReceiptV1,
-) -> Result<OwnerBarJoinedCutAcceptanceFixtureV1, BarJoinedCutAcceptanceUnavailableV1> {
-    validate_design_role_set(&basis.claims, &role_set)?;
+) -> Result<OwnerBarJoinedCutAcceptanceFixtureV1, BarJoinedCutAcceptanceCompletionUnavailableV1> {
+    validate_design_role_set(&basis.claims, &role_set)
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::RoleSet)?;
     let OwnerBarJoinedCutAcceptanceBasisV1 {
         owner,
         claims,
@@ -377,27 +401,27 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .pool
             .begin()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
         let declaration =
             register_acceptance_binding(&mut transaction, request, &binding_requests, &role_set)
                 .await
-                .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+                .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
         transaction
             .commit()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Registry)?;
         registered_bindings.push(declaration.binding().clone());
     }
     if registered_bindings != input_bindings {
-        return Err(BarJoinedCutAcceptanceUnavailableV1);
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryReadback);
     }
     let frames = registered_bindings
         .iter()
         .map(|binding| bind_strategy_input_event_frame(std::slice::from_ref(binding), &batch))
         .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Frames)?;
     let [validated_join] = role_set.joins.as_slice() else {
-        return Err(BarJoinedCutAcceptanceUnavailableV1);
+        return Err(BarJoinedCutAcceptanceCompletionUnavailableV1::JoinClaim);
     };
     let join_claim = UntrustedStrategyInputJoinClaimV1 {
         strategy_design_identity: claims.strategy_design_identity,
@@ -421,7 +445,7 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
         join_claim,
         frames
             .last()
-            .ok_or(BarJoinedCutAcceptanceUnavailableV1)?
+            .ok_or(BarJoinedCutAcceptanceCompletionUnavailableV1::Frames)?
             .trigger()
             .lifecycle()
             .logical_time(),
@@ -432,17 +456,17 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .pool
             .begin()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Census)?;
         let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
             &mut transaction,
             &census_request,
         )
         .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Census)?;
         transaction
             .commit()
             .await
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+            .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Census)?;
         joined
     };
     let frame_projection_digests = persist_schedules_and_v3_frames(
@@ -452,9 +476,13 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
         &batch,
         &instrument_master,
     )
-    .await?;
-    let (stored_pit, stored_source, stored_batch) = reread_sealing_inputs(&owner, &pit).await?;
-    let replay_input = seal_acceptance_replay_input(&stored_pit, &stored_source, &stored_batch)?;
+    .await
+    .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::Projections)?;
+    let (stored_pit, stored_source, stored_batch) = reread_sealing_inputs(&owner, &pit)
+        .await
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::SealingInputs)?;
+    let replay_input = seal_acceptance_replay_input(&stored_pit, &stored_source, &stored_batch)
+        .map_err(|_| BarJoinedCutAcceptanceCompletionUnavailableV1::ReplaySeal)?;
     let joined_cut = joined.record().joined_cut_receipt().clone();
     let native_join_request = UntrustedComposerNativeJoinRequestV1 {
         joined_cut_identity: joined.record().identity(),
