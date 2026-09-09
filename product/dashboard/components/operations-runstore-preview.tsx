@@ -8,6 +8,7 @@ import {
   type RunListItemV1,
 } from "../lib/run-list-contract";
 import { InsightSummary, InsightSummaryFact } from "./ui/insight-summary";
+import { summarizeRunsForPresentation } from "../lib/operations-presentation";
 import { UnavailableState } from "./ui/evidence-strip";
 import {
   FilterButton,
@@ -184,12 +185,9 @@ export function OperationsRunStorePreview() {
   const runs = result?.availability === "available" ? result.runs : [];
   const visibleRuns = useMemo(() => runs.filter((run) => matchesQuery(run, query)), [query, runs]);
   const summaries = useMemo(() => ({
-    active: runs.filter(({ state }) => state === "queued" || state === "running").length,
-    failed: runs.filter(({ state }) => state === "failed").length,
+    ...summarizeRunsForPresentation(runs),
     unknown: runs.filter(({ state }) => state === "unknown").length,
     terminal: runs.filter(({ state }) => ["succeeded", "failed", "cancelled"].includes(state)).length,
-    ownerAvailable: runs.filter(({ owner_outcome_state }) => owner_outcome_state === "available").length,
-    ownerUnavailable: runs.filter(({ owner_outcome_state }) => owner_outcome_state === "unavailable").length,
     operations: new Set(runs.map(({ operation_id }) => operation_id)).size,
     scheduled: runs.filter(({ trigger_kind }) => trigger_kind === "dashboard_scheduler").length,
   }), [runs]);
@@ -261,14 +259,14 @@ export function OperationsRunStorePreview() {
         actions={<PanelFrameInfo><b>Data scope</b><p>This view reads one verified operational snapshot. Result ownership and execution state remain separate.</p></PanelFrameInfo>}
       />
       <PanelFrameBody>
-      <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary"
+      <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary" variant="flow"
         eyebrow="Current view" label="Loaded runs"
         value={result?.availability === "available" ? runs.length : "Unavailable"}
         detail="Runs shown on this page.">
-        <InsightSummaryFact label="Active" value={result?.availability === "available" ? summaries.active : "-"} />
-        <InsightSummaryFact label="Failed" value={result?.availability === "available" ? summaries.failed : "-"} />
-        <InsightSummaryFact label="Result ready" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-        <InsightSummaryFact label="Result pending" value={result?.availability === "available" ? summaries.ownerUnavailable : "-"} />
+        <InsightSummaryFact label="Active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
+        <InsightSummaryFact label="Failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
+        <InsightSummaryFact label="Result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
+        <InsightSummaryFact label="Result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
       </InsightSummary>
       {result?.availability === "available" ? (
         <>

@@ -32,6 +32,7 @@ import { PageStack } from "./ui/page-stack";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
+import { emptyServiceLogPresentation } from "../lib/operations-presentation";
 import { availabilityTone, severityTone } from "./ui/status-tone-policy";
 
 type ServiceLogRange = ServiceLogFilterCutV1["range"];
@@ -382,7 +383,8 @@ export function OperationsServiceLogs() {
   const viewportState = pending ? "loading"
     : unavailableReason ? "unavailable"
       : !entries.length ? filtered ? "filtered-empty" : "empty"
-        : page?.completeness === "partial_unavailable" ? "partial_unavailable" : "complete";
+      : page?.completeness === "partial_unavailable" ? "partial_unavailable" : "complete";
+  const emptyPresentation = page ? emptyServiceLogPresentation({ completeness: page.completeness, filtered }) : null;
 
   return (
     <PageStack className="operations-service-logs-page" gap="compact">
@@ -467,7 +469,7 @@ export function OperationsServiceLogs() {
               </div>
             </SplitBento>
           ) : page && instances.length === 0 ? (
-            <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={18} />} title={filtered ? "No matching activity" : "No recent activity"}>No services reported events in the selected time range.</EmptyState>
+            <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={18} />} title={emptyPresentation?.title}>{emptyPresentation?.detail}</EmptyState>
           ) : page ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
               <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />

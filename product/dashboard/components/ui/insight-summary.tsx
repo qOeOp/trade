@@ -10,6 +10,7 @@ export function InsightSummary({
   progress,
   children,
   className,
+  variant = "default",
   ...props
 }: {
   eyebrow: ReactNode;
@@ -18,6 +19,7 @@ export function InsightSummary({
   detail?: ReactNode;
   progress?: { value: number; max: number; label: ReactNode };
   children: ReactNode;
+  variant?: "default" | "flow";
 } & HTMLAttributes<HTMLElement>) {
   const boundedProgress = progress
     ? Math.max(0, Math.min(progress.max, progress.value))
@@ -27,7 +29,14 @@ export function InsightSummary({
     : "0%";
 
   return (
-    <section {...props} className={["insight-summary", className].filter(Boolean).join(" ")}>
+    <section {...props} data-variant={variant} className={["insight-summary", className].filter(Boolean).join(" ")}>
+      {variant === "flow" ? <>
+        <span className="insight-summary-flow-title">{eyebrow}</span>
+        <div className="insight-summary-flow-metric">
+          <strong>{value}</strong><span>{label}</span>
+        </div>
+        <dl className="insight-summary-facts">{children}</dl>
+      </> : <>
       <div className="insight-summary-lead">
         <span className="insight-summary-eyebrow">{eyebrow}</span>
         <span className="insight-summary-label">{label}</span>
@@ -42,6 +51,7 @@ export function InsightSummary({
         </div> : null}
       </div>
       <dl className="insight-summary-facts">{children}</dl>
+      </>}
     </section>
   );
 }
@@ -50,12 +60,14 @@ export function InsightSummaryFact({
   label,
   value,
   detail,
+  tone,
 }: {
   label: ReactNode;
   value: ReactNode;
   detail?: ReactNode;
+  tone?: "neutral" | "info" | "success" | "warning" | "danger" | "unavailable";
 }) {
-  return <div className="insight-summary-fact">
+  return <div className="insight-summary-fact" data-tone={tone}>
     <dt>{label}</dt>
     <dd>{value}</dd>
     {detail ? <small>{detail}</small> : null}

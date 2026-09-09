@@ -45,6 +45,7 @@ import { StatusBadge } from "./ui/status-badge";
 import { availabilityTone, executionStateTone, ownerOutcomeTone } from "./ui/status-tone-policy";
 import { OperationsRunLogs } from "./operations-run-logs";
 import { OperationsRunAuxiliaryEvidence } from "./operations-run-auxiliary-evidence";
+import { runTerminalPresentation } from "../lib/operations-presentation";
 
 const tabs = ["Logs", "Metrics", "Traces", "Assets"] as const;
 type DetailTab = typeof tabs[number];
@@ -52,11 +53,6 @@ type DetailTab = typeof tabs[number];
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not started";
 }
-function displayDuration(value: number | null) {
-  if (value === null) return "In progress";
-  return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(2)} s`;
-}
-
 function compactIdentity(value: string) {
   if (value.length <= 34) return value;
   return `${value.slice(0, 24)}…${value.slice(-8)}`;
@@ -284,6 +280,7 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   const dispatch = run.dispatch_binding;
   const worker = run.worker_compatibility;
   const operationalCancellation = result.operational_cancellation;
+  const terminalPresentation = runTerminalPresentation(run);
   return (
     <PageStack className="run-detail-page">
     <PanelFrame className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
@@ -333,13 +330,13 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           value={run.owner_outcome_state}
           tone={ownerOutcomeTone(run.owner_outcome_state)}>
           <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
-          <AggregateSummaryFact label="Terminal state" value={run.terminal_code ?? "In progress"}
-            tone={run.terminal_code ? executionStateTone(run.state) : "info"} />
+          <AggregateSummaryFact label="Terminal state" value={terminalPresentation.terminalState}
+            tone={run.terminal_code ? executionStateTone(run.state) : terminalPresentation.terminalTone} />
           <AggregateSummaryFact label="Transition" value={run.transition_version} />
         </AggregateSummaryGroup>
         <AggregateSummaryGroup eyebrow="Timing" label="Duration"
-          value={displayDuration(run.duration_ms)}
-          tone={run.duration_ms === null ? "info" : executionStateTone(run.state)}>
+          value={terminalPresentation.duration}
+          tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)}>
           <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
           <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />
           <AggregateSummaryFact label="Completed"

@@ -94,9 +94,12 @@ test("detail inspectors keep chrome on the frame and one complete inset body", (
 test("operational summaries preserve a legible metric hierarchy across viewports", () => {
   assert.match(css, /.operations-runs-panel > \.panel-frame-header \.panel-frame-heading \{[^}]+max-width: 820px;/u);
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+margin-top: 10px;[^}]+font-size: 11px;/u);
-  assert.match(css, /\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/u);
-  assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
-  assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.operations-run-summaries \{ grid-template-columns: minmax\(250px, \.95fr\) minmax\(0, 3\.05fr\); \}/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \{[^}]+min-height: 62px;[^}]+overflow-x: auto;[^}]+border-radius: 16px;/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title \{[^}]+align-items: center;[^}]+color: var\(--text-muted\);/u);
+  assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title \{[^}]+(?:background|border-radius):/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-metric::before \{ content: "›";/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact \{ border-left: \.5px solid var\(--border-default\); \}/u);
+  assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact::before/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group \{[^}]+grid-template-columns: minmax\(0, 1fr\) minmax\(0, 3fr\);/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong,[\s\S]*?\.run-detail-summaries \.aggregate-summary-fact dd \{[^}]+font-size: 14px;[^}]+text-align: left;[^}]+white-space: nowrap;/u);
@@ -105,7 +108,7 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{ font-variant-numeric: tabular-nums; \}/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact\[data-tone="danger"\] dd \{ color: var\(--status-negative\); \}/u);
 });
 
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
@@ -147,12 +150,12 @@ test("operational surfaces keep implementation language behind information contr
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
   assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
-  assert.match(runs, /eyebrow="Current view"/u);
+  assert.match(runs, /variant="flow"[\s\S]+?eyebrow="Current view"/u);
   assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
   assert.doesNotMatch(logs, /canonical cut contains|Complete bounded cut|retention limit|No service logs were observed in this cut/u);
-  assert.match(logs, /page && instances\.length === 0[\s\S]+?No services reported events in the selected time range/u);
+  assert.match(logs, /page && instances\.length === 0[\s\S]+?emptyPresentation\?\.detail/u);
   assert.doesNotMatch(runs, /Source cut \{result\.observed_at\}|End of retained runs/u);
   assert.match(unavailable, /<details className="unavailable-state-info">[\s\S]+?<code>\{reason\}<\/code>/u);
   assert.doesNotMatch(unavailable, /<b>\{title\}<\/b>[\s\S]*?<code>\{reason\}<\/code><\/div>/u);
