@@ -122,6 +122,10 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
   assert.match(css, /\.panel-info-disclosure > div \{[^}]+position: absolute;[^}]+background: var\(--surface-elevated\);/u);
+  assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
+  assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
+  assert.match(panel, /popoverTarget=\{popoverId\}/u);
+  assert.match(panel, /className="panel-info-popover" popover="auto"/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-disclosure a \{[^}]+min-height: 0;[^}]+background: transparent;[^}]+box-shadow: none;/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
@@ -167,6 +171,9 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
+  assert.match(css, /button\.panel-info-trigger \{[^}]+width: 32px;[^}]+flex: 0 0 32px;[^}]+display: grid;[^}]+border-radius: 999px;/u);
+  assert.doesNotMatch(css, /\.panel-frame-actions \.panel-info-trigger/u);
+  assert.match(css, /@media \(max-width: 767px\) \{[\s\S]+?\.bounded-log-viewport-footer \{[^}]+flex-wrap: wrap;[^}]+\}[\s\S]+?\.bounded-log-viewport-footer > div:first-child \{[^}]+min-width: 0;[^}]+\}[\s\S]+?\.bounded-log-pagination \{[^}]+width: 100%;[^}]+justify-content: flex-end;/u);
   assert.doesNotMatch(logs, /canonical cut contains|Complete bounded cut|retention limit|No service logs were observed in this cut/u);
   assert.match(logs, /page && instances\.length === 0[\s\S]+?emptyPresentation\?\.detail/u);
   assert.doesNotMatch(runs, /Source cut \{result\.observed_at\}|End of retained runs/u);

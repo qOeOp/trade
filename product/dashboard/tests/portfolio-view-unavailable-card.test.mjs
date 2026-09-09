@@ -10,9 +10,10 @@ test("Portfolio replaces empty contract rows with three useful source groups", a
   for (const title of ["Account activity", "Market valuation", "Portfolio snapshot"]) {
     assert.match(source, new RegExp(`title: "${title}"`));
   }
-  assert.doesNotMatch(source, /DataWorkspaceTable|headerSlots|requestBindingSlots|principalClaimSlots|dependencyColumns/);
+  assert.doesNotMatch(source, /DataWorkspaceTable|dependencyColumns/);
   assert.match(source, /<SummaryList aria-label="Required portfolio data sources">/);
   assert.match(source, /<PanelFrameInfo label="View Portfolio technical details">/);
+  assert.match(source, /<span>Schema<\/span>\s*<code>1<\/code>/);
 });
 
 test("Portfolio keeps exact fail-closed evidence behind technical disclosure", async () => {
@@ -20,7 +21,19 @@ test("Portfolio keeps exact fail-closed evidence behind technical disclosure", a
   assert.match(source, /0ac5f4979bdc2169931f3b260f4459b4d258794b/);
   assert.match(source, /e2de832c09811f80158ffd5c70a538f5fad6055c/);
   assert.match(source, /UNAVAILABLE_NO_DASHBOARD_CONSUMER/);
-  assert.doesNotMatch(source, /PR #332|Schema 1|fixed fail-closed Portfolio contract/);
+  for (const contractPart of [
+    "headerSlots",
+    "requestBindingSlots",
+    "principalClaimSlots",
+    "dependencyClasses",
+    "dependencyFields",
+    "CALLER_SUPPLIED_SOURCE_LOCATOR · SOURCE_OWNER_RESOLVE_UNAVAILABLE",
+  ]) {
+    assert.match(source, new RegExp(contractPart));
+  }
+  assert.match(source, /Principal claim · untrusted/);
+  assert.match(source, /Required Owner sources · 11/);
+  assert.doesNotMatch(source, /PR #332|fixed fail-closed Portfolio contract/);
 });
 
 test("all Portfolio routes share the fixed unavailable card", async () => {

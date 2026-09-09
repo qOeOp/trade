@@ -145,17 +145,18 @@ test("every DetailInspector consumer uses one explicit inset body", async () => 
 });
 
 test("Readback and shared summary body surfaces consume the shared inner radius", async () => {
-  const [source, replay, summary, globalCss] = await Promise.all([
+  const [source, replay, factGroup, summary, globalCss] = await Promise.all([
     read("components/source-intake-readback-workbench.module.css"),
     read("components/exploratory-replay-readback-workbench.module.css"),
+    read("components/ui/fact-group.module.css"),
     read("components/ui/summary-list.module.css"),
     read("app/globals.css"),
   ]);
   for (const css of [source, replay]) {
     sharedInnerRadius(css, ".result :global(.empty-state)");
     sharedInnerRadius(css, ".result :global(.unavailable-state)");
-    sharedInnerRadius(css, ".group");
   }
+  sharedInnerRadius(factGroup, ".group");
   for (const selector of [".resultRail", ".resultRail > div"]) {
     assert.ok(
       rulesFor(replay, selector).some((rule) => /border-radius: var\(--panel-inner-radius\)/u.test(rule)),
