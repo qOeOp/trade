@@ -459,7 +459,8 @@ fn validate_design_role_set(
             "1D",
         ),
     ];
-    let semantic_ids = semantics.map(|(semantic_id, _, _)| semantic_id.to_owned());
+    let mut semantic_ids = semantics.map(|(semantic_id, _, _)| semantic_id.to_owned());
+    semantic_ids.sort_unstable();
     let expected_join_identity = derive_strategy_input_join_identity_v2(
         "replay-composition-six-role-v1",
         &semantic_ids,
@@ -496,6 +497,12 @@ fn validate_design_role_set(
             return Err(BarJoinedCutAcceptanceUnavailableV1);
         }
     }
+    let mut expected_join_roles = semantics
+        .iter()
+        .zip(&claims.input_role_identities)
+        .map(|((semantic_id, _, _), identity)| (*semantic_id, *identity))
+        .collect::<Vec<_>>();
+    expected_join_roles.sort_unstable_by(|left, right| left.0.cmp(right.0));
     let [join] = role_set.joins.as_slice() else {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     };
@@ -508,8 +515,8 @@ fn validate_design_role_set(
         || join
             .roles
             .iter()
-            .zip(semantics.iter().zip(&claims.input_role_identities))
-            .any(|(role, ((semantic_id, _, _), identity))| {
+            .zip(&expected_join_roles)
+            .any(|(role, (semantic_id, identity))| {
                 role.semantic_id != *semantic_id || role.role_identity != *identity
             })
     {
