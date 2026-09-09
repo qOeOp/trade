@@ -38,7 +38,7 @@ use crate::owner::{
     reference_fact_coordinates::r0::{
         UntrustedReferenceFactR0RequestV1, request_meaning_digest_v1 as r0_request_meaning_digest,
     },
-    replay_market_facts_v2::{ReplayCompositionOwnerV1, UntrustedComposerNativeJoinRequestV1},
+    replay_market_facts_v2::UntrustedComposerNativeJoinRequestV1,
     sample_fact::{
         SampleFactHeadsV1, prepare_bar_timeframe_projection_v1, prepare_sample_commit_v1,
     },
@@ -168,10 +168,6 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
     let owner = MarketDataOwnerPostgres::connect(owner_url)
         .await
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    ReplayCompositionOwnerV1::materialize_schema(owner_url)
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-
     let clock = acceptance_clock();
     let source = owner
         .commit_source_initial(

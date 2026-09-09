@@ -75,7 +75,8 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
             input_role_identities,
         },
     ))
-    .await?;
+    .await
+    .map_err(|error| anyhow::anyhow!("Owner BAR acceptance basis unavailable: {error}"))?;
     let (plan, artifact) = joined_plan_and_artifact(design, basis.input_bindings());
     anyhow::ensure!(plan.bfp_role_bindings().len() == 12);
     let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)?;
@@ -83,7 +84,8 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let fixture = Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
         basis, role_set,
     ))
-    .await?;
+    .await
+    .map_err(|error| anyhow::anyhow!("Owner BAR acceptance completion unavailable: {error}"))?;
     let (replay_input, instrument_master, bindings, joined_cut, native_request) =
         fixture.into_parts();
     anyhow::ensure!(sealed_replay_input_contains_joined_cut_v1(
