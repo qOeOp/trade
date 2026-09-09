@@ -51,9 +51,13 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
-  assert.match(css, /\.compact-status-bar \{[^}]*min-height: 52px;[^}]*border-radius: 16px;/u);
-  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*border-radius: 11px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*min-height: 50px;[^}]*border-radius: 14px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*background: transparent;/u);
   assert.match(css, /\.compact-status-group-label \{[^}]*text-transform: none;/u);
+  assert.match(css, /\.compact-status-group-label::after \{ content: "›";[^}]*margin-left: 42px;/u);
+  assert.match(css, /\.compact-status-item \{[^}]*justify-content: center;[^}]*gap: 14px;/u);
+  assert.match(css, /\.compact-status-item \+ \.compact-status-item \{ border-left: \.5px solid var\(--border-default\); \}/u);
+  assert.doesNotMatch(css, /^\.compact-status-item \{[^}]*border-left:/mu);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
   assert.match(workers, /<CompactStatusGroup label="workload">/u);
   for (const label of ["available", "expired", "claimed", "active"]) {
