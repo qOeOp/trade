@@ -1,6 +1,9 @@
 use std::cell::{Cell, RefCell};
 
 use rstest::rstest;
+use strategy_factory_program_sdk::lifecycle_v1::{
+    EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
+};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
@@ -19,7 +22,7 @@ use super::{
         DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3, DevelopPluginBuildResultV3,
         VerifiedDevelopPluginBuildReadV3,
     },
-    program_host_v2::ProgramHostV2,
+    program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
     program_host_v2_backtest_tests::stateful_plugin_module,
     program_host_v2_tests::executable_design,
     rd_bounded_feature_program_v1::{
@@ -64,8 +67,9 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
 
 #[test]
 #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
-fn real_v3_owner_build_reaches_composer_and_durable_abi3_artifact() {
+fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact() {
     let (design, bfp_proposal, catalog) = single_plugin_bfp_candidate();
+    let state_id = design.state[0].semantic_id.clone();
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
     let frozen =
         freeze_research_bounded_feature_program_v1(&custody, &design, bfp_proposal, catalog)
@@ -109,6 +113,49 @@ fn real_v3_owner_build_reaches_composer_and_durable_abi3_artifact() {
     )
     .expect("durable ABI3 Artifact restart revalidates every bound identity");
     assert_eq!(restarted, *positive.artifact());
+
+    assert_eq!(manifest.state.max_bytes, 4096);
+    let mut host = ProgramHostV2::new(positive.plan().clone(), restarted.clone())
+        .expect("generated ABI3 Artifact reaches ProgramHost");
+    let start = LifecycleEnvelopeV1::new_bound(
+        EventOrderKeyV1::new(1, 1, LifecycleKind::Start, 1, [1; 16]).expect("START order key"),
+        EnvelopePayloadV1::Start,
+    )
+    .expect("START envelope");
+    host.apply_event(&AdmittedProgramEventV2::issue_for_plan_test(
+        positive.plan(),
+        start,
+        vec![],
+    ))
+    .expect("ProgramHost starts the generated ABI3 program");
+    let pre_execution_checkpoint = host.checkpoint().canonical_bytes().to_vec();
+    let timer = LifecycleEnvelopeV1::new_bound(
+        EventOrderKeyV1::new(2, 2, LifecycleKind::Timer, 2, [2; 16]).expect("TIMER order key"),
+        EnvelopePayloadV1::Timer,
+    )
+    .expect("TIMER envelope");
+    host.apply_event(&AdmittedProgramEventV2::issue_for_plan_test(
+        positive.plan(),
+        timer,
+        vec![],
+    ))
+    .expect("ProgramHost executes the generated ABI3 program");
+    assert_eq!(host.plugin_calls(), 1);
+    assert_ne!(
+        host.checkpoint().canonical_bytes(),
+        pre_execution_checkpoint
+    );
+    let (strategy_state, plugin_state) = host.state_pair_for_test(&state_id);
+    assert_eq!(strategy_state.len(), 1);
+    assert_eq!(strategy_state, plugin_state);
+    let committed_state = strategy_state.to_vec();
+    let restored_host =
+        ProgramHostV2::restore(positive.plan().clone(), restarted, host.checkpoint())
+            .expect("ProgramHost restores the committed one-byte ABI3 state");
+    assert_eq!(
+        restored_host.state_pair_for_test(&state_id),
+        (committed_state.as_slice(), committed_state.as_slice())
+    );
 
     let wrong_manifest_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
     let mut wrong_design = design.clone();
@@ -224,9 +271,17 @@ fn single_plugin_bfp_candidate() -> (
     design.parameters.push(ParameterV2 {
         semantic_id: "research.parameter.timer-coordinate.v1".to_owned(),
         value_type: ValueTypeV2::Bytes,
-        value: TypedConstantV2::Bytes { value: vec![] },
+        value: TypedConstantV2::Bytes {
+            value: canonical_owner_sample_coordinate(1),
+        },
         unit: "OWNER_SAMPLE_COORDINATE_V1".to_owned(),
     });
+    design
+        .parameters
+        .iter_mut()
+        .find(|parameter| parameter.semantic_id == "research.parameter.timer-close.v1")
+        .expect("BFP candidate has the timer close parameter")
+        .value = TypedConstantV2::I128 { value: 100 };
     design.resources.max_state_bytes = design.state.iter().map(|state| state.max_bytes).sum();
 
     let (design_identity, design_digest) = match prepare_strategy_design_v2(&design) {
@@ -239,6 +294,16 @@ fn single_plugin_bfp_candidate() -> (
     proposal.design_identity = design_identity;
     proposal.design_digest = design_digest;
     (design, proposal, catalog)
+}
+
+fn canonical_owner_sample_coordinate(sample: u64) -> Vec<u8> {
+    let mut bytes = vec![1_u8; 308];
+    bytes[..4].copy_from_slice(&1_u32.to_le_bytes());
+    bytes[84..116].fill(u8::try_from(sample).expect("small test sample"));
+    for offset in [116, 124, 132, 236] {
+        bytes[offset..offset + 8].copy_from_slice(&sample.to_le_bytes());
+    }
+    bytes
 }
 
 fn rename_node_output(reference: &mut ValueRefV2, prior_node_id: &str, node_id: &str) {
