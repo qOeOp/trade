@@ -136,6 +136,12 @@ check_nextest_graph_contract() {
     echo "ERROR: nextest archive must compile the exact selected-package feature projection." >&2
     return 1
   fi
+  if ! rg -Uq \
+    "program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest'.*\n[[:space:]]+env.*\n[[:space:]]+VIBE_POSTGRES_TEST_DATABASE_NAME=\"\\\$program_host_acceptance_database\"" \
+    "${BASH_SOURCE[0]}"; then
+    echo "ERROR: Program Host acceptance must use its canonical fresh PostgreSQL clone." >&2
+    return 1
+  fi
 }
 
 check_static_isolation() {
@@ -471,6 +477,7 @@ readonly test_database="vibe_test_${suffix//-/_}"
 readonly catalog_admin_database="vibe_test_catalog_admin_${suffix//-/_}"
 readonly origin_current_database="vibe_test_origin_current_${suffix//-/_}"
 readonly legacy_replay_database="vibe_test_legacy_replay_${suffix//-/_}"
+readonly program_host_acceptance_database="vibe_test_program_host_acceptance_${suffix//-/_}"
 readonly impersonator_container="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_volume="vibe-rd-owner-impersonator-${suffix}"
 readonly impersonator_database="vibe_impersonator_${suffix//-/_}"
@@ -1506,22 +1513,27 @@ docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
   --set=test_database="$test_database" \
   --set=catalog_admin_database="$catalog_admin_database" \
   --set=origin_current_database="$origin_current_database" \
-  --set=legacy_replay_database="$legacy_replay_database" << 'SQL'
+  --set=legacy_replay_database="$legacy_replay_database" \
+  --set=program_host_acceptance_database="$program_host_acceptance_database" << 'SQL'
 CREATE DATABASE :"catalog_admin_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"origin_current_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 CREATE DATABASE :"legacy_replay_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
+CREATE DATABASE :"program_host_acceptance_database" WITH TEMPLATE :"test_database" OWNER rd_database_owner;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"catalog_admin_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"origin_current_database" FROM PUBLIC;
 REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"legacy_replay_database" FROM PUBLIC;
+REVOKE CONNECT, CREATE, TEMPORARY ON DATABASE :"program_host_acceptance_database" FROM PUBLIC;
 GRANT CONNECT ON DATABASE :"catalog_admin_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"origin_current_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 GRANT CONNECT ON DATABASE :"legacy_replay_database"
   TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
+GRANT CONNECT ON DATABASE :"program_host_acceptance_database"
+  TO operator_authorization_writer, product_edge_owner, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer, market_data_owner, market_data_reader, qualification_writer, backtest_owner, instrument_owner, vibe_test_owner_topology_admin;
 
 WITH clones(database_name) AS (
-  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database')
+  VALUES (:'catalog_admin_database'), (:'origin_current_database'), (:'legacy_replay_database'), (:'program_host_acceptance_database')
 ), roles(role_name) AS (
   VALUES
     ('operator_authorization_writer'),
@@ -1638,6 +1650,13 @@ SELECT
   'sha256:legacy-seal-' || ordinal::text,
   pg_catalog.jsonb_build_object('ordinal',ordinal,'kind','legacy-v2-receipt')
 FROM pg_catalog.generate_series(0,25) ordinal;
+SQL
+
+docker exec --interactive "$container" psql --quiet --set ON_ERROR_STOP=1 \
+  --username postgres --dbname "$program_host_acceptance_database" \
+  --set=program_host_acceptance_database="$program_host_acceptance_database" << 'SQL'
+UPDATE vibe_test_admin.dedicated_postgres_test_instance_v1
+   SET database_name=:'program_host_acceptance_database';
 SQL
 
 legacy_replay_fingerprint() {
@@ -2070,7 +2089,8 @@ SQL
   run_authority_migration
 }
 
-# The Catalog administrator and two replay migration filters use separate fresh databases. The drain probe
+# The Catalog administrator, two replay migration filters, and Program Host acceptance use separate
+# fresh databases. The drain probe
 # removes receipt storage needed to validate its retained legacy attempts, so it
 # follows positive consumers. Keep the complete Instrument Owner storage/ACL oracle
 # last because its final inheritance fault intentionally poisons that private store.
@@ -2144,6 +2164,26 @@ for test_selection in "${rd_owner_postgres_tests[@]}"; do
       BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
       INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${origin_current_database}" \
+      cargo nextest run \
+      --archive-file "$nextest_archive_file" \
+      --profile "$nextest_profile" \
+      "${nextest_execution_args[@]}" \
+      -E "$test_filter"
+  elif [[ "$test_name" == 'program_host_bar_joined_cut_postgres_acceptance_tests::owner_postgres_v4_moves_through_program_host_and_real_backtest' ]]; then
+    env \
+      VIBE_POSTGRES_TEST_DATABASE_NAME="$program_host_acceptance_database" \
+      OPERATOR_AUTHORIZATION_TEST_DATABASE_URL="postgresql://operator_authorization_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      PRODUCT_EDGE_TEST_DATABASE_URL="postgresql://product_edge_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RD_OWNER_TEST_DATABASE_URL="postgresql://rd_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      RD_FACT_WRITER_TEST_DATABASE_URL="postgresql://rd_fact_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      MARKET_DATA_OWNER_TEST_DATABASE_URL="postgresql://market_data_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      REPLAY_POLICY_CATALOG_ADMIN_TEST_DATABASE_URL="postgresql://replay_policy_catalog_admin_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      MARKET_DATA_RD_ROLE_SET_TEST_DATABASE_URL="postgresql://market_data_reader:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      VIBE_TEST_OWNER_TOPOLOGY_ADMIN_DATABASE_URL="postgresql://vibe_test_owner_topology_admin:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      QUALIFICATION_TEST_DATABASE_URL="postgresql://qualification_writer:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      BACKTEST_TEST_DATABASE_URL="postgresql://backtest_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      INSTRUMENT_OWNER_TEST_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
+      INSTRUMENT_OWNER_DATABASE_URL="postgresql://instrument_owner:${test_password}@${postgres_host}:${postgres_port}/${program_host_acceptance_database}" \
       cargo nextest run \
       --archive-file "$nextest_archive_file" \
       --profile "$nextest_profile" \
