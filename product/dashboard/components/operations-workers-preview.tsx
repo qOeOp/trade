@@ -23,7 +23,7 @@ import {
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -77,8 +77,8 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
             </DetailClusterFact>
           </DetailCluster>
         </DetailClusterGrid>
-        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Heartbeat history unavailable">
-          RunStore retains registration, latest heartbeat and lease deadline only. Memory and host are not inferred.
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Limited heartbeat history">
+          Only the latest heartbeat and lease window are available.
         </DetailNotice>
         <DetailInspectorFooter>
           <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
@@ -230,13 +230,13 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       <PanelFrame className="operations-workers-panel bento-page-frame"
         aria-labelledby="operations-workers-title">
         <PanelFrameHeader
-          eyebrow="Trade worker custody"
-          title="Shadow read workers"
+          eyebrow="Worker fleet"
+          title="Workers"
           titleId="operations-workers-title"
-          description="Lease, claims and capabilities come from one PostgreSQL observation cut. They remain operational facts."
-          actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
+          description="Monitor availability, workload, and recent activity."
+          actions={<><PanelFrameInfo><b>Data scope</b><p>Worker leases, claims, and capabilities come from one verified operational snapshot.</p></PanelFrameInfo><button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>}
+          </button></>}
         />
         <PanelFrameBody>
           <CompactStatusBar className="operations-workers-status" aria-label="Worker summary">

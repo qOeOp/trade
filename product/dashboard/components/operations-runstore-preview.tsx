@@ -28,6 +28,7 @@ import {
   PanelFrameFooterMeta,
   PanelFrameFooterSummary,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { StatusBadge } from "./ui/status-badge";
@@ -234,19 +235,20 @@ export function OperationsRunStorePreview() {
       aria-labelledby="operations-runstore-title">
       <PanelFrameHeader
         eyebrow="Operational history"
-        title="Run ledger"
+        title="Run history"
         titleId="operations-runstore-title"
-        description="Cursor-bound Dashboard runs only. Owner facts and Windmill jobs are never copied into this view."
+        description="Review recent runs and open any row for status, timing, and results."
+        actions={<PanelFrameInfo><b>Data scope</b><p>This view reads one verified operational snapshot. Result ownership and execution state remain separate.</p></PanelFrameInfo>}
       />
       <PanelFrameBody>
       <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary"
         eyebrow="Current cursor window" label="Loaded runs"
         value={result?.availability === "available" ? runs.length : "Unavailable"}
-        detail="One signed RunStore cut. Operational completion and Owner outcomes remain independent.">
+        detail="Runs currently loaded in this view.">
         <InsightSummaryFact label="Active" value={result?.availability === "available" ? summaries.active : "-"} />
         <InsightSummaryFact label="Failed" value={result?.availability === "available" ? summaries.failed : "-"} />
-        <InsightSummaryFact label="Owner available" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-        <InsightSummaryFact label="Owner unavailable" value={result?.availability === "available" ? summaries.ownerUnavailable : "-"} />
+        <InsightSummaryFact label="Result ready" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
+        <InsightSummaryFact label="Result pending" value={result?.availability === "available" ? summaries.ownerUnavailable : "-"} />
       </InsightSummary>
       {result?.availability === "available" ? (
         <>
@@ -293,7 +295,7 @@ export function OperationsRunStorePreview() {
         </>
       ) : (
         <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={18} />}
-          title="RunStore unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />
+          title="Run history unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />
       )}
       </PanelFrameBody>
     </PanelFrame>

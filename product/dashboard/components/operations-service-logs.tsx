@@ -29,7 +29,7 @@ import {
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
 import { availabilityTone, severityTone } from "./ui/status-tone-policy";
@@ -391,8 +391,8 @@ export function OperationsServiceLogs() {
           eyebrow="Operational evidence"
           title="Service logs"
           titleId="service-logs-title"
-          description="Bounded RunStore evidence from one exact observation cut. No host, message, administration, or effect action is inferred."
-          actions={<div className="service-logs-actions">
+          description="Inspect recent events by severity, service, and time."
+          actions={<><PanelFrameInfo><b>Data scope</b><p>This is a read-only snapshot. Administrative controls and effect actions are not available here.</p></PanelFrameInfo><div className="service-logs-actions">
             <button type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
             </button>
@@ -400,9 +400,9 @@ export function OperationsServiceLogs() {
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
             </button>
             {page && !pending ? <button type="button" onClick={() => void download()}>
-              <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded
+              <InterfaceIcons.download aria-hidden="true" size={12} /> Download
             </button> : null}
-          </div>}
+          </div></>}
         />
         <PanelFrameBody className="service-logs-body">
           <CompactStatusBar className="service-logs-status" aria-label="Service log summary">
@@ -507,7 +507,7 @@ export function OperationsServiceLogs() {
                     noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No logs match the canonical filter cut." : "No service logs were observed in this cut."}</p></div>}
                   />
                 </BoundedLogViewport>
-                {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Partial evidence only">Some eligible RunStore evidence was unavailable. Displayed rows remain validated and no completeness is inferred.</DetailNotice> : null}
+                {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Some logs are unavailable">Shown rows are verified, but one or more log sources did not respond.</DetailNotice> : null}
               </div>
             </SplitBento>
           ) : null}

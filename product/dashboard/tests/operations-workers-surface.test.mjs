@@ -42,8 +42,8 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /<FilterSearch[\s\S]*?placeholder="Worker, operation, or run"/);
   assert.match(workers, /dataWorkspaceSelectedRowStyles<WorkerBrowserProjectionV1>/);
   assert.match(workers, /pagination paginationPerPage=\{20\}/);
-  assert.match(workers, /Heartbeat history unavailable/);
-  assert.match(workers, /Memory and host are not inferred/);
+  assert.match(workers, /Limited heartbeat history/);
+  assert.match(workers, /Only the latest heartbeat and lease window are available/);
   assert.match(workers, /no unbound-run readiness claim/);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);

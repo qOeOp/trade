@@ -241,7 +241,7 @@ export function DashboardShell({
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
-          {!ownsRouteChrome ? <footer className="prototype-notice">
+          {!ownsRouteChrome && !operationsConnected ? <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
               : artifactDirectory
@@ -261,7 +261,7 @@ export function DashboardShell({
               : portfolioUnavailable
               ? "Only the fixed Portfolio request contract is shown. No Dashboard request, response instance, positive projection or domain action exists."
               : connected
-                ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
+                ? "This page is read only. Actions remain unavailable until their product workflow is connected."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
           </footer> : null}
         </div>

@@ -938,6 +938,12 @@ button.rd-research-item { cursor: pointer; }
 .unavailable-state b { color: var(--text-primary); }
 .unavailable-state p { max-width: 760px; margin: 5px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.45; }
 .unavailable-state code { margin-top: 5px; color: var(--text-muted); font-size: 9px; }
+.unavailable-state-info { position: relative; margin-left: auto; flex: 0 0 auto; }
+.unavailable-state-info > summary { width: 28px; height: 28px; display: grid; place-items: center; list-style: none; cursor: pointer; border-radius: 999px; color: var(--text-muted); background: transparent; }
+.unavailable-state-info > summary::-webkit-details-marker { display: none; }
+.unavailable-state-info > summary:hover,
+.unavailable-state-info[open] > summary { color: var(--text-primary); background: var(--surface-hover); }
+.unavailable-state-info > code { position: absolute; z-index: 20; top: 34px; right: 0; width: max-content; max-width: min(360px, calc(100vw - 80px)); padding: 10px 12px; overflow: hidden; border-radius: var(--panel-inner-radius); color: var(--text-primary); background: var(--surface-elevated); box-shadow: var(--elevation-floating); text-overflow: ellipsis; white-space: nowrap; }
 .unavailable-state[data-density="compact"] { min-height: 72px; padding: 16px; }
 .empty-state { min-height: 150px; padding: 24px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border-top: 1px solid var(--border-default); background: var(--surface-card); text-align: left; }
 .empty-state b, .empty-state p { display: block; }

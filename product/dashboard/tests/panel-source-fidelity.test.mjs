@@ -131,6 +131,25 @@ test("run detail actions, technical disclosure, and state values expose delibera
   }
 });
 
+test("operational surfaces keep implementation language behind information controls", async () => {
+  const [runs, workers, logs, unavailable] = await Promise.all([
+    readFile(new URL("../components/operations-runstore-preview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/operations-workers-preview.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/operations-service-logs.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/ui/evidence-strip.tsx", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(runs, /title="Run history"[\s\S]+?<PanelFrameInfo>/u);
+  assert.doesNotMatch(runs, /description="[^"]*(?:RunStore|Windmill|Owner facts)/u);
+  assert.match(workers, /title="Workers"[\s\S]+?<PanelFrameInfo>/u);
+  assert.doesNotMatch(workers, /description="[^"]*(?:PostgreSQL|custody|operational facts)/u);
+  assert.match(logs, /title="Service logs"[\s\S]+?<PanelFrameInfo>/u);
+  assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
+  assert.match(unavailable, /<details className="unavailable-state-info">[\s\S]+?<code>\{reason\}<\/code>/u);
+  assert.doesNotMatch(unavailable, /<b>\{title\}<\/b>[\s\S]*?<code>\{reason\}<\/code><\/div>/u);
+  assert.doesNotMatch(dashboardShell, /Registry, RunStore and zero-effect shadow workers/u);
+});
+
 test("foundation footers remain frame-level siblings of the sole inset body", () => {
   const joinedBodyAndFooter = /<\/PanelFrameBody>\s*<PanelFrameFooter\b/u;
   assert.match(runtimeFoundation, joinedBodyAndFooter);
