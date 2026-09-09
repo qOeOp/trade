@@ -978,7 +978,7 @@ async fn persist_market_semantics(
     r0: &crate::owner::reference_fact_coordinates::r0::ReferenceFactR0ReadbackV1,
 ) -> Result<(), BarJoinedCutAcceptanceUnavailableV1> {
     use crate::owner::market_semantics::{
-        MarketSemanticsConsumerV1, MarketSemanticsPriceAdjustmentV1,
+        MarketSemanticsConsumerV1, MarketSemanticsErrorV1, MarketSemanticsPriceAdjustmentV1,
         MarketSemanticsTimestampBasisV1, MarketSemanticsValueV1,
         UntrustedMarketSemanticsProposalV1, authority,
     };
@@ -998,11 +998,11 @@ async fn persist_market_semantics(
         .await
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let value = MarketSemanticsValueV1 {
-        normalization_identity: acceptance_identity(180),
+        normalization_identity: digest(180),
         price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
         timestamp_basis: MarketSemanticsTimestampBasisV1::EventEffective,
-        price_unit_identity: acceptance_identity(181),
-        size_unit_identity: acceptance_identity(182),
+        price_unit_identity: digest(181),
+        size_unit_identity: digest(182),
     };
     let registry_key =
         authority::derive_registry_key_v1(digest(84), &source_readback, batch, instrument, r0)
@@ -1059,12 +1059,32 @@ async fn persist_market_semantics(
         .begin()
         .await
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    super::market_semantics::resolve_market_semantics_in_transaction_v1(
+    let readback = match super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
-        &proposal,
+        digest(84),
+        50,
+        100,
+        100,
     )
     .await
-    .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+    {
+        Ok(readback) => readback,
+        Err(MarketSemanticsErrorV1::UnknownIdentity) => {
+            super::market_semantics::resolve_market_semantics_in_transaction_v1(
+                &mut transaction,
+                &proposal,
+            )
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
+        }
+        Err(_) => return Err(BarJoinedCutAcceptanceUnavailableV1),
+    };
+    let [fact] = readback.facts() else {
+        return Err(BarJoinedCutAcceptanceUnavailableV1);
+    };
+    if fact.compatibility_scope_identity() != digest(84) || fact.value() != value {
+        return Err(BarJoinedCutAcceptanceUnavailableV1);
+    }
     transaction
         .commit()
         .await
