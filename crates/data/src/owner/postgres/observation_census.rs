@@ -593,7 +593,18 @@ fn map_registry_error(
         | Registry::PitUnavailable
         | Registry::UniverseUnavailable
         | Registry::SourceUnavailable
-        | Registry::InstrumentMasterUnavailable
+        | Registry::InstrumentMasterScopeUnavailable
+        | Registry::InstrumentMasterBatchDigestUnavailable
+        | Registry::InstrumentMasterCutLocatorUnavailable
+        | Registry::InstrumentMasterReadbackUnavailable
+        | Registry::InstrumentMasterFactCountUnavailable
+        | Registry::InstrumentMasterDigestUnavailable
+        | Registry::InstrumentMasterCutUnavailable
+        | Registry::InstrumentMasterCanonicalIdentityUnavailable
+        | Registry::InstrumentMasterSemanticsIdentityUnavailable
+        | Registry::InstrumentMasterSourceFrontierUnavailable
+        | Registry::InstrumentMasterCorrectionFrontierUnavailable
+        | Registry::InstrumentMasterEffectiveRangeUnavailable
         | Registry::BindingUnavailable(_) => ObservationCensusErrorV1::IncompleteCensus,
     }
 }

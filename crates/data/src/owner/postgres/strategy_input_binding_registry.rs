@@ -48,7 +48,18 @@ pub(super) enum StrategyInputBindingRegistryErrorV1 {
     PitUnavailable,
     UniverseUnavailable,
     SourceUnavailable,
-    InstrumentMasterUnavailable,
+    InstrumentMasterScopeUnavailable,
+    InstrumentMasterBatchDigestUnavailable,
+    InstrumentMasterCutLocatorUnavailable,
+    InstrumentMasterReadbackUnavailable,
+    InstrumentMasterFactCountUnavailable,
+    InstrumentMasterDigestUnavailable,
+    InstrumentMasterCutUnavailable,
+    InstrumentMasterCanonicalIdentityUnavailable,
+    InstrumentMasterSemanticsIdentityUnavailable,
+    InstrumentMasterSourceFrontierUnavailable,
+    InstrumentMasterCorrectionFrontierUnavailable,
+    InstrumentMasterEffectiveRangeUnavailable,
     MarketSemanticsUnavailable,
     BindingUnavailable(StrategyInputBindingUnavailable),
     UnknownDeclaration,
@@ -381,11 +392,11 @@ async fn validate_native_instrument_master(
     semantics: &crate::owner::market_semantics::MarketSemanticsFactV1,
 ) -> Result<NativeInstrumentMasterCoordinateV1, StrategyInputBindingRegistryErrorV1> {
     let UntrustedStrategyInputScope::ExactInstrument { instrument } = &request.scope else {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterScopeUnavailable);
     };
 
     if request.instrument_master_digest != batch.instrument_master_digest() {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterBatchDigestUnavailable);
     }
     // The semantics fact carries the complete version coordinate. The unique cut locator selects
     // one durable readback without choosing a latest fact or scanning the instrument history.
@@ -402,29 +413,47 @@ async fn validate_native_instrument_master(
         .map_err(map_instrument_error)?
         .ok_or(StrategyInputBindingRegistryErrorV1::StoreUntrusted)?;
     let [fact] = readback.facts() else {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterFactCountUnavailable);
     };
     let exact_member = readback.cut().expected_members() == std::slice::from_ref(instrument);
     let effective = i128::from(batch.time_evidence().event_effective.value);
 
-    if readback.digest() != request.instrument_master_digest
-        || !native_instrument_cut_matches(
-            readback.cut().decision_cut,
-            request.decision_cut,
-            readback.cut().effective_instant(),
-            effective,
-            exact_member,
-        )
-        || fact.canonical_identity() != instrument
-        || fact.market_semantics_identity() != request.market_semantics_identity
-        || fact.source_frontier() != batch.source_frontier_digest()
-        || fact.correction_frontier() != batch.correction_frontier_digest()
-        || fact.effective_from() > effective
+    if readback.digest() != request.instrument_master_digest {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterDigestUnavailable);
+    }
+    if !native_instrument_cut_matches(
+        readback.cut().decision_cut,
+        request.decision_cut,
+        readback.cut().effective_instant(),
+        effective,
+        exact_member,
+    ) {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutUnavailable);
+    }
+    if fact.canonical_identity() != instrument {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterCanonicalIdentityUnavailable,
+        );
+    }
+    if fact.market_semantics_identity() != request.market_semantics_identity {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterSemanticsIdentityUnavailable,
+        );
+    }
+    if fact.source_frontier() != batch.source_frontier_digest() {
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterSourceFrontierUnavailable);
+    }
+    if fact.correction_frontier() != batch.correction_frontier_digest() {
+        return Err(
+            StrategyInputBindingRegistryErrorV1::InstrumentMasterCorrectionFrontierUnavailable,
+        );
+    }
+    if fact.effective_from() > effective
         || fact
             .effective_until()
             .is_some_and(|until| effective >= until)
     {
-        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable);
+        return Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterEffectiveRangeUnavailable);
     }
     Ok(NativeInstrumentMasterCoordinateV1 {
         readback: readback.digest(),
@@ -438,7 +467,7 @@ fn exact_instrument_request_identity(
 ) -> Result<BindingDigest, StrategyInputBindingRegistryErrorV1> {
     let [request_identity] = request_rows else {
         return if request_rows.is_empty() {
-            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutLocatorUnavailable)
         } else {
             Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted)
         };
@@ -724,7 +753,7 @@ fn map_pit_error(_: PitSnapshotError) -> StrategyInputBindingRegistryErrorV1 {
 }
 
 fn map_instrument_error(_: InstrumentMasterError) -> StrategyInputBindingRegistryErrorV1 {
-    StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable
+    StrategyInputBindingRegistryErrorV1::InstrumentMasterReadbackUnavailable
 }
 
 fn map_market_semantics_error(_: MarketSemanticsErrorV1) -> StrategyInputBindingRegistryErrorV1 {
@@ -899,7 +928,7 @@ mod tests {
         );
         assert_eq!(
             exact_instrument_request_identity(&[]),
-            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+            Err(StrategyInputBindingRegistryErrorV1::InstrumentMasterCutLocatorUnavailable)
         );
         assert_eq!(
             exact_instrument_request_identity(&[vec![12; 32], vec![12; 32]]),

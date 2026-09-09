@@ -2228,7 +2228,7 @@ async fn strategy_input_binding_registry_postgres_oracle(
             binding_request.input_role_identity,
         )
         .await,
-        Err(super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1::InstrumentMasterUnavailable)
+        Err(super::strategy_input_binding_registry::StrategyInputBindingRegistryErrorV1::InstrumentMasterCutLocatorUnavailable)
     ));
     absent.rollback().await.unwrap();
     sqlx::query("INSERT INTO market_data_private.instrument_master_receipts_v1(request_identity,request_meaning_digest,cut_identity,receipt_identity,receipt_bytes,append_sequence) VALUES($1,$2,$3,$4,$5,$6)")

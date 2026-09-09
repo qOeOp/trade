@@ -157,8 +157,54 @@ pub enum BarJoinedCutAcceptanceCompletionUnavailableV1 {
     RegistryUniverse,
     #[error("disposable Market Data BAR joined-cut acceptance registry source was unavailable")]
     RegistrySource,
-    #[error("disposable Market Data BAR joined-cut acceptance registry instrument was unavailable")]
-    RegistryInstrument,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument scope was unavailable"
+    )]
+    RegistryInstrumentScope,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument batch digest was unavailable"
+    )]
+    RegistryInstrumentBatchDigest,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument cut locator was unavailable"
+    )]
+    RegistryInstrumentCutLocator,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument readback was unavailable"
+    )]
+    RegistryInstrumentReadback,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument fact count was unavailable"
+    )]
+    RegistryInstrumentFactCount,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument digest was unavailable"
+    )]
+    RegistryInstrumentDigest,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument cut was unavailable"
+    )]
+    RegistryInstrumentCut,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument canonical identity was unavailable"
+    )]
+    RegistryInstrumentCanonicalIdentity,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument semantics identity was unavailable"
+    )]
+    RegistryInstrumentSemanticsIdentity,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument source frontier was unavailable"
+    )]
+    RegistryInstrumentSourceFrontier,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument correction frontier was unavailable"
+    )]
+    RegistryInstrumentCorrectionFrontier,
+    #[error(
+        "disposable Market Data BAR joined-cut acceptance registry instrument effective range was unavailable"
+    )]
+    RegistryInstrumentEffectiveRange,
     #[error("disposable Market Data BAR joined-cut acceptance registry semantics were unavailable")]
     RegistrySemantics,
     #[error("disposable Market Data BAR joined-cut acceptance registry binding was unavailable")]
@@ -528,8 +574,41 @@ fn map_registry_completion_error(
         Registry::SourceUnavailable => {
             BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySource
         }
-        Registry::InstrumentMasterUnavailable => {
-            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrument
+        Registry::InstrumentMasterScopeUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentScope
+        }
+        Registry::InstrumentMasterBatchDigestUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentBatchDigest
+        }
+        Registry::InstrumentMasterCutLocatorUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentCutLocator
+        }
+        Registry::InstrumentMasterReadbackUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentReadback
+        }
+        Registry::InstrumentMasterFactCountUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentFactCount
+        }
+        Registry::InstrumentMasterDigestUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentDigest
+        }
+        Registry::InstrumentMasterCutUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentCut
+        }
+        Registry::InstrumentMasterCanonicalIdentityUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentCanonicalIdentity
+        }
+        Registry::InstrumentMasterSemanticsIdentityUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentSemanticsIdentity
+        }
+        Registry::InstrumentMasterSourceFrontierUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentSourceFrontier
+        }
+        Registry::InstrumentMasterCorrectionFrontierUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentCorrectionFrontier
+        }
+        Registry::InstrumentMasterEffectiveRangeUnavailable => {
+            BarJoinedCutAcceptanceCompletionUnavailableV1::RegistryInstrumentEffectiveRange
         }
         Registry::MarketSemanticsUnavailable => {
             BarJoinedCutAcceptanceCompletionUnavailableV1::RegistrySemantics
