@@ -251,11 +251,18 @@ test(browserAcceptance
     console.error("[strategy-viewer-browser] preview ready");
     browser = await openBrowser(browserExecutable);
     await browser.send("Page.enable");
+    await browser.send("Browser.grantPermissions", {
+      origin,
+      permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+    });
     console.error("[strategy-viewer-browser] navigating source route");
     await browser.send("Page.navigate", { url: route });
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
+    const renderedSource = await readBrowserValue(browser,
+      `document.querySelector('[data-slot="strategy-read-only-code"] .cm-content')?.innerText ?? ''`);
+    assert.equal(renderedSource.trimEnd(), source.trimEnd());
     const preparedInteraction = await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
       const content = host?.querySelector('.cm-content');
@@ -336,6 +343,12 @@ test(browserAcceptance
       copyEnabled: true,
       preview: "not_run",
     });
+
+    await readBrowserValue(browser,
+      `document.querySelector('button[aria-label="Copy strategy source"]')?.click()`);
+    await waitForBrowserExpression(browser,
+      `document.body?.innerText.includes('Copied') === true`);
+    assert.equal(await readBrowserValue(browser, `navigator.clipboard.readText()`), source);
 
     const mismatchRoute = `${origin}/rd/artifacts/${buildRequestIdentity}/attempts/${mismatchAttemptIdentity}/`;
     await browser.send("Page.navigate", { url: mismatchRoute });
