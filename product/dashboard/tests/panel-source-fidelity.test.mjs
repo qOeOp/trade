@@ -93,6 +93,7 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(27px, 2vw, 34px\);/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
+  assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
 });

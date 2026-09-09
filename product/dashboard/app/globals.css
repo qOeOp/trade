@@ -1254,6 +1254,7 @@ button.rd-research-item { cursor: pointer; }
   .split-bento[data-height-mode="viewport"] > .data-table-surface > .data-workspace-table > .data-workspace-viewport { max-height: min(620px, calc(100dvh - 240px)); }
   .split-bento[data-height-mode="viewport"] > .detail-inspector { position: static; overflow-y: visible; }
   .aggregate-summary { grid-template-columns: 1fr; }
+  .aggregate-summary.run-detail-summaries { grid-template-columns: 1fr; }
   .aggregate-summary-group + .aggregate-summary-group { border-top: 1px solid var(--border-default); border-left: 0; }
   .operations-run-summaries { grid-template-columns: minmax(240px, .85fr) minmax(0, 1.8fr); }
   .operations-run-summaries .insight-summary-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
