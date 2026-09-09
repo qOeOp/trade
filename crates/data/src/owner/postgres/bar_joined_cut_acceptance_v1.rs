@@ -19,9 +19,9 @@ use crate::owner::{
         UntrustedBarScheduleProposalV1, prepare_bar_schedule_commit_v1,
     },
     instrument_master::{
-        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterFactProposalV1,
-        InstrumentMasterReadbackV1, InstrumentMasterResolver, InstrumentMasterScopeV1,
-        InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
+        BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
+        InstrumentMasterFactProposalV1, InstrumentMasterReadbackV1, InstrumentMasterResolver,
+        InstrumentMasterScopeV1, InstrumentVenueSourceMapping, UntrustedInstrumentMasterRequestV1,
     },
     observation_census::UntrustedObservationCensusRequestV1,
     pit_snapshot::{
@@ -49,12 +49,11 @@ use crate::owner::{
         SealedReplayInput, UntrustedSealedReplayInputRequest, seal_replay_input,
     },
     source_binding::{
-        BindingDigest, MarketDataClockAdmission, UntrustedAdapterBinding,
+        BindingDigest, MarketDataClockAdmission, SourceBindingError, UntrustedAdapterBinding,
         UntrustedCompleteFrontier, UntrustedCredentialAudienceClaim,
         UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
         UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal,
         UntrustedTrustPolicy,
-        SourceBindingError,
         authority::{OwnerSourceBindingDecision, derive_binding_id, derive_time_evidence_identity},
     },
     strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
@@ -217,18 +216,25 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         Ok::<_, ()>(head)
     }
     .await
-    .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
-    owner
-        .append_instrument_master_fact(acceptance_instrument_fact(), head.handoff.locator())
+    .map_err(|()| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
+    let instrument_request = acceptance_instrument_request(head.handoff.locator().clone());
+    let instrument = match owner
+        .resolve_instrument_master(&instrument_request, None)
         .await
-        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentAppend)?;
-    let instrument = owner
-        .resolve_instrument_master(
-            &acceptance_instrument_request(head.handoff.locator().clone()),
-            None,
-        )
-        .await
-        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback)?;
+    {
+        Ok(instrument) => instrument,
+        Err(InstrumentMasterError::UnknownIdentity) => {
+            owner
+                .append_instrument_master_fact(acceptance_instrument_fact(), head.handoff.locator())
+                .await
+                .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentAppend)?;
+            owner
+                .resolve_instrument_master(&instrument_request, None)
+                .await
+                .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback)?
+        }
+        Err(_) => return Err(BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback),
+    };
 
     let membership_frontier = digest(170);
     let universe_request = UntrustedUniverseSelectionRequestV1::new(
