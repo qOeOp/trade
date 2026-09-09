@@ -253,7 +253,13 @@ impl AdmittedProgramEventV2 {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(
+        test,
+        any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "linux", target_arch = "aarch64")
+        )
+    ))]
     pub(crate) fn issue_for_plan_test_with_owner_sample_projection(
         plan: &StrategyPlanV2,
         envelope: LifecycleEnvelopeV1,
