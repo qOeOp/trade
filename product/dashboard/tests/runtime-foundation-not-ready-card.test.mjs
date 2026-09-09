@@ -36,7 +36,12 @@ test("all Runtime routes render the admitted fixed not-ready foundation card", a
 
 test("Runtime card uses compact grouped theme surfaces without a literal palette", async () => {
   const css = await readFile(cssUrl, "utf8");
+  const source = await readFile(componentUrl, "utf8");
   assert.match(css, /\.statusBar \{[\s\S]*border-radius: 999px/);
+  assert.match(css, /\.statusBar small \{[^}]*text-transform: none;/u);
+  assert.match(source, /<small>foundation state<\/small>/u);
+  assert.match(source, /<small>revalidation dependencies<\/small>/u);
+  assert.match(source, /<small>source revision<\/small>/u);
   assert.match(css, /\.sectionHeader \{[\s\S]*background: color-mix\(in oklch, var\(--status-warning\) 5%, var\(--panel-chrome-bg\)\)/);
   assert.match(css, /\.dependencies li \+ li \{[\s\S]*border-top:/);
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);

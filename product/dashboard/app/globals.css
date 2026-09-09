@@ -1203,7 +1203,7 @@ button.rd-research-item { cursor: pointer; }
 .compact-status-bar { width: fit-content; max-width: 100%; min-height: 52px; padding: 5px; display: flex; align-items: center; gap: 10px; overflow-x: auto; border: .5px solid var(--border-default); border-radius: 16px; background: var(--panel-frame-bg); box-shadow: var(--elevation-hairline); scrollbar-width: none; }
 .compact-status-bar::-webkit-scrollbar { display: none; }
 .compact-status-group { min-width: max-content; min-height: 42px; display: flex; align-items: center; gap: 0; border-radius: 12px; background: transparent; }
-.compact-status-group-label { min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; border-radius: 11px; color: var(--text-muted); background: var(--surface-panel); font: 700 8px/1.15 ui-monospace, monospace; letter-spacing: .07em; text-transform: uppercase; }
+.compact-status-group-label { min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; border-radius: 11px; color: var(--text-muted); background: var(--surface-panel); font: 700 8px/1.15 ui-monospace, monospace; letter-spacing: .07em; text-transform: none; }
 .compact-status-group:nth-child(even) .compact-status-group-label { background: var(--panel-chrome-bg); }
 .compact-status-group dl { min-height: 38px; margin: 0; display: flex; align-items: center; }
 .compact-status-item { min-width: max-content; min-height: 28px; padding: 0 18px; display: flex; align-items: center; gap: 8px; border-left: .5px solid var(--border-default); }

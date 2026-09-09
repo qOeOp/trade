@@ -150,6 +150,11 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(workers, /title="Workers"[\s\S]+?<PanelFrameInfo>/u);
   assert.doesNotMatch(workers, /description="[^"]*(?:PostgreSQL|custody|operational facts)/u);
   assert.match(logs, /title="Service logs"[\s\S]+?<PanelFrameInfo>/u);
+  assert.match(logs, /<CompactStatusGroup label="severity">/u);
+  assert.match(logs, /<CompactStatusGroup label="instances">/u);
+  for (const label of ["error", "warning", "info", "worker", "server"]) {
+    assert.match(logs, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
+  }
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
   assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);

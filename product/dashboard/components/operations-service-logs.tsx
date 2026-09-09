@@ -408,14 +408,14 @@ export function OperationsServiceLogs() {
         />
         <PanelFrameBody className="service-logs-body">
           <CompactStatusBar className="service-logs-status" aria-label="Service log summary">
-            <CompactStatusGroup label="Severity">
-              <CompactStatusItem label="Error" value={summaryValue(summary?.error)} />
-              <CompactStatusItem label="Warning" value={summaryValue(summary?.warning)} />
-              <CompactStatusItem label="Info" value={summaryValue(summary?.info)} />
+            <CompactStatusGroup label="severity">
+              <CompactStatusItem label="error" value={summaryValue(summary?.error)} />
+              <CompactStatusItem label="warning" value={summaryValue(summary?.warning)} />
+              <CompactStatusItem label="info" value={summaryValue(summary?.info)} />
             </CompactStatusGroup>
-            <CompactStatusGroup label="Instances">
-              <CompactStatusItem label="Worker" value={summaryValue(summary?.worker)} />
-              <CompactStatusItem label="Server" value={summaryValue(summary?.server)} />
+            <CompactStatusGroup label="instances">
+              <CompactStatusItem label="worker" value={summaryValue(summary?.worker)} />
+              <CompactStatusItem label="server" value={summaryValue(summary?.server)} />
             </CompactStatusGroup>
           </CompactStatusBar>
 

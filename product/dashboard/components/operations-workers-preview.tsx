@@ -250,13 +250,13 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
         />
         <PanelFrameBody>
           <CompactStatusBar className="operations-workers-status" aria-label="Worker summary">
-            <CompactStatusGroup label="Fleet">
-              <CompactStatusItem label="Available" value={summaryValue(summaries.online)} />
-              <CompactStatusItem label="Expired" value={summaryValue(summaries.expired)} />
+            <CompactStatusGroup label="fleet">
+              <CompactStatusItem label="available" value={summaryValue(summaries.online)} />
+              <CompactStatusItem label="expired" value={summaryValue(summaries.expired)} />
             </CompactStatusGroup>
-            <CompactStatusGroup label="Workload">
-              <CompactStatusItem label="Claimed" value={summaryValue(summaries.claimedJobs)} />
-              <CompactStatusItem label="Active" value={summaryValue(summaries.activeJobs)} />
+            <CompactStatusGroup label="workload">
+              <CompactStatusItem label="claimed" value={summaryValue(summaries.claimedJobs)} />
+              <CompactStatusItem label="active" value={summaryValue(summaries.activeJobs)} />
             </CompactStatusGroup>
           </CompactStatusBar>
         {result?.availability === "available" ? (

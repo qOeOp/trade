@@ -78,15 +78,15 @@ export function RuntimeFoundationNotReadyCard() {
         <div className={styles.statusBar} aria-label="Runtime foundation status">
           <span className={styles.statusIcon} aria-hidden="true"><ModuleIcons.cpu size={18} /></span>
           <div>
-            <small>Foundation state</small>
+            <small>foundation state</small>
             <strong>NotReady</strong>
           </div>
           <div>
-            <small>Revalidation dependencies</small>
+            <small>revalidation dependencies</small>
             <strong>4 required</strong>
           </div>
           <div>
-            <small>Source revision</small>
+            <small>source revision</small>
             <code>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code>
           </div>
         </div>

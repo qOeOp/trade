@@ -53,6 +53,12 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /no unbound-run readiness claim/);
   assert.match(css, /\.compact-status-bar \{[^}]*min-height: 52px;[^}]*border-radius: 16px;/u);
   assert.match(css, /\.compact-status-group-label \{[^}]*min-height: 38px;[^}]*border-radius: 11px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*text-transform: none;/u);
+  assert.match(workers, /<CompactStatusGroup label="fleet">/u);
+  assert.match(workers, /<CompactStatusGroup label="workload">/u);
+  for (const label of ["available", "expired", "claimed", "active"]) {
+    assert.match(workers, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
+  }
   assert.doesNotMatch(css, /\.compact-status-(?:bar|group|group-label) \{[^}]*border-radius: 999px;/u);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);
