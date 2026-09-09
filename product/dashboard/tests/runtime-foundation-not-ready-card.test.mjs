@@ -11,9 +11,22 @@ test("Runtime surface keeps fixed evidence but presents a compact business state
   for (const label of ["Permissions", "Instance storage", "Artifact checks", "Execution recovery"]) {
     assert.match(source, new RegExp(`label: "${label}"`));
   }
+  for (const dependency of [
+    "Authorized-generation decision read",
+    "Canonical Runtime custody",
+    "Compatibility recovery read",
+    "Recovery frontier read",
+  ]) {
+    assert.match(source, new RegExp(dependency));
+  }
+  for (const evidenceLine of ["#L33-L35", "#L36-L37", "#L38-L39", "#L40-L41"]) {
+    assert.match(source, new RegExp(evidenceLine));
+  }
   assert.match(source, /73edb0e32f1745cc835951a1b9bd6cb38e456c35/);
   assert.match(source, /96296549794b5b66fb3d730a505cc0551fe80e16/);
   assert.match(source, /<PanelFrameInfo label="View Runtime technical details">/);
+  assert.match(source, /Refresh foundation/);
+  assert.match(source, /Copy foundation locator/);
   assert.match(source, /reason="RUNTIME_FOUNDATION_NOT_READY"/);
 });
 
@@ -33,7 +46,7 @@ test("Runtime composes shared unavailable and summary-list atoms", async () => {
   assert.doesNotMatch(source, /className=\{styles\.|\.module\.css/);
 });
 
-test("Runtime surface exposes no effect or noisy primary evidence controls", async () => {
+test("Runtime surface preserves read-only controls without effect actions or noisy primary evidence", async () => {
   const source = await readFile(componentUrl, "utf8");
   assert.doesNotMatch(source, />\s*(Apply|Resolve|Restore|Create instance|Trade|Copy locator|Open dependency)\s*</u);
   assert.doesNotMatch(source, /fetch\(|WebSocket|EventSource|\bcredential\b|\border\b/iu);

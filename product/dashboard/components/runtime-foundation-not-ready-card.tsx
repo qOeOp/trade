@@ -1,9 +1,15 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { UnavailableState } from "./ui/evidence-strip";
-import { EvidenceIcons, ModuleIcons } from "./ui/iconography";
+import { FilterButton } from "./ui/filter-toolbar";
+import { EvidenceIcons, InterfaceIcons, ModuleIcons } from "./ui/iconography";
 import {
   PanelFrame,
   PanelFrameBody,
   PanelFrameFooter,
+  PanelFrameFooterActions,
   PanelFrameFooterSummary,
   PanelFrameHeader,
   PanelFrameInfo,
@@ -18,13 +24,46 @@ const FOUNDATION_LOCATOR = `https://github.com/qOeOp/trade/commit/${FOUNDATION_R
 const SOURCE_LOCATOR = `https://github.com/qOeOp/trade/blob/${FOUNDATION_REVISION}/crates/runtime/src/lib.rs`;
 
 const prerequisites = [
-  { label: "Permissions", detail: "Authorized strategy generation" },
-  { label: "Instance storage", detail: "Create and restore custody" },
-  { label: "Artifact checks", detail: "Compatibility recovery" },
-  { label: "Execution recovery", detail: "Latest safe recovery point" },
+  {
+    label: "Permissions",
+    detail: "Authorized strategy generation",
+    owner: "Governance",
+    dependency: "Authorized-generation decision read",
+    href: `${SOURCE_LOCATOR}#L33-L35`,
+  },
+  {
+    label: "Instance storage",
+    detail: "Create and restore custody",
+    owner: "Runtime",
+    dependency: "Canonical Runtime custody",
+    href: `${SOURCE_LOCATOR}#L36-L37`,
+  },
+  {
+    label: "Artifact checks",
+    detail: "Compatibility recovery",
+    owner: "Artifact",
+    dependency: "Compatibility recovery read",
+    href: `${SOURCE_LOCATOR}#L38-L39`,
+  },
+  {
+    label: "Execution recovery",
+    detail: "Latest safe recovery point",
+    owner: "Execution",
+    dependency: "Recovery frontier read",
+    href: `${SOURCE_LOCATOR}#L40-L41`,
+  },
 ] as const;
 
 export function RuntimeFoundationNotReadyCard() {
+  const router = useRouter();
+  const [copied, setCopied] = useState(false);
+
+  const copyLocator = async () => {
+    await navigator.clipboard.writeText(FOUNDATION_LOCATOR);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1_600);
+  };
+
   return (
     <PanelFrame aria-labelledby="runtime-foundation-title">
       <PanelFrameHeader
@@ -34,11 +73,22 @@ export function RuntimeFoundationNotReadyCard() {
         actions={(
           <>
             <StatusBadge tone="warning">Setup incomplete</StatusBadge>
+            <FilterButton type="button" variant="outline" onClick={() => router.refresh()}>
+              <InterfaceIcons.refresh size={13} aria-hidden="true" />
+              Refresh foundation
+            </FilterButton>
             <PanelFrameInfo label="View Runtime technical details">
               <span>Foundation</span>
               <a href={FOUNDATION_LOCATOR} target="_blank" rel="noreferrer"><code>{FOUNDATION_REVISION.slice(0, 12)}</code></a>
               <span>Source</span>
               <a href={SOURCE_LOCATOR} target="_blank" rel="noreferrer"><code>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code></a>
+              {prerequisites.map((item, index) => (
+                <span key={item.owner}>
+                  {String(index + 1).padStart(2, "0")} · {item.owner}
+                  {" · "}
+                  <a href={item.href} target="_blank" rel="noreferrer">{item.dependency}</a>
+                </span>
+              ))}
               <p>Runtime remains fail-closed until all four canonical dependencies are available.</p>
             </PanelFrameInfo>
           </>
@@ -68,11 +118,17 @@ export function RuntimeFoundationNotReadyCard() {
           </SummaryList>
         </PageStack>
       </PanelFrameBody>
-      <PanelFrameFooter>
+      <PanelFrameFooter layout="split">
         <PanelFrameFooterSummary
           primary="No strategy instances available"
           secondary="Complete setup before this page can show Runtime activity."
         />
+        <PanelFrameFooterActions>
+          <FilterButton type="button" variant="outline" onClick={() => void copyLocator()}>
+            <InterfaceIcons.copy size={13} aria-hidden="true" />
+            {copied ? "Copied foundation locator" : "Copy foundation locator"}
+          </FilterButton>
+        </PanelFrameFooterActions>
       </PanelFrameFooter>
     </PanelFrame>
   );
