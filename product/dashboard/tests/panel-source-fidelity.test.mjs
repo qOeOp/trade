@@ -14,9 +14,8 @@ const runStorePreview = await readFile(new URL("../components/operations-runstor
 const dashboardShell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
 const frameChromeModules = await Promise.all([
   "market-data-owner-foundation-card.module.css",
-  "runtime-foundation-not-ready-card.module.css",
-  "portfolio-view-unavailable-card.module.css",
   "ui/market-heatmap.module.css",
+  "ui/summary-list.module.css",
 ].map((path) => readFile(new URL(`../components/${path}`, import.meta.url), "utf8")));
 const sourceLock = JSON.parse(await readFile(new URL("../vibe-ui.lock.json", import.meta.url), "utf8"));
 
@@ -123,6 +122,7 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
   assert.match(css, /\.panel-info-disclosure > div \{[^}]+position: absolute;[^}]+background: var\(--surface-elevated\);/u);
+  assert.match(css, /\.panel-frame-actions \.panel-info-disclosure a \{[^}]+min-height: 0;[^}]+background: transparent;[^}]+box-shadow: none;/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
   assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);

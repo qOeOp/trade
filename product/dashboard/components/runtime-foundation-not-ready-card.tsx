@@ -1,129 +1,78 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { FilterButton, FilterLink } from "./ui/filter-toolbar";
-import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
-import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
+import { UnavailableState } from "./ui/evidence-strip";
+import { EvidenceIcons, ModuleIcons } from "./ui/iconography";
 import {
   PanelFrame,
   PanelFrameBody,
   PanelFrameFooter,
-  PanelFrameFooterActions,
   PanelFrameFooterSummary,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
-import styles from "./runtime-foundation-not-ready-card.module.css";
+import { SummaryItem, SummaryList } from "./ui/summary-list";
+import { PageStack } from "./ui/page-stack";
 
 const FOUNDATION_REVISION = "73edb0e32f1745cc835951a1b9bd6cb38e456c35";
 const FOUNDATION_SOURCE_REVISION = "96296549794b5b66fb3d730a505cc0551fe80e16";
 const FOUNDATION_LOCATOR = `https://github.com/qOeOp/trade/commit/${FOUNDATION_REVISION}`;
 const SOURCE_LOCATOR = `https://github.com/qOeOp/trade/blob/${FOUNDATION_REVISION}/crates/runtime/src/lib.rs`;
 
-const dependencies = [
-  {
-    owner: "Governance",
-    name: "Authorized-generation decision read",
-    description: "A sealed Governance decision read port must exist before Runtime can revalidate.",
-    href: `${SOURCE_LOCATOR}#L33-L35`,
-  },
-  {
-    owner: "Runtime",
-    name: "Canonical Runtime custody",
-    description: "Durable create-or-join custody remains an explicit missing dependency.",
-    href: `${SOURCE_LOCATOR}#L36-L37`,
-  },
-  {
-    owner: "Artifact",
-    name: "Compatibility recovery read",
-    description: "Artifact compatibility requires an authoritative recovery read port.",
-    href: `${SOURCE_LOCATOR}#L38-L39`,
-  },
-  {
-    owner: "Execution",
-    name: "Recovery frontier read",
-    description: "Execution must expose an authoritative recovery frontier read port.",
-    href: `${SOURCE_LOCATOR}#L40-L41`,
-  },
+const prerequisites = [
+  { label: "Permissions", detail: "Authorized strategy generation" },
+  { label: "Instance storage", detail: "Create and restore custody" },
+  { label: "Artifact checks", detail: "Compatibility recovery" },
+  { label: "Execution recovery", detail: "Latest safe recovery point" },
 ] as const;
 
 export function RuntimeFoundationNotReadyCard() {
-  const router = useRouter();
-  const [copied, setCopied] = useState(false);
-
-  const copyLocator = async () => {
-    await navigator.clipboard.writeText(FOUNDATION_LOCATOR);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1_600);
-  };
-
   return (
-    <PanelFrame className={styles.frame} aria-labelledby="runtime-foundation-title">
+    <PanelFrame aria-labelledby="runtime-foundation-title">
       <PanelFrameHeader
-        eyebrow="Runtime foundation"
-        title={<span id="runtime-foundation-title">Runtime is awaiting canonical custody</span>}
-        description="The static foundation is present. Runtime cannot create, restore or apply an authoritative Strategy Instance."
-        meta={`PR #330 · ${FOUNDATION_REVISION.slice(0, 12)}`}
+        eyebrow="Strategy runtime"
+        title={<span id="runtime-foundation-title">Runtime setup</span>}
+        description="Create, restore and monitor strategy instances from this workspace."
         actions={(
-          <div className={styles.headerActions}>
-            <StatusBadge tone="warning">Not ready</StatusBadge>
-            <FilterButton type="button" variant="outline" onClick={() => router.refresh()}>
-              <InterfaceIcons.refresh size={13} aria-hidden="true" />
-              Refresh foundation
-            </FilterButton>
-          </div>
+          <>
+            <StatusBadge tone="warning">Setup incomplete</StatusBadge>
+            <PanelFrameInfo label="View Runtime technical details">
+              <span>Foundation</span>
+              <a href={FOUNDATION_LOCATOR} target="_blank" rel="noreferrer"><code>{FOUNDATION_REVISION.slice(0, 12)}</code></a>
+              <span>Source</span>
+              <a href={SOURCE_LOCATOR} target="_blank" rel="noreferrer"><code>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code></a>
+              <p>Runtime remains fail-closed until all four canonical dependencies are available.</p>
+            </PanelFrameInfo>
+          </>
         )}
       />
-      <PanelFrameBody className={styles.body}>
-        <CompactStatusBar aria-label="Runtime foundation status">
-          <CompactStatusGroup label="foundation">
-            <CompactStatusItem label="state" value="not ready" tone="warning" />
-            <CompactStatusItem label="dependencies" value="4 required" />
-            <CompactStatusItem label="source revision" value={(
-              <code title={FOUNDATION_SOURCE_REVISION}>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code>
-            )} />
-          </CompactStatusGroup>
-        </CompactStatusBar>
-
-        <section className={styles.dependencies} aria-labelledby="runtime-dependencies-title">
-          <header className={styles.sectionHeader}>
-            <div>
-              <small>Required owner boundaries</small>
-              <h3 id="runtime-dependencies-title">Revalidate after all four dependencies arrive</h3>
-            </div>
-            <span>Ordered contract</span>
-          </header>
-          <ol>
-            {dependencies.map((dependency, index) => (
-              <li key={dependency.owner}>
-                <span className={styles.index}>{String(index + 1).padStart(2, "0")}</span>
-                <span className={styles.dependencyIcon} aria-hidden="true"><EvidenceIcons.pending size={16} /></span>
-                <div>
-                  <small>{dependency.owner}</small>
-                  <strong>{dependency.name}</strong>
-                  <p>{dependency.description}</p>
-                </div>
-                <FilterLink href={dependency.href} target="_blank" rel="noreferrer">
-                  Open dependency
-                  <InterfaceIcons.open size={12} aria-hidden="true" />
-                </FilterLink>
-              </li>
+      <PanelFrameBody density="compact">
+        <PageStack gap="compact">
+          <UnavailableState
+            density="compact"
+            surface="card"
+            icon={<ModuleIcons.cpu aria-hidden="true" size={20} />}
+            title="Runtime is not ready yet"
+            reason="RUNTIME_FOUNDATION_NOT_READY"
+            detail="Connect all four required services before creating or restoring a strategy instance."
+          />
+          <SummaryList aria-label="Required Runtime services">
+            {prerequisites.map((item, index) => (
+              <SummaryItem
+                key={item.label}
+                eyebrow={`Requirement ${String(index + 1).padStart(2, "0")}`}
+                title={item.label}
+                description={item.detail}
+                leading={<EvidenceIcons.pending aria-label="Pending" size={15} />}
+                trailing={<StatusBadge tone="warning">Pending</StatusBadge>}
+              />
             ))}
-          </ol>
-        </section>
+          </SummaryList>
+        </PageStack>
       </PanelFrameBody>
-      <PanelFrameFooter layout="split">
+      <PanelFrameFooter>
         <PanelFrameFooterSummary
-          primary="PR #330 · non-authoritative Runtime foundation"
-          secondary="No Runtime custody, instance, generation, checkpoint, recovery or application surface"
+          primary="No strategy instances available"
+          secondary="Complete setup before this page can show Runtime activity."
         />
-        <PanelFrameFooterActions>
-          <FilterButton type="button" variant="outline" onClick={() => void copyLocator()}>
-            <InterfaceIcons.copy size={13} aria-hidden="true" />
-            {copied ? "Copied foundation locator" : "Copy foundation locator"}
-          </FilterButton>
-        </PanelFrameFooterActions>
       </PanelFrameFooter>
     </PanelFrame>
   );

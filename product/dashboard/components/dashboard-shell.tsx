@@ -236,7 +236,8 @@ export function DashboardShell({
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
-          {!ownsRouteChrome && !operationsConnected ? <footer className="prototype-notice">
+          {!ownsRouteChrome && !operationsConnected && !marketDataFoundation
+            && !runtimeFoundation && !portfolioUnavailable ? <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
               : artifactDirectory
