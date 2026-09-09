@@ -28,6 +28,7 @@ import {
   PanelFrameHeader,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
+import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import styles from "./owner-directory.module.css";
 
@@ -285,6 +286,7 @@ export function ArtifactDirectory() {
   const pending = view === "verified"
     ? availability === "loading"
     : custodyCandidates.availability === "loading";
+  const showPending = useDelayedPending(pending);
   const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
   const candidateTotal = candidateKind === "attempts"
     ? custodyCandidates.projection?.artifactAttemptTotal ?? 0
@@ -303,7 +305,7 @@ export function ArtifactDirectory() {
             : "Bounded custody identities only. Candidates carry no Artifact or TrialFamily outcome."}
           actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} />
-            {pending ? "Reading…" : "Refresh"}
+            {showPending ? "Reading…" : "Refresh"}
           </button>}
         />
         <PanelFrameBody>
@@ -360,7 +362,8 @@ export function ArtifactDirectory() {
                   title="Artifact directory unavailable"
                   reason={reason ?? "ARTIFACT_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
+              ) : <div className={`data-workspace-empty ${availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.artifact aria-hidden="true" size={18} />
                 <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
               </div>}
@@ -379,7 +382,8 @@ export function ArtifactDirectory() {
                 <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className="data-workspace-empty">
+              ) : <div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}</p>
               </div>}
@@ -398,7 +402,8 @@ export function ArtifactDirectory() {
                 <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className="data-workspace-empty">
+              ) : <div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}</p>
               </div>}

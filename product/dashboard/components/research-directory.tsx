@@ -26,6 +26,7 @@ import {
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
 import { researchAvailabilityTone } from "./ui/status-tone-policy";
+import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
 import styles from "./owner-directory.module.css";
 
@@ -229,6 +230,7 @@ export function ResearchDirectory() {
   const pending = view === "verified"
     ? availability === "loading"
     : custodyCandidates.availability === "loading";
+  const showPending = useDelayedPending(pending);
   const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
 
   return (
@@ -244,7 +246,7 @@ export function ResearchDirectory() {
             : "Bounded custody identities only. A candidate is not a verified Research outcome."}
           actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} />
-            {pending ? "Reading…" : "Refresh"}
+            {showPending ? "Reading…" : "Refresh"}
           </button>}
         />
         <PanelFrameBody>
@@ -285,7 +287,8 @@ export function ResearchDirectory() {
                   title="Research directory unavailable"
                   reason={reason ?? "RESEARCH_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
+              ) : <div className={`data-workspace-empty ${availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.research aria-hidden="true" size={18} />
                 <p>{availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}</p>
               </div>}
@@ -307,7 +310,8 @@ export function ResearchDirectory() {
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
+              ) : <div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading"
                   ? "Reading custody candidates…"

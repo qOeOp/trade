@@ -31,6 +31,10 @@
   letter-spacing: .015em;
 }
 
+.pendingQuiet {
+  visibility: hidden;
+}
+
 .identityCell {
   min-width: 0;
   display: grid;

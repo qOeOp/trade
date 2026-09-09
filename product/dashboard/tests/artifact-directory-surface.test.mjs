@@ -29,6 +29,9 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(css, /\.tableSurface :global\(\.unavailable-state\)[^{]*\{[^}]*min-height: 180px;[^}]*justify-content: center;[^}]*border-top: 0;/su);
   assert.match(css, /\.tableSurface :global\(\.unavailable-state b\)[^{]*\{[^}]*font-size: 13px;[^}]*line-height: 1\.35;/su);
   assert.match(css, /\.tableSurface :global\(\.unavailable-state code\)[^{]*\{[^}]*font-size: 10px;[^}]*line-height: 1\.4;/su);
+  assert.match(component, /useDelayedPending\(pending\)/u);
+  assert.match(component, /availability === "loading" && !showPending[\s\S]+styles\.pendingQuiet/u);
+  assert.match(css, /\.pendingQuiet \{\s*visibility: hidden;/u);
   assert.match(css, /overflow-y: auto/u);
   assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
   assert.doesNotMatch(component, />View<|column chooser|registered|visible count|Run|Save|textarea|contentEditable/u);
