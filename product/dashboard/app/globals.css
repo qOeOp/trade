@@ -145,11 +145,8 @@ a { color: inherit; text-decoration: none; }
 .rail-module-link[data-active]:focus-visible { box-shadow: var(--elevation-base), 0 0 0 2px color-mix(in srgb, var(--text-muted) 35%, transparent); }
 
 .main-column { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.top-bar { height: 56px; padding-right: 16px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, max-content) max-content; align-items: center; gap: 12px; flex: 0 0 auto; }
-.status-tape { min-width: 0; max-width: 100%; display: flex; gap: 12px; overflow: hidden; color: var(--text-muted); font: 600 10px/1.2 ui-monospace, monospace; letter-spacing: .05em; }
-.status-tape span { min-width: 0; max-width: max-content; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status-tape b { color: var(--text-muted); }
-.module-tabs { width: fit-content; min-width: 0; max-width: calc(100vw - 252px); padding: 4px; display: flex; align-items: center; justify-self: end; gap: 2px; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid color-mix(in srgb, var(--surface-elevated) 60%, transparent); border-radius: 999px; background: var(--nav-light-glass-bg); backdrop-filter: blur(4px); scroll-behavior: smooth; scrollbar-width: none; }
+.top-bar { height: 56px; padding-right: 16px; display: grid; grid-template-columns: minmax(0, 1fr) max-content; align-items: center; gap: 12px; flex: 0 0 auto; }
+.module-tabs { width: fit-content; min-width: 0; max-width: calc(100vw - 180px); padding: 4px; display: flex; align-items: center; justify-self: start; gap: 2px; overflow-x: auto; overscroll-behavior-inline: contain; border: 1px solid color-mix(in srgb, var(--surface-elevated) 60%, transparent); border-radius: 999px; background: var(--nav-light-glass-bg); backdrop-filter: blur(4px); scroll-behavior: smooth; scrollbar-width: none; }
 .module-tabs[data-overflow-end] { mask-image: linear-gradient(to right, var(--mask-opaque) 0, var(--mask-opaque) calc(100% - 32px), transparent 100%); }
 .module-tabs[data-overflow-start] { mask-image: linear-gradient(to right, transparent 0, var(--mask-opaque) 32px, var(--mask-opaque) 100%); }
 .module-tabs[data-overflow-start][data-overflow-end] { mask-image: linear-gradient(to right, transparent 0, var(--mask-opaque) 32px, var(--mask-opaque) calc(100% - 32px), transparent 100%); }
@@ -1307,9 +1304,7 @@ button.rd-research-item { cursor: pointer; }
   .mobile-module-navigation { display: block; }
   .main-column { position: relative; z-index: 1; min-height: 0; overflow: hidden; background: var(--surface-page); transform: translateX(0); transform-origin: left center; transition: transform 200ms cubic-bezier(.2, .8, .2, 1), border-radius 200ms ease, box-shadow 200ms ease; }
   .dashboard-shell:has(.mobile-module-navigation .module-trigger[aria-expanded="true"]) .main-column { overflow: clip; border-radius: 24px 0 0 24px; box-shadow: var(--elevation-drawer); transform: translateX(76px); }
-  .top-bar { height: auto; min-height: 56px; padding: 8px 12px; position: sticky; top: 0; z-index: 5; grid-template-columns: max-content minmax(0, 1fr) max-content; background: var(--nav-light-glass-bg); backdrop-filter: blur(4px); }
-  .status-tape { flex: 0 0 auto; }
-  .status-tape span:first-child { padding: 7px 9px; border: 1px solid var(--border-default); border-radius: 999px; }
+  .top-bar { height: auto; min-height: 56px; padding: 8px 12px; position: sticky; top: 0; z-index: 5; grid-template-columns: max-content minmax(0, 1fr); background: var(--nav-light-glass-bg); backdrop-filter: blur(4px); }
   .module-tabs { display: none; }
   .mobile-tab-dock { position: fixed; left: 50%; bottom: max(12px, env(safe-area-inset-bottom, 0px)); z-index: 20; max-width: calc(100vw - 24px); width: max-content; padding: 4px; display: flex; align-items: center; gap: 2px; overflow-x: auto; border: 1px solid color-mix(in srgb, var(--surface-elevated) 60%, transparent); border-radius: 999px; background: var(--nav-heavy-glass-bg); box-shadow: var(--elevation-raised); backdrop-filter: blur(40px); scrollbar-width: none; transform: translateX(-50%); transition: transform 200ms cubic-bezier(.2, .8, .2, 1); }
   .mobile-tab-dock[data-drawer-open="true"] { transform: translateX(calc(-50% + 76px)); }

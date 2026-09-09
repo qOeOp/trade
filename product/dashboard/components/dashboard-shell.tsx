@@ -41,11 +41,6 @@ function TopBar({ current }: { current: string }) {
   return (
     <header className="top-bar">
       <MobileModuleDrawer current={current} />
-      <div className="status-tape" aria-label="System evidence status">
-        <span title="MODE Unavailable">MODE <b>Unavailable</b></span>
-        <span title="DATA Unavailable">DATA <b>Unavailable</b></span>
-        <span title="RUNTIME Not ready">RUNTIME <b>Not ready</b></span>
-      </div>
       <ModuleTabLinks activeHref={activeHref} ariaLabel={`${activeModule.label} pages`}
         className="module-tabs" tabs={activeModule.tabs} />
       <div className="top-actions">

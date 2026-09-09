@@ -396,10 +396,10 @@ export function OperationsServiceLogs() {
             <button type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
             </button>
-            <button type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
+            <button type="button" data-action-variant="secondary" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
             </button>
-            {page && !pending ? <button type="button" onClick={() => void download()}>
+            {page && !pending ? <button type="button" data-action-variant="secondary" onClick={() => void download()}>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download
             </button> : null}
           </div></>}
@@ -433,7 +433,7 @@ export function OperationsServiceLogs() {
                 icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}
                 title={pending ? "Reading service instances" : permissionDenied ? "Service logs permission denied" : "Service logs unavailable"}
                 reason={pending ? "READING_SERVICE_LOGS" : unavailableReason}
-                detail={pending ? "No synthetic instance is rendered while the exact cut is loading." : "Prior positive instances were cleared; no availability is inferred."}
+                detail={pending ? "Checking for recent service activity." : "No service instances are available for this view."}
               />
               <div className="service-logs-main">
                 <UnavailableState
@@ -448,10 +448,10 @@ export function OperationsServiceLogs() {
                   state={pending ? "loading" : "unavailable"}
                   footer={<>
                     <div>
-                      <b>{pending ? "Reading exact observation" : "Service-log cut unavailable"}</b>
-                      <small>{pending ? "Zero synthetic rows · waiting for one canonical filter cut" : "Prior positive rows were cleared; completeness is not inferred."}</small>
+                      <b>{pending ? "Reading service logs" : "Service logs unavailable"}</b>
+                      <small>{pending ? "Checking for recent events." : "No events are available for this view."}</small>
                     </div>
-                    <code>{pending ? "READING_SERVICE_LOGS" : unavailableReason}</code>
+                    <PanelFrameInfo><b>Technical reason</b><code>{pending ? "READING_SERVICE_LOGS" : unavailableReason}</code></PanelFrameInfo>
                   </>}
                 >
                   <DataWorkspaceTable<ServiceLogRow>
@@ -469,20 +469,20 @@ export function OperationsServiceLogs() {
           ) : page ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
               {instances.length ? <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
-                : <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={16} />} title={filtered ? "No matching instances" : "No observed instances"}>The canonical cut contains no eligible service-log instances.</EmptyState>}
+                : <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={16} />} title={filtered ? "No matching instances" : "No recent activity"}>No services reported activity in the selected time range.</EmptyState>}
               <div className="service-logs-main">
                 {selected ? <ServiceInstanceCard instance={selected} cutDigest={page.filter_cut_digest} />
-                  : <UnavailableState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="Selected instance unavailable" reason="SERVICE_LOG_INSTANCE_SELECTION_UNAVAILABLE" />}
+                  : <EmptyState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="No instance selected">Choose an instance to inspect its events.</EmptyState>}
                 <BoundedLogViewport
                   className="service-logs-viewport"
                   aria-label="Bounded service log viewport"
                   state={viewportState}
                   footer={<>
                     <div>
-                      <b>{pending ? "Previous observation" : page.completeness === "complete" ? "Complete bounded cut" : "Partial evidence"}</b>
-                      <small>Showing newest {entries.length} of {page.retention_limit} retention limit · redacted fields stay omitted · event codes may be truncated at the gateway{downloadDisclosure ? ` · ${downloadDisclosure}` : ""}</small>
+                      <b>{pending ? "Previous events" : page.completeness === "complete" ? "Latest events" : "Some events unavailable"}</b>
+                      <small>{entries.length} {entries.length === 1 ? "event" : "events"} shown{downloadDisclosure ? ` · ${downloadDisclosure}` : ""}</small>
                     </div>
-                    <code title={page.filter_cut_digest}>{page.filter_cut_digest}</code>
+                    <PanelFrameInfo><b>Data details</b><code title={page.filter_cut_digest}>{page.filter_cut_digest}</code><p>Newest {entries.length} of {page.retention_limit}. Redacted fields stay omitted and long event codes may be shortened.</p></PanelFrameInfo>
                     <div className="bounded-log-pagination">
                       <label><span>Rows</span><select value={pageSize} onChange={(event) => {
                         const next = Number(event.target.value) as (typeof pageSizes)[number];
@@ -504,7 +504,7 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
-                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No logs match the canonical filter cut." : "No service logs were observed in this cut."}</p></div>}
+                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No events match the current filters." : "No events in the selected time range."}</p></div>}
                   />
                 </BoundedLogViewport>
                 {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Some logs are unavailable">Shown rows are verified, but one or more log sources did not respond.</DetailNotice> : null}

@@ -145,9 +145,17 @@ test("operational surfaces keep implementation language behind information contr
   assert.doesNotMatch(workers, /description="[^"]*(?:PostgreSQL|custody|operational facts)/u);
   assert.match(logs, /title="Service logs"[\s\S]+?<PanelFrameInfo>/u);
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
+  assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
+  assert.match(runs, /eyebrow="Current view"/u);
+  assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
+  assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
+  assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
+  assert.doesNotMatch(logs, /canonical cut contains|Complete bounded cut|retention limit|No service logs were observed in this cut/u);
+  assert.doesNotMatch(runs, /Source cut \{result\.observed_at\}|End of retained runs/u);
   assert.match(unavailable, /<details className="unavailable-state-info">[\s\S]+?<code>\{reason\}<\/code>/u);
   assert.doesNotMatch(unavailable, /<b>\{title\}<\/b>[\s\S]*?<code>\{reason\}<\/code><\/div>/u);
   assert.doesNotMatch(dashboardShell, /Registry, RunStore and zero-effect shadow workers/u);
+  assert.doesNotMatch(dashboardShell, /status-tape|System evidence status|MODE Unavailable|RUNTIME Not ready/u);
 });
 
 test("foundation footers remain frame-level siblings of the sole inset body", () => {
