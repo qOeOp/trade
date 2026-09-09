@@ -466,10 +466,11 @@ export function OperationsServiceLogs() {
                 </BoundedLogViewport>
               </div>
             </SplitBento>
+          ) : page && instances.length === 0 ? (
+            <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={18} />} title={filtered ? "No matching activity" : "No recent activity"}>No services reported events in the selected time range.</EmptyState>
           ) : page ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
-              {instances.length ? <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
-                : <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={16} />} title={filtered ? "No matching instances" : "No recent activity"}>No services reported activity in the selected time range.</EmptyState>}
+              <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
               <div className="service-logs-main">
                 {selected ? <ServiceInstanceCard instance={selected} cutDigest={page.filter_cut_digest} />
                   : <EmptyState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="No instance selected">Choose an instance to inspect its events.</EmptyState>}

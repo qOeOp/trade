@@ -52,7 +52,8 @@ function durationLabel(durationMs: number | null) {
 }
 
 function runLabel(identity: string) {
-  return `#${identity.slice(0, 8)}`;
+  const tail = identity.split("-").at(-1) ?? identity;
+  return `#${tail.slice(-8)}`;
 }
 
 function operationLabel(identity: string) {

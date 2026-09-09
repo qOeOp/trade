@@ -146,11 +146,13 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(logs, /title="Service logs"[\s\S]+?<PanelFrameInfo>/u);
   assert.doesNotMatch(logs, /description="[^"]*(?:RunStore|observation cut|inferred)/u);
   assert.doesNotMatch(runs, />\{run\.run_identity\}<\/code>|>\{run\.operation_id\}<\/code>/u);
+  assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
   assert.match(runs, /eyebrow="Current view"/u);
   assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
   assert.doesNotMatch(logs, /canonical cut contains|Complete bounded cut|retention limit|No service logs were observed in this cut/u);
+  assert.match(logs, /page && instances\.length === 0[\s\S]+?No services reported events in the selected time range/u);
   assert.doesNotMatch(runs, /Source cut \{result\.observed_at\}|End of retained runs/u);
   assert.match(unavailable, /<details className="unavailable-state-info">[\s\S]+?<code>\{reason\}<\/code>/u);
   assert.doesNotMatch(unavailable, /<b>\{title\}<\/b>[\s\S]*?<code>\{reason\}<\/code><\/div>/u);

@@ -44,6 +44,9 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /pagination paginationPerPage=\{20\}/);
   assert.match(workers, /Limited heartbeat history/);
   assert.match(workers, /Only the latest heartbeat and lease window are available/);
+  assert.match(workers, /compactWorkerLabel\(worker\.worker_identity\)/u);
+  assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
+  assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
   assert.doesNotMatch(workers, />Restart|>Clean cache|>Create|>Edit|>REPL/);
   assert.doesNotMatch(workers, /method: "POST"|method: "PUT"|method: "PATCH"|method: "DELETE"/);

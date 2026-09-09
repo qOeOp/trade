@@ -38,12 +38,22 @@ function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Unavailable";
 }
 
+function compactWorkerLabel(identity: string) {
+  const tail = identity.split(/[-_:]/u).filter(Boolean).at(-1) ?? identity;
+  return `Worker ${tail.slice(-10)}`;
+}
+
+function compactRunLabel(identity: string) {
+  const tail = identity.split("-").at(-1) ?? identity;
+  return `#${tail.slice(-8)}`;
+}
+
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
   return (
     <DetailInspector aria-label={`Worker ${worker.worker_identity}`}>
       <DetailInspectorHeader
         eyebrow={exact ? "Exact worker readback" : "Selected worker"}
-        title={worker.worker_identity}
+        title={compactWorkerLabel(worker.worker_identity)}
         titleAttribute={worker.worker_identity}
         status={<StatusBadge tone={availabilityTone(worker.lease_state)}>
           {worker.lease_state}
@@ -62,7 +72,7 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
           <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
             <DetailClusterFact label="Run">
               {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
-                <code title={worker.last_run_identity}>{worker.last_run_identity}</code><InterfaceIcons.open aria-hidden="true" size={12} />
+                <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
               </a> : <span>Unavailable</span>}
             </DetailClusterFact>
             <DetailClusterFact label="Claimed at">{worker.last_run_at
@@ -179,7 +189,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       grow: 1.35,
       ignoreRowClick: true,
       cell: (worker) => <a className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
-        <b>{worker.worker_identity}</b><span>Registered {displayTime(worker.registered_at)}</span>
+        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>Registered {displayTime(worker.registered_at)}</span>
       </a>,
     },
     {
@@ -207,7 +217,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       sortable: true,
       minWidth: "220px",
       grow: 1.1,
-      cell: (worker) => <div className="table-cell-stack"><code title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ?? "Unavailable"}</code><span>{worker.last_run_state ?? "No durable claim"} · {displayTime(worker.last_run_at)}</span></div>,
+      cell: (worker) => <div className="table-cell-stack"><b title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ? compactRunLabel(worker.last_run_identity) : "Unavailable"}</b><span>{worker.last_run_state ?? "No recent run"} · {displayTime(worker.last_run_at)}</span></div>,
     },
     {
       id: "operations",
