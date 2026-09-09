@@ -33,7 +33,7 @@ export function InsightSummary({
       {variant === "flow" ? <>
         <span className="insight-summary-flow-title">{eyebrow}</span>
         <div className="insight-summary-flow-metric">
-          <strong>{value}</strong><span>{label}</span>
+          <span>{label}</span><strong>{value}</strong>
         </div>
         <dl className="insight-summary-facts">{children}</dl>
       </> : <>

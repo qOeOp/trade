@@ -99,6 +99,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title \{[^}]+(?:background|border-radius):/u);
   assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-flow-title::after \{ content: "›";[^}]+margin-left: 48px;/u);
   assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact \{[^}]+flex: 1 0 max-content;[^}]+justify-content: center;/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact dd \{[^}]+font-size: 13px;/u);
+  assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact dt \{[^}]+font-size: 13px;/u);
   assert.match(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact \{ border-left: \.5px solid var\(--border-default\); \}/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\] \.insight-summary-fact::before/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);

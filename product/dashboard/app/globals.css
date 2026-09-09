@@ -1238,12 +1238,12 @@ button.rd-research-item { cursor: pointer; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-title { min-width: max-content; min-height: 38px; padding: 0 18px; display: inline-flex; align-items: center; color: var(--text-muted); font: 700 10px/1.15 ui-monospace, monospace; letter-spacing: .08em; text-transform: uppercase; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-title::after { content: "›"; margin-left: 48px; color: var(--text-muted); font-size: 20px; font-weight: 350; line-height: 1; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-metric,
-.operations-run-summaries[data-variant="flow"] .insight-summary-fact { min-width: max-content; min-height: 30px; padding: 0 32px; display: inline-flex; flex: 1 0 max-content; align-items: center; justify-content: center; gap: 9px; background: transparent; }
+.operations-run-summaries[data-variant="flow"] .insight-summary-fact { min-width: max-content; min-height: 30px; padding: 0 32px; display: inline-flex; flex: 1 0 max-content; align-items: center; justify-content: center; gap: 14px; background: transparent; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-fact { border-left: .5px solid var(--border-default); }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-metric strong,
-.operations-run-summaries[data-variant="flow"] .insight-summary-fact dd { margin: 0; color: var(--text-primary); font-size: 22px; font-weight: 690; line-height: 1; letter-spacing: -.035em; font-variant-numeric: tabular-nums; }
+.operations-run-summaries[data-variant="flow"] .insight-summary-fact dd { margin: 0; color: var(--text-primary); font-size: 13px; font-weight: 690; line-height: 1; letter-spacing: 0; font-variant-numeric: tabular-nums; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-flow-metric span,
-.operations-run-summaries[data-variant="flow"] .insight-summary-fact dt { color: var(--text-secondary); font-size: 12px; font-weight: 560; line-height: 1; }
+.operations-run-summaries[data-variant="flow"] .insight-summary-fact dt { color: var(--text-secondary); font-size: 13px; font-weight: 560; line-height: 1; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-facts { margin: 0; display: contents; }
 .operations-run-summaries[data-variant="flow"] .insight-summary-fact[data-tone="info"] dd { color: var(--status-info); }
 .operations-run-summaries[data-variant="flow"] .insight-summary-fact[data-tone="success"] dd { color: var(--status-positive); }
