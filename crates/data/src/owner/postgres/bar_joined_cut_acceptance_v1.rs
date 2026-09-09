@@ -1167,6 +1167,21 @@ async fn persist_schedules_and_v3_frames(
             ..minute
         },
     ];
+    let initial_predecessor = {
+        let mut transaction = owner
+            .pool
+            .begin()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        let head = super::validate_bar_schedule_history(&mut transaction, INSTRUMENT, false)
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        head
+    };
     let mut schedules = Vec::with_capacity(3);
     let mut schedule_indices = Vec::with_capacity(6);
     for (binding, proposal) in bindings.iter().zip(&proposals) {
@@ -1185,7 +1200,8 @@ async fn persist_schedules_and_v3_frames(
                 proposal.predecessor_fact_digest = schedules
                     .last()
                     .map(crate::owner::bar_schedule::BarScheduleReadbackV1::fact)
-                    .map(crate::owner::bar_schedule::BarScheduleFactV1::digest);
+                    .map(crate::owner::bar_schedule::BarScheduleFactV1::digest)
+                    .or(initial_predecessor);
                 let prepared = prepare_bar_schedule_commit_v1(proposal, binding, batch, instrument)
                     .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
                 let stored = owner
