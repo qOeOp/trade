@@ -74,7 +74,7 @@ use crate::owner::{
     },
 };
 
-const INSTRUMENT: &str = "AAPL";
+const INSTRUMENT: &str = "AAPL-T05-ACCEPTANCE";
 
 /// Caller-authored identities for the fixed six-role acceptance design.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -637,6 +637,10 @@ fn acceptance_identity(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
 
+fn acceptance_market_semantics_identity() -> BindingDigest {
+    acceptance_identity(84)
+}
+
 fn validate_initial_claims(
     claims: &UntrustedBarJoinedCutAcceptanceDesignClaimsV1,
 ) -> Result<(), BarJoinedCutAcceptanceUnavailableV1> {
@@ -858,7 +862,7 @@ fn acceptance_instrument_fact() -> InstrumentMasterFactProposalV1 {
         lifecycle_frontier: digest(81),
         corporate_action_frontier: digest(82),
         historical_membership_frontier: digest(83),
-        market_semantics_identity: digest(84),
+        market_semantics_identity: acceptance_market_semantics_identity(),
         source_frontier: digest(85),
         correction_frontier: digest(86),
         effective_from: 10,
@@ -885,7 +889,7 @@ fn acceptance_instrument_request(
         lifecycle_frontier: digest(81),
         corporate_action_frontier: digest(82),
         historical_membership_frontier: digest(83),
-        market_semantics_identity: digest(84),
+        market_semantics_identity: acceptance_market_semantics_identity(),
         source_frontier: digest(85),
         correction_frontier: digest(86),
         stable_correlation: acceptance_identity(112),
@@ -948,7 +952,7 @@ async fn persist_pit_and_reread(
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
             universe_selection_digest: universe_identity,
-            market_semantics_identity: digest(84),
+            market_semantics_identity: acceptance_market_semantics_identity(),
             time_evidence,
         },
         evidence: UntrustedPitSnapshotEvidence {
@@ -989,7 +993,7 @@ async fn persist_pit_and_reread(
                 source_frontier_digest: digest(85),
                 instrument_master_digest: instrument.digest(),
                 universe_selection_digest: universe_identity,
-                market_semantics_identity: digest(84),
+                market_semantics_identity: acceptance_market_semantics_identity(),
                 correction_stream_identity: source
                     .receipt()
                     .locator()
@@ -1161,8 +1165,14 @@ async fn persist_market_semantics(
         size_unit_identity: digest(182),
     };
     let registry_key =
-        authority::derive_registry_key_v1(digest(84), &source_readback, batch, instrument, r0)
-            .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
+        authority::derive_registry_key_v1(
+            acceptance_market_semantics_identity(),
+            &source_readback,
+            batch,
+            instrument,
+            r0,
+        )
+        .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let registry = authority::seal_registry_entry_v1(registry_key, value, acceptance_identity(187))
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let mut transaction = owner
@@ -1190,7 +1200,7 @@ async fn persist_market_semantics(
         request_identity: acceptance_identity(188),
         request_meaning_digest: digest(0),
         consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
-        compatibility_scope_identity: digest(84),
+        compatibility_scope_identity: acceptance_market_semantics_identity(),
         predecessor_identity: None,
         value,
         effective_from_ns: 50,
@@ -1217,7 +1227,7 @@ async fn persist_market_semantics(
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let readback = match super::market_semantics::resolve_market_semantics_scope_in_transaction_v1(
         &mut transaction,
-        digest(84),
+        acceptance_market_semantics_identity(),
         50,
         100,
         100,
@@ -1238,7 +1248,9 @@ async fn persist_market_semantics(
     let [fact] = readback.facts() else {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     };
-    if fact.compatibility_scope_identity() != digest(84) || fact.value() != value {
+    if fact.compatibility_scope_identity() != acceptance_market_semantics_identity()
+        || fact.value() != value
+    {
         return Err(BarJoinedCutAcceptanceUnavailableV1);
     }
     transaction
