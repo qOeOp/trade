@@ -15,7 +15,6 @@ import type {
 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
@@ -30,6 +29,7 @@ import {
 import { StatusBadge } from "./ui/status-badge";
 import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
+import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -296,17 +296,22 @@ export function ArtifactDirectory() {
     <PageStack>
       <PanelFrame aria-labelledby="artifact-directory-title">
         <PanelFrameHeader
-          eyebrow="Verified Artifact custody"
+          eyebrow="Artifacts"
           title="Strategy artifacts"
           titleId="artifact-directory-title"
-          meta="Owner custody · Read only · No build or execution"
           description={view === "verified"
-            ? "Owner-verified terminal builds. Open an artifact to inspect its immutable source."
-            : "Bounded custody identities only. Candidates carry no Artifact or TrialFamily outcome."}
-          actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
-            <InterfaceIcons.refresh aria-hidden="true" size={12} />
-            {showPending ? "Reading…" : "Refresh"}
-          </button>}
+            ? "Review completed strategy builds and open their source."
+            : "Review build attempts and bindings that still need verification."}
+          actions={<>
+            <OwnerDirectoryInfo>
+              <strong>Read-only Owner data</strong>
+              <p>No build, execution, or binding action is exposed here.</p>
+            </OwnerDirectoryInfo>
+            <button type="button" onClick={() => void refresh()} disabled={pending}>
+              <InterfaceIcons.refresh aria-hidden="true" size={12} />
+              {showPending ? "Reading…" : "Refresh"}
+            </button>
+          </>}
         />
         <PanelFrameBody>
           <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Artifact table controls" toolbar={
@@ -344,7 +349,14 @@ export function ArtifactDirectory() {
               />
             </TableToolbar>}
           >
-            {view === "verified" ? <DataWorkspaceTable<ArtifactDirectoryItemV1>
+            {view === "verified" ? availability === "unavailable" ? (
+              <OwnerDirectoryUnavailable
+                icon={<EvidenceIcons.artifact aria-hidden="true" size={18} />}
+                title="Artifact data unavailable"
+                detail="The latest verified artifacts could not be loaded. Try refreshing."
+                reason={reason ?? "ARTIFACT_DIRECTORY_UNAVAILABLE"}
+              />
+            ) : <DataWorkspaceTable<ArtifactDirectoryItemV1>
               ariaLabel="Verified strategy artifacts"
               columns={columns}
               data={visibleItems}
@@ -355,19 +367,19 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={availability === "unavailable" ? (
-                <UnavailableState
-                  density="compact"
-                  icon={<EvidenceIcons.artifact aria-hidden="true" size={17} />}
-                  title="Artifact directory unavailable"
-                  reason={reason ?? "ARTIFACT_DIRECTORY_UNAVAILABLE"}
-                />
-              ) : <div className={`data-workspace-empty ${availability === "loading" && !showPending
+              noDataComponent={<div className={`data-workspace-empty ${availability === "loading" && !showPending
                 ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.artifact aria-hidden="true" size={18} />
                 <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
               </div>}
-            /> : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
+            /> : custodyCandidates.availability === "unavailable" ? (
+              <OwnerDirectoryUnavailable
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
+                title="Candidate data unavailable"
+                detail="Artifact candidates could not be loaded. Try refreshing."
+                reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
+              />
+            ) : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
               ariaLabel="Artifact custody candidates"
               columns={attemptCandidateColumns}
               data={visibleAttemptCandidates}
@@ -378,11 +390,7 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={custodyCandidates.availability === "unavailable" ? (
-                <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
-                  title="Custody candidate directory unavailable"
-                  reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
                 ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}</p>
@@ -398,11 +406,7 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={custodyCandidates.availability === "unavailable" ? (
-                <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
-                  title="Custody candidate directory unavailable"
-                  reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
                 ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}</p>
@@ -414,7 +418,7 @@ export function ArtifactDirectory() {
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={`${candidateTotal} ${candidateKind === "attempts" ? "attempt" : "binding"} candidates`}
-              secondary="Every row remains POINT_READ_REQUIRED; no Artifact, binding validity or current authority is inferred."
+              secondary="Candidates remain unverified until their exact record is opened."
             />
           </PanelFrameFooter>
         ) : availability === "available" && (partial || nextCursor) ? (
