@@ -26,6 +26,8 @@ test("Research directory uses the shared compact read-only table surface", async
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_SUBMIT_OR_RESOLVE/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
   assert.match(css, /\.tableSurface :global\(\.unavailable-state\)[^{]*\{[^}]*min-height: 180px;[^}]*justify-content: center;[^}]*border-top: 0;/su);
+  assert.match(css, /\.tableSurface :global\(\.unavailable-state b\)[^{]*\{[^}]*font-size: 13px;[^}]*line-height: 1\.35;/su);
+  assert.match(css, /\.tableSurface :global\(\.unavailable-state code\)[^{]*\{[^}]*font-size: 10px;[^}]*line-height: 1\.4;/su);
   assert.match(css, /overflow-y: auto/u);
   assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
   assert.doesNotMatch(component, /href=|>View<|column chooser|registered|visible count|Submit|Resolve|Run|Save|textarea|contentEditable/u);
