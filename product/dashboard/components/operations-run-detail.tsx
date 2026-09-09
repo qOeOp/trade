@@ -288,12 +288,23 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
     <PageStack className="run-detail-page">
     <PanelFrame className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
       <PanelFrameHeader
-        eyebrow={<>Exact operational readback · {new Date(result.observed_at).toLocaleString()}</>}
+        eyebrow="Run activity"
         title={run.operation_id}
         titleId="run-detail-title"
-        meta={<code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>}
         actions={<>
-          <button type="button" data-action-variant="ghost" onClick={() => void copyLocator()}>
+          <details className="panel-info-disclosure">
+            <summary aria-label="View run information" title="Run information">
+              <InterfaceIcons.info aria-hidden="true" size={14} />
+            </summary>
+            <div>
+              <span>Observed</span>
+              <b>{new Date(result.observed_at).toLocaleString()}</b>
+              <span>Run identity</span>
+              <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
+              <p>Owner outcome and operational timing are reported independently.</p>
+            </div>
+          </details>
+          <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
           </button>
           <button type="button" data-action-variant="secondary" onClick={() => void refresh()} disabled={pending}>
@@ -318,16 +329,16 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
       />
       <PanelFrameBody>
       <AggregateSummary className="run-detail-summaries" aria-label="Run summary">
-        <AggregateSummaryGroup eyebrow="Semantic boundary" label="Owner outcome"
-          value={run.owner_outcome_state} detail="Owner state is never inferred from execution"
+        <AggregateSummaryGroup eyebrow="Outcome" label="Owner outcome"
+          value={run.owner_outcome_state}
           tone={ownerOutcomeTone(run.owner_outcome_state)}>
           <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
           <AggregateSummaryFact label="Terminal state" value={run.terminal_code ?? "In progress"}
             tone={run.terminal_code ? executionStateTone(run.state) : "info"} />
           <AggregateSummaryFact label="Transition" value={run.transition_version} />
         </AggregateSummaryGroup>
-        <AggregateSummaryGroup eyebrow="RunStore timing" label="Duration"
-          value={displayDuration(run.duration_ms)} detail="Operational clock, independent of Owner state"
+        <AggregateSummaryGroup eyebrow="Timing" label="Duration"
+          value={displayDuration(run.duration_ms)}
           tone={run.duration_ms === null ? "info" : executionStateTone(run.state)}>
           <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
           <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />

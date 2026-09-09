@@ -10,6 +10,7 @@ const theme = await readFile(new URL("../app/claude-theme.css", import.meta.url)
 const runtimeFoundation = await readFile(new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url), "utf8");
 const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
 const runDetail = await readFile(new URL("../components/operations-run-detail.tsx", import.meta.url), "utf8");
+const dashboardShell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
 const frameChromeModules = await Promise.all([
   "market-data-owner-foundation-card.module.css",
   "runtime-foundation-not-ready-card.module.css",
@@ -97,25 +98,33 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.operations-run-summaries \{ grid-template-columns: minmax\(250px, \.95fr\) minmax\(0, 3\.05fr\); \}/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(18px, 1\.25vw, 22px\);[^}]+white-space: nowrap;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group \{[^}]+grid-template-columns: minmax\(0, 1fr\) minmax\(0, 3fr\);/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong,[\s\S]*?\.run-detail-summaries \.aggregate-summary-fact dd \{[^}]+font-size: 14px;[^}]+text-align: left;[^}]+white-space: nowrap;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{[^}]+font-family: ui-monospace, monospace;[^}]+font-size: 12px;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: flex-start;[^}]+justify-content: flex-start;[^}]+text-align: left;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{ font-variant-numeric: tabular-nums; \}/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
 });
 
-test("run detail actions, locators, and state values expose deliberate hierarchy", () => {
+test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
-  assert.match(css, /\.run-detail-panel > \.panel-frame-header \.panel-frame-meta code \{[^}]+text-overflow: ellipsis;/u);
-  assert.match(runDetail, /data-action-variant="ghost"[\s\S]+?Copy locator/u);
+  assert.match(css, /\.panel-info-disclosure > div \{[^}]+position: absolute;[^}]+background: var\(--surface-elevated\);/u);
+  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
+  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
   assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
-  assert.match(runDetail, /compactIdentity\(run\.run_identity\)/u);
+  assert.match(runDetail, /<Link data-action-variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
+  assert.match(runDetail, /<details className="panel-info-disclosure">[\s\S]+?compactIdentity\(run\.run_identity\)/u);
+  assert.match(dashboardShell, /<details className="authority-disclosure">[\s\S]+?IMPLEMENTATION_ADMITTED[\s\S]+?<\/details>/u);
+  assert.doesNotMatch(runDetail, /meta=\{<code title=\{run\.run_identity\}/u);
+  assert.doesNotMatch(runDetail, /detail="Owner state is never inferred from execution"/u);
+  assert.doesNotMatch(runDetail, /detail="Operational clock, independent of Owner state"/u);
   assert.match(runDetail, /AggregateSummaryFact label="Received"/u);
   assert.doesNotMatch(runDetail, /Timing \/ received/u);
+  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.panel-info-disclosure > div \{[^}]+right: auto;[^}]+left: 0;/u);
   for (const token of ["positive", "warning", "info", "negative"]) {
     assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
     assert.match(css, new RegExp(`--status-${token}: var\\(--semantic-${token}\\)`, "u"));

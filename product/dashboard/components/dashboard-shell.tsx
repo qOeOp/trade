@@ -177,10 +177,14 @@ export function DashboardShell({
               <h1>{page.label}</h1>
               <span>{activeModule.purpose}</span>
             </div>
-            <div className="authority-block">
-              <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
-              <small>{artifactSourceDetail
+            <details className="authority-disclosure">
+              <summary aria-label="View interface scope" title="Interface scope">
+                <InterfaceIcons.info aria-hidden="true" size={16} />
+              </summary>
+              <div className="authority-block">
+                <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
+                <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+                <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
@@ -211,7 +215,8 @@ export function DashboardShell({
                 : drawableExact
                 ? exactBlueprint?.state ?? "IMPLEMENTATION_ADMITTED - FAIL_CLOSED_UNAVAILABLE"
                 : "No Dashboard consumer or action is connected."}</small>
-            </div>
+              </div>
+            </details>
           </header>}
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
