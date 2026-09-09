@@ -260,9 +260,30 @@ test(browserAcceptance
     await waitForBrowserExpression(browser,
       `Boolean(document.querySelector('[data-slot="strategy-read-only-code"] .cm-editor'))
         && document.body.innerText.includes(${JSON.stringify(artifactIdentity)})`);
-    const renderedSource = await readBrowserValue(browser,
-      `document.querySelector('[data-slot="strategy-read-only-code"] .cm-content')?.innerText ?? ''`);
-    assert.equal(renderedSource.trimEnd(), source.trimEnd());
+    await readBrowserValue(browser, `(() => {
+      const content = document.querySelector('[data-slot="strategy-read-only-code"] .cm-content');
+      content?.focus();
+      return document.activeElement === content;
+    })()`);
+    const selectAllModifier = process.platform === "darwin" ? 4 : 2;
+    for (const [code, key, virtualKeyCode] of [["KeyA", "a", 65], ["KeyC", "c", 67]]) {
+      await browser.send("Input.dispatchKeyEvent", {
+        type: "rawKeyDown",
+        modifiers: selectAllModifier,
+        code,
+        key,
+        windowsVirtualKeyCode: virtualKeyCode,
+      });
+      await browser.send("Input.dispatchKeyEvent", {
+        type: "keyUp",
+        modifiers: selectAllModifier,
+        code,
+        key,
+        windowsVirtualKeyCode: virtualKeyCode,
+      });
+    }
+    assert.equal(await readBrowserValue(browser, `navigator.clipboard.readText()`), source);
+    await readBrowserValue(browser, `navigator.clipboard.writeText('')`);
     const preparedInteraction = await readBrowserValue(browser, `(() => {
       const host = document.querySelector('[data-slot="strategy-read-only-code"]');
       const content = host?.querySelector('.cm-content');
