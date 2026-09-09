@@ -236,11 +236,11 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         Err(_) => return Err(BarJoinedCutAcceptanceBasisUnavailableV1::InstrumentReadback),
     };
 
-    let membership_frontier = digest(170);
+    let membership_frontier = acceptance_identity(170);
     let universe_request = UntrustedUniverseSelectionRequestV1::new(
-        digest(171),
+        acceptance_identity(171),
         "RESEARCH_OWNER_V1",
-        digest(172),
+        acceptance_identity(172),
         vec![0, 1, 1],
         membership_frontier,
         50,
@@ -248,7 +248,7 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
         100,
         source.fact().lineage_root(),
         digest(86),
-        digest(173),
+        acceptance_identity(173),
     );
     let universe = async {
         let mut transaction = owner
@@ -416,7 +416,7 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
             .collect(),
     };
     let census_request = UntrustedObservationCensusRequestV1::new(
-        digest(205),
+        acceptance_identity(205),
         pit.receipt().locator().clone(),
         join_claim,
         frames
@@ -472,6 +472,13 @@ pub async fn complete_owner_bar_joined_cut_acceptance_fixture_v1(
 
 fn digest(value: u8) -> BindingDigest {
     BindingDigest::from_untrusted_bytes([value; 32])
+}
+
+fn acceptance_identity(value: u8) -> BindingDigest {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"VIBE_OWNER_BAR_JOINED_CUT_ACCEPTANCE_V1");
+    hasher.update(&[0, value]);
+    BindingDigest::from_untrusted_bytes(*hasher.finalize().as_bytes())
 }
 
 fn validate_initial_claims(
@@ -711,8 +718,8 @@ fn acceptance_instrument_request(
     clock_head: crate::owner::shared_time_evidence::UntrustedClockHeadLocator,
 ) -> UntrustedInstrumentMasterRequestV1 {
     UntrustedInstrumentMasterRequestV1 {
-        request_identity: digest(110),
-        request_meaning_digest: digest(111),
+        request_identity: acceptance_identity(110),
+        request_meaning_digest: acceptance_identity(111),
         consumer_role: BACKTEST_OWNER_V1.into(),
         scope: InstrumentMasterScopeV1::ExactInstrument(INSTRUMENT.into()),
         effective_instant: 50,
@@ -725,7 +732,7 @@ fn acceptance_instrument_request(
         market_semantics_identity: digest(84),
         source_frontier: digest(85),
         correction_frontier: digest(86),
-        stable_correlation: digest(112),
+        stable_correlation: acceptance_identity(112),
     }
 }
 
@@ -779,9 +786,9 @@ async fn persist_pit_and_reread(
         request: UntrustedPitSnapshotRequest {
             claimed_request_identity: digest(0),
             claimed_request_digest: digest(0),
-            correlation_identity: digest(174),
-            requester_identity: digest(175),
-            scope_digest: digest(176),
+            correlation_identity: acceptance_identity(174),
+            requester_identity: acceptance_identity(175),
+            scope_digest: acceptance_identity(176),
             source_binding: source.receipt().locator().clone(),
             instrument_master_digest: instrument.digest(),
             universe_selection_digest: universe_identity,
@@ -913,7 +920,7 @@ async fn persist_r0(
     BarJoinedCutAcceptanceUnavailableV1,
 > {
     let mut request = UntrustedReferenceFactR0RequestV1 {
-        request_identity: digest(183),
+        request_identity: acceptance_identity(183),
         request_meaning_digest: digest(0),
         pit_locator_bytes: serde_json::to_vec(pit.receipt().locator())
             .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?
@@ -931,7 +938,7 @@ async fn persist_r0(
         owner_observation_ns: 100,
         decision_cut: 100,
         predecessor_identity: None,
-        stable_correlation: digest(179),
+        stable_correlation: acceptance_identity(179),
     };
     request.request_meaning_digest =
         r0_request_meaning_digest(&request).map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
@@ -991,16 +998,16 @@ async fn persist_market_semantics(
         .await
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let value = MarketSemanticsValueV1 {
-        normalization_identity: digest(180),
+        normalization_identity: acceptance_identity(180),
         price_adjustment: MarketSemanticsPriceAdjustmentV1::Raw,
         timestamp_basis: MarketSemanticsTimestampBasisV1::EventEffective,
-        price_unit_identity: digest(181),
-        size_unit_identity: digest(182),
+        price_unit_identity: acceptance_identity(181),
+        size_unit_identity: acceptance_identity(182),
     };
     let registry_key =
         authority::derive_registry_key_v1(digest(84), &source_readback, batch, instrument, r0)
             .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
-    let registry = authority::seal_registry_entry_v1(registry_key, value, digest(187))
+    let registry = authority::seal_registry_entry_v1(registry_key, value, acceptance_identity(187))
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
     let mut transaction = owner
         .pool
@@ -1024,7 +1031,7 @@ async fn persist_market_semantics(
     r0_locator_bytes.extend_from_slice(r0.cut().request_identity.as_bytes());
     r0_locator_bytes.extend_from_slice(r0.cut().request_meaning_digest.as_bytes());
     let mut proposal = UntrustedMarketSemanticsProposalV1 {
-        request_identity: digest(188),
+        request_identity: acceptance_identity(188),
         request_meaning_digest: digest(0),
         consumer: MarketSemanticsConsumerV1::StrategyInputBindingRegistry,
         compatibility_scope_identity: digest(84),
@@ -1043,7 +1050,7 @@ async fn persist_market_semantics(
             .into_boxed_slice(),
         instrument_master_locator_bytes: instrument_locator_bytes.into_boxed_slice(),
         r0_locator_bytes: r0_locator_bytes.into_boxed_slice(),
-        stable_correlation: digest(179),
+        stable_correlation: acceptance_identity(179),
     };
     proposal.request_meaning_digest = authority::request_meaning_digest_v1(&proposal)
         .map_err(|_| BarJoinedCutAcceptanceUnavailableV1)?;
@@ -1119,7 +1126,7 @@ async fn persist_schedules_and_v3_frames(
         kind: BarScheduleKindV1::FixedInterval,
         step: 1,
         unit: BarScheduleUnitV1::Minute,
-        anchor_identity: digest(206),
+        anchor_identity: acceptance_identity(206),
         label: BarScheduleLabelV1::IntervalClose,
         completion: BarScheduleCompletionV1::CompleteOnly,
     };
@@ -1130,13 +1137,13 @@ async fn persist_schedules_and_v3_frames(
         minute.clone(),
         UntrustedBarScheduleProposalV1 {
             unit: BarScheduleUnitV1::Hour,
-            anchor_identity: digest(207),
+            anchor_identity: acceptance_identity(207),
             ..minute.clone()
         },
         UntrustedBarScheduleProposalV1 {
             kind: BarScheduleKindV1::ExchangeSession,
             unit: BarScheduleUnitV1::ExchangeSessionDay,
-            anchor_identity: digest(208),
+            anchor_identity: acceptance_identity(208),
             ..minute
         },
     ];
