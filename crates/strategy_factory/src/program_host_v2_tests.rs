@@ -943,12 +943,20 @@ fn envelope_with_order(
 
 fn plugin_module(manifest: &PluginManifestV2, body_bytes: &[u8], mode: InvokeMode) -> Vec<u8> {
     let input_capacity = frame_capacity(&manifest.input_ports, manifest.state.max_bytes);
-    let output_capacity = frame_capacity(&manifest.output_ports, manifest.state.max_bytes);
+    let output_capacity = frame_capacity(&manifest.output_ports, manifest.state.max_bytes)
+        + usize::from(manifest.abi_version == PLUGIN_FRAME_ABI_V3);
     let output_len = 96 + body_bytes.len();
+    let memory_pages = u8::try_from(manifest.max_linear_memory_bytes / 65_536)
+        .expect("bounded fixture memory pages");
+    let memory_initial = if manifest.abi_version == PLUGIN_FRAME_ABI_V3 {
+        memory_pages
+    } else {
+        1
+    };
     let mut wasm = b"\0asm\x01\0\0\0".to_vec();
     section(&mut wasm, 1, &[2, 0x60, 0, 1, 0x7f, 0x60, 1, 0x7f, 1, 0x7f]);
     section(&mut wasm, 3, &[5, 0, 0, 0, 0, 1]);
-    section(&mut wasm, 5, &[1, 1, 1, 16]);
+    section(&mut wasm, 5, &[1, 1, memory_initial, memory_pages]);
     let mut exports = vec![6];
     export(&mut exports, "memory", 2, 0);
 

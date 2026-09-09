@@ -3835,7 +3835,10 @@ fn test_binding_projections(
 #[cfg(test)]
 fn test_data_kind(field_semantic_id: &str) -> &'static str {
     match field_semantic_id {
-        "MARKET_DATA.BAR.CLOSE.PRICE.V1" | "MARKET_DATA.BAR.OPEN.PRICE.V1" => "BAR",
+        "MARKET_DATA.BAR.CLOSE.PRICE.V1"
+        | "MARKET_DATA.BAR.HIGH.PRICE.V1"
+        | "MARKET_DATA.BAR.LOW.PRICE.V1"
+        | "MARKET_DATA.BAR.OPEN.PRICE.V1" => "BAR",
         "MARKET_DATA.TRADE.LAST.PRICE.V1" => "TRADE",
         _ => "UNSUPPORTED",
     }

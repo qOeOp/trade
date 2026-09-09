@@ -77,6 +77,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     ))
     .await?;
     let (plan, artifact) = joined_plan_and_artifact(design, basis.input_bindings());
+    anyhow::ensure!(plan.bfp_role_bindings().len() == 12);
     let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)?;
     let role_set = issue_strategy_design_role_set_for_acceptance_v1(&composer)?;
     let fixture = Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
@@ -131,7 +132,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     anyhow::ensure!(readback.consumed());
     anyhow::ensure!(readback.projection_digest() == projection_digest);
     anyhow::ensure!(readback.schedule_dependency_set_digest() == schedule_digest);
-    anyhow::ensure!(readback.plugin_calls() == 3);
+    anyhow::ensure!(readback.plugin_calls() == 1);
     anyhow::ensure!(readback.checkpoint_after() != [0; 32]);
     anyhow::ensure!(readback.terminal_checkpoint() != [0; 32]);
     anyhow::ensure!(readback.checkpoint_after() != readback.terminal_checkpoint());

@@ -11,6 +11,7 @@ use strategy_factory_program_sdk::lifecycle_v1::{
 use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
+    bounded_feature_program_v1::tests::candidate as bfp_candidate,
     cargo_artifact::{PluginCargoBuildEvidenceV2, VerifiedPluginCargoBuildV2},
     develop_composer_v2::{
         CurrentResearchDevelopCustodyV2, DevelopComposerEvidencePortV2, DevelopComposerResultV2,
@@ -37,7 +38,6 @@ use super::{
 use super::{
     artifact_v2::StrategyArtifactV2,
     bounded_feature_program_lowerer_v1::prepare_frozen_bounded_feature_source_inputs_v1,
-    bounded_feature_program_v1::tests::candidate as bfp_candidate,
     develop_plugin_build_v3::{
         DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3, DevelopPluginBuildResultV3,
         VerifiedDevelopPluginBuildReadV3,
