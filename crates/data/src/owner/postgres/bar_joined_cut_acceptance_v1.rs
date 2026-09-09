@@ -55,6 +55,7 @@ use crate::owner::{
         UntrustedCredentialCapabilityClaim, UntrustedLicensePolicy, UntrustedMarketDataAsOf,
         UntrustedMarketSemantics, UntrustedOpaqueCredentialHandle, UntrustedSourceBindingProposal,
         UntrustedTrustPolicy,
+        SourceBindingError,
         authority::{OwnerSourceBindingDecision, derive_binding_id, derive_time_evidence_identity},
     },
     strategy_design_role_set::StrategyDesignRoleSetReceiptV1,
@@ -119,14 +120,14 @@ impl OwnerBarJoinedCutAcceptanceBasisV1 {
 pub struct BarJoinedCutAcceptanceUnavailableV1;
 
 /// Bounded phase where the disposable basis issuance became unavailable.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum BarJoinedCutAcceptanceBasisUnavailableV1 {
     #[error("disposable Market Data BAR joined-cut acceptance claims were unavailable")]
     Claims,
     #[error("disposable Market Data BAR joined-cut acceptance Owner connection was unavailable")]
     OwnerConnection,
-    #[error("disposable Market Data BAR joined-cut acceptance source was unavailable")]
-    Source,
+    #[error("disposable Market Data BAR joined-cut acceptance source was unavailable: {0}")]
+    Source(SourceBindingError),
     #[error("disposable Market Data BAR joined-cut acceptance clock head was unavailable")]
     ClockHead,
     #[error("disposable Market Data BAR joined-cut acceptance instrument append was unavailable")]
@@ -206,7 +207,7 @@ pub async fn prepare_owner_bar_joined_cut_acceptance_basis_v1(
             &clock,
         )
         .await
-        .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::Source)?;
+        .map_err(BarJoinedCutAcceptanceBasisUnavailableV1::Source)?;
     let head = build_head_fact(&clock, None)
         .map_err(|_| BarJoinedCutAcceptanceBasisUnavailableV1::ClockHead)?;
     owner
