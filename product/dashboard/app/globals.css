@@ -851,6 +851,7 @@ button.rd-research-item { cursor: pointer; }
 .panel-info-disclosure span { color: var(--text-muted); font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; }
 .panel-info-disclosure b,
 .panel-info-disclosure code { min-width: 0; overflow: hidden; color: var(--text-primary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.panel-frame-actions .panel-info-disclosure a { min-height: 0; padding: 0; display: inline; border-radius: 0; color: var(--text-primary); background: transparent; box-shadow: none; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 3px; }
 .panel-info-disclosure p { margin: 6px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.45; }
 .panel-frame-actions button, .panel-frame-actions a { min-height: 32px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; border: 0; border-radius: 999px; color: var(--action-primary-text); background: var(--action-primary); font-size: 9px; font-weight: 700; text-decoration: none; }
 .panel-frame-actions button { transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease; }
@@ -937,6 +938,7 @@ button.rd-research-item { cursor: pointer; }
 .unavailable-state-info[open] > summary { color: var(--text-primary); background: var(--surface-hover); }
 .unavailable-state-info > code { position: absolute; z-index: 20; top: 34px; right: 0; width: max-content; max-width: min(360px, calc(100vw - 80px)); padding: 10px 12px; overflow: hidden; border-radius: var(--panel-inner-radius); color: var(--text-primary); background: var(--surface-elevated); box-shadow: var(--elevation-floating); text-overflow: ellipsis; white-space: nowrap; }
 .unavailable-state[data-density="compact"] { min-height: 72px; padding: 16px; }
+.unavailable-state[data-surface="card"] { border: .5px solid var(--border-default); border-radius: var(--panel-inner-radius); box-shadow: var(--elevation-hairline); }
 .empty-state { min-height: 150px; padding: 24px; display: flex; align-items: center; justify-content: center; gap: 10px; color: var(--text-muted); border-top: 1px solid var(--border-default); background: var(--surface-card); text-align: left; }
 .empty-state b, .empty-state p { display: block; }
 .empty-state b { color: var(--text-primary); font-size: 11px; }
