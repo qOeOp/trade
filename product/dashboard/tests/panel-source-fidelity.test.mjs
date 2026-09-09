@@ -93,10 +93,12 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /.operations-runs-panel > \.panel-frame-header p \{[^}]+grid-area: copy;[^}]+border-left: \.5px solid var\(--border-default\);/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(4, minmax\(0, 1fr\)\); \}/u);
   assert.match(css, /\.operations-run-summaries \.insight-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
+  assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.operations-run-summaries \{ grid-template-columns: minmax\(250px, \.95fr\) minmax\(0, 3\.05fr\); \}/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(22px, 1\.55vw, 28px\);[^}]+white-space: nowrap;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong \{[^}]+font-size: clamp\(22px, 1\.45vw, 27px\);[^}]+white-space: nowrap;/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: flex-start;[^}]+justify-content: center;[^}]+text-align: left;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: center;[^}]+justify-content: center;[^}]+text-align: center;/u);
+  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{[^}]+font-family: ui-monospace, monospace;[^}]+font-size: 12px;/u);
   assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
   assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.operations-run-summaries \.insight-summary-facts \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
