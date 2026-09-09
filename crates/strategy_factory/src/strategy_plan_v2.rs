@@ -2325,11 +2325,12 @@ fn validate_reaction(
 ) -> Result<(), StrategyCompilationV2> {
     match reaction.kind {
         LifecycleKindV2::Bar | LifecycleKindV2::Event | LifecycleKindV2::Timer
-            if reaction.proposal.is_none() =>
+            if reaction.proposal.is_none()
+                && (!reaction.nodes.is_empty() || !reaction.state_writes.is_empty()) =>
         {
             return Err(refinement(
                 "reactions.proposal",
-                "BAR/EVENT/TIMER require complete ProposalV1 wiring",
+                "a nonempty BAR/EVENT/TIMER reaction requires complete ProposalV1 wiring",
             ));
         }
         LifecycleKindV2::Start | LifecycleKindV2::Fill | LifecycleKindV2::Stop
@@ -2814,8 +2815,11 @@ fn project_bfp_role_bindings(
                 }
             }
 
-            if values.is_empty() && coordinates.is_empty() {
-                continue;
+            if values.is_empty() {
+                return Err(unsupported(
+                    "reactions.nodes.input",
+                    "every bounded ABI 3 invocation requires a Market Owner value-coordinate role",
+                ));
             }
             if values.keys().copied().collect::<BTreeSet<_>>()
                 != coordinates.keys().copied().collect::<BTreeSet<_>>()

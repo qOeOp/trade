@@ -254,6 +254,54 @@ impl AdmittedProgramEventV2 {
     }
 
     #[cfg(test)]
+    pub(crate) fn issue_for_plan_test_with_owner_sample_projection(
+        plan: &StrategyPlanV2,
+        envelope: LifecycleEnvelopeV1,
+        values: Vec<(&str, TypedValueV2)>,
+    ) -> Self {
+        let mut event = Self::issue_for_plan_test(plan, envelope, values);
+        for input in &mut event.inputs {
+            let mut canonical = [0_u8; OWNER_SAMPLE_COORDINATE_BYTES_V1 as usize];
+            canonical[..4].copy_from_slice(&1_u32.to_le_bytes());
+            canonical[4..36].copy_from_slice(input.owner_event.input_role_identity.as_bytes());
+            canonical[36..68].copy_from_slice(input.owner_event.event_receipt_digest.as_bytes());
+            for offset in [116, 124, 132, 236] {
+                canonical[offset..offset + 8]
+                    .copy_from_slice(&envelope.order_key.logical_time_ns.to_le_bytes());
+            }
+            let evidence_digest = |domain| domain_digest(domain, &canonical);
+            input.owner_event.sample_coordinate = Some(OwnerSampleCoordinateEvidenceV2 {
+                canonical,
+                projection_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-sample-projection-receipt.v4\0",
+                ),
+                projection_subject_identity: input.owner_event.observation_batch_digest,
+                schedule_dependency_set_digest: evidence_digest(
+                    b"strategy.program-host.test-schedule-dependency-set.v1\0",
+                ),
+                timeframe_projection_digest: evidence_digest(
+                    b"strategy.program-host.test-timeframe-projection.v1\0",
+                ),
+                sample_identity: evidence_digest(
+                    b"strategy.program-host.test-sample-identity.v1\0",
+                ),
+                sample_receipt_digest: evidence_digest(
+                    b"strategy.program-host.test-sample-receipt.v1\0",
+                ),
+            });
+        }
+        event.identity = admitted_event_identity(
+            plan,
+            event.envelope,
+            &event.inputs,
+            &event.source_binding_lineages,
+            event.input_join_identity,
+            event.universe_frame,
+        );
+        event
+    }
+
+    #[cfg(test)]
     pub(crate) const fn admitted_identity(&self) -> BindingDigest {
         self.identity
     }

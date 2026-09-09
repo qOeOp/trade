@@ -22,6 +22,7 @@ use super::{
         DevelopPluginBuildProducerV3, DevelopPluginBuildReceiptV3, DevelopPluginBuildResultV3,
         VerifiedDevelopPluginBuildReadV3,
     },
+    plugin_wire_v2::TypedValueV2,
     program_host_v2::{AdmittedProgramEventV2, ProgramHostV2},
     program_host_v2_backtest_tests::stateful_plugin_module,
     program_host_v2_tests::executable_design,
@@ -67,8 +68,12 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
 
 #[test]
 #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact() {
-    let (design, bfp_proposal, catalog) = single_plugin_bfp_candidate();
+    let (design, bfp_proposal, catalog) = bfp_composer_candidate();
     let state_id = design.state[0].semantic_id.clone();
     let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
     let frozen =
@@ -129,16 +134,18 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
     ))
     .expect("ProgramHost starts the generated ABI3 program");
     let pre_execution_checkpoint = host.checkpoint().canonical_bytes().to_vec();
-    let timer = LifecycleEnvelopeV1::new_bound(
-        EventOrderKeyV1::new(2, 2, LifecycleKind::Timer, 2, [2; 16]).expect("TIMER order key"),
-        EnvelopePayloadV1::Timer,
+    let bar = LifecycleEnvelopeV1::new_bound(
+        EventOrderKeyV1::new(2, 2, LifecycleKind::Bar, 2, [2; 16]).expect("BAR order key"),
+        EnvelopePayloadV1::Bar,
     )
-    .expect("TIMER envelope");
-    host.apply_event(&AdmittedProgramEventV2::issue_for_plan_test(
-        positive.plan(),
-        timer,
-        vec![],
-    ))
+    .expect("BAR envelope");
+    host.apply_event(
+        &AdmittedProgramEventV2::issue_for_plan_test_with_owner_sample_projection(
+            positive.plan(),
+            bar,
+            vec![("research.input.close.v1", TypedValueV2::i128(100))],
+        ),
+    )
     .expect("ProgramHost executes the generated ABI3 program");
     assert_eq!(host.plugin_calls(), 1);
     assert_ne!(
@@ -159,12 +166,7 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
 
     let cross_design_build = real_v3_plugin_build(&mut producer, &manifest, &frozen);
     let mut cross_design = design.clone();
-    cross_design
-        .parameters
-        .iter_mut()
-        .find(|parameter| parameter.semantic_id == "research.parameter.timer-close.v1")
-        .expect("BFP candidate has the timer close parameter")
-        .value = TypedConstantV2::I128 { value: 101 };
+    cross_design.resources.max_dependency_edges += 1;
     let (cross_design_proposal, cross_design_evidence) =
         v3_composer_case(cross_design, custody.clone(), cross_design_build);
     let terminal = into_terminal(DevelopComposerV2::default().compose(
@@ -201,7 +203,51 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
     assert_eq!(terminal.coordinate, "plugin_builds.manifest_digest");
 }
 
-fn single_plugin_bfp_candidate() -> (
+#[test]
+fn abi3_bfp_parameter_inputs_cannot_bypass_market_owner_roles() {
+    let (mut design, proposal, _) = bfp_candidate();
+    let bfp_plugin = proposal.plugin_semantic_id;
+    for reaction in &mut design.reactions {
+        for node in &mut reaction.nodes {
+            if node.plugin_semantic_id != bfp_plugin {
+                continue;
+            }
+            node.input_bindings[0].source = ValueRefV2::Parameter {
+                parameter_id: "research.parameter.fabricated-value.v1".to_owned(),
+            };
+            node.input_bindings[1].source = ValueRefV2::Parameter {
+                parameter_id: "research.parameter.fabricated-coordinate.v1".to_owned(),
+            };
+        }
+    }
+    design.parameters = vec![
+        ParameterV2 {
+            semantic_id: "research.parameter.fabricated-value.v1".to_owned(),
+            value_type: ValueTypeV2::I128,
+            value: TypedConstantV2::I128 { value: 100 },
+            unit: "PRICE".to_owned(),
+        },
+        ParameterV2 {
+            semantic_id: "research.parameter.fabricated-coordinate.v1".to_owned(),
+            value_type: ValueTypeV2::Bytes,
+            value: TypedConstantV2::Bytes {
+                value: vec![1; 308],
+            },
+            unit: "OWNER_SAMPLE_COORDINATE_V1".to_owned(),
+        },
+    ];
+    assert!(matches!(
+        prepare_strategy_design_v2(&design),
+        StrategyDesignPreparationV2::Unsupported(issue)
+            if issue.coordinate == "reactions.nodes.input"
+    ));
+}
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
+fn bfp_composer_candidate() -> (
     StrategyDesignV2,
     super::bounded_feature_program_v1::BoundedFeatureProgramProposalV1,
     vibe_indicators_kernel::PrimitiveCatalogV1,
@@ -215,68 +261,15 @@ fn single_plugin_bfp_candidate() -> (
         reaction
             .nodes
             .retain(|node| node.plugin_semantic_id == plugin_semantic_id);
+        if reaction.kind != LifecycleKindV2::Bar {
+            reaction.nodes.clear();
+        }
         if reaction.nodes.is_empty() {
             reaction.state_writes.clear();
             reaction.proposal = None;
         }
     }
-    let event_reaction = design
-        .reactions
-        .iter_mut()
-        .find(|reaction| reaction.kind == LifecycleKindV2::Event)
-        .expect("BFP candidate has an EVENT reaction");
-    event_reaction.nodes[0].input_bindings[0].source = ValueRefV2::Parameter {
-        parameter_id: "research.parameter.timer-close.v1".to_owned(),
-    };
-    event_reaction.nodes[0].input_bindings[1].source = ValueRefV2::Parameter {
-        parameter_id: "research.parameter.timer-coordinate.v1".to_owned(),
-    };
-    let mut timer_reaction = design
-        .reactions
-        .iter()
-        .find(|reaction| reaction.kind == LifecycleKindV2::Event)
-        .cloned()
-        .expect("BFP candidate has an EVENT reaction");
-    timer_reaction.kind = LifecycleKindV2::Timer;
-    let prior_node_id = timer_reaction.nodes[0].semantic_id.clone();
-    let timer_node_id = "research.node.bfp.timer.v1";
-    timer_reaction.nodes[0].semantic_id = timer_node_id.to_owned();
-    timer_reaction.nodes[0].input_bindings[0].source = ValueRefV2::Parameter {
-        parameter_id: "research.parameter.timer-close.v1".to_owned(),
-    };
-    timer_reaction.nodes[0].input_bindings[1].source = ValueRefV2::Parameter {
-        parameter_id: "research.parameter.timer-coordinate.v1".to_owned(),
-    };
-    for write in &mut timer_reaction.state_writes {
-        rename_node_output(&mut write.source, &prior_node_id, timer_node_id);
-    }
-    let reaction_proposal = timer_reaction
-        .proposal
-        .as_mut()
-        .expect("BFP EVENT reaction has complete proposal wiring");
-    for reference in [
-        &mut reaction_proposal.position_intent,
-        &mut reaction_proposal.target_variant,
-        &mut reaction_proposal.target_position_units,
-        &mut reaction_proposal.target_weight_micros,
-        &mut reaction_proposal.rebalance_sequence,
-        &mut reaction_proposal.reconciliation_target_units,
-        &mut reaction_proposal.protection_variant,
-        &mut reaction_proposal.stop_loss_ticks,
-        &mut reaction_proposal.take_profit_ticks,
-        &mut reaction_proposal.trailing_distance_ticks,
-        &mut reaction_proposal.trailing_stop_ticks,
-    ] {
-        rename_node_output(reference, &prior_node_id, timer_node_id);
-    }
-    if let Some(reference) = &mut reaction_proposal.member_target_set {
-        rename_node_output(reference, &prior_node_id, timer_node_id);
-    }
-    *design
-        .reactions
-        .iter_mut()
-        .find(|reaction| reaction.kind == LifecycleKindV2::Timer)
-        .expect("BFP candidate has a TIMER reaction") = timer_reaction;
+    design.parameters.clear();
     let retained_state_ids = design
         .reactions
         .iter()
@@ -286,22 +279,7 @@ fn single_plugin_bfp_candidate() -> (
     design
         .state
         .retain(|state| retained_state_ids.contains(&state.semantic_id.as_str()));
-    design.parameters.push(ParameterV2 {
-        semantic_id: "research.parameter.timer-coordinate.v1".to_owned(),
-        value_type: ValueTypeV2::Bytes,
-        value: TypedConstantV2::Bytes {
-            value: canonical_owner_sample_coordinate(1),
-        },
-        unit: "OWNER_SAMPLE_COORDINATE_V1".to_owned(),
-    });
-    design
-        .parameters
-        .iter_mut()
-        .find(|parameter| parameter.semantic_id == "research.parameter.timer-close.v1")
-        .expect("BFP candidate has the timer close parameter")
-        .value = TypedConstantV2::I128 { value: 100 };
     design.resources.max_state_bytes = design.state.iter().map(|state| state.max_bytes).sum();
-
     let (design_identity, design_digest) = match prepare_strategy_design_v2(&design) {
         StrategyDesignPreparationV2::Prepared {
             design_identity,
@@ -314,27 +292,10 @@ fn single_plugin_bfp_candidate() -> (
     (design, proposal, catalog)
 }
 
-fn canonical_owner_sample_coordinate(sample: u64) -> Vec<u8> {
-    let mut bytes = vec![1_u8; 308];
-    bytes[..4].copy_from_slice(&1_u32.to_le_bytes());
-    bytes[84..116].fill(u8::try_from(sample).expect("small test sample"));
-    for offset in [116, 124, 132, 236] {
-        bytes[offset..offset + 8].copy_from_slice(&sample.to_le_bytes());
-    }
-    bytes
-}
-
-fn rename_node_output(reference: &mut ValueRefV2, prior_node_id: &str, node_id: &str) {
-    if let ValueRefV2::NodeOutput {
-        node_id: reference_node_id,
-        ..
-    } = reference
-        && reference_node_id == prior_node_id
-    {
-        *reference_node_id = node_id.to_owned();
-    }
-}
-
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn real_v3_plugin_build(
     producer: &mut DevelopPluginBuildProducerV3,
     manifest: &PluginManifestV2,
@@ -352,6 +313,10 @@ fn real_v3_plugin_build(
     }
 }
 
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
 fn v3_composer_case(
     design: StrategyDesignV2,
     custody: CurrentResearchDevelopCustodyV2,
@@ -363,10 +328,12 @@ fn v3_composer_case(
         .map(|(_, digest)| *digest)
         .collect::<Vec<_>>();
     let verified_bindings = verified_strategy_input_bindings_for_test(&design, owner_bindings);
+    let bfp_plugin_semantic_id = build.build().plugin_semantic_id().to_owned();
     let plugin_builds = vec![UntrustedPluginBuildLocatorV2 {
-        plugin_semantic_id: design.plugins[0].semantic_id.clone(),
+        plugin_semantic_id: bfp_plugin_semantic_id.clone(),
         verified_build_receipt_digest: build.build().verified_build_receipt_digest(),
     }];
+    let builds = vec![build.into_composer_build().into()];
     (
         UntrustedDevelopComposerProposalV2 {
             research_request_locator: custody.request_locator().to_owned(),
@@ -377,7 +344,7 @@ fn v3_composer_case(
         TestEvidencePort {
             custody,
             bindings: verified_bindings,
-            builds: RefCell::new(vec![build.into_composer_build().into()]),
+            builds: RefCell::new(builds),
             binding_terminal: None,
             build_terminal: None,
             research_reads: Cell::new(0),
