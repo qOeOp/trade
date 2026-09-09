@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, execFileSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -16,14 +17,28 @@ const browserVersion = browserAcceptance
   : "";
 
 async function stopProcess(child) {
-  if (!child || child.exitCode !== null) return;
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, "exit");
   child.kill("SIGTERM");
   if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
   child.kill("SIGKILL");
   if (await Promise.race([exited.then(() => true), delay(5_000).then(() => false)])) return;
+  child.stderr?.destroy();
+  child.stdout?.destroy();
   child.unref();
   throw new Error("strategy viewer child process did not exit after SIGKILL");
+}
+
+async function reserveLoopbackPort() {
+  const server = createServer();
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const port = address.port;
+  server.close();
+  await once(server, "close");
+  return port;
 }
 
 async function waitForHttp(url, child, timeoutMs = 60_000) {
@@ -43,29 +58,42 @@ async function waitForHttp(url, child, timeoutMs = 60_000) {
 
 async function openBrowser(executable) {
   const profile = await mkdtemp(join(tmpdir(), "dashboard-strategy-viewer-browser-"));
+  const debugPort = await reserveLoopbackPort();
   console.error("[strategy-viewer-browser] launching browser");
   const child = spawn(executable, [
-    "--headless=new", "--remote-debugging-port=0", `--user-data-dir=${profile}`,
-    "--no-sandbox", "--disable-dev-shm-usage",
+    "--headless", `--remote-debugging-port=${debugPort}`, "--remote-debugging-address=127.0.0.1",
+    `--user-data-dir=${profile}`, "--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
     "--disable-background-networking", "--disable-default-apps", "--disable-extensions",
     "--disable-sync", "--metrics-recording-only", "--no-default-browser-check", "--no-first-run",
     "about:blank",
-  ], { stdio: "ignore" });
+  ], { stdio: ["ignore", "ignore", "pipe"] });
+  let stderrTail = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk) => {
+    stderrTail = `${stderrTail}${chunk}`.slice(-8_192);
+  });
   try {
-    let devTools;
     const deadline = Date.now() + 15_000;
+    let devToolsReady = false;
     while (Date.now() < deadline) {
-      if (child.exitCode !== null) throw new Error(`strategy viewer browser exited with ${child.exitCode}`);
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`strategy viewer browser exited with ${child.exitCode ?? child.signalCode}`);
+      }
       try {
-        devTools = (await readFile(join(profile, "DevToolsActivePort"), "utf8")).trim().split("\n");
-        break;
+        const response = await fetch(`http://127.0.0.1:${debugPort}/json/version`, {
+          signal: AbortSignal.timeout(1_000),
+        });
+        if (response.ok) {
+          devToolsReady = true;
+          break;
+        }
       } catch {
         await delay(100);
       }
     }
-    if (!devTools?.[0]) throw new Error("strategy viewer browser debugging endpoint unavailable");
+    if (!devToolsReady) throw new Error("strategy viewer browser debugging endpoint unavailable");
     console.error("[strategy-viewer-browser] devtools endpoint ready");
-    const target = await fetch(`http://127.0.0.1:${devTools[0]}/json/new?about:blank`, {
+    const target = await fetch(`http://127.0.0.1:${debugPort}/json/new?about:blank`, {
       method: "PUT",
       signal: AbortSignal.timeout(15_000),
     });
@@ -112,9 +140,19 @@ async function openBrowser(executable) {
     });
     return { child, profile, close: () => socket.close(), send };
   } catch (error) {
-    await stopProcess(child);
+    let cleanupError;
+    try {
+      await stopProcess(child);
+    } catch (caught) {
+      cleanupError = caught;
+    }
     await rm(profile, { recursive: true, force: true });
-    throw error;
+    const diagnostics = [
+      error instanceof Error ? error.message : String(error),
+      cleanupError instanceof Error ? `cleanup: ${cleanupError.message}` : "",
+      stderrTail.trim() ? `stderr: ${stderrTail.trim()}` : "",
+    ].filter(Boolean).join("; ");
+    throw new Error(`strategy viewer browser startup failed: ${diagnostics}`, { cause: error });
   }
 }
 
