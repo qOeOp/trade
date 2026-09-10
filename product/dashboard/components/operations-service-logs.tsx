@@ -31,6 +31,7 @@ import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
+import { SelectionList, SelectionListItem } from "./ui/selection-list";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
 import { emptyServiceLogPresentation } from "../lib/operations-presentation";
@@ -119,21 +120,19 @@ function ServiceInstanceList({
   onSelect: (identity: string) => void;
 }) {
   return (
-    <section className="selection-list service-instance-list" aria-label="Service instances">
-      <header><span>Instances</span><span>{instances.length}</span></header>
+    <SelectionList aria-label="Service instances" count={instances.length} label="Instances">
       {instances.map((instance) => (
-        <button
-          type="button"
+        <SelectionListItem
           key={instance.instance_identity}
-          data-selected={instance.instance_identity === selectedIdentity || undefined}
+          detail={<>{instance.services.join(" · ")} · {displayTime(instance.last_observed_at)}</>}
+          meta={<>{instance.instance_kind} · {instance.readiness}</>}
           onClick={() => onSelect(instance.instance_identity)}
-        >
-          <b title={instance.instance_identity}>{instance.instance_identity}</b>
-          <span>{instance.instance_kind} · {instance.readiness}</span>
-          <small>{instance.services.join(" · ")} · {displayTime(instance.last_observed_at)}</small>
-        </button>
+          primary={instance.instance_identity}
+          primaryTitle={instance.instance_identity}
+          selected={instance.instance_identity === selectedIdentity}
+        />
       ))}
-    </section>
+    </SelectionList>
   );
 }
 
