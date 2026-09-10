@@ -488,6 +488,48 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
             == recovered_projection.schedule_dependency_set_digest()
     );
 
+    let source_rows = sqlx::query(
+        "SELECT DISTINCT o.aggregate_identity,o.payload,o.payload_digest FROM market_data_private.source_binding_outbox_v1 AS o JOIN market_data_private.pit_observation_batches_v1 AS b ON b.source_binding_identity=o.aggregate_identity JOIN market_data_private.pit_snapshot_facts_v1 AS f ON f.snapshot_identity=b.snapshot_identity JOIN market_data_private.strategy_input_binding_declarations_v1 AS d ON d.pit_request_identity=f.request_identity WHERE d.strategy_design_identity=$1",
+    )
+    .bind(design_identity.as_bytes().as_slice())
+    .fetch_all(market_mutation_pool)
+    .await?;
+    let [source_row] = source_rows.as_slice() else {
+        anyhow::bail!("design must resolve one Source Binding outbox row");
+    };
+    let source_binding_identity: Vec<u8> = source_row.try_get("aggregate_identity")?;
+    let original_source_payload: Vec<u8> = source_row.try_get("payload")?;
+    let original_source_payload_digest: Vec<u8> = source_row.try_get("payload_digest")?;
+    let inconsistent_source = sqlx::query(
+        "UPDATE market_data_private.source_binding_outbox_v1 SET payload=payload || decode('00','hex') WHERE aggregate_identity=$1",
+    )
+    .bind(&source_binding_identity)
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(inconsistent_source.rows_affected() == 1);
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "inconsistent Source Binding outbox payload escaped V4 dependency validation"
+    );
+    let restored_source = sqlx::query(
+        "UPDATE market_data_private.source_binding_outbox_v1 SET payload=$1,payload_digest=$2 WHERE aggregate_identity=$3",
+    )
+    .bind(&original_source_payload)
+    .bind(&original_source_payload_digest)
+    .bind(&source_binding_identity)
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(restored_source.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
     let binding_row = sqlx::query(
         "SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE strategy_design_identity=$1 AND input_role_identity=$2",
     )
