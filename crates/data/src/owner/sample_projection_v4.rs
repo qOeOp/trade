@@ -519,8 +519,7 @@ pub(super) fn joined_components_match_observation_census_v4(
         let event_identity = &exact[128..144];
         let trigger_digest = &exact[96..128];
         let value_digest = &exact[144..176];
-        if event_identity != &coordinate[68..84]
-            || logical_time > request.trigger_logical_time()
+        if logical_time > request.trigger_logical_time()
             || request.trigger_logical_time() - logical_time > request.join_claim().max_staleness_ns
         {
             return false;
