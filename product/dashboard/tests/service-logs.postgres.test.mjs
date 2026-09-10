@@ -632,7 +632,8 @@ test(testName, { skip: !url }, async () => {
     await clickButton(browser, "Refresh");
     await waitForBrowserExpression(browser,
       `document.body?.innerText.includes('Service logs unavailable')
-        && document.body?.innerText.includes('SERVICE_LOG_STORE_UNAVAILABLE')
+        && [...document.querySelectorAll('.panel-info-popover code')]
+          .some((code) => code.textContent === 'SERVICE_LOG_STORE_UNAVAILABLE')
         && !document.body?.innerText.includes(${JSON.stringify(workerIdentity)})
         && !document.body?.innerText.includes(${JSON.stringify(serverIdentity)})
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 0`);
