@@ -26,6 +26,7 @@ import { FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
@@ -284,7 +285,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 pagination paginationPerPage={20}
                 paginationResetKey={JSON.stringify([leaseFilter, normalizedSearch])}
                 paginationRowsPerPageOptions={[20, 50, 100]}
-                noDataComponent={<div className="data-workspace-empty"><ModuleIcons.cpu aria-hidden="true" size={18} /><p>No compatible shadow worker has registered.</p></div>}
+                noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.cpu aria-hidden="true" size={18} />}>
+                  No compatible shadow worker has registered.
+                </DataWorkspaceEmpty>}
               />
             </DataTableSurface>
             {selected ? <WorkerDetail worker={selected} exact={Boolean(initialWorkerIdentity)} />
