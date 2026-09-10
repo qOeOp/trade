@@ -1,0 +1,90 @@
+.root {
+  min-width: 0;
+  padding: 12px;
+  overflow: hidden;
+  border: .5px solid var(--border-default);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-card);
+  box-shadow: var(--elevation-base);
+}
+
+.header {
+  min-height: 34px;
+  padding: 0 4px 9px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--text-muted);
+  font: 700 9px/1.2 ui-monospace, monospace;
+  text-transform: uppercase;
+}
+
+.item {
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 11px;
+  display: grid;
+  gap: 4px;
+  border: 0;
+  border-radius: 0;
+  color: var(--text-primary);
+  background-color: transparent;
+  background-image: linear-gradient(var(--data-table-gridline), var(--data-table-gridline));
+  background-position: center bottom;
+  background-repeat: no-repeat;
+  background-size: calc(100% - 22px) .5px;
+  text-align: left;
+  transition: background-color 150ms ease, box-shadow 150ms ease;
+}
+
+.item:last-child {
+  background-image: none;
+}
+
+.item:hover {
+  background-color: var(--surface-hover);
+}
+
+.item:focus-visible {
+  outline: 0;
+  background-color: var(--surface-hover);
+  box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent);
+}
+
+.item[data-selected="true"] {
+  background-color: var(--data-table-row-selected-bg);
+  box-shadow: inset 2px 0 0 var(--data-table-row-selected-accent);
+}
+
+.primary,
+.meta,
+.detail {
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.primary {
+  color: var(--text-primary);
+  font: 700 10px/1.25 ui-monospace, monospace;
+}
+
+.meta,
+.detail {
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.35;
+}
+
+@media (max-width: 1279px) {
+  .root {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1px;
+  }
+
+  .header {
+    grid-column: 1 / -1;
+  }
+}
