@@ -40,6 +40,23 @@ export function DetailInspectorHeader({
   );
 }
 
+export function DetailInspectorBody({
+  children,
+  className,
+  ...props
+}: { children: ReactNode } & HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      {...props}
+      className={["detail-inspector-body", className].filter(Boolean).join(" ")}
+      data-slot="detail-inspector-body"
+      data-surface="inset"
+    >
+      {children}
+    </div>
+  );
+}
+
 export function DetailFactGrid({ children }: { children: ReactNode }) {
   return <div className="detail-fact-grid">{children}</div>;
 }

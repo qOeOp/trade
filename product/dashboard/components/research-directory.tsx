@@ -12,7 +12,6 @@ import {
 import type { HistoricalResearchCandidateV1 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
@@ -26,7 +25,9 @@ import {
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
 import { researchAvailabilityTone } from "./ui/status-tone-policy";
+import { useDelayedPending } from "./ui/use-delayed-pending";
 import { useHistoricalCustodyDirectory } from "./use-historical-custody-directory";
+import { OwnerDirectoryInfo, OwnerDirectoryUnavailable } from "./owner-directory-state";
 import styles from "./owner-directory.module.css";
 
 function displayIdentity(value: string): string {
@@ -229,23 +230,29 @@ export function ResearchDirectory() {
   const pending = view === "verified"
     ? availability === "loading"
     : custodyCandidates.availability === "loading";
+  const showPending = useDelayedPending(pending);
   const refresh = () => view === "verified" ? readPage() : custodyCandidates.read();
 
   return (
     <PageStack>
       <PanelFrame aria-labelledby="research-directory-title">
         <PanelFrameHeader
-          eyebrow="Verified Research custody"
+          eyebrow="Research"
           title="Research requests"
           titleId="research-directory-title"
-          meta="Owner custody · Read only · No submit or resolve"
           description={view === "verified"
-            ? "Current Owner-verified request outcomes, without research payloads or execution controls."
-            : "Bounded custody identities only. A candidate is not a verified Research outcome."}
-          actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
-            <InterfaceIcons.refresh aria-hidden="true" size={12} />
-            {pending ? "Reading…" : "Refresh"}
-          </button>}
+            ? "Review accepted requests and their current strategy intent."
+            : "Review discovered requests that still need verification."}
+          actions={<>
+            <OwnerDirectoryInfo>
+              <strong>Read-only Owner data</strong>
+              <p>No research payloads, submission controls, or resolution actions are exposed here.</p>
+            </OwnerDirectoryInfo>
+            <button type="button" onClick={() => void refresh()} disabled={pending}>
+              <InterfaceIcons.refresh aria-hidden="true" size={12} />
+              {showPending ? "Reading…" : "Refresh"}
+            </button>
+          </>}
         />
         <PanelFrameBody>
           <DataTableSurface className={styles.tableSurface} geometry="inner" toolbarLabel="Research table controls" toolbar={
@@ -267,7 +274,14 @@ export function ResearchDirectory() {
               />
             </TableToolbar>}
           >
-            {view === "verified" ? <DataWorkspaceTable<ResearchDirectoryItemV1>
+            {view === "verified" ? availability === "unavailable" ? (
+              <OwnerDirectoryUnavailable
+                icon={<EvidenceIcons.research aria-hidden="true" size={18} />}
+                title="Research data unavailable"
+                detail="The latest verified requests could not be loaded. Try refreshing."
+                reason={reason ?? "RESEARCH_DIRECTORY_UNAVAILABLE"}
+              />
+            ) : <DataWorkspaceTable<ResearchDirectoryItemV1>
               ariaLabel="Verified research requests"
               columns={columns}
               data={visibleItems}
@@ -278,18 +292,19 @@ export function ResearchDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={availability === "unavailable" ? (
-                <UnavailableState
-                  density="compact"
-                  icon={<EvidenceIcons.research aria-hidden="true" size={17} />}
-                  title="Research directory unavailable"
-                  reason={reason ?? "RESEARCH_DIRECTORY_UNAVAILABLE"}
-                />
-              ) : <div className="data-workspace-empty">
+              noDataComponent={<div className={`data-workspace-empty ${availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.research aria-hidden="true" size={18} />
                 <p>{availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}</p>
               </div>}
-            /> : <DataWorkspaceTable<HistoricalResearchCandidateV1>
+            /> : custodyCandidates.availability === "unavailable" ? (
+              <OwnerDirectoryUnavailable
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
+                title="Candidate data unavailable"
+                detail="Candidate requests could not be loaded. Try refreshing."
+                reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
+              />
+            ) : <DataWorkspaceTable<HistoricalResearchCandidateV1>
               ariaLabel="Research custody candidates"
               columns={candidateColumns}
               data={visibleCandidates}
@@ -300,14 +315,8 @@ export function ResearchDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={custodyCandidates.availability === "unavailable" ? (
-                <UnavailableState
-                  density="compact"
-                  icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
-                  title="Custody candidate directory unavailable"
-                  reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
-                />
-              ) : <div className="data-workspace-empty">
+              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
+                ? styles.pendingQuiet : ""}`}>
                 <EvidenceIcons.pending aria-hidden="true" size={18} />
                 <p>{custodyCandidates.availability === "loading"
                   ? "Reading custody candidates…"
@@ -320,7 +329,7 @@ export function ResearchDirectory() {
           <PanelFrameFooter layout="split">
             <PanelFrameFooterSummary
               primary={`${custodyCandidates.projection?.researchTotal ?? 0} candidate identities`}
-              secondary="Every row remains POINT_READ_REQUIRED; no Research success or current authority is inferred."
+              secondary="Candidates remain unverified until their exact request is opened."
             />
           </PanelFrameFooter>
         ) : availability === "available" && (partial || nextCursor) ? (

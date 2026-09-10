@@ -35,7 +35,7 @@ export function ReadOnlyCodeMirror({
     async function mountEditor() {
       if (!hostRef.current) return;
       const [
-        { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, lineNumbers },
+        { EditorView, drawSelection, highlightActiveLine, highlightActiveLineGutter, keymap, lineNumbers },
         { EditorState },
         { HighlightStyle, bracketMatching, foldGutter, syntaxHighlighting },
         { tags },
@@ -76,6 +76,22 @@ export function ReadOnlyCodeMirror({
             languageSupport,
             EditorState.readOnly.of(true),
             EditorView.editable.of(false),
+            EditorView.contentAttributes.of({ tabindex: "0" }),
+            keymap.of([{
+              key: "Mod-a",
+              run: (editor) => {
+                editor.dispatch({ selection: { anchor: 0, head: editor.state.doc.length } });
+                return true;
+              },
+            }, {
+              key: "Mod-c",
+              run: (editor) => {
+                const { from, to } = editor.state.selection.main;
+                if (from === to) return false;
+                void navigator.clipboard.writeText(editor.state.sliceDoc(from, to)).catch(() => undefined);
+                return true;
+              },
+            }]),
             EditorView.lineWrapping,
             EditorView.theme({
               "&": { height: "100%", backgroundColor: "transparent", color: "var(--text-primary)" },

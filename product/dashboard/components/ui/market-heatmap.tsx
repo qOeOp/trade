@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   filterMarketHeatmapItems,
@@ -24,8 +25,8 @@ import {
   getTargetSize,
   useMarketHeatmapLayout,
 } from "../../lib/market-heatmap-layout";
-import { EmptyState, UnavailableState } from "./evidence-strip";
-import { InterfaceIcons, ModuleIcons } from "./iconography";
+import { EmptyState } from "./evidence-strip";
+import { InterfaceIcons, ModuleIcons, RunIcons } from "./iconography";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -38,10 +39,14 @@ export const MarketHeatmap = memo(function MarketHeatmap({
   projection,
   title = "Market heatmap",
   eyebrow = "Point-in-time market view",
+  description = "Compare relative movement across the latest verified market cut.",
+  technicalDetail,
 }: {
   projection: MarketHeatmapProjection;
   title?: string;
   eyebrow?: string;
+  description?: string;
+  technicalDetail?: ReactNode;
 }) {
   const bodyRef = useRef<HTMLDivElement>(null);
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
@@ -126,10 +131,16 @@ export const MarketHeatmap = memo(function MarketHeatmap({
       <PanelFrameHeader
         eyebrow={eyebrow}
         title={<span id="market-heatmap-title">{title}</span>}
+        description={description}
         actions={search}
-        layout="inline"
       />
-      <PanelFrameBody className={styles.body} bodyRef={bodyRef} mode="static">
+      <PanelFrameBody
+        className={[styles.body, safeProjection.availability !== "available" ? styles.bodyCompact : ""]
+          .filter(Boolean)
+          .join(" ")}
+        bodyRef={bodyRef}
+        mode="static"
+      >
         <MarketHeatmapBody
           projection={safeProjection}
           query={query}
@@ -140,14 +151,15 @@ export const MarketHeatmap = memo(function MarketHeatmap({
           setHoveredId={setHoveredId}
           clearSearch={() => setQuery("")}
           dimensions={dimensions}
+          technicalDetail={technicalDetail}
         />
       </PanelFrameBody>
-      <PanelFrameFooter className={styles.legend}>
+      {safeProjection.availability === "available" && safeProjection.items.length > 0 ? <PanelFrameFooter className={styles.legend}>
         <span><i data-tone="loss-strong" />Loss</span>
         <span><i data-tone="neutral" />Flat</span>
         <span><i data-tone="gain-strong" />Gain</span>
         <small>Area reflects Owner-projected weight</small>
-      </PanelFrameFooter>
+      </PanelFrameFooter> : null}
     </PanelFrame>
   );
 });
@@ -162,6 +174,7 @@ function MarketHeatmapBody({
   setHoveredId,
   clearSearch,
   dimensions,
+  technicalDetail,
 }: {
   projection: MarketHeatmapProjection;
   query: string;
@@ -172,20 +185,13 @@ function MarketHeatmapBody({
   setHoveredId: (id: string | null) => void;
   clearSearch: () => void;
   dimensions: { width: number; height: number };
+  technicalDetail?: ReactNode;
 }) {
   if (projection.availability === "loading") {
     return <div className={styles.state} aria-busy="true"><span className={styles.loader} />Loading market cut…</div>;
   }
   if (projection.availability === "unavailable") {
-    return (
-      <UnavailableState
-        density="compact"
-        icon={<ModuleIcons.chart aria-hidden="true" size={17} />}
-        title="Market heatmap unavailable"
-        detail="No verified market cut is available."
-        reason={projection.reason ?? "OWNER_MARKET_PROJECTION_UNAVAILABLE"}
-      />
-    );
+    return <MarketHeatmapUnavailable reason={projection.reason} technicalDetail={technicalDetail} />;
   }
   if (projection.items.length === 0) {
     return <EmptyState density="compact" title="No market observations" icon={<ModuleIcons.chart aria-hidden="true" size={17} />}>The current Owner cut contains no heatmap members.</EmptyState>;
@@ -213,6 +219,34 @@ function MarketHeatmapBody({
           onActiveChange={(active) => setHoveredId(active ? tile.data.id : null)}
         />
       ))}
+    </div>
+  );
+}
+
+export function MarketHeatmapUnavailable({
+  reason,
+  technicalDetail,
+}: {
+  reason?: string;
+  technicalDetail?: ReactNode;
+}) {
+  return (
+    <div className={styles.unavailableState} role="status">
+      <details className={styles.infoDisclosure}>
+        <summary aria-label="View technical details" title="View technical details">
+          <span className={styles.stateIcon}><ModuleIcons.chart aria-hidden="true" size={18} /></span>
+          <span className={styles.stateCopy}>
+            <strong>Market data unavailable</strong>
+            <span>No verified market view is connected yet.</span>
+          </span>
+          <span className={styles.infoButton}><RunIcons.unknown aria-hidden="true" size={14} /></span>
+        </summary>
+        <div className={styles.infoPopover}>
+          <strong>Technical details</strong>
+          {technicalDetail}
+          <code>{reason ?? "OWNER_MARKET_PROJECTION_UNAVAILABLE"}</code>
+        </div>
+      </details>
     </div>
   );
 }

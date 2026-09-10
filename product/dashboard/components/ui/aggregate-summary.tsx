@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import type { StatusBadgeTone } from "./status-badge";
 
 export function AggregateSummary({
   children,
@@ -19,6 +20,7 @@ export function AggregateSummaryGroup({
   detail,
   children,
   className,
+  tone,
 }: {
   eyebrow: ReactNode;
   label: ReactNode;
@@ -26,9 +28,10 @@ export function AggregateSummaryGroup({
   detail?: ReactNode;
   children: ReactNode;
   className?: string;
+  tone?: StatusBadgeTone;
 }) {
   return (
-    <section className={["aggregate-summary-group", className].filter(Boolean).join(" ")}>
+    <section className={["aggregate-summary-group", className].filter(Boolean).join(" ")} data-tone={tone}>
       <span className="aggregate-summary-eyebrow">{eyebrow}</span>
       <div className="aggregate-summary-lead">
         <span>{label}</span>
@@ -44,13 +47,15 @@ export function AggregateSummaryFact({
   label,
   value,
   detail,
+  tone,
 }: {
   label: ReactNode;
   value: ReactNode;
   detail?: ReactNode;
+  tone?: StatusBadgeTone;
 }) {
   return (
-    <div className="aggregate-summary-fact">
+    <div className="aggregate-summary-fact" data-tone={tone}>
       <dt>{label}</dt>
       <dd>{value}</dd>
       {detail ? <small>{detail}</small> : null}

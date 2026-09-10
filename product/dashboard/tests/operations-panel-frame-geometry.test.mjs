@@ -55,7 +55,6 @@ test("Visible nested surfaces share one inner radius while structural joins stay
     ".evidence-actions",
     ".summary-metric",
     ".aggregate-summary",
-    ".insight-summary",
     ".technical-disclosure",
     ".prototype-notice",
   ];
@@ -96,12 +95,12 @@ test("Run result fields and actions reflow from their actual card width before t
 test("Foundation card clusters consume the shared inner radius token", async () => {
   const modules = await Promise.all([
     source("market-data-owner-foundation-card.module.css"),
-    source("runtime-foundation-not-ready-card.module.css"),
-    source("portfolio-view-unavailable-card.module.css"),
+    source("ui/summary-list.module.css"),
   ]);
 
   for (const moduleCss of modules) {
     assert.match(moduleCss, /border-radius: var\(--panel-inner-radius\);/u);
     assert.doesNotMatch(moduleCss, /border-radius: 15px;/u);
   }
+  assert.match(css, /\.unavailable-state\[data-surface="card"\] \{[^}]*border-radius: var\(--panel-inner-radius\);/u);
 });

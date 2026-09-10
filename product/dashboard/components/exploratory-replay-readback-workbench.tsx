@@ -11,6 +11,7 @@ import {
   validExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
+import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
@@ -18,58 +19,35 @@ import styles from "./exploratory-replay-readback-workbench.module.css";
 
 const DIGEST = /^(?:sha256|blake3):[0-9a-f]{64}$/;
 
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className={styles.fact}>
-      <dt>{label}</dt>
-      <dd className={mono ? styles.mono : undefined} title={value}>{value}</dd>
-    </div>
-  );
-}
-
-function ReadbackGroup({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className={styles.group}>
-      <h3>{title}</h3>
-      <dl>{children}</dl>
-    </section>
-  );
-}
-
 function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowserProjectionV1 }) {
   if (!projection.request || !projection.custody || !projection.replayBasis) return null;
   return (
     <>
       <div className={styles.groups}>
-        <ReadbackGroup title="Request">
-          <Fact label="Identity" value={projection.requestIdentity} mono />
-          <div className={styles.fact}>
-            <dt>Availability</dt>
-            <dd><StatusBadge tone="success">Available</StatusBadge></dd>
-          </div>
-          <Fact label="Namespace" value={projection.request.namespace} />
-          <Fact label="Seed" value={String(projection.request.deterministicSeed)} mono />
-        </ReadbackGroup>
-        <ReadbackGroup title="Custody">
-          <Fact label="Meaning" value={projection.meaningDigest} mono />
-          <Fact label="Receipt" value={projection.custody.receiptIdentity} mono />
-          <Fact label="Seal" value={projection.custody.sealDigest} mono />
-          <Fact label="Committed" value={new Date(projection.custody.committedAt).toLocaleString()} />
-          <Fact label="Owner cut" value={new Date(projection.custody.ownerObservedAt).toLocaleString()} />
-        </ReadbackGroup>
-        <ReadbackGroup title="Replay basis">
-          <Fact
-            label="Event window"
-            value={`${projection.replayBasis.startEventNs} → ${projection.replayBasis.endEventNsExclusive} ns`}
-            mono
-          />
-          <Fact label="Trial family" value={projection.replayBasis.trialFamilyIdentity} mono />
-          <Fact label="Artifact" value={projection.replayBasis.artifactIdentity} mono />
-          <Fact label="Strategy design" value={projection.replayBasis.strategyDesignIdentity} mono />
-          <Fact label="PIT snapshot" value={projection.replayBasis.pitSnapshotIdentity} mono />
-          <Fact label="Runtime kernel" value={projection.replayBasis.runtimeKernelIdentity} mono />
-          <Fact label="Simulator" value={projection.replayBasis.simulatorIdentity} mono />
-        </ReadbackGroup>
+        <FactGroup title="Request">
+          <FactItem label="Identity" mono title={projection.requestIdentity}>{projection.requestIdentity}</FactItem>
+          <FactItem label="Availability"><StatusBadge tone="success">Available</StatusBadge></FactItem>
+          <FactItem label="Namespace">{projection.request.namespace}</FactItem>
+          <FactItem label="Seed" mono>{String(projection.request.deterministicSeed)}</FactItem>
+        </FactGroup>
+        <FactGroup title="Custody">
+          <FactItem label="Meaning" mono title={projection.meaningDigest}>{projection.meaningDigest}</FactItem>
+          <FactItem label="Receipt" mono title={projection.custody.receiptIdentity}>{projection.custody.receiptIdentity}</FactItem>
+          <FactItem label="Seal" mono title={projection.custody.sealDigest}>{projection.custody.sealDigest}</FactItem>
+          <FactItem label="Committed">{new Date(projection.custody.committedAt).toLocaleString()}</FactItem>
+          <FactItem label="Owner cut">{new Date(projection.custody.ownerObservedAt).toLocaleString()}</FactItem>
+        </FactGroup>
+        <FactGroup title="Replay basis">
+          <FactItem label="Event window" mono title={`${projection.replayBasis.startEventNs} → ${projection.replayBasis.endEventNsExclusive} ns`}>
+            {projection.replayBasis.startEventNs} → {projection.replayBasis.endEventNsExclusive} ns
+          </FactItem>
+          <FactItem label="Trial family" mono title={projection.replayBasis.trialFamilyIdentity}>{projection.replayBasis.trialFamilyIdentity}</FactItem>
+          <FactItem label="Artifact" mono title={projection.replayBasis.artifactIdentity}>{projection.replayBasis.artifactIdentity}</FactItem>
+          <FactItem label="Strategy design" mono title={projection.replayBasis.strategyDesignIdentity}>{projection.replayBasis.strategyDesignIdentity}</FactItem>
+          <FactItem label="PIT snapshot" mono title={projection.replayBasis.pitSnapshotIdentity}>{projection.replayBasis.pitSnapshotIdentity}</FactItem>
+          <FactItem label="Runtime kernel" mono title={projection.replayBasis.runtimeKernelIdentity}>{projection.replayBasis.runtimeKernelIdentity}</FactItem>
+          <FactItem label="Simulator" mono title={projection.replayBasis.simulatorIdentity}>{projection.replayBasis.simulatorIdentity}</FactItem>
+        </FactGroup>
       </div>
       <div className={styles.resultRail} role="status">
         <EvidenceIcons.warning aria-hidden="true" size={15} />
@@ -83,10 +61,7 @@ function LoadingGroups() {
   return (
     <div className={styles.groups} aria-label="Loading Replay request readback">
       {["Request", "Custody", "Replay basis"].map((title) => (
-        <section className={styles.group} key={title}>
-          <h3>{title}</h3>
-          <div className={styles.skeletonLines} aria-hidden="true"><i /><i /><i /></div>
-        </section>
+        <FactGroupSkeleton key={title} title={title} />
       ))}
     </div>
   );

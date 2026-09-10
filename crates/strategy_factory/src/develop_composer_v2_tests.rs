@@ -1,13 +1,6 @@
 use std::cell::{Cell, RefCell};
 
 use rstest::rstest;
-#[cfg(any(
-    all(target_os = "macos", target_arch = "aarch64"),
-    all(target_os = "linux", target_arch = "aarch64")
-))]
-use strategy_factory_program_sdk::lifecycle_v1::{
-    EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
-};
 use vibe_data::owner::source_binding::BindingDigest;
 
 use super::{
@@ -29,6 +22,14 @@ use super::{
         StrategyDesignPreparationV2, VerifiedStrategyInputBindingsV2, prepare_strategy_design_v2,
         verified_strategy_input_bindings_for_test,
     },
+};
+
+#[cfg(any(
+    all(target_os = "macos", target_arch = "aarch64"),
+    all(target_os = "linux", target_arch = "aarch64")
+))]
+use strategy_factory_program_sdk::lifecycle_v1::{
+    EnvelopePayloadV1, EventOrderKeyV1, LifecycleEnvelopeV1, LifecycleKind,
 };
 
 #[cfg(any(

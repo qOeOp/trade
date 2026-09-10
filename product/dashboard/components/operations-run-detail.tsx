@@ -29,6 +29,7 @@ import {
   DetailFact,
   DetailFactGrid,
   DetailInspector,
+  DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
@@ -41,9 +42,10 @@ import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
-import { availabilityTone } from "./ui/status-tone-policy";
+import { availabilityTone, executionStateTone, ownerOutcomeTone } from "./ui/status-tone-policy";
 import { OperationsRunLogs } from "./operations-run-logs";
 import { OperationsRunAuxiliaryEvidence } from "./operations-run-auxiliary-evidence";
+import { runTerminalPresentation } from "../lib/operations-presentation";
 
 const tabs = ["Logs", "Metrics", "Traces", "Assets"] as const;
 type DetailTab = typeof tabs[number];
@@ -51,9 +53,9 @@ type DetailTab = typeof tabs[number];
 function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Not started";
 }
-function displayDuration(value: number | null) {
-  if (value === null) return "Not complete";
-  return value < 1_000 ? `${value} ms` : `${(value / 1_000).toFixed(2)} s`;
+function compactIdentity(value: string) {
+  if (value.length <= 34) return value;
+  return `${value.slice(0, 24)}…${value.slice(-8)}`;
 }
 
 const ownerLabels = {
@@ -278,50 +280,68 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
   const dispatch = run.dispatch_binding;
   const worker = run.worker_compatibility;
   const operationalCancellation = result.operational_cancellation;
+  const terminalPresentation = runTerminalPresentation(run);
   return (
     <PageStack className="run-detail-page">
     <PanelFrame className="run-detail-panel bento-page-frame" aria-labelledby="run-detail-title">
       <PanelFrameHeader
-        eyebrow={<>Exact operational readback · {new Date(result.observed_at).toLocaleString()}</>}
+        eyebrow="Run activity"
         title={run.operation_id}
         titleId="run-detail-title"
-        meta={<code>{run.run_identity}</code>}
         actions={<>
-          <button type="button" onClick={() => void copyLocator()}>
+          <details className="panel-info-disclosure">
+            <summary aria-label="View run information" title="Run information">
+              <InterfaceIcons.info aria-hidden="true" size={14} />
+            </summary>
+            <div>
+              <span>Observed</span>
+              <b>{new Date(result.observed_at).toLocaleString()}</b>
+              <span>Run identity</span>
+              <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
+              <p>Owner outcome and operational timing are reported independently.</p>
+            </div>
+          </details>
+          <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
           </button>
-          <button type="button" onClick={() => void refresh()} disabled={pending}>
+          <button type="button" data-action-variant="secondary" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
           </button>
-          {operationalCancellation.state === "pending" ? <a href="#dependency-cancellation-panel">
+          {operationalCancellation.state === "pending" ? <a data-action-variant="warning" href="#dependency-cancellation-panel">
             <RunIcons.cancelled aria-hidden="true" size={12} /> Cancel queued dependency
           </a> : null}
           {run.owner_view.action_label === "Resolve same identity" ? <button
             type="button"
+            data-action-variant="primary"
             onClick={() => void resolveOwnerOutcome()}
             disabled={resolvingOwner}
           >
             <InterfaceIcons.autoRefresh aria-hidden="true" size={12} />
             {resolvingOwner ? "Resolving…" : "Resolve same identity"}
           </button> : null}
-          <Link href={run.owner_view.href}>
+          <Link data-action-variant="secondary" href={run.owner_view.href}>
             Open Owner view <InterfaceIcons.open aria-hidden="true" size={12} />
           </Link>
         </>}
       />
       <PanelFrameBody>
       <AggregateSummary className="run-detail-summaries" aria-label="Run summary">
-        <AggregateSummaryGroup eyebrow="Semantic boundary" label="Semantic"
-          value={run.owner_outcome_state} detail="Owner outcome class; never inferred from execution">
-          <AggregateSummaryFact label="Operational" value={run.state} />
-          <AggregateSummaryFact label="Terminal code" value={run.terminal_code ?? "Not terminal"} />
+        <AggregateSummaryGroup eyebrow="Outcome" label="Owner outcome"
+          value={run.owner_outcome_state}
+          tone={ownerOutcomeTone(run.owner_outcome_state)}>
+          <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
+          <AggregateSummaryFact label="Terminal state" value={terminalPresentation.terminalState}
+            tone={run.terminal_code ? executionStateTone(run.state) : terminalPresentation.terminalTone} />
           <AggregateSummaryFact label="Transition" value={run.transition_version} />
         </AggregateSummaryGroup>
-        <AggregateSummaryGroup eyebrow="RunStore timing" label="Duration"
-          value={displayDuration(run.duration_ms)} detail="Operational timing only">
-          <AggregateSummaryFact label="Timing / received" value={displayTime(run.received_at)} />
+        <AggregateSummaryGroup eyebrow="Timing" label="Duration"
+          value={terminalPresentation.duration}
+          tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)}>
+          <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
           <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />
-          <AggregateSummaryFact label="Completed" value={displayTime(run.completed_at)} />
+          <AggregateSummaryFact label="Completed"
+            value={run.completed_at ? displayTime(run.completed_at) : "In progress"}
+            tone={run.completed_at ? executionStateTone(run.state) : "info"} />
         </AggregateSummaryGroup>
       </AggregateSummary>
 
@@ -334,66 +354,70 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
           status={<StatusBadge tone={operationalCancellation.state === "receipt" ? "neutral" : "warning"}>
             {operationalCancellation.state}
           </StatusBadge>} />
-        {operationalCancellation.state === "pending"
-          && operationalCancellation.action_envelope ? <>
-          <p className="detail-inspector-lede">
-            This action is limited to this exact queued, never-claimed dependency run. The Dispatcher
-            rechecks the transition, zero-effect registry entry and claim absence under one lock.
-          </p>
-          <DetailFactGrid>
-            <DetailFact label="Run / kind"><b>{run.run_identity} · dependency</b></DetailFact>
-            <DetailFact label="Transition"><b>{run.transition_version}</b></DetailFact>
-            <DetailFact label="Domain effects"><b>None</b></DetailFact>
-            <DetailFact label="Envelope expiry"><b>{displayTime(
-              operationalCancellation.action_envelope.expires_at,
+        <DetailInspectorBody>
+          {operationalCancellation.state === "pending"
+            && operationalCancellation.action_envelope ? <>
+            <p className="detail-inspector-lede">
+              This action is limited to this exact queued, never-claimed dependency run. The Dispatcher
+              rechecks the transition, zero-effect registry entry and claim absence under one lock.
+            </p>
+            <DetailFactGrid>
+              <DetailFact label="Run / kind"><b>{run.run_identity} · dependency</b></DetailFact>
+              <DetailFact label="Transition"><b>{run.transition_version}</b></DetailFact>
+              <DetailFact label="Domain effects"><b>None</b></DetailFact>
+              <DetailFact label="Envelope expiry"><b>{displayTime(
+                operationalCancellation.action_envelope.expires_at,
+              )}</b></DetailFact>
+            </DetailFactGrid>
+            <label className="run-cache-delete-field">
+              <span>Operator capability</span>
+              <input type="password" autoComplete="off" value={cancellationCapability}
+                onChange={(event) => setCancellationCapability(event.target.value)} />
+            </label>
+            {cancellationResult?.availability === "unavailable" ? <DetailNotice
+              icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
+              title="Cancellation unavailable">{cancellationResult.unavailable_reason}</DetailNotice> : null}
+            <DetailInspectorFooter layout="split">
+              <span>No batch, retry, Owner, provider, build or replay cancellation.</span>
+              <FilterButton type="button" variant="outline"
+                disabled={cancellationCapability.length < 32 || cancelling}
+                onClick={() => void cancelQueuedDependency()}>
+                <RunIcons.cancelled aria-hidden="true" size={12} />
+                {cancelling ? "Cancelling…" : "Cancel queued dependency"}
+              </FilterButton>
+            </DetailInspectorFooter>
+          </> : operationalCancellation.state === "receipt"
+            && operationalCancellation.receipt ? <DetailFactGrid>
+            <DetailFact label="Receipt"><b>{operationalCancellation.receipt.receipt_identity}</b></DetailFact>
+            <DetailFact label="Transition"><b>{operationalCancellation.receipt.prior_transition_version}
+              {" → "}{operationalCancellation.receipt.transition_version}</b></DetailFact>
+            <DetailFact label="Principal"><b>{operationalCancellation.receipt.principal_ref}</b></DetailFact>
+            <DetailFact label="Cancelled"><b>{displayTime(
+              operationalCancellation.receipt.cancelled_at,
             )}</b></DetailFact>
-          </DetailFactGrid>
-          <label className="run-cache-delete-field">
-            <span>Operator capability</span>
-            <input type="password" autoComplete="off" value={cancellationCapability}
-              onChange={(event) => setCancellationCapability(event.target.value)} />
-          </label>
-          {cancellationResult?.availability === "unavailable" ? <DetailNotice
-            icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
-            title="Cancellation unavailable">{cancellationResult.unavailable_reason}</DetailNotice> : null}
-          <DetailInspectorFooter layout="split">
-            <span>No batch, retry, Owner, provider, build or replay cancellation.</span>
-            <FilterButton type="button" variant="outline"
-              disabled={cancellationCapability.length < 32 || cancelling}
-              onClick={() => void cancelQueuedDependency()}>
-              <RunIcons.cancelled aria-hidden="true" size={12} />
-              {cancelling ? "Cancelling…" : "Cancel queued dependency"}
-            </FilterButton>
-          </DetailInspectorFooter>
-        </> : operationalCancellation.state === "receipt"
-          && operationalCancellation.receipt ? <DetailFactGrid>
-          <DetailFact label="Receipt"><b>{operationalCancellation.receipt.receipt_identity}</b></DetailFact>
-          <DetailFact label="Transition"><b>{operationalCancellation.receipt.prior_transition_version}
-            {" → "}{operationalCancellation.receipt.transition_version}</b></DetailFact>
-          <DetailFact label="Principal"><b>{operationalCancellation.receipt.principal_ref}</b></DetailFact>
-          <DetailFact label="Cancelled"><b>{displayTime(
-            operationalCancellation.receipt.cancelled_at,
-          )}</b></DetailFact>
-        </DetailFactGrid> : <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
-          title="Cancellation unavailable">
-          {operationalCancellation.unavailable_reason ?? "Current action evidence is unavailable."}
-        </DetailNotice>}
+          </DetailFactGrid> : <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
+            title="Cancellation unavailable">
+            {operationalCancellation.unavailable_reason ?? "Current action evidence is unavailable."}
+          </DetailNotice>}
+        </DetailInspectorBody>
       </DetailInspector> : null}
 
       <SplitBento className="run-detail-columns"
         columns="minmax(560px, 1.4fr) minmax(320px, 1fr)">
         <DetailInspector as="section" aria-label="Allowlisted operational input">
           <DetailInspectorHeader eyebrow="Allowlisted operational input" title="Metadata and inputs" />
-          <DetailFactGrid>
-            <DetailFact label="Trigger / kind"><b>{run.trigger_kind} · {run.run_kind}</b></DetailFact>
-            <DetailFact label="Channel"><b>{run.channel}</b></DetailFact>
-            <DetailFact label="Transition"><b>{run.transition_version}</b></DetailFact>
-            <DetailFact label="Retained until"><time dateTime={run.retained_until}>{displayTime(run.retained_until)}</time></DetailFact>
-            {run.input_fields.map(({ key, value }) => <DetailFact key={key} label={key}><b>{value}</b></DetailFact>)}
-          </DetailFactGrid>
-          <DetailNotice icon={<RunIcons.loaded aria-hidden="true" size={14} />} title="Owner-custodied fields withheld">
-            {run.withheld_fields.length} fields · {run.withheld_fields.map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}
-          </DetailNotice>
+          <DetailInspectorBody>
+            <DetailFactGrid>
+              <DetailFact label="Trigger / kind"><b>{run.trigger_kind} · {run.run_kind}</b></DetailFact>
+              <DetailFact label="Channel"><b>{run.channel}</b></DetailFact>
+              <DetailFact label="Transition"><b>{run.transition_version}</b></DetailFact>
+              <DetailFact label="Retained until"><time dateTime={run.retained_until}>{displayTime(run.retained_until)}</time></DetailFact>
+              {run.input_fields.map(({ key, value }) => <DetailFact key={key} label={key}><b>{value}</b></DetailFact>)}
+            </DetailFactGrid>
+            <DetailNotice icon={<RunIcons.loaded aria-hidden="true" size={14} />} title="Owner-custodied fields withheld">
+              {run.withheld_fields.length} fields · {run.withheld_fields.map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}
+            </DetailNotice>
+          </DetailInspectorBody>
         </DetailInspector>
         <DetailInspector aria-label="Exact-run worker and dispatch evidence">
           <DetailInspectorHeader
@@ -401,93 +425,99 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
             title={worker.availability}
             status={<StatusBadge tone={availabilityTone(worker.availability)}>{worker.availability}</StatusBadge>}
           />
-          {worker.availability === "available" ? <DetailFactGrid>
-            <DetailFact label="Worker"><b>{worker.worker_identity}</b></DetailFact>
-            <DetailFact label="Lease now"><b>{worker.worker_lease_state}</b></DetailFact>
-            <DetailFact label="Claim attempt"><b>{worker.claim_attempt}</b></DetailFact>
-            <DetailFact label="Artifact"><b>{worker.worker_artifact_digest}</b></DetailFact>
-          </DetailFactGrid> : <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />} title="Worker evidence unavailable">
-            {worker.unavailable_reason ?? "No worker is required for this run kind."}
-          </DetailNotice>}
-          <DetailSection label="Immutable dispatch binding" meta={dispatch.availability}>
-            {dispatch.availability === "available" ? <DetailFactGrid>
-              <DetailFact label="Operation"><b>{dispatch.required_operation_id}</b></DetailFact>
-              <DetailFact label="Dependencies"><b>{dispatch.dependency_operation_ids.length
-                ? dispatch.dependency_operation_ids.join(" → ") : "None"}</b></DetailFact>
-              <DetailFact label="Registry cut"><b>{dispatch.registry_entry_digest}</b></DetailFact>
-              <DetailFact label="Compatibility set"><b>{dispatch.compatibility_envelope_set_digest}</b></DetailFact>
-            </DetailFactGrid> : <p className="detail-section-copy">
-              {dispatch.unavailable_reason ?? "No dispatch binding is required for this run kind."}
-            </p>}
-          </DetailSection>
-          <DetailNotice icon={<ModuleIcons.shield aria-hidden="true" size={14} />} title="Historical submission evidence only">
-            Compatibility cannot promote Owner outcome, service health, deployment approval, dependency execution, or queue authority.
-          </DetailNotice>
+          <DetailInspectorBody>
+            {worker.availability === "available" ? <DetailFactGrid>
+              <DetailFact label="Worker"><b>{worker.worker_identity}</b></DetailFact>
+              <DetailFact label="Lease now"><b>{worker.worker_lease_state}</b></DetailFact>
+              <DetailFact label="Claim attempt"><b>{worker.claim_attempt}</b></DetailFact>
+              <DetailFact label="Artifact"><b>{worker.worker_artifact_digest}</b></DetailFact>
+            </DetailFactGrid> : <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />} title="Worker evidence unavailable">
+              {worker.unavailable_reason ?? "No worker is required for this run kind."}
+            </DetailNotice>}
+            <DetailSection label="Immutable dispatch binding" meta={dispatch.availability}>
+              {dispatch.availability === "available" ? <DetailFactGrid>
+                <DetailFact label="Operation"><b>{dispatch.required_operation_id}</b></DetailFact>
+                <DetailFact label="Dependencies"><b>{dispatch.dependency_operation_ids.length
+                  ? dispatch.dependency_operation_ids.join(" → ") : "None"}</b></DetailFact>
+                <DetailFact label="Registry cut"><b>{dispatch.registry_entry_digest}</b></DetailFact>
+                <DetailFact label="Compatibility set"><b>{dispatch.compatibility_envelope_set_digest}</b></DetailFact>
+              </DetailFactGrid> : <p className="detail-section-copy">
+                {dispatch.unavailable_reason ?? "No dispatch binding is required for this run kind."}
+              </p>}
+            </DetailSection>
+            <DetailNotice icon={<ModuleIcons.shield aria-hidden="true" size={14} />} title="Historical submission evidence only">
+              Compatibility cannot promote Owner outcome, service health, deployment approval, dependency execution, or queue authority.
+            </DetailNotice>
+          </DetailInspectorBody>
         </DetailInspector>
       </SplitBento>
 
       <DetailInspector as="section" className="run-detail-owner-view" aria-label="Owner view locator">
         <DetailInspectorHeader eyebrow="Same-identity Owner view" title={ownerLabels[run.owner_view.source_owner]} />
-        <p className="detail-inspector-lede">
-          RunStore retains no Owner payload. The linked typed GET-only view resolves the exact identities again from the source Owner.
-        </p>
-        <DetailFactGrid>
-          <DetailFact label="Availability"><b>Owner read required</b></DetailFact>
-          <DetailFact label="Source Owner"><b>{run.owner_view.source_owner}</b></DetailFact>
-          <DetailFact label="Next legal action"><b>{run.owner_view.action_label}</b></DetailFact>
-          <DetailFact label="Receipt / source cut"><b>Resolved only by the linked Owner projection</b></DetailFact>
-          {run.owner_view.identity_fields.map(({ key, value }) => (
-            <DetailFact key={key} label={key}><b>{value}</b></DetailFact>
-          ))}
-        </DetailFactGrid>
-        {ownerResolution ? <DetailNotice
-          icon={<InterfaceIcons.autoRefresh aria-hidden="true" size={14} />}
-          title={ownerResolution.availability === "available"
-            ? `Resolution readback · Owner outcome · ${ownerResolution.owner_outcome_state}`
-            : `Resolution readback · ${ownerResolution.unavailable_reason}`}
-        >
-          {ownerResolution.replacement_run?.run_identity ? <Link
-            href={`/operations/runs/${encodeURIComponent(ownerResolution.replacement_run.run_identity)}`}
+        <DetailInspectorBody>
+          <p className="detail-inspector-lede">
+            RunStore retains no Owner payload. The linked typed GET-only view resolves the exact identities again from the source Owner.
+          </p>
+          <DetailFactGrid>
+            <DetailFact label="Availability"><b>Owner read required</b></DetailFact>
+            <DetailFact label="Source Owner"><b>{run.owner_view.source_owner}</b></DetailFact>
+            <DetailFact label="Next legal action"><b>{run.owner_view.action_label}</b></DetailFact>
+            <DetailFact label="Receipt / source cut"><b>Resolved only by the linked Owner projection</b></DetailFact>
+            {run.owner_view.identity_fields.map(({ key, value }) => (
+              <DetailFact key={key} label={key}><b>{value}</b></DetailFact>
+            ))}
+          </DetailFactGrid>
+          {ownerResolution ? <DetailNotice
+            icon={<InterfaceIcons.autoRefresh aria-hidden="true" size={14} />}
+            title={ownerResolution.availability === "available"
+              ? `Resolution readback · Owner outcome · ${ownerResolution.owner_outcome_state}`
+              : `Resolution readback · ${ownerResolution.unavailable_reason}`}
           >
-            Open replacement run <InterfaceIcons.open aria-hidden="true" size={12} />
-          </Link> : "No retry or replacement effect was inferred."}
-        </DetailNotice> : null}
-        <DetailInspectorFooter layout="split">
-          <span>Owner payload, receipt bytes and source authority remain outside RunStore.</span>
-          <FilterLink href={run.owner_view.href}>
-            Open Owner view <InterfaceIcons.open aria-hidden="true" size={13} />
-          </FilterLink>
-        </DetailInspectorFooter>
+            {ownerResolution.replacement_run?.run_identity ? <Link
+              href={`/operations/runs/${encodeURIComponent(ownerResolution.replacement_run.run_identity)}`}
+            >
+              Open replacement run <InterfaceIcons.open aria-hidden="true" size={12} />
+            </Link> : "No retry or replacement effect was inferred."}
+          </DetailNotice> : null}
+          <DetailInspectorFooter layout="split">
+            <span>Owner payload, receipt bytes and source authority remain outside RunStore.</span>
+            <FilterLink href={run.owner_view.href}>
+              Open Owner view <InterfaceIcons.open aria-hidden="true" size={13} />
+            </FilterLink>
+          </DetailInspectorFooter>
+        </DetailInspectorBody>
       </DetailInspector>
 
       {deleteOpen && result.operational_cache.state === "retained" ? <DetailInspector
         as="section" className="run-cache-delete-panel" aria-label="Delete disposable operational cache"
       >
         <DetailInspectorHeader eyebrow="Dashboard-owned disposable data" title="Delete operational cache" />
-        <p className="detail-inspector-lede">
-          This removes the bounded result and log viewport for this terminal run only. The run tombstone,
-          Owner locator and append-only audit codes remain. Windmill jobs and Owner facts are never touched.
-        </p>
-        <label className="run-cache-delete-field">
-          <span>Operator capability</span>
-          <input type="password" autoComplete="off" value={deleteCapability}
-            onChange={(event) => setDeleteCapability(event.target.value)} />
-        </label>
-        <label className="run-cache-delete-confirmation">
-          <input type="checkbox" checked={deleteConfirmed}
-            onChange={(event) => setDeleteConfirmed(event.target.checked)} />
-          <span>I understand only Dashboard operational cache is deleted.</span>
-        </label>
-        {deletionResult?.availability === "unavailable" ? <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
-          title="Cache deletion unavailable">{deletionResult.unavailable_reason}</DetailNotice> : null}
-        <DetailInspectorFooter layout="split">
-          <span>Exact transition {run.transition_version} · no generic delete or batch action</span>
-          <FilterButton type="button" variant="outline"
-            disabled={!deleteConfirmed || deleteCapability.length < 32 || deleting}
-            onClick={() => void deleteOperationalCache()}>
-            <InterfaceIcons.delete aria-hidden="true" size={12} /> {deleting ? "Deleting…" : "Delete operational cache"}
-          </FilterButton>
-        </DetailInspectorFooter>
+        <DetailInspectorBody>
+          <p className="detail-inspector-lede">
+            This removes the bounded result and log viewport for this terminal run only. The run tombstone,
+            Owner locator and append-only audit codes remain. Windmill jobs and Owner facts are never touched.
+          </p>
+          <label className="run-cache-delete-field">
+            <span>Operator capability</span>
+            <input type="password" autoComplete="off" value={deleteCapability}
+              onChange={(event) => setDeleteCapability(event.target.value)} />
+          </label>
+          <label className="run-cache-delete-confirmation">
+            <input type="checkbox" checked={deleteConfirmed}
+              onChange={(event) => setDeleteConfirmed(event.target.checked)} />
+            <span>I understand only Dashboard operational cache is deleted.</span>
+          </label>
+          {deletionResult?.availability === "unavailable" ? <DetailNotice icon={<RunIcons.cancelled aria-hidden="true" size={14} />}
+            title="Cache deletion unavailable">{deletionResult.unavailable_reason}</DetailNotice> : null}
+          <DetailInspectorFooter layout="split">
+            <span>Exact transition {run.transition_version} · no generic delete or batch action</span>
+            <FilterButton type="button" variant="outline"
+              disabled={!deleteConfirmed || deleteCapability.length < 32 || deleting}
+              onClick={() => void deleteOperationalCache()}>
+              <InterfaceIcons.delete aria-hidden="true" size={12} /> {deleting ? "Deleting…" : "Delete operational cache"}
+            </FilterButton>
+          </DetailInspectorFooter>
+        </DetailInspectorBody>
       </DetailInspector> : null}
 
       <section className="run-detail-result" aria-labelledby="run-detail-result-title">

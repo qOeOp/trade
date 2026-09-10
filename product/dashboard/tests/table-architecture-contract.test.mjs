@@ -84,6 +84,12 @@ test("all Dashboard tables stay behind the TanStack and shadcn workspace boundar
   assert.match(globalCss, /\.data-workspace-table\[data-height-mode="fill"\] > \.data-workspace-viewport[^}]*flex: 1 1 auto;[^}]*overflow: auto;/u);
   assert.match(globalCss, /\.workspace-table-row\[aria-selected="true"\] > \.workspace-table-cell,[^}]*var\(--data-table-row-selected-bg\)/u);
   assert.doesNotMatch(globalCss, /\.workspace-table-row\[data-selected="true"\]/u);
+  assert.match(globalCss, /--data-table-chrome-bg: color-mix\(in oklch, var\(--surface-panel\) 22%, var\(--surface-card\)\)/u);
+  assert.match(globalCss, /--data-table-row-hover-bg: color-mix\(in oklch, var\(--surface-hover\) 58%, var\(--surface-card\)\)/u);
+  assert.match(globalCss, /--data-table-row-selected-bg: color-mix\(in oklch, var\(--primary\) 5%, var\(--surface-card\)\)/u);
+  assert.doesNotMatch(globalCss, /--data-table-row-hover-bg:[^;]*var\(--primary\)/u);
+  assert.match(globalCss, /\.data-table-toolbar \{[^}]*background: var\(--data-table-chrome-bg\)/u);
+  assert.match(globalCss, /\.data-workspace-pagination \{[^}]*border-top: \.5px solid var\(--border-default\);[^}]*background: var\(--data-table-chrome-bg\)/u);
 
   const runTableSource = await readFile(
     join(dashboardRoot, "components/operations-runstore-preview.tsx"),

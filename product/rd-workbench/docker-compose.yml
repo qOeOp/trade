@@ -252,6 +252,57 @@ services:
       timeout: 3s
       retries: 20
 
+  dashboard-run-store-migrate:
+    profiles: ["dashboard-preview"]
+    image: trade-dashboard:${DASHBOARD_IMAGE_TAG:-preview}
+    pull_policy: never
+    restart: "no"
+    command: ["npm", "run", "run-store:migrate"]
+    environment:
+      DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
+    security_opt:
+      - no-new-privileges:true
+
+  dashboard-web:
+    profiles: ["dashboard-preview"]
+    image: trade-dashboard:${DASHBOARD_IMAGE_TAG:-preview}
+    build:
+      context: ..
+      dockerfile: dashboard/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      dashboard-run-store-migrate:
+        condition: service_completed_successfully
+    environment:
+      DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
+      DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
+      DASHBOARD_OPERATOR_API_TOKEN: ${DASHBOARD_OPERATOR_API_TOKEN:-}
+      DASHBOARD_SERVER_INSTANCE_IDENTITY: ${DASHBOARD_SERVER_INSTANCE_IDENTITY:-dashboard-web}
+      RD_OWNER_API_URL: ${RD_OWNER_API_URL:-http://rd-owner-api:8080}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:-}
+      RD_OWNER_READ_API_URL: ${RD_OWNER_READ_API_URL:-}
+      RD_OWNER_READ_API_TOKEN: ${RD_OWNER_READ_API_TOKEN:-}
+    ports:
+      - 127.0.0.1:${DASHBOARD_PORT:-3100}:3100
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    pids_limit: 128
+    mem_limit: 768m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "fetch('http://127.0.0.1:3100/operations/').then((response) =>
+          process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+
   windmill-server:
     # yamllint disable rule:line-length
     image: ghcr.io/windmill-labs/windmill:1.791.0@sha256:1e9ec20f5a99235ccce18e4a4879a8c14ff1738af37fd23c18d87594dcee5916

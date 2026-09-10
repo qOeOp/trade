@@ -5,6 +5,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   type Ref,
+  useId,
 } from "react";
 import { InterfaceIcons } from "./iconography";
 
@@ -137,6 +138,33 @@ export function PanelFrameIconAction({
   ...props
 }: { children: ReactNode } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
   return <button {...props} type="button" className={["panel-frame-icon-action", className].filter(Boolean).join(" ")}>{children}</button>;
+}
+
+export function PanelFrameInfo({
+  children,
+  label = "View technical details",
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
+  const popoverId = useId();
+
+  return (
+    <>
+      <button
+        type="button"
+        className="panel-info-trigger"
+        aria-label={label}
+        title={label}
+        popoverTarget={popoverId}
+      >
+        <InterfaceIcons.info aria-hidden="true" size={15} />
+      </button>
+      <div id={popoverId} className="panel-info-popover" popover="auto">
+        {children}
+      </div>
+    </>
+  );
 }
 
 export function PanelFrameCloseButton({

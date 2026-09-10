@@ -15,6 +15,7 @@ import {
   DetailClusterGrid,
   DetailEmpty,
   DetailInspector,
+  DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
@@ -22,7 +23,7 @@ import {
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
@@ -37,52 +38,64 @@ function displayTime(value: string | null) {
   return value ? new Date(value).toLocaleString() : "Unavailable";
 }
 
+function compactWorkerLabel(identity: string) {
+  const tail = identity.split(/[-_:]/u).filter(Boolean).at(-1) ?? identity;
+  return `Worker ${tail.slice(-10)}`;
+}
+
+function compactRunLabel(identity: string) {
+  const tail = identity.split("-").at(-1) ?? identity;
+  return `#${tail.slice(-8)}`;
+}
+
 function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjectionV1; exact?: boolean }) {
   return (
     <DetailInspector aria-label={`Worker ${worker.worker_identity}`}>
       <DetailInspectorHeader
         eyebrow={exact ? "Exact worker readback" : "Selected worker"}
-        title={worker.worker_identity}
+        title={compactWorkerLabel(worker.worker_identity)}
         titleAttribute={worker.worker_identity}
         status={<StatusBadge tone={availabilityTone(worker.lease_state)}>
           {worker.lease_state}
         </StatusBadge>}
       />
-      <DetailClusterGrid>
-        <DetailCluster label="Lease" meta={worker.lease_state}>
-          <DetailClusterFact label="Registered"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
-          <DetailClusterFact label="Expires"><time dateTime={worker.lease_expires_at}>{displayTime(worker.lease_expires_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Activity" meta={`${worker.active_job_count} active`}>
-          <DetailClusterFact label="Claimed"><b>{worker.job_count}</b></DetailClusterFact>
-          <DetailClusterFact label="Heartbeat"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
-          <DetailClusterFact label="Run">
-            {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
-              <code title={worker.last_run_identity}>{worker.last_run_identity}</code><InterfaceIcons.open aria-hidden="true" size={12} />
-            </a> : <span>Unavailable</span>}
-          </DetailClusterFact>
-          <DetailClusterFact label="Claimed at">{worker.last_run_at
-            ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
-            : <span>Unavailable</span>}</DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
-          <DetailClusterFact label="Registered operations" wide>
-            <span className="detail-cluster-values">
-              {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
-            </span>
-          </DetailClusterFact>
-        </DetailCluster>
-      </DetailClusterGrid>
-      <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Heartbeat history unavailable">
-        RunStore retains registration, latest heartbeat and lease deadline only. Memory and host are not inferred.
-      </DetailNotice>
-      <DetailInspectorFooter>
-        <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
-        <span>Artifact identity only · no unbound-run readiness claim</span>
-        {exact ? <a href="/operations/workers">Back to worker list</a> : null}
-      </DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailClusterGrid>
+          <DetailCluster label="Lease" meta={worker.lease_state}>
+            <DetailClusterFact label="Registered"><time dateTime={worker.registered_at}>{displayTime(worker.registered_at)}</time></DetailClusterFact>
+            <DetailClusterFact label="Expires"><time dateTime={worker.lease_expires_at}>{displayTime(worker.lease_expires_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Activity" meta={`${worker.active_job_count} active`}>
+            <DetailClusterFact label="Claimed"><b>{worker.job_count}</b></DetailClusterFact>
+            <DetailClusterFact label="Heartbeat"><time dateTime={worker.last_heartbeat_at}>{displayTime(worker.last_heartbeat_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
+            <DetailClusterFact label="Run">
+              {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
+                <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
+              </a> : <span>Unavailable</span>}
+            </DetailClusterFact>
+            <DetailClusterFact label="Claimed at">{worker.last_run_at
+              ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
+              : <span>Unavailable</span>}</DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Capabilities" meta={`${worker.operation_ids.length} exact`}>
+            <DetailClusterFact label="Registered operations" wide>
+              <span className="detail-cluster-values">
+                {worker.operation_ids.map((operation) => <code key={operation} title={operation}>{operation}</code>)}
+              </span>
+            </DetailClusterFact>
+          </DetailCluster>
+        </DetailClusterGrid>
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Limited heartbeat history">
+          Only the latest heartbeat and lease window are available.
+        </DetailNotice>
+        <DetailInspectorFooter>
+          <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
+          <span>Artifact identity only · no unbound-run readiness claim</span>
+          {exact ? <a href="/operations/workers">Back to worker list</a> : null}
+        </DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }
@@ -92,8 +105,10 @@ function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: st
     <DetailInspector aria-label={`Worker ${workerIdentity}`}>
       <DetailInspectorHeader eyebrow="Exact worker readback" title={workerIdentity} titleAttribute={workerIdentity}
         status={<StatusBadge tone="unavailable">unavailable</StatusBadge>} />
-      <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
-      <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><a href="/operations/workers">Back to worker list</a></DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
+        <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><a href="/operations/workers">Back to worker list</a></DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }
@@ -174,7 +189,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       grow: 1.35,
       ignoreRowClick: true,
       cell: (worker) => <a className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
-        <b>{worker.worker_identity}</b><span>Registered {displayTime(worker.registered_at)}</span>
+        <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>Registered {displayTime(worker.registered_at)}</span>
       </a>,
     },
     {
@@ -202,7 +217,7 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       sortable: true,
       minWidth: "220px",
       grow: 1.1,
-      cell: (worker) => <div className="table-cell-stack"><code title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ?? "Unavailable"}</code><span>{worker.last_run_state ?? "No durable claim"} · {displayTime(worker.last_run_at)}</span></div>,
+      cell: (worker) => <div className="table-cell-stack"><b title={worker.last_run_identity ?? undefined}>{worker.last_run_identity ? compactRunLabel(worker.last_run_identity) : "Unavailable"}</b><span>{worker.last_run_state ?? "No recent run"} · {displayTime(worker.last_run_at)}</span></div>,
     },
     {
       id: "operations",
@@ -225,23 +240,23 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       <PanelFrame className="operations-workers-panel bento-page-frame"
         aria-labelledby="operations-workers-title">
         <PanelFrameHeader
-          eyebrow="Trade worker custody"
-          title="Shadow read workers"
+          eyebrow="Worker fleet"
+          title="Workers"
           titleId="operations-workers-title"
-          description="Lease, claims and capabilities come from one PostgreSQL observation cut. They remain operational facts."
-          actions={<button type="button" onClick={() => void refresh()} disabled={pending}>
+          description="Monitor availability, workload, and recent activity."
+          actions={<><PanelFrameInfo><b>Data scope</b><p>Worker leases, claims, and capabilities come from one verified operational snapshot.</p></PanelFrameInfo><button type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>}
+          </button></>}
         />
         <PanelFrameBody>
           <CompactStatusBar className="operations-workers-status" aria-label="Worker summary">
-            <CompactStatusGroup label="Fleet">
-              <CompactStatusItem label="Available" value={summaryValue(summaries.online)} />
-              <CompactStatusItem label="Expired" value={summaryValue(summaries.expired)} />
+            <CompactStatusGroup label="fleet">
+              <CompactStatusItem label="available" value={summaryValue(summaries.online)} />
+              <CompactStatusItem label="expired" value={summaryValue(summaries.expired)} />
             </CompactStatusGroup>
-            <CompactStatusGroup label="Workload">
-              <CompactStatusItem label="Claimed" value={summaryValue(summaries.claimedJobs)} />
-              <CompactStatusItem label="Active" value={summaryValue(summaries.activeJobs)} />
+            <CompactStatusGroup label="workload">
+              <CompactStatusItem label="claimed" value={summaryValue(summaries.claimedJobs)} />
+              <CompactStatusItem label="active" value={summaryValue(summaries.activeJobs)} />
             </CompactStatusGroup>
           </CompactStatusBar>
         {result?.availability === "available" ? (

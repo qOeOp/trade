@@ -7,7 +7,8 @@ import {
   type RunListBrowserEnvelopeV1,
   type RunListItemV1,
 } from "../lib/run-list-contract";
-import { InsightSummary, InsightSummaryFact } from "./ui/insight-summary";
+import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
+import { summarizeRunsForPresentation } from "../lib/operations-presentation";
 import { UnavailableState } from "./ui/evidence-strip";
 import {
   FilterButton,
@@ -28,6 +29,7 @@ import {
   PanelFrameFooterMeta,
   PanelFrameFooterSummary,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { StatusBadge } from "./ui/status-badge";
@@ -51,11 +53,28 @@ function durationLabel(durationMs: number | null) {
 }
 
 function runLabel(identity: string) {
-  return `#${identity.slice(0, 8)}`;
+  const tail = identity.split("-").at(-1) ?? identity;
+  return `#${tail.slice(-8)}`;
 }
 
 function operationLabel(identity: string) {
   return identity.replace(/\.v\d+$/i, "").replace(/[._-]+/g, " ");
+}
+
+function runSourceLabel(run: RunListItemV1) {
+  const trigger = run.trigger_kind === "dashboard_api" ? "Dashboard" : operationLabel(run.trigger_kind);
+  const kind = run.run_kind === "owner_read" ? "Read only" : operationLabel(run.run_kind);
+  return { trigger, kind };
+}
+
+function resultLabel(state: RunListItemV1["owner_outcome_state"]) {
+  return {
+    available: "Ready",
+    rejected: "Rejected",
+    unknown: "Pending",
+    unavailable: "Unavailable",
+    not_applicable: "Not applicable",
+  }[state];
 }
 
 function unavailable(reason: string): RunListBrowserEnvelopeV1 {
@@ -166,12 +185,9 @@ export function OperationsRunStorePreview() {
   const runs = result?.availability === "available" ? result.runs : [];
   const visibleRuns = useMemo(() => runs.filter((run) => matchesQuery(run, query)), [query, runs]);
   const summaries = useMemo(() => ({
-    active: runs.filter(({ state }) => state === "queued" || state === "running").length,
-    failed: runs.filter(({ state }) => state === "failed").length,
+    ...summarizeRunsForPresentation(runs),
     unknown: runs.filter(({ state }) => state === "unknown").length,
     terminal: runs.filter(({ state }) => ["succeeded", "failed", "cancelled"].includes(state)).length,
-    ownerAvailable: runs.filter(({ owner_outcome_state }) => owner_outcome_state === "available").length,
-    ownerUnavailable: runs.filter(({ owner_outcome_state }) => owner_outcome_state === "unavailable").length,
     operations: new Set(runs.map(({ operation_id }) => operation_id)).size,
     scheduled: runs.filter(({ trigger_kind }) => trigger_kind === "dashboard_scheduler").length,
   }), [runs]);
@@ -183,7 +199,7 @@ export function OperationsRunStorePreview() {
       sortable: true,
       minWidth: "205px",
       grow: 1.15,
-      cell: (run) => <div className="table-cell-stack"><b>{runLabel(run.run_identity)}</b><code title={run.run_identity}>{run.run_identity}</code></div>,
+      cell: (run) => <div className="table-cell-stack"><b title={run.run_identity}>{runLabel(run.run_identity)}</b></div>,
     },
     {
       id: "operation",
@@ -192,23 +208,26 @@ export function OperationsRunStorePreview() {
       sortable: true,
       minWidth: "240px",
       grow: 1.35,
-      cell: (run) => <div className="table-cell-stack"><b className="operation-label" title={run.operation_id}>{operationLabel(run.operation_id)}</b><code>{run.operation_id}</code></div>,
+      cell: (run) => <div className="table-cell-stack"><b className="operation-label" title={run.operation_id}>{operationLabel(run.operation_id)}</b></div>,
     },
     {
       id: "kind",
-      name: <DataTableHeaderLabel>Kind / trigger</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Source</DataTableHeaderLabel>,
       selector: (run) => run.run_kind,
       sortable: true,
       minWidth: "155px",
-      cell: (run) => <div className="table-cell-stack"><b>{run.run_kind}</b><span>{run.trigger_kind}</span></div>,
+      cell: (run) => {
+        const source = runSourceLabel(run);
+        return <div className="table-cell-stack"><b>{source.trigger}</b><span>{source.kind}</span></div>;
+      },
     },
     {
       id: "state",
-      name: <DataTableHeaderLabel>State / Owner</DataTableHeaderLabel>,
+      name: <DataTableHeaderLabel>Status / result</DataTableHeaderLabel>,
       selector: (run) => run.state,
       sortable: true,
       minWidth: "175px",
-      cell: (run) => <div className="table-cell-stack"><StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge><span>{run.owner_outcome_state}</span></div>,
+      cell: (run) => <div className="table-cell-stack"><StatusBadge tone={executionStateTone(run.state)}>{run.state}</StatusBadge><span>{resultLabel(run.owner_outcome_state)}</span></div>,
     },
     {
       id: "duration",
@@ -234,20 +253,21 @@ export function OperationsRunStorePreview() {
       aria-labelledby="operations-runstore-title">
       <PanelFrameHeader
         eyebrow="Operational history"
-        title="Run ledger"
+        title="Run history"
         titleId="operations-runstore-title"
-        description="Cursor-bound Dashboard runs only. Owner facts and Windmill jobs are never copied into this view."
+        description="Review recent runs and open any row for status, timing, and results."
+        actions={<PanelFrameInfo><b>Data scope</b><p>This view reads one verified operational snapshot. Result ownership and execution state remain separate.</p></PanelFrameInfo>}
       />
       <PanelFrameBody>
-      <InsightSummary className="operations-run-summaries" aria-label="Loaded run summary"
-        eyebrow="Current cursor window" label="Loaded runs"
-        value={result?.availability === "available" ? runs.length : "Unavailable"}
-        detail="One signed RunStore cut. Operational completion and Owner outcomes remain independent.">
-        <InsightSummaryFact label="Active" value={result?.availability === "available" ? summaries.active : "-"} />
-        <InsightSummaryFact label="Failed" value={result?.availability === "available" ? summaries.failed : "-"} />
-        <InsightSummaryFact label="Owner available" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
-        <InsightSummaryFact label="Owner unavailable" value={result?.availability === "available" ? summaries.ownerUnavailable : "-"} />
-      </InsightSummary>
+      <CompactStatusBar className="operations-run-summaries" aria-label="Loaded run summary">
+        <CompactStatusGroup label="current view">
+          <CompactStatusItem label="loaded runs" value={result?.availability === "available" ? runs.length : "unavailable"} />
+          <CompactStatusItem label="active" tone="info" value={result?.availability === "available" ? summaries.active : "-"} />
+          <CompactStatusItem label="failed" tone={summaries.failed > 0 ? "danger" : "neutral"} value={result?.availability === "available" ? summaries.failed : "-"} />
+          <CompactStatusItem label="result ready" tone="success" value={result?.availability === "available" ? summaries.ownerAvailable : "-"} />
+          <CompactStatusItem label="result pending" value={result?.availability === "available" ? summaries.ownerPending : "-"} />
+        </CompactStatusGroup>
+      </CompactStatusBar>
       {result?.availability === "available" ? (
         <>
           <DataTableSurface className="operations-run-table-surface" geometry="inner" toolbarLabel="Run table controls" toolbar={
@@ -276,24 +296,20 @@ export function OperationsRunStorePreview() {
             onRowClicked={(run) => { window.location.assign(`/operations/runs/${encodeURIComponent(run.run_identity)}`); }}
             pointerOnHover
           />
-          <PanelFrameFooter layout="split">
-            <PanelFrameFooterSummary
-              primary="Dashboard run history"
-              secondary={<>Source cut {result.observed_at}</>}
-            />
-            {pageError ? <PanelFrameFooterMeta>{pageError}</PanelFrameFooterMeta> : null}
-            <PanelFrameFooterActions>
-              <button type="button" disabled={!result.next_cursor || loadingOlder}
-                onClick={() => result.next_cursor && void load(result.next_cursor)}>
-                {loadingOlder ? "Reading older…" : result.next_cursor ? "Load older" : "End of retained runs"}
+          {result.next_cursor || pageError ? <PanelFrameFooter layout="split">
+            <PanelFrameFooterSummary primary={`${visibleRuns.length} ${visibleRuns.length === 1 ? "run" : "runs"} shown`} />
+            {pageError ? <PanelFrameFooterMeta>Older runs are temporarily unavailable.</PanelFrameFooterMeta> : null}
+            {result.next_cursor ? <PanelFrameFooterActions>
+              <button type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
+                {loadingOlder ? "Reading older…" : "Load older"}
               </button>
-            </PanelFrameFooterActions>
-          </PanelFrameFooter>
+            </PanelFrameFooterActions> : null}
+          </PanelFrameFooter> : null}
           </DataTableSurface>
         </>
       ) : (
         <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={18} />}
-          title="RunStore unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />
+          title="Run history unavailable" reason={result?.unavailable_reason ?? "READING_RUN_STORE"} />
       )}
       </PanelFrameBody>
     </PanelFrame>
