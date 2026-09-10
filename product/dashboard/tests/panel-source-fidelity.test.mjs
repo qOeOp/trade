@@ -102,9 +102,10 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.compact-status-bar \{[^}]+display: grid;[^}]+align-items: stretch;[^}]+gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
-  assert.match(css, /\.compact-status-item \{[^}]+border: 1px solid[^}]+background: var\(--surface-card\);[^}]+box-shadow:/u);
+  assert.match(css, /\.compact-status-item \{[^}]+border: 0;[^}]+border-radius: 0;[^}]+background: var\(--surface-card\);[^}]+box-shadow: none;/u);
   assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background: var\(--panel-chrome-bg\); \}/u);
-  assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
+  assert.match(css, /\.compact-status-group dl \{[^}]+gap: 1px;[^}]+overflow: hidden;[^}]+border: 1px solid var\(--border-default\);[^}]+border-radius: 0 10px 10px 10px;/u);
+  assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 11\.25px, var\(--compact-status-shell\) 11\.75px\)/u);
   assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
