@@ -1,3 +1,4 @@
+use sqlx::Row;
 use vibe_backtest_owner_contracts::{
     CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
     ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
@@ -18,13 +19,92 @@ use vibe_data::owner::{
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
 const JOINED_CUT_CUSTODY_DOMAIN: &[u8] = b"VIBE_STRATEGY_INPUT_JOINED_CUT_CUSTODY_V1";
+const OBSERVATION_CENSUS_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_RECORD_V1";
+const OBSERVATION_CENSUS_RECEIPT_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_RECEIPT_V1";
+const OBSERVATION_CENSUS_STORAGE_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_STORAGE_V1";
+
+struct ForgedObservationCensus {
+    storage: Vec<u8>,
+    receipt: Vec<u8>,
+    census_identity: [u8; 32],
+    receipt_identity: [u8; 32],
+}
+
+fn observation_census_digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain);
+    hasher.update(&[0]);
+    hasher.update(bytes);
+    *hasher.finalize().as_bytes()
+}
 
 fn joined_cut_custody_identity(custody: &[u8]) -> [u8; 32] {
-    let mut hasher = blake3::Hasher::new();
-    hasher.update(JOINED_CUT_CUSTODY_DOMAIN);
-    hasher.update(&[0]);
-    hasher.update(custody);
-    *hasher.finalize().as_bytes()
+    observation_census_digest(JOINED_CUT_CUSTODY_DOMAIN, custody)
+}
+
+fn take_census_storage_field(
+    bytes: &[u8],
+    cursor: &mut usize,
+) -> anyhow::Result<std::ops::Range<usize>> {
+    let length_end = cursor
+        .checked_add(4)
+        .ok_or_else(|| anyhow::anyhow!("census storage length overflow"))?;
+    let length_bytes: [u8; 4] = bytes
+        .get(*cursor..length_end)
+        .ok_or_else(|| anyhow::anyhow!("census storage length missing"))?
+        .try_into()?;
+    let length = usize::try_from(u32::from_be_bytes(length_bytes))?;
+    let start = length_end;
+    let end = start
+        .checked_add(length)
+        .ok_or_else(|| anyhow::anyhow!("census storage field overflow"))?;
+    anyhow::ensure!(bytes.get(start..end).is_some());
+    *cursor = end;
+    Ok(start..end)
+}
+
+fn forge_observation_census_pit_coordinates(
+    original: &[u8],
+) -> anyhow::Result<ForgedObservationCensus> {
+    anyhow::ensure!(original.len() >= 38);
+    let count = u32::from_be_bytes(original[34..38].try_into()?);
+    let mut cursor = 38;
+
+    for _ in 0..count {
+        take_census_storage_field(original, &mut cursor)?;
+    }
+    let record_range = take_census_storage_field(original, &mut cursor)?;
+    let receipt_range = take_census_storage_field(original, &mut cursor)?;
+    anyhow::ensure!(cursor == original.len());
+    anyhow::ensure!(record_range.len() >= 170);
+    anyhow::ensure!(receipt_range.len() == 130);
+
+    let mut storage = original.to_vec();
+    let forged_pit_snapshot_identity = [0x6b; 32];
+    let forged_pit_fact_digest = [0x7c; 32];
+    anyhow::ensure!(
+        storage[record_range.start + 66..record_range.start + 98] != forged_pit_snapshot_identity
+    );
+    storage[record_range.start + 66..record_range.start + 98]
+        .copy_from_slice(&forged_pit_snapshot_identity);
+    storage[record_range.start + 98..record_range.start + 130]
+        .copy_from_slice(&forged_pit_fact_digest);
+    let census_identity =
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+    storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
+    let receipt_identity = observation_census_digest(
+        OBSERVATION_CENSUS_RECEIPT_DOMAIN,
+        &storage[receipt_range.clone()],
+    );
+    let storage_identity =
+        observation_census_digest(OBSERVATION_CENSUS_STORAGE_DOMAIN, &storage[32..]);
+    storage[..32].copy_from_slice(&storage_identity);
+    Ok(ForgedObservationCensus {
+        receipt: storage[receipt_range].to_vec(),
+        storage,
+        census_identity,
+        receipt_identity,
+    })
 }
 
 use crate::{
@@ -196,6 +276,101 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     .execute(market_mutation_pool)
     .await?;
     anyhow::ensure!(restored.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
+    let census_row = sqlx::query(
+        "SELECT request_identity,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,outbox_identity,joined_cut_identity,joined_cut_custody_bytes FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1",
+    )
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .fetch_one(market_mutation_pool)
+    .await?;
+    let request_identity: Vec<u8> = census_row.try_get("request_identity")?;
+    let original_census_identity: Vec<u8> = census_row.try_get("census_identity")?;
+    let original_census_storage: Vec<u8> = census_row.try_get("census_bytes")?;
+    let original_census_receipt_identity: Vec<u8> =
+        census_row.try_get("census_receipt_identity")?;
+    let original_census_receipt: Vec<u8> = census_row.try_get("census_receipt_bytes")?;
+    let original_outbox_identity: Vec<u8> = census_row.try_get("outbox_identity")?;
+    let original_joined_cut_identity: Vec<u8> = census_row.try_get("joined_cut_identity")?;
+    let original_joined_cut_custody: Vec<u8> = census_row.try_get("joined_cut_custody_bytes")?;
+    let outbox_row = sqlx::query(
+        "SELECT outbox_identity,payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .fetch_one(market_mutation_pool)
+    .await?;
+    let original_outbox_row_identity: Vec<u8> = outbox_row.try_get("outbox_identity")?;
+    let original_outbox_payload_digest: Vec<u8> = outbox_row.try_get("payload_digest")?;
+    let original_outbox_payload: Vec<u8> = outbox_row.try_get("payload")?;
+    let forged_census = forge_observation_census_pit_coordinates(&original_census_storage)?;
+    let mut forged_custody = original_joined_cut_custody.clone();
+    anyhow::ensure!(forged_custody.len() >= 130);
+    forged_custody[66..98].copy_from_slice(&forged_census.census_identity);
+    forged_custody[98..130].copy_from_slice(&forged_census.census_identity);
+    let forged_joined_cut_identity = joined_cut_custody_identity(&forged_custody);
+    let mut forged_transaction = market_mutation_pool.begin().await?;
+    let forged_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(forged_census.receipt_identity.as_slice())
+    .bind(forged_census.census_identity.as_slice())
+    .bind(&forged_census.storage)
+    .bind(&request_identity)
+    .execute(&mut *forged_transaction)
+    .await?;
+    anyhow::ensure!(forged_outbox.rows_affected() == 1);
+    let forged_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_identity=$1,census_bytes=$2,census_receipt_identity=$3,census_receipt_bytes=$4,outbox_identity=$3,joined_cut_identity=$5,joined_cut_custody_bytes=$6 WHERE request_identity=$7",
+    )
+    .bind(forged_census.census_identity.as_slice())
+    .bind(&forged_census.storage)
+    .bind(forged_census.receipt_identity.as_slice())
+    .bind(&forged_census.receipt)
+    .bind(forged_joined_cut_identity.as_slice())
+    .bind(&forged_custody)
+    .bind(&request_identity)
+    .execute(&mut *forged_transaction)
+    .await?;
+    anyhow::ensure!(forged_record.rows_affected() == 1);
+    forged_transaction.commit().await?;
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "self-consistent observation census escaped request semantics"
+    );
+    let mut restore_transaction = market_mutation_pool.begin().await?;
+    let restored_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(&original_outbox_row_identity)
+    .bind(&original_outbox_payload_digest)
+    .bind(&original_outbox_payload)
+    .bind(&request_identity)
+    .execute(&mut *restore_transaction)
+    .await?;
+    anyhow::ensure!(restored_outbox.rows_affected() == 1);
+    let restored_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_identity=$1,census_bytes=$2,census_receipt_identity=$3,census_receipt_bytes=$4,outbox_identity=$5,joined_cut_identity=$6,joined_cut_custody_bytes=$7 WHERE request_identity=$8",
+    )
+    .bind(&original_census_identity)
+    .bind(&original_census_storage)
+    .bind(&original_census_receipt_identity)
+    .bind(&original_census_receipt)
+    .bind(&original_outbox_identity)
+    .bind(&original_joined_cut_identity)
+    .bind(&original_joined_cut_custody)
+    .bind(&request_identity)
+    .execute(&mut *restore_transaction)
+    .await?;
+    anyhow::ensure!(restored_record.rows_affected() == 1);
+    restore_transaction.commit().await?;
     let restored_projection = recovered_owner
         .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
         .await?;

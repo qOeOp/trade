@@ -123,6 +123,7 @@ fn positive_census_core_is_default_build_reachable_and_rejects_cross_pit_frames(
     )
     .unwrap();
     assert!(verify_observation_census_readback_v1(&census));
+    assert!(authority::validate_observation_census_for_request_v1(&request, &census).is_ok());
     assert!(verify_strategy_input_joined_cut_readback_v1(&joined));
 
     let (_, foreign_frame, _, _) =

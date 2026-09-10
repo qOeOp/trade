@@ -526,7 +526,7 @@ pub(crate) fn issue_observation_census_and_joined_cut_v1(
         },
     };
 
-    if verify_observation_census_readback_v1(&census_readback)
+    if validate_observation_census_for_request_v1(request, &census_readback).is_ok()
         && verify_strategy_input_joined_cut_readback_v1(&joined_readback)
     {
         Ok((census_readback, joined_readback))
@@ -819,6 +819,27 @@ pub fn verify_observation_census_readback_v1(readback: &ObservationCensusReadbac
         && codec::nonzero(receipt.stable_correlation)
 }
 
+pub(crate) fn validate_observation_census_for_request_v1(
+    request: &UntrustedObservationCensusRequestV1,
+    readback: &ObservationCensusReadbackV1,
+) -> Result<(), ObservationCensusErrorV1> {
+    validate_request(request)?;
+    let record = readback.record();
+    let receipt = readback.receipt();
+    if !verify_observation_census_readback_v1(readback)
+        || record.request_identity() != request.request_identity()
+        || record.request_meaning_digest() != request.request_meaning_digest()
+        || record.pit_snapshot_identity() != request.pit_locator().snapshot_identity
+        || record.pit_fact_digest() != request.pit_locator().fact_digest
+        || record.join_identity() != request.join_claim().join_identity
+        || record.trigger_logical_time() != request.trigger_logical_time()
+        || receipt.stable_correlation() != request.stable_correlation()
+    {
+        return Err(ObservationCensusErrorV1::DigestMismatch);
+    }
+    Ok(())
+}
+
 #[must_use]
 pub fn verify_strategy_input_joined_cut_readback_v1(
     readback: &StrategyInputJoinedCutReadbackV1,
@@ -880,7 +901,7 @@ pub(crate) fn validate_strategy_input_joined_cut_custody_v1(
     let decoded_joined_cut_receipt_digest = decoder.digest()?;
     decoder.finish()?;
 
-    if !verify_observation_census_readback_v1(census)
+    if validate_observation_census_for_request_v1(request, census).is_err()
         || request_identity != request.request_identity()
         || request_meaning_digest != request.request_meaning_digest()
         || census_identity != census.record().identity()

@@ -413,11 +413,7 @@ pub(super) async fn load_observation_census_v1(
     let readback =
         authority::decode_observation_census_storage_v1(row_bytes(&row, "census_bytes")?)?;
 
-    if readback.record().request_identity() != locator.request_identity()
-        || readback.record().request_meaning_digest() != locator.request_meaning_digest()
-    {
-        return Err(ObservationCensusErrorV1::DigestMismatch);
-    }
+    authority::validate_observation_census_for_request_v1(&request, &readback)?;
     let expected = readback
         .record()
         .entries()
