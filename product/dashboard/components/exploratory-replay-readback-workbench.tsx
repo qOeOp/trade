@@ -11,7 +11,7 @@ import {
   validExploratoryReplayOpaqueIdentityV2,
 } from "../lib/exploratory-replay-identity";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
-import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
+import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
@@ -23,7 +23,7 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
   if (!projection.request || !projection.custody || !projection.replayBasis) return null;
   return (
     <>
-      <div className={styles.groups}>
+      <FactGroupGrid layout="weighted">
         <FactGroup title="Request">
           <FactItem label="Identity" mono title={projection.requestIdentity}>{projection.requestIdentity}</FactItem>
           <FactItem label="Availability"><StatusBadge tone="success">Available</StatusBadge></FactItem>
@@ -48,22 +48,12 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
           <FactItem label="Runtime kernel" mono title={projection.replayBasis.runtimeKernelIdentity}>{projection.replayBasis.runtimeKernelIdentity}</FactItem>
           <FactItem label="Simulator" mono title={projection.replayBasis.simulatorIdentity}>{projection.replayBasis.simulatorIdentity}</FactItem>
         </FactGroup>
-      </div>
+      </FactGroupGrid>
       <div className={styles.resultRail} role="status">
         <EvidenceIcons.warning aria-hidden="true" size={15} />
         <div><b>Result projection unavailable</b><span>No admitted Owner result readback is connected.</span></div>
       </div>
     </>
-  );
-}
-
-function LoadingGroups() {
-  return (
-    <div className={styles.groups} aria-label="Loading Replay request readback">
-      {["Request", "Custody", "Replay basis"].map((title) => (
-        <FactGroupSkeleton key={title} title={title} />
-      ))}
-    </div>
   );
 }
 
@@ -188,7 +178,13 @@ export function ExploratoryReplayReadbackWorkbench({
         </form>
         {validation ? <p className={styles.validation} id="exploratory-replay-validation">{validation}</p> : null}
         <div className={styles.result} aria-live="polite">
-          {status === "loading" ? <LoadingGroups />
+          {status === "loading" ? (
+            <FactGroupSkeletonGrid
+              aria-label="Loading Replay request readback"
+              layout="weighted"
+              titles={["Request", "Custody", "Replay basis"]}
+            />
+          )
             : status === "available" && projection
               ? <AvailableReadback projection={projection} />
               : status === "unavailable"

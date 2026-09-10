@@ -1,3 +1,13 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.grid[data-layout="weighted"] {
+  grid-template-columns: minmax(0, .82fr) minmax(0, 1fr) minmax(0, 1.28fr);
+}
+
 .group {
   min-width: 0;
   overflow: hidden;
@@ -94,5 +104,17 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton i {
     animation: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .grid[data-layout="weighted"] {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .grid[data-layout="equal"] {
+    grid-template-columns: 1fr;
   }
 }
