@@ -3,8 +3,9 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("Artifact directory uses the shared compact read-only table surface", async () => {
-  const [component, route, shell, css] = await Promise.all([
+  const [component, state, route, shell, css] = await Promise.all([
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/owner-directory-state.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/rd/artifacts/directory/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/owner-directory.module.css", import.meta.url), "utf8"),
@@ -14,7 +15,7 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(component, /<DataWorkspaceTable<HistoricalBindingCandidateV1>/u);
   assert.match(component, /label: "Custody candidates"/u);
   assert.match(component, /label: "Bindings"/u);
-  assert.match(component, /POINT_READ_REQUIRED/u);
+  assert.match(component, /Candidates remain unverified until their exact record is opened\./u);
   assert.match(component, /"Artifact, intent, or request"/u);
   for (const header of ["Artifact", "Strategy intent", "Verification", "Created"]) {
     assert.match(component, new RegExp(`DataTableHeaderLabel>${header}<`, "u"));
@@ -26,6 +27,16 @@ test("Artifact directory uses the shared compact read-only table surface", async
   assert.match(shell, /<ArtifactDirectory \/>/u);
   assert.match(shell, /OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION/u);
   assert.match(css, /\.tableSurface :global\(\.data-workspace-viewport\)[^{]*\{[^}]*max-height:/su);
+  assert.match(component, /availability === "unavailable"[\s\S]+<OwnerDirectoryUnavailable/u);
+  assert.match(component, /title="Artifact data unavailable"/u);
+  assert.doesNotMatch(component, /meta="Owner custody/u);
+  assert.match(state, /<details className=\{styles\.infoDisclosure\}>/u);
+  assert.match(state, /label="View technical reason"/u);
+  assert.match(css, /\.directoryUnavailable \{[^}]*min-height: 96px;[^}]*justify-content: center;/su);
+  assert.match(css, /\.infoPopover \{[^}]*position: absolute;[^}]*border-radius: var\(--panel-inner-radius\);/su);
+  assert.match(component, /useDelayedPending\(pending\)/u);
+  assert.match(component, /availability === "loading" && !showPending[\s\S]+styles\.pendingQuiet/u);
+  assert.match(css, /\.pendingQuiet \{\s*visibility: hidden;/u);
   assert.match(css, /overflow-y: auto/u);
   assert.doesNotMatch(css, /min-height:\s*min\(620px/u);
   assert.doesNotMatch(component, />View<|column chooser|registered|visible count|Run|Save|textarea|contentEditable/u);

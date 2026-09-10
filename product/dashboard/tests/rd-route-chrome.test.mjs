@@ -33,23 +33,23 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
 });
 
 test("each embedded R&D panel owns an exact read-only boundary", async () => {
-  const surfaces = await Promise.all([
+  const [source, composer, research, artifact, viewer] = await Promise.all([
     readFile(new URL("../components/source-intake-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/develop-composer-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8"),
   ]);
-  const boundaries = [
+  const framedBoundaries = [
     "Owner point read · No submit or resolve",
     "Owner point read · No run, resolve, or edit",
-    "Owner custody · Read only · No submit or resolve",
-    "Owner custody · Read only · No build or execution",
     "Owner custody · Read only · No edit or execution",
   ];
 
-  surfaces.forEach((surface, index) => {
+  [source, composer, viewer].forEach((surface, index) => {
     assert.match(surface, /<PanelFrameHeader/u);
-    assert.ok(surface.includes(`meta="${boundaries[index]}"`), `${boundaries[index]} is missing`);
+    assert.ok(surface.includes(`meta="${framedBoundaries[index]}"`), `${framedBoundaries[index]} is missing`);
   });
+  assert.match(research, /<OwnerDirectoryInfo>[\s\S]+No research payloads, submission controls, or resolution actions are exposed here\./u);
+  assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

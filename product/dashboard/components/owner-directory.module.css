@@ -8,6 +8,96 @@
   overscroll-behavior: contain;
 }
 
+.directoryUnavailable {
+  min-height: 96px;
+  padding: 18px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+}
+
+.directoryUnavailableCopy {
+  display: grid;
+  gap: 3px;
+}
+
+.directoryUnavailableCopy strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.directoryUnavailableCopy p {
+  max-width: 520px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.infoDisclosure {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.infoDisclosure summary {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 50%;
+  color: var(--text-muted);
+  background: var(--surface-card);
+  cursor: pointer;
+  list-style: none;
+}
+
+.infoDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.infoDisclosure[open] summary,
+.infoDisclosure summary:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.infoPopover {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 8px);
+  right: 0;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 12px 14px;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--panel-inner-radius);
+  color: var(--text-muted);
+  background: var(--surface-elevated);
+  box-shadow: 0 12px 30px var(--shadow-overlay);
+}
+
+.infoPopover strong,
+.infoPopover span {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.infoPopover p,
+.infoPopover code {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.pendingQuiet {
+  visibility: hidden;
+}
+
 .identityCell {
   min-width: 0;
   display: grid;
