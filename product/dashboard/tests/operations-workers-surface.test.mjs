@@ -60,7 +60,7 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*box-shadow:/u);
   assert.doesNotMatch(statusBar + css, /compact-status-group-chevron/u);
   assert.match(css, /\.compact-status-group dl \{[^}]*padding: 8px;[^}]*gap: 8px;[^}]*border-radius: 0 12px 12px 12px;/u);
-  assert.match(css, /\.compact-status-item \{[^}]*padding: 9px clamp\(14px, 1\.8vw, 28px\);[^}]*justify-content: space-between;[^}]*gap: 20px;[^}]*border: 0;[^}]*border-radius: 8px;/u);
+  assert.match(css, /\.compact-status-item \{[^}]*padding: 9px clamp\(14px, 1\.8vw, 28px\);[^}]*justify-content: space-between;[^}]*gap: 20px;[^}]*border: 1px solid[^}]*border-radius: 8px;/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
   assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background:/u);
   assert.match(statusBar, /type CompactStatusTone = StatusBadgeTone/u);

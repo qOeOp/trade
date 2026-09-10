@@ -102,6 +102,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.compact-status-bar \{[^}]+display: grid;[^}]+align-items: stretch;[^}]+gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
+  assert.match(css, /\.compact-status-item \{[^}]+border: 1px solid[^}]+background: var\(--surface-card\);[^}]+box-shadow:/u);
+  assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background: var\(--panel-chrome-bg\); \}/u);
   assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
   assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
