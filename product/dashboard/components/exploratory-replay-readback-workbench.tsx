@@ -15,6 +15,7 @@ import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
 
@@ -142,15 +143,16 @@ export function ExploratoryReplayReadbackWorkbench({
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          columns="double"
+          validation={validation}
+          validationId="exploratory-replay-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(requestInput, meaningInput);
           }}
         >
-          <label className={styles.lookupField}>
-            <span>Request identity</span>
+          <ReadbackLookupField label="Request identity" mono>
             <input
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -163,9 +165,8 @@ export function ExploratoryReplayReadbackWorkbench({
               spellCheck={false}
               value={requestInput}
             />
-          </label>
-          <label className={`${styles.lookupField} ${styles.digestField}`}>
-            <span>Meaning digest</span>
+          </ReadbackLookupField>
+          <ReadbackLookupField label="Meaning digest" mono>
             <input
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -178,12 +179,11 @@ export function ExploratoryReplayReadbackWorkbench({
               spellCheck={false}
               value={meaningInput}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="exploratory-replay-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
           {status === "loading" ? (
             <FactGroupSkeletonGrid
