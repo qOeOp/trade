@@ -618,7 +618,7 @@ test(testName, { skip: !url }, async () => {
         HTMLAnchorElement.prototype.click = original;
       };
     })()`);
-    await clickButton(browser, "Download bounded");
+    await clickButton(browser, "Download");
     await waitForBrowserExpression(browser,
       `Boolean(window.__serviceLogDownload?.download)
         && document.body?.innerText.includes('rows · complete · not truncated')`);
@@ -638,11 +638,11 @@ test(testName, { skip: !url }, async () => {
         && document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length === 0`);
     const unavailableSummary = await readBrowserValue(browser,
       "document.querySelector('[aria-label=\"Service log summary\"]')?.innerText ?? ''");
-    assert.match(unavailableSummary, /Error\s+-/);
-    assert.match(unavailableSummary, /Warning\s+-/);
-    assert.match(unavailableSummary, /Info\s+-/);
-    assert.match(unavailableSummary, /Worker\s+-/);
-    assert.match(unavailableSummary, /Server\s+-/);
+    assert.match(unavailableSummary, /error\s+-/);
+    assert.match(unavailableSummary, /warning\s+-/);
+    assert.match(unavailableSummary, /info\s+-/);
+    assert.match(unavailableSummary, /worker\s+-/);
+    assert.match(unavailableSummary, /server\s+-/);
   } finally {
     browser?.close();
     await stopProcess(browser?.child);
