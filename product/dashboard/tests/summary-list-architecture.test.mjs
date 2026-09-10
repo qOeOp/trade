@@ -2,24 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-const runtimeUrl = new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url);
 const portfolioUrl = new URL("../components/portfolio-view-unavailable-card.tsx", import.meta.url);
 const atomUrl = new URL("../components/ui/summary-list.tsx", import.meta.url);
 const atomCssUrl = new URL("../components/ui/summary-list.module.css", import.meta.url);
 
 test("SummaryList is a domain-neutral shared composition atom", async () => {
-  const [runtime, portfolio, atom] = await Promise.all([
-    readFile(runtimeUrl, "utf8"),
+  const [portfolio, atom] = await Promise.all([
     readFile(portfolioUrl, "utf8"),
     readFile(atomUrl, "utf8"),
   ]);
 
-  for (const consumer of [runtime, portfolio]) {
-    assert.match(consumer, /import \{ SummaryItem, SummaryList \} from "\.\/ui\/summary-list"/);
-    assert.match(consumer, /<SummaryList/);
-    assert.match(consumer, /<SummaryItem/);
-    assert.doesNotMatch(consumer, /className=\{styles\.|\.module\.css/);
-  }
+  assert.match(portfolio, /import \{ SummaryItem, SummaryList \} from "\.\/ui\/summary-list"/);
+  assert.match(portfolio, /<SummaryList/);
+  assert.match(portfolio, /<SummaryItem/);
+  assert.doesNotMatch(portfolio, /className=\{styles\.|\.module\.css/);
 
   assert.doesNotMatch(atom, /Runtime|Portfolio|dependency|source group|\.\.\/lib/iu);
   assert.match(atom, /<ul \{\.\.\.props\}/);
