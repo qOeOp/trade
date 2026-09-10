@@ -15,7 +15,7 @@ export function InlineNotice({
   title: ReactNode;
   children: ReactNode;
   tone?: "neutral" | "warning";
-  density?: "regular" | "compact";
+  density?: "compact" | "regular" | "spacious";
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   return (
     <section
