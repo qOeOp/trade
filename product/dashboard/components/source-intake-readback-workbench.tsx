@@ -15,6 +15,7 @@ import {
   PanelFrameBody,
   PanelFrameHeader,
 } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./source-intake-readback-workbench.module.css";
 
@@ -114,16 +115,15 @@ export function SourceIntakeReadbackWorkbench({
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          validation={validation}
+          validationId="source-intake-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(input);
           }}
         >
-          <label className={styles.inputShell}>
-            <span className="sr-only">Request identity</span>
-            <InterfaceIcons.search aria-hidden="true" size={16} />
+          <ReadbackLookupField label="Request identity" labelHidden leading={<InterfaceIcons.search aria-hidden="true" size={16} />}>
             <input
               aria-describedby={validation ? "source-intake-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -136,12 +136,11 @@ export function SourceIntakeReadbackWorkbench({
               spellCheck={false}
               value={input}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="source-intake-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
           {status === "loading" ? (
             <FactGroupSkeletonGrid

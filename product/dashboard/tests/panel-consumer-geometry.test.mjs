@@ -28,7 +28,7 @@ function sharedInnerRadius(css, selector) {
 test("Source Intake and Composer consume the same token-bound body", async () => {
   for (const consumer of ["source-intake", "develop-composer"]) {
     const source = await read(`components/${consumer}-readback-workbench.tsx`);
-    assert.match(source, /from "\.\/source-intake-readback-workbench.module.css"/u);
+    assert.match(source, /from "\.\/ui\/readback-lookup"/u);
     assert.match(source, /<PanelFrameBody className=\{styles.body\}>/u);
   }
   sharedPadding(await read("components/source-intake-readback-workbench.module.css"), ".body");

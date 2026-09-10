@@ -12,6 +12,7 @@ import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
 import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 
 const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
@@ -131,16 +132,15 @@ export function DevelopComposerReadbackWorkbench({
         )}
       />
       <PanelFrameBody className={styles.body}>
-        <form
-          className={styles.lookupRail}
+        <ReadbackLookup
+          validation={validation}
+          validationId="develop-composer-validation"
           onSubmit={(event) => {
             event.preventDefault();
             void read(input);
           }}
         >
-          <label className={styles.inputShell}>
-            <span className="sr-only">Request identity</span>
-            <InterfaceIcons.search aria-hidden="true" size={16} />
+          <ReadbackLookupField label="Request identity" labelHidden leading={<InterfaceIcons.search aria-hidden="true" size={16} />}>
             <input
               aria-describedby={validation ? "develop-composer-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -153,12 +153,11 @@ export function DevelopComposerReadbackWorkbench({
               spellCheck={false}
               value={input}
             />
-          </label>
-          <button className={styles.openButton} disabled={status === "loading"} type="submit">
+          </ReadbackLookupField>
+          <ReadbackLookupAction disabled={status === "loading"}>
             Open readback <EvidenceIcons.next aria-hidden="true" size={14} />
-          </button>
-        </form>
-        {validation ? <p className={styles.validation} id="develop-composer-validation">{validation}</p> : null}
+          </ReadbackLookupAction>
+        </ReadbackLookup>
         <div className={styles.result} aria-live="polite">
           {status === "loading" ? (
             <FactGroupSkeletonGrid
