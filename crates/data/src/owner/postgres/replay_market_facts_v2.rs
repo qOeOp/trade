@@ -894,6 +894,7 @@ impl ReplayCompositionOwnerV1 {
             super::observation_census::load_strategy_input_joined_cut_custody_v1(
                 &mut transaction,
                 &joined_locator,
+                super::observation_census::ObservationCensusReadModeV1::LockRows,
             )
             .await
             .map_err(|_| ReplayCompositionBindingErrorV1::IncompleteComposition)?

@@ -9,7 +9,9 @@ use super::{
     MarketDataOwnerPostgres, load_sample_projection_schedule_dependencies_v3,
     load_strategy_input_sample_projection_v3, validate_sample_projection_dependencies_v3,
 };
-use crate::owner::observation_census::UntrustedStrategyInputJoinedCutLocatorV1;
+use crate::owner::observation_census::{
+    UntrustedObservationCensusRequestV1, UntrustedStrategyInputJoinedCutLocatorV1,
+};
 use crate::owner::sample_projection_v4::{
     PreparedStrategyInputSampleProjectionV4, ScheduleDependencyV4,
     StrategyInputSampleProjectionErrorV4, StrategyInputSampleProjectionReadbackV4,
@@ -17,6 +19,7 @@ use crate::owner::sample_projection_v4::{
     UntrustedStrategyInputSampleProjectionLocatorV4, V3_HEADER_LEN, decode_v4,
     joined_component_matches_exact_v4, schedule_set_digest,
 };
+use crate::owner::source_binding::BindingDigest;
 
 pub(super) const SCHEMA_V4: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.strategy_input_sample_projection_receipts_v4(receipt_digest BYTEA PRIMARY KEY CHECK(octet_length(receipt_digest)=32),kind SMALLINT NOT NULL CHECK(kind IN (1,2)),lifecycle SMALLINT NOT NULL CHECK(lifecycle=2),subject_identity BYTEA NOT NULL CHECK(octet_length(subject_identity)=32),schedule_dependency_set_digest BYTEA NOT NULL CHECK(octet_length(schedule_dependency_set_digest)=32),component_count BIGINT NOT NULL CHECK(component_count>0),receipt_bytes BYTEA NOT NULL CHECK(octet_length(receipt_bytes)>0),custody_digest BYTEA NOT NULL CHECK(octet_length(custody_digest)=32))",
@@ -38,9 +41,23 @@ enum DependencyValidationModeV4 {
     ReadOnly,
 }
 
+struct ValidatedJoinedCustodyV1 {
+    request: UntrustedObservationCensusRequestV1,
+    custody: Box<[u8]>,
+    receipt_digest: BindingDigest,
+    locator: UntrustedStrategyInputJoinedCutLocatorV1,
+}
+
 impl DependencyValidationModeV4 {
     const fn locks_rows(self) -> bool {
         matches!(self, Self::LockRows)
+    }
+
+    const fn census_read_mode(self) -> super::observation_census::ObservationCensusReadModeV1 {
+        match self {
+            Self::LockRows => super::observation_census::ObservationCensusReadModeV1::LockRows,
+            Self::ReadOnly => super::observation_census::ObservationCensusReadModeV1::ReadOnly,
+        }
     }
 }
 
@@ -205,35 +222,23 @@ async fn validate_joined_subject(
     decoded: &crate::owner::sample_projection_v4::DecodedStrategyInputSampleProjectionV4,
 ) -> Result<(), StrategyInputSampleProjectionErrorV4> {
     let subject_digest = decoded.subject_identity();
-    let joined_identity: Vec<u8> = sqlx::query_scalar(
-        "SELECT joined_cut_identity FROM market_data_private.observation_census_records_v1 WHERE v1_joined_cut_receipt_digest=$1",
+    let validated = load_and_validate_joined_custody(
+        transaction,
+        subject_digest,
+        DependencyValidationModeV4::LockRows,
     )
-    .bind(subject_digest.as_slice())
-    .fetch_optional(&mut **transaction)
+    .await?;
+    let (_, joined) = super::observation_census::resolve_and_commit_observation_census_v1(
+        transaction,
+        &validated.request,
+    )
     .await
-    .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?
-    .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
-    let joined_identity: [u8; 32] = joined_identity
-        .try_into()
-        .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
-    let locator = UntrustedStrategyInputJoinedCutLocatorV1::from_untrusted(
-        crate::owner::source_binding::BindingDigest::from_untrusted_bytes(joined_identity),
-        crate::owner::source_binding::BindingDigest::from_untrusted_bytes(joined_identity),
-    );
-    let (request, custody, receipt_digest) =
-        super::observation_census::load_strategy_input_joined_cut_custody_v1(transaction, &locator)
-            .await
-            .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?
-            .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
-    let (_, joined) =
-        super::observation_census::resolve_and_commit_observation_census_v1(transaction, &request)
-            .await
-            .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
 
-    if joined.record().identity() != locator.joined_cut_identity()
-        || joined.record().canonical_bytes() != custody.as_ref()
+    if joined.record().identity() != validated.locator.joined_cut_identity()
+        || joined.record().canonical_bytes() != validated.custody.as_ref()
         || joined.record().joined_cut_receipt().digest().as_bytes() != &subject_digest
-        || receipt_digest.as_bytes() != &subject_digest
+        || validated.receipt_digest.as_bytes() != &subject_digest
     {
         return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
     }
@@ -408,11 +413,73 @@ async fn load(
     {
         return Err(StrategyInputSampleProjectionErrorV4::StoreUntrusted);
     }
+    if decoded.kind()
+        == crate::owner::sample_projection_v4::StrategyInputSampleProjectionKindV4::JoinedCut
+    {
+        validate_joined_custody(transaction, &decoded, validation_mode).await?;
+    }
     validate_v3_dependencies(transaction, &dependencies, validation_mode).await?;
     validate_exact_v3_components(transaction, &decoded, &dependencies).await?;
     Ok(Some(
         StrategyInputSampleProjectionReadbackV4::from_verified(decoded),
     ))
+}
+
+async fn validate_joined_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+    decoded: &crate::owner::sample_projection_v4::DecodedStrategyInputSampleProjectionV4,
+    validation_mode: DependencyValidationModeV4,
+) -> Result<(), StrategyInputSampleProjectionErrorV4> {
+    load_and_validate_joined_custody(transaction, decoded.subject_identity(), validation_mode)
+        .await
+        .map(|_| ())
+}
+
+async fn load_and_validate_joined_custody(
+    transaction: &mut Transaction<'_, Postgres>,
+    subject_digest: [u8; 32],
+    validation_mode: DependencyValidationModeV4,
+) -> Result<ValidatedJoinedCustodyV1, StrategyInputSampleProjectionErrorV4> {
+    let joined_identity: Vec<u8> = sqlx::query_scalar(
+        "SELECT joined_cut_identity FROM market_data_private.observation_census_records_v1 WHERE v1_joined_cut_receipt_digest=$1",
+    )
+    .bind(subject_digest.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?
+    .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    let joined_identity: [u8; 32] = joined_identity
+        .try_into()
+        .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+    let locator = UntrustedStrategyInputJoinedCutLocatorV1::from_untrusted(
+        crate::owner::source_binding::BindingDigest::from_untrusted_bytes(joined_identity),
+        crate::owner::source_binding::BindingDigest::from_untrusted_bytes(joined_identity),
+    );
+    let (request, custody, receipt_digest) =
+        super::observation_census::load_strategy_input_joined_cut_custody_v1(
+            transaction,
+            &locator,
+            validation_mode.census_read_mode(),
+        )
+        .await
+        .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?
+        .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    crate::owner::observation_census::authority::validate_strategy_input_joined_cut_custody_v1(
+        &custody,
+        &request,
+        &locator,
+        receipt_digest,
+    )
+    .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    if receipt_digest.as_bytes() != &subject_digest {
+        return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
+    }
+    Ok(ValidatedJoinedCustodyV1 {
+        request,
+        custody,
+        receipt_digest,
+        locator,
+    })
 }
 
 async fn validate_exact_v3_components(

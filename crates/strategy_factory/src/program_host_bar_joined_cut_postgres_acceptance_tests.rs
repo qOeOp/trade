@@ -116,6 +116,42 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
             == recovered_projection.schedule_dependency_set_digest()
     );
 
+    let joined_cut_identity = native_request.joined_cut_identity;
+    let original_joined_cut_custody: Vec<u8> = sqlx::query_scalar(
+        "SELECT joined_cut_custody_bytes FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1",
+    )
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .fetch_one(database.owner_topology_admin_pool())
+    .await?;
+    let damaged = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET joined_cut_custody_bytes=joined_cut_custody_bytes || decode('00','hex') WHERE joined_cut_identity=$1",
+    )
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .execute(database.owner_topology_admin_pool())
+    .await?;
+    anyhow::ensure!(damaged.rows_affected() == 1);
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "damaged joined-cut custody escaped V4 read-only resolution"
+    );
+    let restored = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET joined_cut_custody_bytes=$1 WHERE joined_cut_identity=$2",
+    )
+    .bind(&original_joined_cut_custody)
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .execute(database.owner_topology_admin_pool())
+    .await?;
+    anyhow::ensure!(restored.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
     let projection_digest = first_projection.receipt_digest();
     let schedule_digest = first_projection.schedule_dependency_set_digest();
     let prepared = prepare_program_host_from_owner_bar_joined_cut_v1(

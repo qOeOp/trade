@@ -7,6 +7,7 @@ use super::{
     ObservationCensusEntryV1, ObservationCensusErrorV1, ObservationCensusIdentity,
     ObservationCensusReadbackV1, ObservationCensusReceiptV1, ObservationCensusRecordV1,
     StrategyInputJoinedCutReadbackV1, UntrustedObservationCensusRequestV1,
+    UntrustedStrategyInputJoinedCutLocatorV1,
     codec::{self, Decoder, Encoder},
 };
 
@@ -859,4 +860,34 @@ pub fn verify_strategy_input_joined_cut_readback_v1(
     ) && codec::digest(codec::JOINED_CUT_CUSTODY_DOMAIN, &record.canonical_bytes) == record.identity
         && record.joined_cut_receipt.has_valid_digest()
         && record.observation_census_identity == record.observation_census_digest
+}
+
+pub(crate) fn validate_strategy_input_joined_cut_custody_v1(
+    custody: &[u8],
+    request: &UntrustedObservationCensusRequestV1,
+    locator: &UntrustedStrategyInputJoinedCutLocatorV1,
+    joined_cut_receipt_digest: BindingDigest,
+) -> Result<(), ObservationCensusErrorV1> {
+    let mut decoder = codec::Decoder::new(custody);
+    if decoder.u16()? != codec::VERSION {
+        return Err(ObservationCensusErrorV1::CodecMismatch);
+    }
+    let request_identity = decoder.digest()?;
+    let request_meaning_digest = decoder.digest()?;
+    let census_identity = decoder.digest()?;
+    let census_digest = decoder.digest()?;
+    let decoded_joined_cut_receipt_digest = decoder.digest()?;
+    decoder.finish()?;
+
+    if request_identity != request.request_identity()
+        || request_meaning_digest != request.request_meaning_digest()
+        || census_identity != census_digest
+        || !codec::nonzero(census_identity)
+        || decoded_joined_cut_receipt_digest != joined_cut_receipt_digest
+        || codec::digest(codec::JOINED_CUT_CUSTODY_DOMAIN, custody) != locator.joined_cut_identity()
+        || locator.joined_cut_identity() != locator.joined_cut_digest()
+    {
+        return Err(ObservationCensusErrorV1::DigestMismatch);
+    }
+    Ok(())
 }

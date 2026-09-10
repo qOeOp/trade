@@ -25,6 +25,12 @@ use super::{load_pit_for_update, strategy_input_binding_registry};
 
 pub(super) const MAX_OBSERVATION_CENSUS_AGGREGATE_BYTES_V1: usize = 32 * 1024 * 1024;
 
+#[derive(Clone, Copy)]
+pub(super) enum ObservationCensusReadModeV1 {
+    LockRows,
+    ReadOnly,
+}
+
 pub(super) const OBSERVATION_CENSUS_SCHEMA_V1: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS market_data_private.observation_census_records_v1 (request_identity BYTEA PRIMARY KEY CHECK (octet_length(request_identity)=32), request_meaning_digest BYTEA NOT NULL CHECK (octet_length(request_meaning_digest)=32), request_bytes BYTEA NOT NULL CHECK (octet_length(request_bytes)>0 AND octet_length(request_bytes)<=262144), census_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(census_identity)=32), census_bytes BYTEA NOT NULL, census_receipt_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(census_receipt_identity)=32), census_receipt_bytes BYTEA NOT NULL, joined_cut_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(joined_cut_identity)=32), joined_cut_custody_bytes BYTEA NOT NULL, v1_joined_cut_receipt_digest BYTEA NOT NULL CHECK (octet_length(v1_joined_cut_receipt_digest)=32), outbox_identity BYTEA NOT NULL UNIQUE CHECK (octet_length(outbox_identity)=32), CHECK (octet_length(census_bytes)>0 AND octet_length(census_receipt_bytes)>0 AND octet_length(joined_cut_custody_bytes)>0))",
     "CREATE TABLE IF NOT EXISTS market_data_private.observation_census_dependencies_v1 (request_identity BYTEA NOT NULL REFERENCES market_data_private.observation_census_records_v1(request_identity) ON DELETE RESTRICT, ordinal BIGINT NOT NULL CHECK (ordinal>=0), entry_identity BYTEA NOT NULL CHECK (octet_length(entry_identity)=32), input_role_identity BYTEA NOT NULL CHECK (octet_length(input_role_identity)=32), logical_time BIGINT NOT NULL CHECK (logical_time>0), event_time BIGINT NOT NULL CHECK (event_time>=0), owner_sequence BIGINT NOT NULL CHECK (owner_sequence>0), event_identity BYTEA NOT NULL CHECK (octet_length(event_identity)=16), trigger_digest BYTEA NOT NULL CHECK (octet_length(trigger_digest)=32), value_digest BYTEA NOT NULL CHECK (octet_length(value_digest)=32), entry_bytes BYTEA NOT NULL CHECK (octet_length(entry_bytes)>0), PRIMARY KEY(request_identity,ordinal), UNIQUE(request_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity))",
@@ -446,6 +452,7 @@ pub(super) async fn load_observation_census_request_v1(
 pub(super) async fn load_strategy_input_joined_cut_custody_v1(
     transaction: &mut Transaction<'_, Postgres>,
     locator: &UntrustedStrategyInputJoinedCutLocatorV1,
+    read_mode: ObservationCensusReadModeV1,
 ) -> Result<
     Option<(
         UntrustedObservationCensusRequestV1,
@@ -454,9 +461,22 @@ pub(super) async fn load_strategy_input_joined_cut_custody_v1(
     )>,
     ObservationCensusErrorV1,
 > {
-    let Some(row) = sqlx::query("SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1 FOR SHARE")
-        .bind(locator.joined_cut_identity().as_bytes().as_slice()).fetch_optional(&mut **transaction).await
-        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)? else { return Ok(None); };
+    let query = match read_mode {
+        ObservationCensusReadModeV1::LockRows => sqlx::query(
+            "SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1 FOR SHARE",
+        ),
+        ObservationCensusReadModeV1::ReadOnly => sqlx::query(
+            "SELECT request_bytes,joined_cut_identity,joined_cut_custody_bytes,v1_joined_cut_receipt_digest FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1",
+        ),
+    };
+    let Some(row) = query
+        .bind(locator.joined_cut_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
+    else {
+        return Ok(None);
+    };
     if row_bytes(&row, "joined_cut_identity")? != locator.joined_cut_digest().as_bytes() {
         return Err(ObservationCensusErrorV1::DigestMismatch);
     }

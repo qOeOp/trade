@@ -2233,6 +2233,7 @@ impl StrategyInputJoinedCutOwnerResolverV1 for MarketDataOwnerPostgres {
             observation_census::load_strategy_input_joined_cut_custody_v1(
                 &mut transaction,
                 locator,
+                observation_census::ObservationCensusReadModeV1::LockRows,
             )
             .await?
             .ok_or(ObservationCensusErrorV1::UnknownIdentity)?;
