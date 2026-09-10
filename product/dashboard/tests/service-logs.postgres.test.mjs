@@ -447,6 +447,15 @@ test(testName, { skip: !url }, async () => {
     assert.match(surface.summary, /worker\s+1/);
     assert.match(surface.summary, /server\s+1/);
 
+    await browser.send("Emulation.setDeviceMetricsOverride", {
+      width: 1440,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await waitForBrowserExpression(browser,
+      `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
+
     const navigatePage = async (label, settledExpression) => {
       const changedPage = await readBrowserValue(browser, `(() => {
         const button = document.querySelector('button[aria-label=${JSON.stringify(label)}]');
