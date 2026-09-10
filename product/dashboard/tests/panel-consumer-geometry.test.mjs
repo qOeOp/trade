@@ -59,6 +59,10 @@ test("Schedules joins its interior planes inside one inset body", async () => {
     .some((rule) => /font-size: 10px;/u.test(rule)));
   assert.ok(rulesFor(globalCss, ".detail-fact-grid time")
     .some((rule) => /font: 600 11px\/1\.35 ui-monospace, monospace;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid time")
+    .some((rule) => /overflow: visible;[^}]*overflow-wrap: anywhere;[^}]*text-overflow: clip;[^}]*white-space: normal;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".panel-info-facts dd code")
+    .some((rule) => /overflow: visible;[^}]*overflow-wrap: anywhere;[^}]*text-overflow: clip;[^}]*white-space: normal;/u.test(rule)));
   assert.ok(rulesFor(globalCss, ".detail-section-copy")
     .some((rule) => /font-size: 10px;/u.test(rule)));
   assert.match(component, /<PanelFrame[^>]*>\s*<CalendarHeader[\s\S]*?\/>\s*<PanelFrameBody>/u);
