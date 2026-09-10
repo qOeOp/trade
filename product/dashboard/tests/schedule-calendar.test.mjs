@@ -139,14 +139,16 @@ test("unavailable schedule data preserves the source controls without inventing 
   assert.match(component, /error \? <InlineNotice className=\{styles\.scheduleNotice\}/);
   assert.match(component, /data-availability="unavailable"/);
   assert.doesNotMatch(component, /<ScheduleCalendar schedules=\{\[\]\}/);
-  assert.match(css, /\.scheduleNotice \{[^}]*min-height:\s*144px/u);
+  assert.match(component, /data-availability="unavailable" density="spacious"/u);
+  assert.match(css, /\.scheduleNotice \{[^}]*margin:\s*16px/u);
+  assert.doesNotMatch(css, /\.scheduleNotice \{[^}]*min-height:/u);
   assert.doesNotMatch(css, /\.unavailableCalendar|\.emptyResult|\.availabilityNotice/u);
   assert.match(css, /\.dialog \{[^}]*border-radius: var\(--panel-radius\)/u);
 });
 
 test("filtered schedule data uses a compact content-aware state outside the split inspector", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
-  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\}/u);
+  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\} density="spacious"/u);
   assert.match(component, /No matching schedules/u);
   assert.ok(component.indexOf("!schedules.length") < component.indexOf("className={styles.split}"));
 });

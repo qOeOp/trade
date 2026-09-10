@@ -79,12 +79,12 @@ export function OperationsSchedulesPreview() {
       onToggleTable={() => setMode(mode === "table" ? "calendar" : "table")} />
     <PanelFrameBody>
       {pending ? <div className={styles.message} role="status" aria-label="Reading schedules">{Array.from({ length: 6 }, (_, i) => <div className={styles.skeleton} key={i} />)}</div>
-        : error ? <InlineNotice className={styles.scheduleNotice} data-availability="unavailable"
+        : error ? <InlineNotice className={styles.scheduleNotice} data-availability="unavailable" density="spacious"
           icon={<InterfaceIcons.calendar size={20} />} role="status"
           title={scheduleAvailabilityPresentationV1(error).title} tone="warning">
           {scheduleAvailabilityPresentationV1(error).detail}
         </InlineNotice>
-        : !schedules.length ? <InlineNotice className={styles.scheduleNotice}
+        : !schedules.length ? <InlineNotice className={styles.scheduleNotice} density="spacious"
           icon={<InterfaceIcons.calendar size={20} />} role="status" title="No matching schedules">
           Adjust the current search or scope filters to show configured schedules.
         </InlineNotice>
