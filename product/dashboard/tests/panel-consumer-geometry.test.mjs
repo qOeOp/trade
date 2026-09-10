@@ -55,6 +55,12 @@ test("Schedules joins its interior planes inside one inset body", async () => {
   assert.match(rulesFor(globalCss, ".detail-inspector-header")[0], /padding: 12px var\(--panel-content-padding\)/u);
   assert.ok(rulesFor(globalCss, ".detail-inspector-body > .detail-fact-grid")
     .some((rule) => /padding: 5px var\(--panel-content-padding\)/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid span")
+    .some((rule) => /font-size: 10px;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid time")
+    .some((rule) => /font: 600 11px\/1\.35 ui-monospace, monospace;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-section-copy")
+    .some((rule) => /font-size: 10px;/u.test(rule)));
   assert.match(component, /<PanelFrame[^>]*>\s*<CalendarHeader[\s\S]*?\/>\s*<PanelFrameBody>/u);
   assert.match(component, /<\/PanelFrameBody>\s*<PanelFrameFooter className=\{styles\.foot\}>/u);
   assert.match(component, /<DetailInspector className=\{styles\.detail\}[\s\S]*<DetailInspectorBody>/u);
