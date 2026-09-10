@@ -319,6 +319,51 @@ pub(super) async fn resolve_complete_strategy_input_roles_v1(
     ),
     StrategyInputBindingRegistryErrorV1,
 > {
+    resolve_complete_strategy_input_roles_with_mode_v1(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        role_identities,
+        DependencyReadModeV1::LockRows,
+    )
+    .await
+}
+
+pub(super) async fn rederive_complete_strategy_input_roles_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    role_identities: &[BindingDigest],
+) -> Result<
+    (
+        Box<[StrategyInputBindingReceipt]>,
+        Box<[StrategyInputEventFrameReceipt]>,
+    ),
+    StrategyInputBindingRegistryErrorV1,
+> {
+    resolve_complete_strategy_input_roles_with_mode_v1(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        role_identities,
+        DependencyReadModeV1::ReadOnly,
+    )
+    .await
+}
+
+async fn resolve_complete_strategy_input_roles_with_mode_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    role_identities: &[BindingDigest],
+    mode: DependencyReadModeV1,
+) -> Result<
+    (
+        Box<[StrategyInputBindingReceipt]>,
+        Box<[StrategyInputEventFrameReceipt]>,
+    ),
+    StrategyInputBindingRegistryErrorV1,
+> {
     let mut unique = role_identities.to_vec();
     unique.sort_unstable();
     unique.dedup();
@@ -327,21 +372,32 @@ pub(super) async fn resolve_complete_strategy_input_roles_v1(
     }
     let mut declarations = Vec::with_capacity(unique.len());
     for role_identity in unique {
-        declarations.push(
-            recover_strategy_input_binding_declaration_v1(
-                transaction,
-                pit_request_identity,
-                strategy_design_identity,
-                role_identity,
-            )
-            .await?,
-        );
+        declarations.push(match mode {
+            DependencyReadModeV1::LockRows => {
+                recover_strategy_input_binding_declaration_v1(
+                    transaction,
+                    pit_request_identity,
+                    strategy_design_identity,
+                    role_identity,
+                )
+                .await?
+            }
+            DependencyReadModeV1::ReadOnly => {
+                rederive_strategy_input_binding_declaration_read_only_v1(
+                    transaction,
+                    pit_request_identity,
+                    strategy_design_identity,
+                    role_identity,
+                )
+                .await?
+            }
+        });
     }
     let request = declarations
         .first()
         .ok_or(StrategyInputBindingRegistryErrorV1::InvalidRequest)?
         .request();
-    let batch = resolve_native_pit(transaction, request, DependencyReadModeV1::LockRows).await?;
+    let batch = resolve_native_pit(transaction, request, mode).await?;
     let bindings = declarations
         .into_iter()
         .map(|declaration| declaration.binding)
@@ -354,6 +410,40 @@ pub(super) async fn resolve_complete_strategy_input_roles_v1(
         );
     }
     Ok((bindings.into_boxed_slice(), frames.into_boxed_slice()))
+}
+
+async fn rederive_strategy_input_binding_declaration_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+) -> Result<StrategyInputBindingDeclarationReadbackV1, StrategyInputBindingRegistryErrorV1> {
+    let stored = load_stored_read_only(
+        transaction,
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+    )
+    .await?
+    .ok_or(StrategyInputBindingRegistryErrorV1::UnknownDeclaration)?;
+    let request = verify_stored(
+        pit_request_identity,
+        strategy_design_identity,
+        input_role_identity,
+        &stored.request_bytes,
+        stored.request_meaning_digest,
+        stored.owner_binding_digest,
+    )?;
+    let binding =
+        resolve_and_bind_with_mode(transaction, &request, DependencyReadModeV1::ReadOnly).await?;
+    if binding.digest() != stored.owner_binding_digest {
+        return Err(StrategyInputBindingRegistryErrorV1::StoreUntrusted);
+    }
+    Ok(StrategyInputBindingDeclarationReadbackV1 {
+        request,
+        request_meaning_digest: stored.request_meaning_digest,
+        binding,
+    })
 }
 
 async fn validate_native_source(
@@ -715,6 +805,31 @@ async fn load_stored(
     input_role_identity: BindingDigest,
 ) -> Result<Option<StoredDeclarationV1>, StrategyInputBindingRegistryErrorV1> {
     let row = sqlx::query("SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3 FOR UPDATE")
+        .bind(pit_request_identity.as_bytes().as_slice())
+        .bind(strategy_design_identity.as_bytes().as_slice())
+        .bind(input_role_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUnavailable)?;
+    row.map(|row| {
+        Ok(StoredDeclarationV1 {
+            request_bytes: row
+                .try_get("request_bytes")
+                .map_err(|_| StrategyInputBindingRegistryErrorV1::StoreUntrusted)?,
+            request_meaning_digest: row_digest(&row, "request_meaning_digest")?,
+            owner_binding_digest: row_digest(&row, "owner_binding_digest")?,
+        })
+    })
+    .transpose()
+}
+
+async fn load_stored_read_only(
+    transaction: &mut Transaction<'_, Postgres>,
+    pit_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    input_role_identity: BindingDigest,
+) -> Result<Option<StoredDeclarationV1>, StrategyInputBindingRegistryErrorV1> {
+    let row = sqlx::query("SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3")
         .bind(pit_request_identity.as_bytes().as_slice())
         .bind(strategy_design_identity.as_bytes().as_slice())
         .bind(input_role_identity.as_bytes().as_slice())

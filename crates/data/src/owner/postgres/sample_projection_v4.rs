@@ -473,6 +473,10 @@ async fn load_and_validate_joined_custody(
     .await
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?
     .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    let (rederived_census, rederived_joined) =
+        super::observation_census::rederive_observation_census_read_only_v1(transaction, &request)
+            .await
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
     crate::owner::observation_census::authority::validate_strategy_input_joined_cut_custody_v1(
         &custody,
         &request,
@@ -482,7 +486,10 @@ async fn load_and_validate_joined_custody(
     )
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
     validate_joined_design_bindings(transaction, decoded, &request, validation_mode).await?;
-    if receipt_digest.as_bytes() != &subject_digest
+    if rederived_census != census
+        || rederived_joined.record().canonical_bytes() != custody.as_ref()
+        || rederived_joined.record().joined_cut_receipt().digest() != receipt_digest
+        || receipt_digest.as_bytes() != &subject_digest
         || request.join_claim().join_identity.as_bytes() != &decoded.subject_join_identity()
         || !crate::owner::sample_projection_v4::joined_components_match_observation_census_v4(
             decoded, &request, &census,

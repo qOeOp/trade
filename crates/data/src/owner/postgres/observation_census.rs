@@ -293,6 +293,34 @@ pub(super) async fn resolve_and_commit_observation_census_v1(
     Ok((census, joined))
 }
 
+pub(super) async fn rederive_observation_census_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedObservationCensusRequestV1,
+) -> Result<
+    (
+        ObservationCensusReadbackV1,
+        StrategyInputJoinedCutReadbackV1,
+    ),
+    ObservationCensusErrorV1,
+> {
+    let role_identities = request
+        .join_claim()
+        .roles
+        .iter()
+        .map(|role| role.input_role_identity)
+        .collect::<Vec<_>>();
+    let (bindings, frames) =
+        strategy_input_binding_registry::rederive_complete_strategy_input_roles_read_only_v1(
+            transaction,
+            request.pit_locator().request_identity,
+            request.join_claim().strategy_design_identity,
+            &role_identities,
+        )
+        .await
+        .map_err(|error| map_registry_error(&error))?;
+    authority::issue_observation_census_and_joined_cut_v1(request, &bindings, frames.into_vec())
+}
+
 /// W3 positive composition entrypoint. The role set is resolved by fixed R&D composition before
 /// entering this Market Data transaction; caller-proposed V1 join fields cannot authorize it.
 pub(super) async fn resolve_and_commit_authenticated_observation_census_v1(

@@ -41,6 +41,12 @@ struct ForgedObservationCensusTrigger {
     census: ForgedObservationCensus,
 }
 
+struct ForgedObservationCensusExtraEntry {
+    census: ForgedObservationCensus,
+    entry: Vec<u8>,
+    entry_identity: [u8; 32],
+}
+
 fn observation_census_digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
     let mut hasher = blake3::Hasher::new();
     hasher.update(domain);
@@ -106,6 +112,74 @@ fn take_census_storage_field(
     anyhow::ensure!(bytes.get(start..end).is_some());
     *cursor = end;
     Ok(start..end)
+}
+
+fn forge_observation_census_extra_entry(
+    original: &[u8],
+) -> anyhow::Result<ForgedObservationCensusExtraEntry> {
+    anyhow::ensure!(original.len() >= 38);
+    let count = usize::try_from(u32::from_be_bytes(original[34..38].try_into()?))?;
+    anyhow::ensure!(count > 0);
+    let mut cursor = 38;
+    let mut entries = Vec::with_capacity(count + 1);
+    for _ in 0..count {
+        let range = take_census_storage_field(original, &mut cursor)?;
+        entries.push(original[range].to_vec());
+    }
+    let record_range = take_census_storage_field(original, &mut cursor)?;
+    let receipt_range = take_census_storage_field(original, &mut cursor)?;
+    anyhow::ensure!(cursor == original.len());
+
+    let mut entry = entries[0].clone();
+    anyhow::ensure!(entry.len() == 138);
+    let logical_time = u64::from_be_bytes(entry[34..42].try_into()?);
+    anyhow::ensure!(logical_time > 1);
+    entry[34..42].copy_from_slice(&(logical_time - 1).to_be_bytes());
+    let entry_identity = observation_census_digest(b"VIBE_OBSERVATION_CENSUS_ENTRY_V1", &entry);
+    entries.insert(0, entry.clone());
+
+    let original_record = &original[record_range];
+    anyhow::ensure!(original_record.len() == 174 + count * 32);
+    let mut record = Vec::with_capacity(original_record.len() + 32);
+    record.extend_from_slice(&original_record[..170]);
+    record.extend_from_slice(&u32::try_from(count + 1)?.to_be_bytes());
+    record.extend_from_slice(&entry_identity);
+    record.extend_from_slice(&original_record[174..]);
+    let census_identity = observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &record);
+
+    let mut receipt = original[receipt_range].to_vec();
+    anyhow::ensure!(receipt.len() == 130);
+    receipt[66..98].copy_from_slice(&census_identity);
+    let receipt_identity = observation_census_digest(OBSERVATION_CENSUS_RECEIPT_DOMAIN, &receipt);
+
+    let mut body = Vec::new();
+    body.extend_from_slice(&original[32..34]);
+    body.extend_from_slice(&u32::try_from(count + 1)?.to_be_bytes());
+    for value in &entries {
+        body.extend_from_slice(&u32::try_from(value.len())?.to_be_bytes());
+        body.extend_from_slice(value);
+    }
+    body.extend_from_slice(&u32::try_from(record.len())?.to_be_bytes());
+    body.extend_from_slice(&record);
+    body.extend_from_slice(&u32::try_from(receipt.len())?.to_be_bytes());
+    body.extend_from_slice(&receipt);
+    let mut storage = Vec::with_capacity(32 + body.len());
+    storage.extend_from_slice(&observation_census_digest(
+        OBSERVATION_CENSUS_STORAGE_DOMAIN,
+        &body,
+    ));
+    storage.extend_from_slice(&body);
+
+    Ok(ForgedObservationCensusExtraEntry {
+        census: ForgedObservationCensus {
+            storage,
+            receipt,
+            census_identity,
+            receipt_identity,
+        },
+        entry,
+        entry_identity,
+    })
 }
 
 fn forge_observation_census_pit_coordinates(
@@ -678,6 +752,131 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let original_outbox_row_identity: Vec<u8> = outbox_row.try_get("outbox_identity")?;
     let original_outbox_payload_digest: Vec<u8> = outbox_row.try_get("payload_digest")?;
     let original_outbox_payload: Vec<u8> = outbox_row.try_get("payload")?;
+
+    let extra_entry = forge_observation_census_extra_entry(&original_census_storage)?;
+    let mut extra_entry_custody = original_joined_cut_custody.clone();
+    anyhow::ensure!(extra_entry_custody.len() >= 130);
+    extra_entry_custody[66..98].copy_from_slice(&extra_entry.census.census_identity);
+    extra_entry_custody[98..130].copy_from_slice(&extra_entry.census.census_identity);
+    let extra_entry_joined_cut_identity = joined_cut_custody_identity(&extra_entry_custody);
+    let mut extra_entry_transaction = market_mutation_pool.begin().await?;
+    let shifted_dependencies = sqlx::query(
+        "UPDATE market_data_private.observation_census_dependencies_v1 SET ordinal=ordinal+1000 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(&mut *extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(shifted_dependencies.rows_affected() == input_role_identities.len() as u64);
+    let normalized_dependencies = sqlx::query(
+        "UPDATE market_data_private.observation_census_dependencies_v1 SET ordinal=ordinal-999 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(&mut *extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(normalized_dependencies.rows_affected() == input_role_identities.len() as u64);
+    let inserted_entry = sqlx::query(
+        "INSERT INTO market_data_private.observation_census_dependencies_v1(request_identity,ordinal,entry_identity,input_role_identity,logical_time,event_time,owner_sequence,event_identity,trigger_digest,value_digest,entry_bytes) VALUES($1,0,$2,$3,$4,$5,$6,$7,$8,$9,$10)",
+    )
+    .bind(&request_identity)
+    .bind(extra_entry.entry_identity.as_slice())
+    .bind(&extra_entry.entry[2..34])
+    .bind(i64::try_from(u64::from_be_bytes(extra_entry.entry[34..42].try_into()?))?)
+    .bind(i64::try_from(u64::from_be_bytes(extra_entry.entry[42..50].try_into()?))?)
+    .bind(i64::try_from(u64::from_be_bytes(extra_entry.entry[50..58].try_into()?))?)
+    .bind(&extra_entry.entry[58..74])
+    .bind(&extra_entry.entry[74..106])
+    .bind(&extra_entry.entry[106..138])
+    .bind(&extra_entry.entry)
+    .execute(&mut *extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(inserted_entry.rows_affected() == 1);
+    let extra_entry_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(extra_entry.census.receipt_identity.as_slice())
+    .bind(extra_entry.census.census_identity.as_slice())
+    .bind(&extra_entry.census.storage)
+    .bind(&request_identity)
+    .execute(&mut *extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(extra_entry_outbox.rows_affected() == 1);
+    let extra_entry_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_identity=$1,census_bytes=$2,census_receipt_identity=$3,census_receipt_bytes=$4,outbox_identity=$3,joined_cut_identity=$5,joined_cut_custody_bytes=$6 WHERE request_identity=$7",
+    )
+    .bind(extra_entry.census.census_identity.as_slice())
+    .bind(&extra_entry.census.storage)
+    .bind(extra_entry.census.receipt_identity.as_slice())
+    .bind(&extra_entry.census.receipt)
+    .bind(extra_entry_joined_cut_identity.as_slice())
+    .bind(&extra_entry_custody)
+    .bind(&request_identity)
+    .execute(&mut *extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(extra_entry_record.rows_affected() == 1);
+    extra_entry_transaction.commit().await?;
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "extra census entry escaped complete Owner rederivation"
+    );
+    let mut restore_extra_entry_transaction = market_mutation_pool.begin().await?;
+    let removed_entry = sqlx::query(
+        "DELETE FROM market_data_private.observation_census_dependencies_v1 WHERE request_identity=$1 AND ordinal=0",
+    )
+    .bind(&request_identity)
+    .execute(&mut *restore_extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(removed_entry.rows_affected() == 1);
+    let shifted_restored_dependencies = sqlx::query(
+        "UPDATE market_data_private.observation_census_dependencies_v1 SET ordinal=ordinal+1000 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(&mut *restore_extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(
+        shifted_restored_dependencies.rows_affected() == input_role_identities.len() as u64
+    );
+    let restored_dependencies = sqlx::query(
+        "UPDATE market_data_private.observation_census_dependencies_v1 SET ordinal=ordinal-1001 WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(&mut *restore_extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(restored_dependencies.rows_affected() == input_role_identities.len() as u64);
+    let restored_extra_entry_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(&original_outbox_row_identity)
+    .bind(&original_outbox_payload_digest)
+    .bind(&original_outbox_payload)
+    .bind(&request_identity)
+    .execute(&mut *restore_extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(restored_extra_entry_outbox.rows_affected() == 1);
+    let restored_extra_entry_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_identity=$1,census_bytes=$2,census_receipt_identity=$3,census_receipt_bytes=$4,outbox_identity=$5,joined_cut_identity=$6,joined_cut_custody_bytes=$7 WHERE request_identity=$8",
+    )
+    .bind(&original_census_identity)
+    .bind(&original_census_storage)
+    .bind(&original_census_receipt_identity)
+    .bind(&original_census_receipt)
+    .bind(&original_outbox_identity)
+    .bind(&original_joined_cut_identity)
+    .bind(&original_joined_cut_custody)
+    .bind(&request_identity)
+    .execute(&mut *restore_extra_entry_transaction)
+    .await?;
+    anyhow::ensure!(restored_extra_entry_record.rows_affected() == 1);
+    restore_extra_entry_transaction.commit().await?;
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
     let forged_census = forge_observation_census_pit_coordinates(&original_census_storage)?;
     let mut forged_custody = original_joined_cut_custody.clone();
     anyhow::ensure!(forged_custody.len() >= 130);
