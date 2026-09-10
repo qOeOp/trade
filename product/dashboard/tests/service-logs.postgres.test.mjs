@@ -447,15 +447,6 @@ test(testName, { skip: !url }, async () => {
     assert.match(surface.summary, /worker\s+1/);
     assert.match(surface.summary, /server\s+1/);
 
-    await browser.send("Emulation.setDeviceMetricsOverride", {
-      width: 1440,
-      height: 900,
-      deviceScaleFactor: 1,
-      mobile: false,
-    });
-    await waitForBrowserExpression(browser,
-      `document.querySelectorAll('table[aria-label="Service log events"] tbody tr').length > 0`);
-
     const navigatePage = async (label, settledExpression) => {
       const changedPage = await readBrowserValue(browser, `(() => {
         const button = document.querySelector('button[aria-label=${JSON.stringify(label)}]');
@@ -547,7 +538,7 @@ test(testName, { skip: !url }, async () => {
       const viewport = document.querySelector('.page-viewport');
       const table = document.querySelector('table[aria-label="Service log events"]');
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
-      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       if (!viewport || !table || !firstRow || !cut || viewport.scrollHeight <= viewport.clientHeight + 320) return null;
       const tableTop = table.getBoundingClientRect().top - viewport.getBoundingClientRect().top + viewport.scrollTop;
       viewport.scrollTop = Math.min(viewport.scrollHeight - viewport.clientHeight, tableTop + 240);
@@ -567,7 +558,7 @@ test(testName, { skip: !url }, async () => {
     assert.deepEqual(await readBrowserValue(browser, `(() => {
       const viewport = document.querySelector('.page-viewport');
       const firstRow = document.querySelector('table[aria-label="Service log events"] tbody tr');
-      const cut = document.querySelector('.bounded-log-viewport-footer > code');
+      const cut = document.querySelector('.bounded-log-viewport-footer .panel-info-popover code');
       return viewport && firstRow && cut
         ? { firstRow: firstRow.innerText, cut: cut.textContent, scrollTop: viewport.scrollTop }
         : null;
