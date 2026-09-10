@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { FilterButton, FilterLink } from "./ui/filter-toolbar";
+import { FactGroup, FactGroupGrid, FactItem } from "./ui/fact-group";
 import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
 import {
   PanelFrame,
@@ -66,29 +67,26 @@ export function MarketDataOwnerFoundationCard() {
         actions={<StatusBadge tone="unavailable">Foundation only</StatusBadge>}
       />
       <PanelFrameBody className={styles.body}>
-        <div className={styles.groups} aria-label="Market Data Owner schema groups">
+        <FactGroupGrid layout="pair" aria-label="Market Data Owner schema groups">
           {schemaGroups.map((group, index) => (
-            <section className={styles.group} key={group.name} aria-labelledby={`market-data-group-${index}`}>
-              <header className={styles.groupHeader}>
-                <span className={styles.groupIcon} aria-hidden="true"><ModuleIcons.database size={17} /></span>
-                <div>
-                  <small>Schema group {String(index + 1).padStart(2, "0")}</small>
-                  <h3 id={`market-data-group-${index}`}>{group.name}</h3>
-                  <p>{group.description}</p>
-                </div>
-                <StatusBadge tone="unavailable">Resolver absent</StatusBadge>
-              </header>
-              <dl className={styles.fields}>
-                {group.fields.map((field) => (
-                  <div key={field}>
-                    <dt>{field}</dt>
-                    <dd><code>{UNAVAILABLE}</code></dd>
-                  </div>
-                ))}
-              </dl>
-            </section>
+            <FactGroup
+              key={group.name}
+              aria-labelledby={`market-data-group-${index}`}
+              headerDensity="detailed"
+              eyebrow={`Schema group ${String(index + 1).padStart(2, "0")}`}
+              title={<span id={`market-data-group-${index}`}>{group.name}</span>}
+              description={group.description}
+              leading={<ModuleIcons.database size={17} aria-hidden="true" />}
+              trailing={<StatusBadge tone="unavailable">Resolver absent</StatusBadge>}
+            >
+              {group.fields.map((field) => (
+                <FactItem key={field} label={field} mono align="end" tone="unavailable">
+                  {UNAVAILABLE}
+                </FactItem>
+              ))}
+            </FactGroup>
           ))}
-        </div>
+        </FactGroupGrid>
       </PanelFrameBody>
       <PanelFrameFooter layout="split">
         <PanelFrameFooterSummary

@@ -94,7 +94,7 @@ test("Run result fields and actions reflow from their actual card width before t
 
 test("Foundation card clusters consume the shared inner radius token", async () => {
   const modules = await Promise.all([
-    source("market-data-owner-foundation-card.module.css"),
+    source("ui/fact-group.module.css"),
     source("ui/summary-list.module.css"),
   ]);
 

@@ -46,11 +46,12 @@ test("both admitted Market Data routes render the fixed foundation card", async 
 });
 
 test("foundation card uses grouped semantic surfaces and no literal palette", async () => {
-  const css = await readFile(cssUrl, "utf8");
-  assert.match(css, /\.groups \{[\s\S]*grid-template-columns: repeat\(2/);
-  assert.match(css, /\.groupHeader \{[\s\S]*background: color-mix\(in oklch, var\(--primary\) 5%, var\(--panel-chrome-bg\)\)/);
-  assert.match(css, /\.fields \{[\s\S]*background: var\(--surface-card\)/);
-  assert.match(css, /\.fields > div \+ div \{[\s\S]*border-top:/);
+  const [source, css] = await Promise.all([readFile(componentUrl, "utf8"), readFile(cssUrl, "utf8")]);
+  assert.match(source, /import \{ FactGroup, FactGroupGrid, FactItem \} from "\.\/ui\/fact-group"/);
+  assert.match(source, /<FactGroupGrid layout="pair"/);
+  assert.match(source, /headerDensity="detailed"/);
+  assert.match(source, /<FactItem key=\{field\} label=\{field\} mono align="end" tone="unavailable">/);
+  assert.doesNotMatch(css, /\.(?:groups|group|groupHeader|groupIcon|fields)(?:\s|[.:{])/);
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 });
 

@@ -4,16 +4,39 @@ import styles from "./fact-group.module.css";
 
 export function FactGroup({
   title,
+  eyebrow,
+  description,
+  leading,
+  trailing,
+  headerDensity = "compact",
   children,
   className,
   ...props
 }: {
   title: ReactNode;
+  eyebrow?: ReactNode;
+  description?: ReactNode;
+  leading?: ReactNode;
+  trailing?: ReactNode;
+  headerDensity?: "compact" | "detailed";
   children: ReactNode;
 } & Omit<HTMLAttributes<HTMLElement>, "title">) {
   return (
-    <section {...props} className={[styles.group, className].filter(Boolean).join(" ")}>
-      <h3>{title}</h3>
+    <section
+      {...props}
+      className={[styles.group, className].filter(Boolean).join(" ")}
+      data-header-density={headerDensity}
+      data-ui="fact-group"
+    >
+      <header className={styles.header}>
+        {leading ? <span className={styles.leading}>{leading}</span> : null}
+        <div className={styles.headerCopy}>
+          {eyebrow ? <span className={styles.eyebrow}>{eyebrow}</span> : null}
+          <h3>{title}</h3>
+          {description ? <p className={styles.description}>{description}</p> : null}
+        </div>
+        {trailing ? <span className={styles.trailing}>{trailing}</span> : null}
+      </header>
       <dl>{children}</dl>
     </section>
   );
@@ -26,7 +49,7 @@ export function FactGroupGrid({
   ...props
 }: {
   children: ReactNode;
-  layout?: "equal" | "weighted";
+  layout?: "equal" | "pair" | "weighted";
 } & HTMLAttributes<HTMLDivElement>) {
   return (
     <div
@@ -44,11 +67,15 @@ export function FactItem({
   label,
   children,
   mono = false,
+  align = "start",
+  tone = "neutral",
   title,
 }: {
   label: ReactNode;
   children: ReactNode;
   mono?: boolean;
+  align?: "start" | "end";
+  tone?: "neutral" | "unavailable";
   title?: string;
 }) {
   const resolvedTitle = title ?? (
@@ -56,7 +83,7 @@ export function FactItem({
   );
 
   return (
-    <div className={styles.item}>
+    <div className={styles.item} data-align={align} data-tone={tone}>
       <dt>{label}</dt>
       <dd className={mono ? styles.mono : undefined} title={resolvedTitle}>
         {children}
@@ -67,8 +94,10 @@ export function FactItem({
 
 export function FactGroupSkeleton({ title, lines = 3 }: { title: ReactNode; lines?: number }) {
   return (
-    <section className={styles.group}>
-      <h3>{title}</h3>
+    <section className={styles.group} data-header-density="compact">
+      <header className={styles.header}>
+        <div className={styles.headerCopy}><h3>{title}</h3></div>
+      </header>
       <div className={styles.skeleton} aria-hidden="true">
         {Array.from({ length: lines }, (_, index) => (
           <i key={index} />
