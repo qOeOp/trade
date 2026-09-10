@@ -34,7 +34,7 @@ test("Market Data foundation card preserves the admitted schema and action order
   assert.match(source, /d790ae8702b1d254342ad81a82d8fc90e4b78d7a/);
   assert.match(source, /c07da16786f6e845794790802761ad272342b987/);
   assert.equal(source.match(/UNAVAILABLE_NO_PRODUCT_RESOLVER/g)?.length, 1);
-  assert.ok(source.indexOf("Open foundation evidence") < source.indexOf("Copy foundation locator"));
+  assert.ok(source.indexOf("Open technical evidence") < source.indexOf("Copy evidence link"));
   assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody[\s\S]*<PanelFrameFooter/);
 });
 
@@ -50,7 +50,9 @@ test("foundation card uses grouped semantic surfaces and no literal palette", as
   assert.match(source, /import \{ FactGroup, FactGroupGrid, FactItem \} from "\.\/ui\/fact-group"/);
   assert.match(source, /<FactGroupGrid layout="pair"/);
   assert.match(source, /headerDensity="detailed"/);
-  assert.match(source, /<FactItem key=\{field\} label=\{field\} mono align="end" tone="unavailable">/);
+  assert.match(source, /<FactItem key=\{field\} label=\{field\} mono align="end" tone="unavailable" title="Not connected">/);
+  assert.match(source, /<PanelFrameInfo label="View Market Data technical details">[\s\S]*<code>\{UNAVAILABLE\}<\/code>/);
+  assert.match(source, /<FactItem[\s\S]*>\s*-\s*<\/FactItem>/);
   assert.doesNotMatch(css, /\.(?:groups|group|groupHeader|groupIcon|fields)(?:\s|[.:{])/);
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 });

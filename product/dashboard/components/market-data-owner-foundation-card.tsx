@@ -11,6 +11,7 @@ import {
   PanelFrameFooterActions,
   PanelFrameFooterSummary,
   PanelFrameHeader,
+  PanelFrameInfo,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./market-data-owner-foundation-card.module.css";
@@ -60,11 +61,25 @@ export function MarketDataOwnerFoundationCard() {
   return (
     <PanelFrame className={styles.frame} aria-labelledby="market-data-foundation-title">
       <PanelFrameHeader
-        eyebrow="Market Data Owner"
-        title={<span id="market-data-foundation-title">Durable custody foundation</span>}
-        description="The sealed schema foundation exists, but no Dashboard product resolver is admitted."
-        meta={`PR #331 · ${FOUNDATION_REVISION.slice(0, 12)}`}
-        actions={<StatusBadge tone="unavailable">Foundation only</StatusBadge>}
+        eyebrow="Data sources"
+        title={<span id="market-data-foundation-title">Market data connections</span>}
+        description="Connect an approved source to populate lineage and point-in-time snapshots."
+        actions={(
+          <>
+            <StatusBadge tone="unavailable">Not connected</StatusBadge>
+            <PanelFrameInfo label="View Market Data technical details">
+              <span>Foundation</span>
+              <a href={FOUNDATION_LOCATOR} target="_blank" rel="noreferrer">
+                <code>{FOUNDATION_REVISION.slice(0, 12)}</code>
+              </a>
+              <span>Source</span>
+              <code>{FOUNDATION_SOURCE_REVISION.slice(0, 12)}</code>
+              <span>Reason</span>
+              <code>{UNAVAILABLE}</code>
+              <p>The custody schema exists, but no Dashboard product resolver is connected.</p>
+            </PanelFrameInfo>
+          </>
+        )}
       />
       <PanelFrameBody className={styles.body}>
         <FactGroupGrid layout="pair" aria-label="Market Data Owner schema groups">
@@ -77,11 +92,11 @@ export function MarketDataOwnerFoundationCard() {
               title={<span id={`market-data-group-${index}`}>{group.name}</span>}
               description={group.description}
               leading={<ModuleIcons.database size={17} aria-hidden="true" />}
-              trailing={<StatusBadge tone="unavailable">Resolver absent</StatusBadge>}
+              trailing={<StatusBadge tone="unavailable">Not connected</StatusBadge>}
             >
               {group.fields.map((field) => (
-                <FactItem key={field} label={field} mono align="end" tone="unavailable">
-                  {UNAVAILABLE}
+                <FactItem key={field} label={field} mono align="end" tone="unavailable" title="Not connected">
+                  -
                 </FactItem>
               ))}
             </FactGroup>
@@ -90,17 +105,17 @@ export function MarketDataOwnerFoundationCard() {
       </PanelFrameBody>
       <PanelFrameFooter layout="split">
         <PanelFrameFooterSummary
-          primary="PR #331 · durable Owner foundation"
-          secondary={`Source ${FOUNDATION_SOURCE_REVISION.slice(0, 12)} · no product resolver`}
+          primary="No market data connected"
+          secondary="Source and snapshot details will appear here after setup."
         />
         <PanelFrameFooterActions>
           <FilterLink href={FOUNDATION_LOCATOR} target="_blank" rel="noreferrer">
             <InterfaceIcons.open size={13} aria-hidden="true" />
-            Open foundation evidence
+            Open technical evidence
           </FilterLink>
           <FilterButton type="button" variant="outline" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy size={13} aria-hidden="true" />
-            {copied ? "Copied foundation locator" : "Copy foundation locator"}
+            {copied ? "Copied evidence link" : "Copy evidence link"}
           </FilterButton>
         </PanelFrameFooterActions>
       </PanelFrameFooter>
