@@ -11,6 +11,7 @@ import {
 } from "../lib/research-directory-gateway";
 import type { HistoricalResearchCandidateV1 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
@@ -285,10 +286,10 @@ export function ResearchDirectory() {
                   title="Research directory unavailable"
                   reason={reason ?? "RESEARCH_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
-                <EvidenceIcons.research aria-hidden="true" size={18} />
-                <p>{availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}</p>
-              </div>}
+              ) : <DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
+                icon={<EvidenceIcons.research aria-hidden="true" size={18} />}>
+                {availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalResearchCandidateV1>
               ariaLabel="Research custody candidates"
               columns={candidateColumns}
@@ -307,12 +308,12 @@ export function ResearchDirectory() {
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading"
+              ) : <DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading"
                   ? "Reading custody candidates…"
-                  : "No candidate identity matches this cut."}</p>
-              </div>}
+                  : "No candidate identity matches this cut."}
+              </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
         </PanelFrameBody>

@@ -14,6 +14,7 @@ import type {
   HistoricalBindingCandidateV1,
 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
@@ -360,10 +361,10 @@ export function ArtifactDirectory() {
                   title="Artifact directory unavailable"
                   reason={reason ?? "ARTIFACT_DIRECTORY_UNAVAILABLE"}
                 />
-              ) : <div className="data-workspace-empty">
-                <EvidenceIcons.artifact aria-hidden="true" size={18} />
-                <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
-              </div>}
+              ) : <DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
+                icon={<EvidenceIcons.artifact aria-hidden="true" size={18} />}>
+                {availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : candidateKind === "attempts" ? <DataWorkspaceTable<HistoricalArtifactCandidateV1>
               ariaLabel="Artifact custody candidates"
               columns={attemptCandidateColumns}
@@ -379,10 +380,10 @@ export function ArtifactDirectory() {
                 <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className="data-workspace-empty">
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}</p>
-              </div>}
+              ) : <DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
               ariaLabel="TrialFamily binding custody candidates"
               columns={bindingCandidateColumns}
@@ -398,10 +399,10 @@ export function ArtifactDirectory() {
                 <UnavailableState density="compact" icon={<EvidenceIcons.pending aria-hidden="true" size={17} />}
                   title="Custody candidate directory unavailable"
                   reason={custodyCandidates.reason ?? "CUSTODY_CANDIDATE_DIRECTORY_UNAVAILABLE"} />
-              ) : <div className="data-workspace-empty">
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}</p>
-              </div>}
+              ) : <DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}
+              </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
         </PanelFrameBody>

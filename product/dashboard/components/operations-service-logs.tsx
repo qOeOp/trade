@@ -15,6 +15,7 @@ import {
 import { BoundedLogViewport } from "./ui/bounded-log-viewport";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { DataTableHeaderLabel } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import {
   DetailCluster,
@@ -463,7 +464,10 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
-                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{pending ? "Reading service logs from the exact RunStore cut." : "Service logs are unavailable for this cut."}</p></div>}
+                    noDataComponent={<DataWorkspaceEmpty state={pending ? "loading" : "unavailable"}
+                      icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}>
+                      {pending ? "Reading service logs from the exact RunStore cut." : "Service logs are unavailable for this cut."}
+                    </DataWorkspaceEmpty>}
                   />
                 </BoundedLogViewport>
               </div>
@@ -507,7 +511,9 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
-                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No events match the current filters." : "No events in the selected time range."}</p></div>}
+                    noDataComponent={<DataWorkspaceEmpty icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}>
+                      {filtered ? "No events match the current filters." : "No events in the selected time range."}
+                    </DataWorkspaceEmpty>}
                   />
                 </BoundedLogViewport>
                 {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Some logs are unavailable">Shown rows are verified, but one or more log sources did not respond.</DetailNotice> : null}

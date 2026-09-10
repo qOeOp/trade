@@ -1,0 +1,12 @@
+.root {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.root p {
+  margin: 0;
+  font-size: 12px;
+}
