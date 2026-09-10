@@ -54,7 +54,7 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /no unbound-run readiness claim/);
   assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*display: grid;[^}]*gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
-  assert.match(css, /\.compact-status-group \{[^}]*position: relative;[^}]*padding-top: 20px;/u);
+  assert.match(css, /\.compact-status-group \{[^}]*container: compact-status-group \/ inline-size;[^}]*position: relative;[^}]*padding-top: 20px;/u);
   assert.match(css, /\.compact-status-group-label \{[^}]*position: absolute;[^}]*min-width: 116px;[^}]*min-height: 24px;[^}]*border-radius: 9px 9px 0 0;[^}]*text-transform: lowercase;/u);
   assert.match(css, /\.compact-status-group-label::after \{[^}]*radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*box-shadow:/u);
@@ -66,7 +66,7 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(statusBar, /type CompactStatusTone = StatusBadgeTone/u);
   assert.match(css, /\.compact-status-item\[data-tone="protected"\] dd \{ color: var\(--status-protected\); \}/u);
   assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
-  assert.match(css, /@container compact-status \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
+  assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
   assert.match(workers, /<CompactStatusGroup label="workload">/u);
   for (const label of ["available", "expired", "claimed", "active"]) {

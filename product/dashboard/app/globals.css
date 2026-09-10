@@ -1160,7 +1160,7 @@ button.panel-info-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 2px colo
 .summary-strip[data-variant="compact"] .summary-metric > small,
 .summary-strip[data-variant="compact"] .summary-metric-status { display: none; }
 .compact-status-bar { container: compact-status / inline-size; width: 100%; max-width: 100%; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: stretch; gap: 12px; }
-.compact-status-group { --compact-status-shell: color-mix(in oklch, var(--surface-panel) 76%, var(--surface-card)); position: relative; min-width: 0; padding-top: 20px; isolation: isolate; }
+.compact-status-group { --compact-status-shell: color-mix(in oklch, var(--surface-panel) 76%, var(--surface-card)); container: compact-status-group / inline-size; position: relative; min-width: 0; padding-top: 20px; isolation: isolate; }
 .compact-status-group-label { position: absolute; top: 0; left: 0; z-index: 2; max-width: calc(100% - 24px); min-width: 116px; min-height: 24px; padding: 0 30px 0 16px; display: inline-flex; align-items: center; border-radius: 9px 9px 0 0; color: var(--text-secondary); background: var(--compact-status-shell); box-shadow: inset 0 1px color-mix(in srgb, var(--text-primary) 5%, transparent); font: 700 10px/1 var(--font-mono); letter-spacing: .08em; text-transform: lowercase; white-space: nowrap; }
 .compact-status-group-label > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .compact-status-group-label::after { content: ""; position: absolute; right: -14px; bottom: 0; width: 14px; height: 14px; background: radial-gradient(circle at 100% 0, transparent 13.25px, var(--compact-status-shell) 13.75px); pointer-events: none; }
@@ -1335,19 +1335,19 @@ button.panel-info-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 2px colo
   .rd-intake-footer { align-items: flex-start; flex-direction: column; }
 }
 
-@container compact-status (max-width: 767px) {
+@container compact-status-group (max-width: 767px) {
   .compact-status-group dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .compact-status-item { padding: 8px 12px; gap: 12px; }
   .compact-status-item:last-child:nth-child(odd) { grid-column: 1 / -1; }
 }
 
-@container compact-status (max-width: 520px) {
+@container compact-status-group (max-width: 520px) {
   .compact-status-group-label { padding-left: 12px; }
   .compact-status-group dl { padding: 6px; gap: 6px; }
   .compact-status-item { min-height: 40px; padding: 7px 9px; gap: 8px; }
 }
 
-@container compact-status (max-width: 380px) {
+@container compact-status-group (max-width: 380px) {
   .compact-status-group dl { grid-template-columns: minmax(0, 1fr); }
   .compact-status-item:last-child:nth-child(odd) { grid-column: auto; }
 }
