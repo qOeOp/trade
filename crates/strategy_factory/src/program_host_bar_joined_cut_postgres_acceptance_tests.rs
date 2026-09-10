@@ -67,6 +67,8 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
             .expect("six-role BAR design contains every fixed role")
     });
     let database = CanonicalOwnerPostgresTestDatabaseV1::admit().await?;
+    let mutation = database.mutation();
+    let market_mutation_pool = mutation.pool(CanonicalOwnerTestRoleV1::MarketDataOwner);
     let basis = Box::pin(prepare_owner_bar_joined_cut_acceptance_basis_v1(
         &database,
         UntrustedBarJoinedCutAcceptanceDesignClaimsV1 {
@@ -121,13 +123,13 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
         "SELECT joined_cut_custody_bytes FROM market_data_private.observation_census_records_v1 WHERE joined_cut_identity=$1",
     )
     .bind(joined_cut_identity.as_bytes().as_slice())
-    .fetch_one(database.owner_topology_admin_pool())
+    .fetch_one(market_mutation_pool)
     .await?;
     let damaged = sqlx::query(
         "UPDATE market_data_private.observation_census_records_v1 SET joined_cut_custody_bytes=joined_cut_custody_bytes || decode('00','hex') WHERE joined_cut_identity=$1",
     )
     .bind(joined_cut_identity.as_bytes().as_slice())
-    .execute(database.owner_topology_admin_pool())
+    .execute(market_mutation_pool)
     .await?;
     anyhow::ensure!(damaged.rows_affected() == 1);
     anyhow::ensure!(
@@ -142,7 +144,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     )
     .bind(&original_joined_cut_custody)
     .bind(joined_cut_identity.as_bytes().as_slice())
-    .execute(database.owner_topology_admin_pool())
+    .execute(market_mutation_pool)
     .await?;
     anyhow::ensure!(restored.rows_affected() == 1);
     let restored_projection = recovered_owner
