@@ -121,24 +121,22 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
   assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
-  assert.match(css, /\.panel-info-disclosure > div \{[^}]+position: absolute;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
   assert.match(panel, /popoverTarget=\{popoverId\}/u);
   assert.match(panel, /className="panel-info-popover" popover="auto"/u);
-  assert.match(css, /\.panel-frame-actions \.panel-info-disclosure a \{[^}]+min-height: 0;[^}]+background: transparent;[^}]+box-shadow: none;/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
   assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
   assert.match(runDetail, /<Link data-action-variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
-  assert.match(runDetail, /<details className="panel-info-disclosure">[\s\S]+?compactIdentity\(run\.run_identity\)/u);
+  assert.match(runDetail, /<PanelFrameInfo label="View run information">[\s\S]+?compactIdentity\(run\.run_identity\)[\s\S]+?<\/PanelFrameInfo>/u);
+  assert.doesNotMatch(runDetail, /panel-info-disclosure/u);
   assert.match(dashboardShell, /<details className="authority-disclosure">[\s\S]+?IMPLEMENTATION_ADMITTED[\s\S]+?<\/details>/u);
   assert.doesNotMatch(runDetail, /meta=\{<code title=\{run\.run_identity\}/u);
   assert.doesNotMatch(runDetail, /detail="Owner state is never inferred from execution"/u);
   assert.doesNotMatch(runDetail, /detail="Operational clock, independent of Owner state"/u);
   assert.match(runDetail, /AggregateSummaryFact label="Received"/u);
   assert.doesNotMatch(runDetail, /Timing \/ received/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.panel-info-disclosure > div \{[^}]+right: auto;[^}]+left: 0;/u);
   for (const token of ["positive", "warning", "info", "negative"]) {
     assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
     assert.match(css, new RegExp(`--status-${token}: var\\(--semantic-${token}\\)`, "u"));

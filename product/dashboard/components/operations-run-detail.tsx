@@ -38,7 +38,7 @@ import {
 import { EmptyState, EvidenceActions, EvidenceField, EvidenceStrip, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterLink, FilterTabs } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
@@ -289,18 +289,13 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         title={run.operation_id}
         titleId="run-detail-title"
         actions={<>
-          <details className="panel-info-disclosure">
-            <summary aria-label="View run information" title="Run information">
-              <InterfaceIcons.info aria-hidden="true" size={14} />
-            </summary>
-            <div>
-              <span>Observed</span>
-              <b>{new Date(result.observed_at).toLocaleString()}</b>
-              <span>Run identity</span>
-              <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
-              <p>Owner outcome and operational timing are reported independently.</p>
-            </div>
-          </details>
+          <PanelFrameInfo label="View run information">
+            <span>Observed</span>
+            <b>{new Date(result.observed_at).toLocaleString()}</b>
+            <span>Run identity</span>
+            <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
+            <p>Owner outcome and operational timing are reported independently.</p>
+          </PanelFrameInfo>
           <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
           </button>
