@@ -13,6 +13,10 @@
   background: var(--surface-card);
 }
 
+.bodyCompact {
+  min-height: 118px;
+}
+
 .search {
   width: min(260px, 32vw);
   min-height: 38px;
@@ -153,6 +157,111 @@
   color: var(--text-muted);
   background: var(--surface-card);
   font-size: 11px;
+}
+
+.bodyCompact .state {
+  min-height: 118px;
+}
+
+.unavailableState {
+  width: min(100%, 560px);
+  min-height: 118px;
+  margin: 0 auto;
+  padding: 20px 24px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+}
+
+.stateIcon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  color: var(--text-primary);
+  background: var(--surface-panel);
+}
+
+.stateCopy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.unavailableState strong {
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.stateCopy span {
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.infoDisclosure {
+  width: 100%;
+}
+
+.infoDisclosure summary {
+  width: 100%;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  list-style: none;
+}
+
+.infoDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.infoButton {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-default);
+  border-radius: 999px;
+  background: var(--surface-card);
+}
+
+.infoDisclosure[open] .infoButton,
+.infoDisclosure summary:hover .infoButton {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.infoPopover {
+  width: min(420px, 100%);
+  max-width: 100%;
+  margin: 12px auto 0;
+  padding: 12px 14px;
+  box-sizing: border-box;
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--panel-inner-radius);
+  color: var(--text-muted);
+  background: var(--surface-elevated);
+  box-shadow: 0 12px 30px var(--shadow-overlay);
+}
+
+.infoPopover strong {
+  font-size: 11px;
+}
+
+.infoPopover p,
+.infoPopover code {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.45;
 }
 
 .state button {

@@ -4,61 +4,45 @@ import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
-const cssUrl = new URL("../components/market-data-owner-foundation-card.module.css", import.meta.url);
+const heatmapUrl = new URL("../components/ui/market-heatmap.tsx", import.meta.url);
+const cssUrl = new URL("../components/ui/market-heatmap.module.css", import.meta.url);
 
-test("Market Data foundation card preserves the admitted schema and action order", async () => {
+test("Market Data routes render one business-first heatmap state without fabricated rows", async () => {
   const source = await readFile(componentUrl, "utf8");
-  const labels = [
-    "Source Binding",
-    "Binding identity",
-    "Fact digest",
-    "Lineage root / version",
-    "Outbox digest",
-    "Observational is_admitted",
-    "Locator",
-    "PIT Snapshot",
-    "Request identity / digest",
-    "Snapshot identity / fact digest",
-    "Consumed Source Binding identity",
-    "Lineage root / version",
-    "Outbox digest",
-    "Observational is_available",
-    "Locator",
-  ];
-  let cursor = -1;
-  for (const label of labels) {
-    const next = source.indexOf(`"${label}"`, cursor + 1);
-    assert.ok(next > cursor, `missing or reordered field: ${label}`);
-    cursor = next;
-  }
-  assert.match(source, /d790ae8702b1d254342ad81a82d8fc90e4b78d7a/);
-  assert.match(source, /c07da16786f6e845794790802761ad272342b987/);
+  assert.match(source, /<MarketHeatmapUnavailable/u);
+  assert.match(source, />Market overview</u);
+  assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody[\s\S]*<PanelFrameFooter/u);
+  assert.match(source, /d790ae8702b1d254342ad81a82d8fc90e4b78d7a/u);
   assert.equal(source.match(/UNAVAILABLE_NO_PRODUCT_RESOLVER/g)?.length, 1);
-  assert.ok(source.indexOf("Open foundation evidence") < source.indexOf("Copy foundation locator"));
-  assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody[\s\S]*<PanelFrameFooter/);
+  assert.doesNotMatch(source, /changePercent|weight:|mock|children|candles/iu);
 });
 
-test("both admitted Market Data routes render the fixed foundation card", async () => {
+test("both admitted Market Data routes render the market overview", async () => {
   const shell = await readFile(shellUrl, "utf8");
-  assert.match(shell, /current === "\/data" \|\| current === "\/data\/pit-catalog"/);
-  assert.match(shell, /marketDataFoundation \? <MarketDataOwnerFoundationCard \/>/);
-  assert.match(shell, /DURABLE_MD_OWNER_POSTGRES_FOUNDATION_NOT_PROVIDER_AUTHENTICATED_NOT_CUTOVER/);
+  assert.match(shell, /current === "\/data" \|\| current === "\/data\/pit-catalog"/u);
+  assert.match(shell, /marketDataFoundation \? <MarketDataOwnerFoundationCard \/>/u);
 });
 
-test("foundation card uses grouped semantic surfaces and no literal palette", async () => {
+test("heatmap unavailable state is compact and moves technical diagnostics behind info", async () => {
+  const heatmap = await readFile(heatmapUrl, "utf8");
   const css = await readFile(cssUrl, "utf8");
-  assert.match(css, /\.groups \{[\s\S]*grid-template-columns: repeat\(2/);
-  assert.match(css, /\.groupHeader \{[\s\S]*background: color-mix\(in oklch, var\(--primary\) 5%, var\(--panel-chrome-bg\)\)/);
-  assert.match(css, /\.fields \{[\s\S]*background: var\(--surface-card\)/);
-  assert.match(css, /\.fields > div \+ div \{[\s\S]*border-top:/);
+  assert.match(heatmap, /No verified market view is connected yet\./u);
+  assert.match(heatmap, /<details className=\{styles\.infoDisclosure\}>/u);
+  assert.match(heatmap, /projection\.reason/u);
+  assert.match(css, /\.bodyCompact \{[\s\S]*min-height: 118px/u);
+  assert.match(css, /\.unavailableState \{[\s\S]*min-height: 118px/u);
+  assert.match(css, /\.infoDisclosure summary \{[\s\S]*grid-template-columns: 34px minmax\(0, 1fr\) 30px/u);
+  assert.match(css, /\.infoDisclosure \{[\s\S]*width: 100%/u);
+  assert.match(css, /\.infoPopover \{[\s\S]*width: min\(420px, 100%\)/u);
+  assert.doesNotMatch(css, /\.infoPopover \{[^}]*position: absolute/u);
+  assert.match(css, /\.infoPopover \{[\s\S]*border-radius: var\(--panel-inner-radius\)/u);
   assert.doesNotMatch(css, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
 });
 
-test("foundation card exposes no unadmitted data or effect surface", async () => {
+test("market overview exposes no unadmitted data or effect surface", async () => {
   const source = await readFile(componentUrl, "utf8");
-  assert.doesNotMatch(source, /MarketHeatmap|DataSourceTable|SourceBindingCard|SourceCutHistory|PITCatalogTable|SnapshotIdentityCard|CorrectionTimeline/);
-  assert.doesNotMatch(source, />\s*(Resolve|Refresh canary|Ingest|Write|Mutate)\s*</u);
+  assert.doesNotMatch(source, /DataSourceTable|SourceBindingCard|SourceCutHistory|PITCatalogTable|SnapshotIdentityCard|CorrectionTimeline/u);
+  assert.doesNotMatch(source, />\s*(Resolve|Refresh canary|Ingest|Write|Mutate|Run)\s*</u);
   assert.doesNotMatch(source, /fetch\(|WebSocket|EventSource|database[_ -]locator|credential|payload/iu);
-  assert.match(source, /from "\.\/ui\/iconography"/);
-  assert.doesNotMatch(source, /from "lucide-react"/);
+  assert.match(source, /from "\.\/ui\/market-heatmap"/u);
 });
