@@ -5,10 +5,13 @@
     reason = "V4 preparation remains Owner-private until its first admitted W3 consumer"
 )]
 
+use std::collections::BTreeMap;
+
 use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 
 use super::{
+    observation_census::{ObservationCensusReadbackV1, UntrustedObservationCensusRequestV1},
     sample_projection::DecodedStrategyInputSampleProjectionV3,
     strategy_input_joined_cut::StrategyInputJoinedCutReceiptV1,
 };
@@ -455,6 +458,113 @@ pub(super) fn joined_component_matches_exact_v4(
         && value.binding_receipt_digest().as_bytes() == &exact[32..64]
         && joined_component.frame().trigger().digest().as_bytes() == &exact[96..128]
         && value.digest().as_bytes() == &exact[144..176]
+}
+
+/// Replays the joined-cut selection predicates over the exact V4 components and the actual
+/// Observation Census readback. This binds the opaque joined receipt subject to the request's
+/// trigger semantics without minting or decoding a replacement receipt.
+pub(super) fn joined_components_match_observation_census_v4(
+    decoded: &DecodedStrategyInputSampleProjectionV4,
+    request: &UntrustedObservationCensusRequestV1,
+    census: &ObservationCensusReadbackV1,
+) -> bool {
+    if decoded.kind != StrategyInputSampleProjectionKindV4::JoinedCut
+        || decoded.components.len() != request.join_claim().roles.len()
+    {
+        return false;
+    }
+    let roles = request
+        .join_claim()
+        .roles
+        .iter()
+        .map(|role| {
+            (
+                *role.input_role_identity.as_bytes(),
+                role.semantic_id == request.join_claim().trigger_input_id,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    if roles.len() != request.join_claim().roles.len()
+        || census
+            .record()
+            .entries()
+            .iter()
+            .any(|entry| !roles.contains_key(entry.input_role_identity().as_bytes()))
+    {
+        return false;
+    }
+
+    let mut trigger_components = 0_usize;
+
+    for exact in decoded.canonical_bytes[HEADER_LEN_V4..].chunks_exact(COMPONENT_LEN_V4) {
+        let Ok(role) = <[u8; 32]>::try_from(&exact[..32]) else {
+            return false;
+        };
+        let Some(is_trigger) = roles.get(&role).copied() else {
+            return false;
+        };
+        let coordinate = &exact[304..612];
+        let Ok(logical_time) = <[u8; 8]>::try_from(&coordinate[116..124]) else {
+            return false;
+        };
+        let Ok(event_time) = <[u8; 8]>::try_from(&coordinate[124..132]) else {
+            return false;
+        };
+        let Ok(owner_sequence) = <[u8; 8]>::try_from(&coordinate[132..140]) else {
+            return false;
+        };
+        let logical_time = u64::from_le_bytes(logical_time);
+        let event_time = u64::from_le_bytes(event_time);
+        let owner_sequence = u64::from_le_bytes(owner_sequence);
+        let event_identity = &exact[128..144];
+        let trigger_digest = &exact[96..128];
+        let value_digest = &exact[144..176];
+        if event_identity != &coordinate[68..84]
+            || logical_time > request.trigger_logical_time()
+            || request.trigger_logical_time() - logical_time > request.join_claim().max_staleness_ns
+        {
+            return false;
+        }
+
+        let role_entries = census
+            .record()
+            .entries()
+            .iter()
+            .filter(|entry| entry.input_role_identity().as_bytes() == &role)
+            .collect::<Vec<_>>();
+        let Some(latest_time) = role_entries
+            .iter()
+            .filter(|entry| entry.logical_time() <= request.trigger_logical_time())
+            .map(|entry| entry.logical_time())
+            .max()
+        else {
+            return false;
+        };
+        if latest_time != logical_time
+            || role_entries
+                .iter()
+                .filter(|entry| entry.logical_time() == latest_time)
+                .count()
+                != 1
+            || role_entries
+                .iter()
+                .filter(|entry| {
+                    entry.logical_time() == logical_time
+                        && entry.event_time() == event_time
+                        && entry.owner_sequence() == owner_sequence
+                        && entry.event_identity().as_slice() == event_identity
+                        && entry.trigger_digest().as_bytes().as_slice() == trigger_digest
+                        && entry.value_digest().as_bytes().as_slice() == value_digest
+                })
+                .count()
+                != 1
+            || (is_trigger && logical_time != request.trigger_logical_time())
+        {
+            return false;
+        }
+        trigger_components += usize::from(is_trigger);
+    }
+    trigger_components == 1
 }
 
 pub(super) fn decode_v4(

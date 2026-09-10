@@ -224,7 +224,7 @@ async fn validate_joined_subject(
     let subject_digest = decoded.subject_identity();
     let validated = load_and_validate_joined_custody(
         transaction,
-        subject_digest,
+        decoded,
         DependencyValidationModeV4::LockRows,
     )
     .await?;
@@ -430,16 +430,17 @@ async fn validate_joined_custody(
     decoded: &crate::owner::sample_projection_v4::DecodedStrategyInputSampleProjectionV4,
     validation_mode: DependencyValidationModeV4,
 ) -> Result<(), StrategyInputSampleProjectionErrorV4> {
-    load_and_validate_joined_custody(transaction, decoded.subject_identity(), validation_mode)
+    load_and_validate_joined_custody(transaction, decoded, validation_mode)
         .await
         .map(|_| ())
 }
 
 async fn load_and_validate_joined_custody(
     transaction: &mut Transaction<'_, Postgres>,
-    subject_digest: [u8; 32],
+    decoded: &crate::owner::sample_projection_v4::DecodedStrategyInputSampleProjectionV4,
     validation_mode: DependencyValidationModeV4,
 ) -> Result<ValidatedJoinedCustodyV1, StrategyInputSampleProjectionErrorV4> {
+    let subject_digest = decoded.subject_identity();
     let joined_identity: Vec<u8> = sqlx::query_scalar(
         "SELECT joined_cut_identity FROM market_data_private.observation_census_records_v1 WHERE v1_joined_cut_receipt_digest=$1",
     )
@@ -480,7 +481,11 @@ async fn load_and_validate_joined_custody(
         receipt_digest,
     )
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
-    if receipt_digest.as_bytes() != &subject_digest {
+    if receipt_digest.as_bytes() != &subject_digest
+        || !crate::owner::sample_projection_v4::joined_components_match_observation_census_v4(
+            decoded, &request, &census,
+        )
+    {
         return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
     }
     Ok(ValidatedJoinedCustodyV1 {
