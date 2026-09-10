@@ -442,10 +442,10 @@ test(testName, { skip: !url }, async () => {
     assert.equal(surface.separatorWidth, "0.5px");
     assert.equal(surface.separatorTop, "10px");
     assert.equal(surface.separatorBottom, "10px");
-    assert.match(surface.summary, /Warning\s+1/);
-    assert.match(surface.summary, /Info\s+92/);
-    assert.match(surface.summary, /Worker\s+1/);
-    assert.match(surface.summary, /Server\s+1/);
+    assert.match(surface.summary, /warning\s+1/);
+    assert.match(surface.summary, /info\s+92/);
+    assert.match(surface.summary, /worker\s+1/);
+    assert.match(surface.summary, /server\s+1/);
 
     const navigatePage = async (label, settledExpression) => {
       const changedPage = await readBrowserValue(browser, `(() => {
