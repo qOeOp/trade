@@ -8,6 +8,7 @@ import {
   type SourceIntakeTerminalReadbackV1,
 } from "../lib/source-intake-readback-gateway";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
+import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import {
   PanelFrame,
@@ -19,50 +20,23 @@ import styles from "./source-intake-readback-workbench.module.css";
 
 const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className={styles.fact}>
-      <dt>{label}</dt>
-      <dd className={mono ? styles.mono : undefined} title={value}>{value}</dd>
-    </div>
-  );
-}
-
-function ReadbackGroup({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className={styles.group}>
-      <h3>{title}</h3>
-      <dl>{children}</dl>
-    </section>
-  );
-}
-
 function TerminalReadback({ terminal }: { terminal: SourceIntakeTerminalReadbackV1 }) {
   return (
     <div className={styles.groups}>
-      <ReadbackGroup title="Intake">
-        <Fact label="Request" value={terminal.requestIdentity} mono />
-        <div className={styles.fact}>
-          <dt>Resolution</dt>
-          <dd><StatusBadge tone={terminal.resolution === "RETRIEVED" ? "success" : "neutral"}>{terminal.resolution}</StatusBadge></dd>
-        </div>
-      </ReadbackGroup>
-      <ReadbackGroup title="Custody">
-        <Fact label="Binding" value={terminal.bindingIdentity} mono />
-        <Fact label="Receipt" value={terminal.receiptIdentity} mono />
-        <Fact label="Committed" value={new Date(terminal.committedAt).toLocaleString()} />
-      </ReadbackGroup>
-      <ReadbackGroup title="Evidence">
-        <Fact label="Authority" value={terminal.authorityClass === "LIVE_EXTERNAL" ? "Live external" : "Sealed acceptance"} />
-        <Fact label="Content" value={terminal.content ? "Retained" : "No payload"} />
-        {terminal.content ? <Fact label="Digest" value={terminal.content.digest} mono /> : null}
-      </ReadbackGroup>
+      <FactGroup title="Intake">
+        <FactItem label="Request" mono title={terminal.requestIdentity}>{terminal.requestIdentity}</FactItem>
+        <FactItem label="Resolution"><StatusBadge tone={terminal.resolution === "RETRIEVED" ? "success" : "neutral"}>{terminal.resolution}</StatusBadge></FactItem>
+      </FactGroup>
+      <FactGroup title="Custody">
+        <FactItem label="Binding" mono title={terminal.bindingIdentity}>{terminal.bindingIdentity}</FactItem>
+        <FactItem label="Receipt" mono title={terminal.receiptIdentity}>{terminal.receiptIdentity}</FactItem>
+        <FactItem label="Committed">{new Date(terminal.committedAt).toLocaleString()}</FactItem>
+      </FactGroup>
+      <FactGroup title="Evidence">
+        <FactItem label="Authority">{terminal.authorityClass === "LIVE_EXTERNAL" ? "Live external" : "Sealed acceptance"}</FactItem>
+        <FactItem label="Content">{terminal.content ? "Retained" : "No payload"}</FactItem>
+        {terminal.content ? <FactItem label="Digest" mono title={terminal.content.digest}>{terminal.content.digest}</FactItem> : null}
+      </FactGroup>
     </div>
   );
 }
@@ -71,10 +45,7 @@ function LoadingGroups() {
   return (
     <div className={styles.groups} aria-label="Loading Source Intake readback">
       {["Intake", "Custody", "Evidence"].map((title) => (
-        <section className={styles.group} key={title}>
-          <h3>{title}</h3>
-          <div className={styles.skeletonLines} aria-hidden="true"><i /><i /><i /></div>
-        </section>
+        <FactGroupSkeleton key={title} title={title} />
       ))}
     </div>
   );

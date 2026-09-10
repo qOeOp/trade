@@ -9,6 +9,7 @@ import {
 } from "../lib/develop-composer-readback-gateway";
 import styles from "./source-intake-readback-workbench.module.css";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
+import { FactGroup, FactGroupSkeleton, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
@@ -23,50 +24,36 @@ function tone(disposition: string): StatusBadgeTone {
   return "neutral";
 }
 
-function Fact({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div className={styles.fact}>
-      <dt>{label}</dt>
-      <dd className={mono ? styles.mono : undefined} title={value}>{value}</dd>
-    </div>
-  );
-}
-
-function Group({ title, children }: { title: string; children: React.ReactNode }) {
-  return <section className={styles.group}><h3>{title}</h3><dl>{children}</dl></section>;
-}
-
 function Readback({ requestIdentity, readback }: {
   requestIdentity: string;
   readback: DevelopComposerReadbackV1;
 }) {
   return (
     <div className={styles.groups}>
-      <Group title="Request">
-        <Fact label="Identity" value={requestIdentity} mono />
-        <div className={styles.fact}>
-          <dt>Disposition</dt>
-          <dd><StatusBadge tone={tone(readback.disposition)}>{readback.disposition}</StatusBadge></dd>
-        </div>
-      </Group>
-      <Group title="Custody">
-        <Fact label="Receipt" value={readback.receiptIdentity ?? "Not issued"} mono={Boolean(readback.receiptIdentity)} />
-      </Group>
-      <Group title="Artifact">
+      <FactGroup title="Request">
+        <FactItem label="Identity" mono title={requestIdentity}>{requestIdentity}</FactItem>
+        <FactItem label="Disposition"><StatusBadge tone={tone(readback.disposition)}>{readback.disposition}</StatusBadge></FactItem>
+      </FactGroup>
+      <FactGroup title="Custody">
+        <FactItem label="Receipt" mono={Boolean(readback.receiptIdentity)} title={readback.receiptIdentity ?? undefined}>{readback.receiptIdentity ?? "Not issued"}</FactItem>
+      </FactGroup>
+      <FactGroup title="Artifact">
         {readback.artifact ? (
           <>
-            <Fact label="Locator" value={readback.artifact.locator} mono />
-            <Fact label="Artifact" value={readback.artifact.artifactDigest} mono />
-            <Fact label="Plan" value={readback.artifact.canonicalPlanDigest} mono />
-            <Fact label="Design" value={readback.artifact.designDigest} mono />
+            <FactItem label="Locator" mono title={readback.artifact.locator}>{readback.artifact.locator}</FactItem>
+            <FactItem label="Artifact" mono title={readback.artifact.artifactDigest}>{readback.artifact.artifactDigest}</FactItem>
+            <FactItem label="Plan" mono title={readback.artifact.canonicalPlanDigest}>{readback.artifact.canonicalPlanDigest}</FactItem>
+            <FactItem label="Design" mono title={readback.artifact.designDigest}>{readback.artifact.designDigest}</FactItem>
           </>
         ) : (
           <>
-            <Fact label="Coordinate" value={readback.coordinate ?? "Unavailable"} mono />
-            <Fact label="Reason" value={readback.reason ?? "Unavailable"} />
+            <FactItem label="Coordinate" mono title={readback.coordinate ?? undefined}>{readback.coordinate ?? "Unavailable"}</FactItem>
+            <FactItem label="Reason" title={readback.reason ?? undefined}>
+              {readback.reason ?? "Unavailable"}
+            </FactItem>
           </>
         )}
-      </Group>
+      </FactGroup>
     </div>
   );
 }
@@ -75,10 +62,7 @@ function LoadingGroups() {
   return (
     <div className={styles.groups} aria-label="Loading Develop Composer readback">
       {["Request", "Custody", "Artifact"].map((title) => (
-        <section className={styles.group} key={title}>
-          <h3>{title}</h3>
-          <div className={styles.skeletonLines} aria-hidden="true"><i /><i /><i /></div>
-        </section>
+        <FactGroupSkeleton key={title} title={title} />
       ))}
     </div>
   );

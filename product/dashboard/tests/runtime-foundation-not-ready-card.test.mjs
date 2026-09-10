@@ -4,60 +4,51 @@ import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url);
 const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
-const cssUrl = new URL("../components/runtime-foundation-not-ready-card.module.css", import.meta.url);
-const globalCssUrl = new URL("../app/globals.css", import.meta.url);
 
-test("Runtime foundation card preserves the fixed source identity and dependency order", async () => {
+test("Runtime surface keeps fixed evidence but presents a compact business state", async () => {
   const source = await readFile(componentUrl, "utf8");
-  const dependencies = [
+  assert.match(source, /Runtime is not ready yet/);
+  for (const label of ["Permissions", "Instance storage", "Artifact checks", "Execution recovery"]) {
+    assert.match(source, new RegExp(`label: "${label}"`));
+  }
+  for (const dependency of [
     "Authorized-generation decision read",
     "Canonical Runtime custody",
     "Compatibility recovery read",
     "Recovery frontier read",
-  ];
-  let cursor = -1;
-  for (const dependency of dependencies) {
-    const next = source.indexOf(`\"${dependency}\"`, cursor + 1);
-    assert.ok(next > cursor, `missing or reordered dependency: ${dependency}`);
-    cursor = next;
+  ]) {
+    assert.match(source, new RegExp(dependency));
+  }
+  for (const evidenceLine of ["#L33-L35", "#L36-L37", "#L38-L39", "#L40-L41"]) {
+    assert.match(source, new RegExp(evidenceLine));
   }
   assert.match(source, /73edb0e32f1745cc835951a1b9bd6cb38e456c35/);
   assert.match(source, /96296549794b5b66fb3d730a505cc0551fe80e16/);
-  assert.equal(source.match(/Open dependency/g)?.length, 1);
-  assert.match(source, /dependencies\.map/);
-  assert.match(source, /<PanelFrame[\s\S]*<PanelFrameHeader[\s\S]*<PanelFrameBody[\s\S]*<PanelFrameFooter/);
+  assert.match(source, /<PanelFrameInfo label="View Runtime technical details">/);
+  assert.match(source, /Refresh foundation/);
+  assert.match(source, /Copy foundation locator/);
+  assert.match(source, /reason="RUNTIME_FOUNDATION_NOT_READY"/);
 });
 
-test("all Runtime routes render the admitted fixed not-ready foundation card", async () => {
+test("all Runtime routes render the admitted not-ready foundation card", async () => {
   const shell = await readFile(shellUrl, "utf8");
   assert.match(shell, /const runtimeFoundation = current === "\/runtime" \|\| current\.startsWith\("\/runtime\/"\)/);
   assert.match(shell, /runtimeFoundation \? <RuntimeFoundationNotReadyCard \/>/);
-  assert.match(shell, /CURRENT\/PARTIAL - FOUNDATION_NOT_READY/);
+  assert.match(shell, /!marketDataFoundation[\s\S]*&& !runtimeFoundation && !portfolioUnavailable \? <footer/);
 });
 
-test("Runtime card uses compact grouped theme surfaces without a literal palette", async () => {
-  const css = await readFile(cssUrl, "utf8");
-  const globalCss = await readFile(globalCssUrl, "utf8");
+test("Runtime composes shared unavailable and summary-list atoms", async () => {
   const source = await readFile(componentUrl, "utf8");
-  assert.match(source, /<CompactStatusBar aria-label="Runtime foundation status">/u);
-  assert.match(source, /<CompactStatusGroup label="foundation">/u);
-  assert.match(source, /<CompactStatusItem label="state" value="not ready" tone="warning" \/>/u);
-  assert.match(source, /<CompactStatusItem label="dependencies" value="4 required" \/>/u);
-  assert.match(source, /<CompactStatusItem label="source revision"/u);
-  assert.match(globalCss, /\.compact-status-bar \{[^}]*display: grid;[^}]*gap: 12px;/u);
-  assert.doesNotMatch(globalCss, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
-  assert.match(globalCss, /\.compact-status-item\[data-tone="warning"\] dd \{ color: var\(--status-warning\); \}/u);
-  assert.doesNotMatch(css, /\.statusBar|\.statusIcon/u);
-  assert.match(css, /\.sectionHeader \{[\s\S]*background: color-mix\(in oklch, var\(--status-warning\) 5%, var\(--panel-chrome-bg\)\)/);
-  assert.match(css, /\.dependencies li \+ li \{[\s\S]*border-top:/);
-  assert.doesNotMatch(css + globalCss, /#[\da-f]{3,8}\b|\brgb\(|\bhsl\(/iu);
+  assert.equal(source.match(/<PanelFrameBody/g)?.length, 1);
+  assert.match(source, /<UnavailableState/);
+  assert.match(source, /<SummaryList aria-label="Required Runtime services">/);
+  assert.match(source, /<SummaryItem/);
+  assert.doesNotMatch(source, /className=\{styles\.|\.module\.css/);
 });
 
-test("Runtime card exposes no unadmitted readiness or effect surface", async () => {
+test("Runtime surface preserves read-only controls without effect actions or noisy primary evidence", async () => {
   const source = await readFile(componentUrl, "utf8");
-  assert.doesNotMatch(source, /RuntimeReadinessCard|RuntimeApplicationCard|Strategy Instance row|CheckpointTable|RuntimeIncidentTable/);
-  assert.doesNotMatch(source, />\s*(Apply|Resolve|Restore|Create instance|Trade)\s*</u);
-  assert.doesNotMatch(source, /fetch\(|WebSocket|EventSource|\bprovider\b|\bcredential\b|\border\b/iu);
-  assert.match(source, /from "\.\/ui\/iconography"/);
-  assert.doesNotMatch(source, /from "lucide-react"/);
+  assert.doesNotMatch(source, />\s*(Apply|Resolve|Restore|Create instance|Trade|Copy locator|Open dependency)\s*</u);
+  assert.doesNotMatch(source, /fetch\(|WebSocket|EventSource|\bcredential\b|\border\b/iu);
+  assert.doesNotMatch(source, /PR #330|non-authoritative Runtime foundation|Ordered contract/);
 });

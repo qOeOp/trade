@@ -35,9 +35,13 @@ test("Source Intake and Composer consume the same token-bound body", async () =>
 });
 
 test("Runtime body cannot leave the shared axis at a responsive breakpoint", async () => {
-  const source = await read("components/runtime-foundation-not-ready-card.tsx");
-  assert.match(source, /<PanelFrameBody className=\{styles.body\}/u);
-  sharedPadding(await read("components/runtime-foundation-not-ready-card.module.css"), ".body");
+  const [source, css] = await Promise.all([
+    read("components/runtime-foundation-not-ready-card.tsx"),
+    read("app/globals.css"),
+  ]);
+  assert.match(source, /<PanelFrameBody density="compact">/u);
+  sharedPadding(css, '.panel-frame-body[data-density="compact"]');
+  assert.doesNotMatch(source, /\.module\.css/u);
 });
 
 test("Schedules joins its interior planes inside one inset body", async () => {
@@ -56,7 +60,7 @@ test("Schedules joins its interior planes inside one inset body", async () => {
     assert.match(rulesFor(css, selector)[0], /border-radius: var\(--panel-inner-radius\)/u, selector);
 });
 
-for (const consumer of ["market-data-owner-foundation-card", "portfolio-view-unavailable-card", "exploratory-replay-readback-workbench"]) {
+for (const consumer of ["market-data-owner-foundation-card", "exploratory-replay-readback-workbench"]) {
   test(`${consumer} keeps its outer body on the shared axis at every breakpoint`, async () => {
     const source = await read(`components/${consumer}.tsx`);
     assert.ok(source.includes(`from "./${consumer}.module.css"`));
@@ -64,6 +68,16 @@ for (const consumer of ["market-data-owner-foundation-card", "portfolio-view-una
     sharedPadding(await read(`components/${consumer}.module.css`), ".body");
   });
 }
+
+test("Portfolio delegates its outer body spacing to the shared panel atom", async () => {
+  const [source, css] = await Promise.all([
+    read("components/portfolio-view-unavailable-card.tsx"),
+    read("app/globals.css"),
+  ]);
+  assert.match(source, /<PanelFrameBody density="compact">/u);
+  sharedPadding(css, '.panel-frame-body[data-density="compact"]');
+  assert.doesNotMatch(source, /\.module\.css/u);
+});
 
 test("Worker detail keeps its outer cluster grid on the shared content axis", async () => {
   const [css, worker] = await Promise.all([
@@ -130,22 +144,25 @@ test("every DetailInspector consumer uses one explicit inset body", async () => 
   }
 });
 
-test("Readback and Portfolio body surfaces consume the shared inner radius", async () => {
-  const [source, replay, portfolio] = await Promise.all([
+test("Readback and shared summary body surfaces consume the shared inner radius", async () => {
+  const [source, replay, factGroup, summary, globalCss] = await Promise.all([
     read("components/source-intake-readback-workbench.module.css"),
     read("components/exploratory-replay-readback-workbench.module.css"),
-    read("components/portfolio-view-unavailable-card.module.css"),
+    read("components/ui/fact-group.module.css"),
+    read("components/ui/summary-list.module.css"),
+    read("app/globals.css"),
   ]);
   for (const css of [source, replay]) {
     sharedInnerRadius(css, ".result :global(.empty-state)");
     sharedInnerRadius(css, ".result :global(.unavailable-state)");
-    sharedInnerRadius(css, ".group");
   }
+  sharedInnerRadius(factGroup, ".group");
   for (const selector of [".resultRail", ".resultRail > div"]) {
     assert.ok(
       rulesFor(replay, selector).some((rule) => /border-radius: var\(--panel-inner-radius\)/u.test(rule)),
       selector,
     );
   }
-  sharedInnerRadius(portfolio, ".unavailableBanner");
+  sharedInnerRadius(summary, ".list");
+  sharedInnerRadius(globalCss, '.unavailable-state[data-surface="card"]');
 });

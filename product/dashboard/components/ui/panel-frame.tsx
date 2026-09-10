@@ -5,6 +5,7 @@ import {
   type HTMLAttributes,
   type ReactNode,
   type Ref,
+  useId,
 } from "react";
 import { InterfaceIcons } from "./iconography";
 
@@ -146,13 +147,23 @@ export function PanelFrameInfo({
   children: ReactNode;
   label?: string;
 }) {
+  const popoverId = useId();
+
   return (
-    <details className="panel-info-disclosure">
-      <summary aria-label={label} title={label}>
+    <>
+      <button
+        type="button"
+        className="panel-info-trigger"
+        aria-label={label}
+        title={label}
+        popoverTarget={popoverId}
+      >
         <InterfaceIcons.info aria-hidden="true" size={15} />
-      </summary>
-      <div>{children}</div>
-    </details>
+      </button>
+      <div id={popoverId} className="panel-info-popover" popover="auto">
+        {children}
+      </div>
+    </>
   );
 }
 

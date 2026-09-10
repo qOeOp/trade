@@ -39,15 +39,17 @@ export function UnavailableState({
   reason,
   detail,
   density = "regular",
+  surface = "row",
 }: {
   icon: ReactNode;
   title: ReactNode;
   reason: ReactNode;
   detail?: ReactNode;
   density?: "regular" | "compact";
+  surface?: "row" | "card";
 }) {
   return (
-    <div className="unavailable-state" data-density={density}>
+    <div className="unavailable-state" data-density={density} data-surface={surface}>
       {icon}
       <div><b>{title}</b>{detail ? <p>{detail}</p> : null}</div>
       <details className="unavailable-state-info">
