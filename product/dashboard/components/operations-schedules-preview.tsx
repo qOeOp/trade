@@ -8,7 +8,23 @@ import { scheduleAvailabilityPresentationV1 } from "../lib/schedule-availability
 import { ScheduleCalendar } from "./ui/schedule-calendar";
 import { CalendarHeader } from "./ui/schedule-calendar/header/calendar-header";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { PanelFrame, PanelFrameBody, PanelFrameFooter } from "./ui/panel-frame";
+import {
+  DetailEmpty,
+  DetailFact,
+  DetailFactGrid,
+  DetailInspector,
+  DetailInspectorBody,
+  DetailInspectorHeader,
+  DetailSection,
+} from "./ui/detail-inspector";
+import {
+  PanelFrame,
+  PanelFrameBody,
+  PanelFrameFooter,
+  PanelFrameInfo,
+  PanelFrameInfoFact,
+  PanelFrameInfoList,
+} from "./ui/panel-frame";
 import { InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
 import styles from "./ui/schedule-calendar.module.css";
@@ -99,19 +115,39 @@ export function OperationsSchedulesPreview() {
                 paginationResetKey={query} onRowClicked={(row) => setSelectedIdentity(row.schedule_identity)}
                 conditionalRowStyles={dataWorkspaceSelectedRowStyles((row: ScheduleProjectionV1) => row.schedule_identity === selectedIdentity)} />}
           </div>
-          <aside className={styles.detail} aria-label="Selected schedule">
-            {selected ? <><header><small>Selected schedule</small><h3>{selected.operation_id}</h3></header>
-              <div className={styles.facts}><div><small>Cadence</small><b>{cadence(selected.cadence_seconds)}</b></div>
-                <div><small>Next expected trigger</small><time>{timestamp(selected.next_due_at)}</time></div></div>
-              <section><h4>Last observed run</h4>{selected.last_run_identity
-                ? <a href={`/operations/runs/${encodeURIComponent(selected.last_run_identity)}`}>{timestamp(selected.last_due_at)} · Open run</a> : <p>No run reference has been observed.</p>}
-                <p>Only the latest consumed due cut is available. Expected triggers are not execution history.</p></section>
-              <details><summary>Technical identity</summary><dl>{Object.entries({
-                Identity: selected.schedule_identity, Digest: selected.schedule_digest, Anchor: selected.anchor_at,
-                ...selected.recovery_identity,
-              }).map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl></details>
-            </> : <div className={styles.message}>Select a schedule to inspect its timing.</div>}
-          </aside>
+          <DetailInspector className={styles.detail} aria-label="Selected schedule">
+            {selected ? <>
+              <DetailInspectorHeader eyebrow="selected schedule" title={selected.operation_id} status={
+                <PanelFrameInfo label="View schedule technical details">
+                  <b>Technical identity</b>
+                  <PanelFrameInfoList>
+                    {Object.entries({
+                      Identity: selected.schedule_identity,
+                      Digest: selected.schedule_digest,
+                      Anchor: selected.anchor_at,
+                      ...selected.recovery_identity,
+                    }).map(([key, value]) => <PanelFrameInfoFact key={key} label={key}>
+                      <code title={value}>{value}</code>
+                    </PanelFrameInfoFact>)}
+                  </PanelFrameInfoList>
+                  <p>Expected triggers are projections. Only observed runs are execution history.</p>
+                </PanelFrameInfo>}
+              />
+              <DetailInspectorBody>
+                <DetailFactGrid>
+                  <DetailFact label="cadence"><b>{cadence(selected.cadence_seconds)}</b></DetailFact>
+                  <DetailFact label="next expected trigger"><time>{timestamp(selected.next_due_at)}</time></DetailFact>
+                </DetailFactGrid>
+                <DetailSection label="last observed run">
+                  {selected.last_run_identity
+                    ? <a className={styles.runLink} href={`/operations/runs/${encodeURIComponent(selected.last_run_identity)}`}>{timestamp(selected.last_due_at)} · Open run</a>
+                    : <p className="detail-section-copy">No run reference has been observed.</p>}
+                </DetailSection>
+              </DetailInspectorBody>
+            </> : <DetailInspectorBody>
+              <DetailEmpty icon={<InterfaceIcons.calendar aria-hidden="true" size={18} />}>Select a schedule to inspect its timing.</DetailEmpty>
+            </DetailInspectorBody>}
+          </DetailInspector>
         </div>}
     </PanelFrameBody>
     <PanelFrameFooter className={styles.foot}>Read-only · Expected does not mean executed{envelope && <time>Observed {timestamp(envelope.observed_at)}</time>}</PanelFrameFooter>

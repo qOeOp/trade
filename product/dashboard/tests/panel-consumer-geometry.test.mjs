@@ -45,19 +45,34 @@ test("Runtime body cannot leave the shared axis at a responsive breakpoint", asy
 });
 
 test("Schedules joins its interior planes inside one inset body", async () => {
-  const [component, css] = await Promise.all([
+  const [component, css, globalCss] = await Promise.all([
     read("components/operations-schedules-preview.tsx"),
     read("components/ui/schedule-calendar.module.css"),
+    read("app/globals.css"),
   ]);
-  for (const selector of [".calendarHeader", ".detail header", ".detail section", ".detail details"])
-    sharedPadding(css, selector);
+  sharedPadding(css, ".calendarHeader");
+  sharedPadding(globalCss, ".detail-section");
+  assert.match(rulesFor(globalCss, ".detail-inspector-header")[0], /padding: 12px var\(--panel-content-padding\)/u);
+  assert.ok(rulesFor(globalCss, ".detail-inspector-body > .detail-fact-grid")
+    .some((rule) => /padding: 5px var\(--panel-content-padding\)/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid span")
+    .some((rule) => /font-size: 10px;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid time")
+    .some((rule) => /font: 600 11px\/1\.35 ui-monospace, monospace;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-fact-grid time")
+    .some((rule) => /overflow: visible;[^}]*overflow-wrap: anywhere;[^}]*text-overflow: clip;[^}]*white-space: normal;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".panel-info-facts dd code")
+    .some((rule) => /overflow: visible;[^}]*overflow-wrap: anywhere;[^}]*text-overflow: clip;[^}]*white-space: normal;/u.test(rule)));
+  assert.ok(rulesFor(globalCss, ".detail-section-copy")
+    .some((rule) => /font-size: 10px;/u.test(rule)));
   assert.match(component, /<PanelFrame[^>]*>\s*<CalendarHeader[\s\S]*?\/>\s*<PanelFrameBody>/u);
   assert.match(component, /<\/PanelFrameBody>\s*<PanelFrameFooter className=\{styles\.foot\}>/u);
+  assert.match(component, /<DetailInspector className=\{styles\.detail\}[\s\S]*<DetailInspectorBody>/u);
   assert.doesNotMatch(rulesFor(css, ".calendarHeader")[0], /(?:background|border-radius|border-bottom):/u);
   assert.doesNotMatch(rulesFor(css, ".foot")[0], /(?:background|border-radius):/u);
   assert.match(rulesFor(css, ".calendar")[0], /border-radius: inherit;/u);
-  for (const selector of [".primary", ".detail"])
-    assert.match(rulesFor(css, selector)[0], /border-radius: var\(--panel-inner-radius\)/u, selector);
+  assert.match(rulesFor(css, ".primary")[0], /border-radius: var\(--panel-inner-radius\)/u);
+  assert.doesNotMatch(css, /\.detail (?:header|section|details)/u);
 });
 
 for (const consumer of ["market-data-owner-foundation-card", "exploratory-replay-readback-workbench"]) {

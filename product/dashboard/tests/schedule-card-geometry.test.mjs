@@ -5,14 +5,22 @@ import test from "node:test";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 test("schedule surfaces keep rounded containment without stealing the calendar scroll", async () => {
-  const css = await read("components/ui/schedule-calendar.module.css");
+  const [component, css] = await Promise.all([
+    read("components/operations-schedules-preview.tsx"),
+    read("components/ui/schedule-calendar.module.css"),
+  ]);
 
-  assert.match(css, /\.primary, \.detail \{[^}]*border-radius:\s*var\(--panel-inner-radius\)[^}]*\}/u);
-  assert.match(css, /\.primary \{\s*overflow:\s*clip;\s*\}/u);
-  assert.match(css, /\.detail \{\s*overflow:\s*auto;\s*\}/u);
+  assert.match(css, /\.primary \{[^}]*border-radius:\s*var\(--panel-inner-radius\)[^}]*\}/u);
+  assert.match(css, /\.primary \{[^}]*overflow:\s*clip;/u);
+  assert.match(css, /\.detail \{[^}]*overflow-y:\s*auto;/u);
   assert.match(css, /\.calendarBody \{[^}]*overflow:\s*auto;/u);
   assert.match(css, /\.weekdayHeader \{[^}]*position:\s*sticky;[^}]*top:\s*0;/u);
   assert.doesNotMatch(css, /\.primary \{\s*overflow:\s*(?:auto|scroll|hidden)/u);
+  assert.match(component, /<DetailInspector className=\{styles\.detail\}/u);
+  assert.match(component, /<DetailInspectorHeader[\s\S]*<PanelFrameInfo label="View schedule technical details">/u);
+  assert.match(component, /<PanelFrameInfoList>[\s\S]*<PanelFrameInfoFact key=\{key\} label=\{key\}>/u);
+  assert.match(component, /<DetailInspectorBody>[\s\S]*<DetailFactGrid>[\s\S]*<DetailSection label="last observed run">/u);
+  assert.doesNotMatch(component, /<aside className=\{styles\.detail\}|<details><summary>Technical identity/u);
 });
 
 test("responsive schedule controls wrap as a grid and leave popovers unclipped", async () => {

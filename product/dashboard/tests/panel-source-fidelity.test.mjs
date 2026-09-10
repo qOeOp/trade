@@ -127,6 +127,11 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
   assert.match(panel, /popoverTarget=\{popoverId\}/u);
   assert.match(panel, /className="panel-info-popover" popover="auto"/u);
+  assert.match(panel, /export function PanelFrameInfoList[\s\S]*className="panel-info-facts"/u);
+  assert.match(panel, /export function PanelFrameInfoFact[\s\S]*<dt>\{label\}<\/dt><dd>\{children\}<\/dd>/u);
+  assert.match(css, /\.panel-info-facts > div \{[^}]+grid-template-columns: 76px minmax\(0, 1fr\);[^}]+border-bottom:/u);
+  assert.match(css, /\.panel-info-facts dd code \{[^}]+overflow-wrap: anywhere;[^}]+text-overflow: clip;[^}]+white-space: normal;/u);
+  assert.doesNotMatch(css, /\.panel-info-facts dd code \{[^}]+text-overflow: ellipsis;/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
   assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
   assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
