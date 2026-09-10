@@ -167,6 +167,20 @@ export function PanelFrameInfo({
   );
 }
 
+export function PanelFrameInfoList({ children }: { children: ReactNode }) {
+  return <dl className="panel-info-facts">{children}</dl>;
+}
+
+export function PanelFrameInfoFact({
+  label,
+  children,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+}) {
+  return <div><dt>{label}</dt><dd>{children}</dd></div>;
+}
+
 export function PanelFrameCloseButton({
   className,
   "aria-label": ariaLabel = "Close panel",
