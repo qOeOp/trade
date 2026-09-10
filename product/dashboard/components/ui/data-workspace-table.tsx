@@ -28,6 +28,7 @@ import {
 } from "react";
 
 import { Button } from "./button";
+import { DataWorkspaceEmpty } from "./data-workspace-empty";
 import { InterfaceIcons } from "./iconography";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./table";
 
@@ -277,7 +278,7 @@ export function DataWorkspaceTable<T extends RowData>({
             })}
           </TableBody>
         </Table>
-        {!rows.length ? noDataComponent ?? <div className="data-workspace-empty">No data</div> : null}
+        {!rows.length ? noDataComponent ?? <DataWorkspaceEmpty>No data</DataWorkspaceEmpty> : null}
       </div>
       {pagination && filteredRowCount > 0 ? (
         <div className="data-workspace-pagination" aria-label={`${ariaLabel} pagination`}>

@@ -103,7 +103,7 @@ test("Bento empty and unavailable children remain inset cards", async () => {
     ".split-bento > .unavailable-state",
     ".split-bento > .empty-state",
     ".split-bento > .detail-empty",
-    '.split-bento[data-height-mode="viewport"] > .data-workspace-empty',
+    '.split-bento[data-height-mode="viewport"] > [data-ui="data-workspace-empty"]',
   ]) sharedInnerRadius(css, selector);
 });
 

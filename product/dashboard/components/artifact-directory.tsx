@@ -14,6 +14,7 @@ import type {
   HistoricalBindingCandidateV1,
 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
@@ -367,11 +368,11 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<div className={`data-workspace-empty ${availability === "loading" && !showPending
-                ? styles.pendingQuiet : ""}`}>
-                <EvidenceIcons.artifact aria-hidden="true" size={18} />
-                <p>{availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}</p>
-              </div>}
+              noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
+                className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
+                icon={<EvidenceIcons.artifact aria-hidden="true" size={18} />}>
+                {availability === "loading" ? "Reading verified artifacts…" : "No verified artifact matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
@@ -390,11 +391,11 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
-                ? styles.pendingQuiet : ""}`}>
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}</p>
-              </div>}
+              noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No attempt candidate matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : <DataWorkspaceTable<HistoricalBindingCandidateV1>
               ariaLabel="TrialFamily binding custody candidates"
               columns={bindingCandidateColumns}
@@ -406,11 +407,11 @@ export function ArtifactDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
-                ? styles.pendingQuiet : ""}`}>
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}</p>
-              </div>}
+              noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading" ? "Reading custody candidates…" : "No binding candidate matches this cut."}
+              </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
         </PanelFrameBody>

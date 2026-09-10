@@ -20,6 +20,7 @@ import {
   DataTableHeaderLabel,
   DataTableSurface,
 } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import {
   PanelFrame,
@@ -292,7 +293,9 @@ export function OperationsRunStorePreview() {
             columns={columns}
             data={visibleRuns}
             keyField="run_identity"
-            noDataComponent={<div className="data-workspace-empty"><RunIcons.loaded aria-hidden="true" size={18} /><p>{runs.length ? "No loaded run matches this search." : "No Dashboard operation run is retained."}</p></div>}
+            noDataComponent={<DataWorkspaceEmpty icon={<RunIcons.loaded aria-hidden="true" size={18} />}>
+              {runs.length ? "No loaded run matches this search." : "No Dashboard operation run is retained."}
+            </DataWorkspaceEmpty>}
             onRowClicked={(run) => { window.location.assign(`/operations/runs/${encodeURIComponent(run.run_identity)}`); }}
             pointerOnHover
           />
