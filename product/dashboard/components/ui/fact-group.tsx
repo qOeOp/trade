@@ -19,6 +19,27 @@ export function FactGroup({
   );
 }
 
+export function FactGroupGrid({
+  children,
+  layout = "equal",
+  className,
+  ...props
+}: {
+  children: ReactNode;
+  layout?: "equal" | "weighted";
+} & HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      {...props}
+      className={[styles.grid, className].filter(Boolean).join(" ")}
+      data-layout={layout}
+      data-ui="fact-group-grid"
+    >
+      {children}
+    </div>
+  );
+}
+
 export function FactItem({
   label,
   children,
@@ -54,5 +75,20 @@ export function FactGroupSkeleton({ title, lines = 3 }: { title: ReactNode; line
         ))}
       </div>
     </section>
+  );
+}
+
+export function FactGroupSkeletonGrid({
+  titles,
+  layout = "equal",
+  ...props
+}: {
+  titles: readonly string[];
+  layout?: "equal" | "weighted";
+} & Omit<HTMLAttributes<HTMLDivElement>, "children">) {
+  return (
+    <FactGroupGrid {...props} layout={layout}>
+      {titles.map((title) => <FactGroupSkeleton key={title} title={title} />)}
+    </FactGroupGrid>
   );
 }

@@ -108,12 +108,6 @@
   background: var(--surface-panel);
 }
 
-.groups {
-  display: grid;
-  grid-template-columns: minmax(0, .82fr) minmax(0, 1fr) minmax(0, 1.28fr);
-  gap: 10px;
-}
-
 .resultRail {
   min-height: 42px;
   margin-top: 10px;
@@ -148,12 +142,6 @@
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@media (max-width: 980px) {
-  .groups {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 720px) {
