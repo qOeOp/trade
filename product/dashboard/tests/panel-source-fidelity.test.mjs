@@ -106,21 +106,20 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /@container compact-status \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
   assert.match(css, /@container compact-status \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-eyebrow \{[^}]+position: absolute;[^}]+top: 21px;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group \{[^}]+grid-template-columns: minmax\(0, 1fr\) minmax\(0, 3fr\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-lead > strong,[\s\S]*?\.run-detail-summaries \.aggregate-summary-fact dd \{[^}]+font-size: 14px;[^}]+text-align: left;[^}]+white-space: nowrap;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-fact \{[^}]+align-items: flex-start;[^}]+justify-content: flex-start;[^}]+text-align: left;/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group:nth-child\(2\) \.aggregate-summary-fact dd \{ font-variant-numeric: tabular-nums; \}/u);
-  assert.match(css, /@media \(max-width: 1279px\)[\s\S]+\.aggregate-summary\.run-detail-summaries \{ grid-template-columns: 1fr; \}/u);
-  assert.match(css, /@media \(max-width: 767px\)[\s\S]+\.run-detail-summaries \.aggregate-summary-facts \{ grid-template-columns: 1fr; \}/u);
+  assert.match(runDetail, /<CompactStatusBar className="run-detail-summaries" aria-label="Run summary">/u);
+  assert.match(runDetail, /<CompactStatusGroup label="outcome">[\s\S]+?<CompactStatusGroup label="timing">/u);
+  for (const label of ["owner outcome", "execution", "terminal state", "transition", "duration", "received", "started", "completed"]) {
+    assert.match(runDetail, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
+  }
+  assert.doesNotMatch(runDetail, /AggregateSummary/u);
+  assert.doesNotMatch(css, /\.run-detail-summaries \.aggregate-summary/u);
   assert.match(css, /\.compact-status-item\[data-tone="danger"\] dd \{ color: var\(--status-negative\); \}/u);
 });
 
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
   assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
-  assert.match(css, /\.run-detail-summaries \.aggregate-summary-group\[data-tone="warning"\] > \.aggregate-summary-lead > strong/u);
+  assert.match(runDetail, /label="owner outcome"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
   assert.match(panel, /popoverTarget=\{popoverId\}/u);
@@ -135,7 +134,7 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.doesNotMatch(runDetail, /meta=\{<code title=\{run\.run_identity\}/u);
   assert.doesNotMatch(runDetail, /detail="Owner state is never inferred from execution"/u);
   assert.doesNotMatch(runDetail, /detail="Operational clock, independent of Owner state"/u);
-  assert.match(runDetail, /AggregateSummaryFact label="Received"/u);
+  assert.match(runDetail, /CompactStatusItem label="received"/u);
   assert.doesNotMatch(runDetail, /Timing \/ received/u);
   for (const token of ["positive", "warning", "info", "negative"]) {
     assert.match(theme, new RegExp(`--semantic-${token}:`, "u"));
