@@ -12,6 +12,9 @@ workspace = true
 
 [features]
 default = []
+sealed-artifact-source-browser-acceptance = [
+  "vibe-strategy-factory/sealed-artifact-source-acceptance",
+]
 sealed-source-intake-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
   "vibe-strategy-factory/sealed-source-intake-acceptance",

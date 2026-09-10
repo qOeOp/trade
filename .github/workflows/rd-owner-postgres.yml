@@ -26,7 +26,8 @@ env:
   RUST_TEST_EXTRA_FEATURES: >-
     capnp,hypersync,vibe-serialization/sbe,vibe-infrastructure/postgres,
     vibe-strategy-factory/sealed-develop-composer-acceptance,
-    vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance
+    vibe-strategy-factory-rd-owner-api/sealed-source-intake-acceptance,
+    vibe-strategy-factory-rd-owner-api/sealed-artifact-source-browser-acceptance
 
 jobs:
   rd-owner-postgres:
@@ -71,13 +72,56 @@ jobs:
           rust-cache-save-if: "false"
           rust-cache-workspace-crates: "false"
 
+      - name: Set up Node.js for Dashboard browser acceptance
+        # https://github.com/actions/setup-node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: product/dashboard/package-lock.json
+
+      - name: Install sealed Dashboard browser acceptance inputs
+        env:
+          CHROME_FOR_TESTING_SHA256: ecae8b71d4890cf5f32577ab5ea1b3840c2b5e05f51490b1666674cf1f5b0c37
+          CHROME_FOR_TESTING_URL: >-
+            https://storage.googleapis.com/chrome-for-testing-public/152.0.7977.83/linux64/chrome-linux64.zip
+        run: |
+          set -euo pipefail
+          npm ci --prefix product/dashboard
+          browser_root="${RUNNER_TEMP}/dashboard-strategy-viewer-chrome"
+          mkdir -p "$browser_root"
+          curl --fail --location --retry 3 \
+            --output "$browser_root/chrome-linux64.zip" \
+            "$CHROME_FOR_TESTING_URL"
+          printf '%s  %s\n' \
+            "$CHROME_FOR_TESTING_SHA256" \
+            "$browser_root/chrome-linux64.zip" | sha256sum --check --strict
+          python3 -m zipfile -e \
+            "$browser_root/chrome-linux64.zip" \
+            "$browser_root"
+          chmod 0755 \
+            "$browser_root/chrome-linux64/chrome" \
+            "$browser_root/chrome-linux64/chrome_crashpad_handler"
+
       - name: Report disk space before Rust tests
         run: bash scripts/ci/report-disk-space.bash "before Rust tests"
 
       - name: Run isolated R&D Owner PostgreSQL tests
+        env:
+          DASHBOARD_STRATEGY_VIEWER_ACCEPTANCE_CANDIDATE: ${{ github.sha }}
+          DASHBOARD_STRATEGY_VIEWER_BROWSER_ACCEPTANCE: "1"
+          DASHBOARD_STRATEGY_VIEWER_BROWSER_EXECUTABLE: >-
+            ${{ runner.temp }}/dashboard-strategy-viewer-chrome/chrome-linux64/chrome
         run: >-
           make cargo-test-rd-owner-postgres-isolated NEXTEST_PROFILE=ci
           EXTRA_FEATURES="${RUST_TEST_EXTRA_FEATURES}"
+
+      - name: Clean Dashboard browser acceptance inputs
+        if: always()
+        run: |
+          find product/dashboard/.next -depth -delete 2>/dev/null || true
+          find product/dashboard/node_modules -depth -delete 2>/dev/null || true
+          find "${RUNNER_TEMP}/dashboard-strategy-viewer-chrome" -depth -delete 2>/dev/null || true
 
       - name: Report disk space after Rust tests
         if: always()
