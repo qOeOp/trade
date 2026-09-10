@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+
+const compose = await readFile(
+  new URL("../../rd-workbench/docker-compose.yml", import.meta.url),
+  "utf8",
+);
+
+function serviceBlock(serviceName) {
+  const marker = `  ${serviceName}:\n`;
+  const start = compose.indexOf(marker);
+  assert.notEqual(start, -1, `${serviceName} service is missing`);
+  const remainder = compose.slice(start + marker.length);
+  const nextService = remainder.search(/^  [a-z0-9][a-z0-9-]*:\n/m);
+  return remainder.slice(0, nextService === -1 ? undefined : nextService);
+}
+
+test("Dashboard image and migration are opt-in Compose services", () => {
+  const migration = serviceBlock("dashboard-run-store-migrate");
+  const dashboard = serviceBlock("dashboard-web");
+
+  for (const block of [migration, dashboard]) {
+    assert.match(block, /profiles: \["dashboard-preview"\]/);
+    assert.match(block, /image: trade-dashboard:\$\{DASHBOARD_IMAGE_TAG:-preview\}/);
+    assert.match(block, /DASHBOARD_DATABASE_URL: \$\{DASHBOARD_DATABASE_URL:-\}/);
+  }
+
+  assert.doesNotMatch(migration, /\n\s+build:/);
+  assert.match(migration, /pull_policy: never/);
+  assert.match(migration, /command: \["npm", "run", "run-store:migrate"\]/);
+  assert.match(dashboard, /context: \.\./);
+  assert.match(dashboard, /dockerfile: dashboard\/Dockerfile/);
+  assert.match(dashboard, /dashboard-run-store-migrate:\n\s+condition: service_completed_successfully/);
+  assert.match(dashboard, /127\.0\.0\.1:\$\{DASHBOARD_PORT:-3100\}:3100/);
+  assert.match(dashboard, /RD_OWNER_API_URL: \$\{RD_OWNER_API_URL:-http:\/\/rd-owner-api:8080\}/);
+  assert.match(dashboard, /read_only: true/);
+  assert.match(dashboard, /cap_drop:\n\s+- ALL/);
+});
+
+test("Windmill remains independent of the opt-in Dashboard profile", () => {
+  const server = serviceBlock("windmill-server");
+  const worker = serviceBlock("windmill-worker");
+
+  assert.doesNotMatch(server, /dashboard-(?:web|run-store-migrate)/);
+  assert.doesNotMatch(worker, /dashboard-(?:web|run-store-migrate)/);
+  assert.doesNotMatch(server, /profiles:/);
+  assert.doesNotMatch(worker, /profiles:/);
+  assert.match(server, /MODE: server/);
+  assert.match(worker, /MODE: worker/);
+});
