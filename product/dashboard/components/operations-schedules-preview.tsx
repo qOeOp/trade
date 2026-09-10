@@ -10,6 +10,7 @@ import { CalendarHeader } from "./ui/schedule-calendar/header/calendar-header";
 import { DataWorkspaceTable, dataWorkspaceSelectedRowStyles, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { PanelFrame, PanelFrameBody, PanelFrameFooter } from "./ui/panel-frame";
 import { InterfaceIcons } from "./ui/iconography";
+import { InlineNotice } from "./ui/inline-notice";
 import styles from "./ui/schedule-calendar.module.css";
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -78,16 +79,15 @@ export function OperationsSchedulesPreview() {
       onToggleTable={() => setMode(mode === "table" ? "calendar" : "table")} />
     <PanelFrameBody>
       {pending ? <div className={styles.message} role="status" aria-label="Reading schedules">{Array.from({ length: 6 }, (_, i) => <div className={styles.skeleton} key={i} />)}</div>
-        : error ? <div className={styles.unavailableCalendar} data-availability="unavailable">
-          <div className={styles.availabilityNotice} role="status">
-            <InterfaceIcons.calendar size={20} aria-hidden="true" />
-            <div><b>{scheduleAvailabilityPresentationV1(error).title}</b><p>{scheduleAvailabilityPresentationV1(error).detail}</p></div>
-          </div>
-        </div>
-        : !schedules.length ? <div className={styles.emptyResult} role="status">
-          <InterfaceIcons.calendar size={20} aria-hidden="true" />
-          <div><b>No matching schedules</b><p>Adjust the current search or scope filters to show configured schedules.</p></div>
-        </div>
+        : error ? <InlineNotice className={styles.scheduleNotice} data-availability="unavailable" density="spacious"
+          icon={<InterfaceIcons.calendar size={20} />} role="status"
+          title={scheduleAvailabilityPresentationV1(error).title} tone="warning">
+          {scheduleAvailabilityPresentationV1(error).detail}
+        </InlineNotice>
+        : !schedules.length ? <InlineNotice className={styles.scheduleNotice} density="spacious"
+          icon={<InterfaceIcons.calendar size={20} />} role="status" title="No matching schedules">
+          Adjust the current search or scope filters to show configured schedules.
+        </InlineNotice>
         : <div className={styles.split}>
           <div className={styles.primary}>
             {mode === "calendar" ? <ScheduleCalendar key={`${date}-${view}-${query}-${envelope?.observed_at}`}
