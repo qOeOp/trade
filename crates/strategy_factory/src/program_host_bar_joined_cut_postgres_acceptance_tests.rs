@@ -181,6 +181,77 @@ fn forge_observation_census_trigger_semantics(
     })
 }
 
+fn forge_observation_census_design_identity(
+    original_request: &[u8],
+    original_storage: &[u8],
+    original_design_identity: [u8; 32],
+    forged_design_identity: [u8; 32],
+) -> anyhow::Result<ForgedObservationCensusTrigger> {
+    anyhow::ensure!(original_design_identity != forged_design_identity);
+    anyhow::ensure!(original_request.len() >= 70);
+    let meaning_length = usize::try_from(u32::from_be_bytes(original_request[66..70].try_into()?))?;
+    let meaning_start = 70_usize;
+    let meaning_end = meaning_start
+        .checked_add(meaning_length)
+        .ok_or_else(|| anyhow::anyhow!("request meaning length overflow"))?;
+    anyhow::ensure!(meaning_end == original_request.len());
+    let matches = original_request[meaning_start..meaning_end]
+        .windows(original_design_identity.len())
+        .enumerate()
+        .filter_map(|(offset, bytes)| (bytes == original_design_identity).then_some(offset))
+        .collect::<Vec<_>>();
+    let [design_offset] = matches.as_slice() else {
+        anyhow::bail!("request must contain the exact design identity once");
+    };
+    let design_start = meaning_start + design_offset;
+    let design_end = design_start + original_design_identity.len();
+    let mut request = original_request.to_vec();
+    request[design_start..design_end].copy_from_slice(&forged_design_identity);
+    let request_meaning_digest = observation_census_digest(
+        OBSERVATION_CENSUS_REQUEST_DOMAIN,
+        &request[meaning_start..meaning_end],
+    );
+    request[34..66].copy_from_slice(&request_meaning_digest);
+
+    anyhow::ensure!(original_storage.len() >= 38);
+    let count = u32::from_be_bytes(original_storage[34..38].try_into()?);
+    let mut cursor = 38;
+    for _ in 0..count {
+        take_census_storage_field(original_storage, &mut cursor)?;
+    }
+    let record_range = take_census_storage_field(original_storage, &mut cursor)?;
+    let receipt_range = take_census_storage_field(original_storage, &mut cursor)?;
+    anyhow::ensure!(cursor == original_storage.len());
+    anyhow::ensure!(record_range.len() >= 170);
+    anyhow::ensure!(receipt_range.len() == 130);
+
+    let mut storage = original_storage.to_vec();
+    storage[record_range.start + 34..record_range.start + 66]
+        .copy_from_slice(&request_meaning_digest);
+    let census_identity =
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+    storage[receipt_range.start + 34..receipt_range.start + 66]
+        .copy_from_slice(&request_meaning_digest);
+    storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
+    let receipt_identity = observation_census_digest(
+        OBSERVATION_CENSUS_RECEIPT_DOMAIN,
+        &storage[receipt_range.clone()],
+    );
+    let storage_identity =
+        observation_census_digest(OBSERVATION_CENSUS_STORAGE_DOMAIN, &storage[32..]);
+    storage[..32].copy_from_slice(&storage_identity);
+    Ok(ForgedObservationCensusTrigger {
+        request,
+        request_meaning_digest,
+        census: ForgedObservationCensus {
+            receipt: storage[receipt_range].to_vec(),
+            storage,
+            census_identity,
+            receipt_identity,
+        },
+    })
+}
+
 use crate::{
     OwnerBarJoinedCutPreparationV1,
     artifact_v2::StrategyArtifactV2,
@@ -524,6 +595,88 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     .await?;
     anyhow::ensure!(restored_trigger_record.rows_affected() == 1);
     restore_trigger_transaction.commit().await?;
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
+    let forged_design_identity = [0x8d; 32];
+    let forged_design = forge_observation_census_design_identity(
+        &original_request,
+        &original_census_storage,
+        *design_identity.as_bytes(),
+        forged_design_identity,
+    )?;
+    let mut forged_design_custody = original_joined_cut_custody.clone();
+    anyhow::ensure!(forged_design_custody.len() >= 162);
+    forged_design_custody[34..66].copy_from_slice(&forged_design.request_meaning_digest);
+    forged_design_custody[66..98].copy_from_slice(&forged_design.census.census_identity);
+    forged_design_custody[98..130].copy_from_slice(&forged_design.census.census_identity);
+    let forged_design_joined_cut_identity = joined_cut_custody_identity(&forged_design_custody);
+    let mut forged_design_transaction = market_mutation_pool.begin().await?;
+    let forged_design_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(forged_design.census.receipt_identity.as_slice())
+    .bind(forged_design.census.census_identity.as_slice())
+    .bind(&forged_design.census.storage)
+    .bind(&request_identity)
+    .execute(&mut *forged_design_transaction)
+    .await?;
+    anyhow::ensure!(forged_design_outbox.rows_affected() == 1);
+    let forged_design_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET request_meaning_digest=$1,request_bytes=$2,census_identity=$3,census_bytes=$4,census_receipt_identity=$5,census_receipt_bytes=$6,outbox_identity=$5,joined_cut_identity=$7,joined_cut_custody_bytes=$8 WHERE request_identity=$9",
+    )
+    .bind(forged_design.request_meaning_digest.as_slice())
+    .bind(&forged_design.request)
+    .bind(forged_design.census.census_identity.as_slice())
+    .bind(&forged_design.census.storage)
+    .bind(forged_design.census.receipt_identity.as_slice())
+    .bind(&forged_design.census.receipt)
+    .bind(forged_design_joined_cut_identity.as_slice())
+    .bind(&forged_design_custody)
+    .bind(&request_identity)
+    .execute(&mut *forged_design_transaction)
+    .await?;
+    anyhow::ensure!(forged_design_record.rows_affected() == 1);
+    forged_design_transaction.commit().await?;
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "coherent design substitution escaped the unchanged V1 joined-cut receipt"
+    );
+    let mut restore_design_transaction = market_mutation_pool.begin().await?;
+    let restored_design_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(&original_outbox_row_identity)
+    .bind(&original_outbox_payload_digest)
+    .bind(&original_outbox_payload)
+    .bind(&request_identity)
+    .execute(&mut *restore_design_transaction)
+    .await?;
+    anyhow::ensure!(restored_design_outbox.rows_affected() == 1);
+    let restored_design_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET request_meaning_digest=$1,request_bytes=$2,census_identity=$3,census_bytes=$4,census_receipt_identity=$5,census_receipt_bytes=$6,outbox_identity=$7,joined_cut_identity=$8,joined_cut_custody_bytes=$9 WHERE request_identity=$10",
+    )
+    .bind(&original_request_meaning_digest)
+    .bind(&original_request)
+    .bind(&original_census_identity)
+    .bind(&original_census_storage)
+    .bind(&original_census_receipt_identity)
+    .bind(&original_census_receipt)
+    .bind(&original_outbox_identity)
+    .bind(&original_joined_cut_identity)
+    .bind(&original_joined_cut_custody)
+    .bind(&request_identity)
+    .execute(&mut *restore_design_transaction)
+    .await?;
+    anyhow::ensure!(restored_design_record.rows_affected() == 1);
+    restore_design_transaction.commit().await?;
     let restored_projection = recovered_owner
         .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
         .await?;

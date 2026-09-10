@@ -481,6 +481,7 @@ async fn load_and_validate_joined_custody(
         receipt_digest,
     )
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    validate_joined_design_bindings(transaction, decoded, &request, validation_mode).await?;
     if receipt_digest.as_bytes() != &subject_digest
         || !crate::owner::sample_projection_v4::joined_components_match_observation_census_v4(
             decoded, &request, &census,
@@ -494,6 +495,65 @@ async fn load_and_validate_joined_custody(
         receipt_digest,
         locator,
     })
+}
+
+async fn validate_joined_design_bindings(
+    transaction: &mut Transaction<'_, Postgres>,
+    decoded: &crate::owner::sample_projection_v4::DecodedStrategyInputSampleProjectionV4,
+    request: &UntrustedObservationCensusRequestV1,
+    validation_mode: DependencyValidationModeV4,
+) -> Result<(), StrategyInputSampleProjectionErrorV4> {
+    for exact in decoded.canonical_bytes()[crate::owner::sample_projection_v4::HEADER_LEN_V4..]
+        .chunks_exact(crate::owner::sample_projection_v4::COMPONENT_LEN_V4)
+    {
+        let query = match validation_mode {
+            DependencyValidationModeV4::LockRows => sqlx::query(
+                "SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3 FOR SHARE",
+            ),
+            DependencyValidationModeV4::ReadOnly => sqlx::query(
+                "SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE pit_request_identity=$1 AND strategy_design_identity=$2 AND input_role_identity=$3",
+            ),
+        };
+        let row = query
+            .bind(request.pit_locator().request_identity.as_bytes().as_slice())
+            .bind(
+                request
+                    .join_claim()
+                    .strategy_design_identity
+                    .as_bytes()
+                    .as_slice(),
+            )
+            .bind(&exact[..32])
+            .fetch_optional(&mut **transaction)
+            .await
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUnavailable)?
+            .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+        let request_bytes: &[u8] = row
+            .try_get("request_bytes")
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+        let binding_request =
+            crate::owner::strategy_input_binding::codec::decode_request_v1(request_bytes)
+                .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+        let request_meaning_digest: &[u8] = row
+            .try_get("request_meaning_digest")
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+        let owner_binding_digest: &[u8] = row
+            .try_get("owner_binding_digest")
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+        if binding_request.pit_request_identity != request.pit_locator().request_identity
+            || binding_request.strategy_design_identity
+                != request.join_claim().strategy_design_identity
+            || binding_request.input_role_identity.as_bytes() != &exact[..32]
+            || crate::owner::strategy_input_binding::codec::meaning_digest_v1(request_bytes)
+                .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?
+                .as_bytes()
+                != request_meaning_digest
+            || owner_binding_digest != &exact[32..64]
+        {
+            return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
+        }
+    }
+    Ok(())
 }
 
 async fn validate_exact_v3_components(
