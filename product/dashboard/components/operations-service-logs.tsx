@@ -21,6 +21,7 @@ import {
   DetailClusterFact,
   DetailClusterGrid,
   DetailInspector,
+  DetailInspectorBody,
   DetailInspectorFooter,
   DetailInspectorHeader,
   DetailNotice,
@@ -28,9 +29,10 @@ import {
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
-import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
+import { emptyServiceLogPresentation } from "../lib/operations-presentation";
 import { availabilityTone, severityTone } from "./ui/status-tone-policy";
 
 type ServiceLogRange = ServiceLogFilterCutV1["range"];
@@ -146,20 +148,22 @@ function ServiceInstanceCard({ instance, cutDigest }: {
         titleAttribute={instance.instance_identity}
         status={<StatusBadge tone={availabilityTone(instance.readiness)}>{instance.readiness}</StatusBadge>}
       />
-      <DetailClusterGrid>
-        <DetailCluster label="Identity" meta={instance.instance_kind}>
-          <DetailClusterFact label="Instance" wide><code title={instance.instance_identity}>{instance.instance_identity}</code></DetailClusterFact>
-          <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
-        </DetailCluster>
-        <DetailCluster label="Evidence" meta={`${instance.services.length} services`}>
-          <DetailClusterFact label="Services" wide><span>{instance.services.join(" · ")}</span></DetailClusterFact>
-          <DetailClusterFact label="Source cut" wide><code title={instance.source_cut}>{instance.source_cut}</code></DetailClusterFact>
-        </DetailCluster>
-      </DetailClusterGrid>
-      <DetailInspectorFooter>
-        <code title={cutDigest}>{cutDigest}</code>
-        <span>Exact filter-cut digest · host identity is not projected</span>
-      </DetailInspectorFooter>
+      <DetailInspectorBody>
+        <DetailClusterGrid>
+          <DetailCluster label="Identity" meta={instance.instance_kind}>
+            <DetailClusterFact label="Instance" wide><code title={instance.instance_identity}>{instance.instance_identity}</code></DetailClusterFact>
+            <DetailClusterFact label="Last observed"><time dateTime={instance.last_observed_at}>{displayTime(instance.last_observed_at)}</time></DetailClusterFact>
+          </DetailCluster>
+          <DetailCluster label="Evidence" meta={`${instance.services.length} services`}>
+            <DetailClusterFact label="Services" wide><span>{instance.services.join(" · ")}</span></DetailClusterFact>
+            <DetailClusterFact label="Source cut" wide><code title={instance.source_cut}>{instance.source_cut}</code></DetailClusterFact>
+          </DetailCluster>
+        </DetailClusterGrid>
+        <DetailInspectorFooter>
+          <code title={cutDigest}>{cutDigest}</code>
+          <span>Exact filter-cut digest · host identity is not projected</span>
+        </DetailInspectorFooter>
+      </DetailInspectorBody>
     </DetailInspector>
   );
 }
@@ -379,7 +383,8 @@ export function OperationsServiceLogs() {
   const viewportState = pending ? "loading"
     : unavailableReason ? "unavailable"
       : !entries.length ? filtered ? "filtered-empty" : "empty"
-        : page?.completeness === "partial_unavailable" ? "partial_unavailable" : "complete";
+      : page?.completeness === "partial_unavailable" ? "partial_unavailable" : "complete";
+  const emptyPresentation = page ? emptyServiceLogPresentation({ completeness: page.completeness, filtered }) : null;
 
   return (
     <PageStack className="operations-service-logs-page" gap="compact">
@@ -388,29 +393,29 @@ export function OperationsServiceLogs() {
           eyebrow="Operational evidence"
           title="Service logs"
           titleId="service-logs-title"
-          description="Bounded RunStore evidence from one exact observation cut. No host, message, administration, or effect action is inferred."
-          actions={<div className="service-logs-actions">
+          description="Inspect recent events by severity, service, and time."
+          actions={<><PanelFrameInfo><b>Data scope</b><p>This is a read-only snapshot. Administrative controls and effect actions are not available here.</p></PanelFrameInfo><div className="service-logs-actions">
             <button type="button" onClick={refresh} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}
             </button>
-            <button type="button" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
+            <button type="button" data-action-variant="secondary" aria-pressed={autoRefresh} onClick={() => setAutoRefresh((value) => !value)}>
               <InterfaceIcons.autoRefresh aria-hidden="true" size={12} /> Auto-refresh {autoRefresh ? "on" : "off"}
             </button>
-            {page && !pending ? <button type="button" onClick={() => void download()}>
-              <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded
+            {page && !pending ? <button type="button" data-action-variant="secondary" onClick={() => void download()}>
+              <InterfaceIcons.download aria-hidden="true" size={12} /> Download
             </button> : null}
-          </div>}
+          </div></>}
         />
         <PanelFrameBody className="service-logs-body">
           <CompactStatusBar className="service-logs-status" aria-label="Service log summary">
-            <CompactStatusGroup label="Severity">
-              <CompactStatusItem label="Error" value={summaryValue(summary?.error)} />
-              <CompactStatusItem label="Warning" value={summaryValue(summary?.warning)} />
-              <CompactStatusItem label="Info" value={summaryValue(summary?.info)} />
+            <CompactStatusGroup label="severity">
+              <CompactStatusItem label="error" value={summaryValue(summary?.error)} />
+              <CompactStatusItem label="warning" value={summaryValue(summary?.warning)} />
+              <CompactStatusItem label="info" value={summaryValue(summary?.info)} />
             </CompactStatusGroup>
-            <CompactStatusGroup label="Instances">
-              <CompactStatusItem label="Worker" value={summaryValue(summary?.worker)} />
-              <CompactStatusItem label="Server" value={summaryValue(summary?.server)} />
+            <CompactStatusGroup label="instances">
+              <CompactStatusItem label="worker" value={summaryValue(summary?.worker)} />
+              <CompactStatusItem label="server" value={summaryValue(summary?.server)} />
             </CompactStatusGroup>
           </CompactStatusBar>
 
@@ -430,7 +435,7 @@ export function OperationsServiceLogs() {
                 icon={<ModuleIcons.terminal aria-hidden="true" size={18} />}
                 title={pending ? "Reading service instances" : permissionDenied ? "Service logs permission denied" : "Service logs unavailable"}
                 reason={pending ? "READING_SERVICE_LOGS" : unavailableReason}
-                detail={pending ? "No synthetic instance is rendered while the exact cut is loading." : "Prior positive instances were cleared; no availability is inferred."}
+                detail={pending ? "Checking for recent service activity." : "No service instances are available for this view."}
               />
               <div className="service-logs-main">
                 <UnavailableState
@@ -445,10 +450,10 @@ export function OperationsServiceLogs() {
                   state={pending ? "loading" : "unavailable"}
                   footer={<>
                     <div>
-                      <b>{pending ? "Reading exact observation" : "Service-log cut unavailable"}</b>
-                      <small>{pending ? "Zero synthetic rows · waiting for one canonical filter cut" : "Prior positive rows were cleared; completeness is not inferred."}</small>
+                      <b>{pending ? "Reading service logs" : "Service logs unavailable"}</b>
+                      <small>{pending ? "Checking for recent events." : "No events are available for this view."}</small>
                     </div>
-                    <code>{pending ? "READING_SERVICE_LOGS" : unavailableReason}</code>
+                    <PanelFrameInfo><b>Technical reason</b><code>{pending ? "READING_SERVICE_LOGS" : unavailableReason}</code></PanelFrameInfo>
                   </>}
                 >
                   <DataWorkspaceTable<ServiceLogRow>
@@ -463,23 +468,24 @@ export function OperationsServiceLogs() {
                 </BoundedLogViewport>
               </div>
             </SplitBento>
+          ) : page && instances.length === 0 ? (
+            <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={18} />} title={emptyPresentation?.title}>{emptyPresentation?.detail}</EmptyState>
           ) : page ? (
             <SplitBento className="service-logs-layout" columns="minmax(248px, .55fr) minmax(620px, 1.45fr)">
-              {instances.length ? <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
-                : <EmptyState density="compact" icon={<ModuleIcons.terminal aria-hidden="true" size={16} />} title={filtered ? "No matching instances" : "No observed instances"}>The canonical cut contains no eligible service-log instances.</EmptyState>}
+              <ServiceInstanceList instances={instances} selectedIdentity={selectedIdentity} onSelect={(identity) => replaceFilter("instance_identity", identity)} />
               <div className="service-logs-main">
                 {selected ? <ServiceInstanceCard instance={selected} cutDigest={page.filter_cut_digest} />
-                  : <UnavailableState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="Selected instance unavailable" reason="SERVICE_LOG_INSTANCE_SELECTION_UNAVAILABLE" />}
+                  : <EmptyState density="compact" icon={<RunIcons.state aria-hidden="true" size={16} />} title="No instance selected">Choose an instance to inspect its events.</EmptyState>}
                 <BoundedLogViewport
                   className="service-logs-viewport"
                   aria-label="Bounded service log viewport"
                   state={viewportState}
                   footer={<>
                     <div>
-                      <b>{pending ? "Previous observation" : page.completeness === "complete" ? "Complete bounded cut" : "Partial evidence"}</b>
-                      <small>Showing newest {entries.length} of {page.retention_limit} retention limit · redacted fields stay omitted · event codes may be truncated at the gateway{downloadDisclosure ? ` · ${downloadDisclosure}` : ""}</small>
+                      <b>{pending ? "Previous events" : page.completeness === "complete" ? "Latest events" : "Some events unavailable"}</b>
+                      <small>{entries.length} {entries.length === 1 ? "event" : "events"} shown{downloadDisclosure ? ` · ${downloadDisclosure}` : ""}</small>
                     </div>
-                    <code title={page.filter_cut_digest}>{page.filter_cut_digest}</code>
+                    <PanelFrameInfo><b>Data details</b><code title={page.filter_cut_digest}>{page.filter_cut_digest}</code><p>Newest {entries.length} of {page.retention_limit}. Redacted fields stay omitted and long event codes may be shortened.</p></PanelFrameInfo>
                     <div className="bounded-log-pagination">
                       <label><span>Rows</span><select value={pageSize} onChange={(event) => {
                         const next = Number(event.target.value) as (typeof pageSizes)[number];
@@ -501,10 +507,10 @@ export function OperationsServiceLogs() {
                     dense
                     keyField="row_identity"
                     viewportRef={logTableRef}
-                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No logs match the canonical filter cut." : "No service logs were observed in this cut."}</p></div>}
+                    noDataComponent={<div className="data-workspace-empty service-log-empty"><ModuleIcons.terminal aria-hidden="true" size={18} /><p>{filtered ? "No events match the current filters." : "No events in the selected time range."}</p></div>}
                   />
                 </BoundedLogViewport>
-                {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Partial evidence only">Some eligible RunStore evidence was unavailable. Displayed rows remain validated and no completeness is inferred.</DetailNotice> : null}
+                {page.completeness === "partial_unavailable" ? <DetailNotice icon={<RunIcons.protected aria-hidden="true" size={14} />} title="Some logs are unavailable">Shown rows are verified, but one or more log sources did not respond.</DetailNotice> : null}
               </div>
             </SplitBento>
           ) : null}

@@ -139,6 +139,23 @@ export function PanelFrameIconAction({
   return <button {...props} type="button" className={["panel-frame-icon-action", className].filter(Boolean).join(" ")}>{children}</button>;
 }
 
+export function PanelFrameInfo({
+  children,
+  label = "View technical details",
+}: {
+  children: ReactNode;
+  label?: string;
+}) {
+  return (
+    <details className="panel-info-disclosure">
+      <summary aria-label={label} title={label}>
+        <InterfaceIcons.info aria-hidden="true" size={15} />
+      </summary>
+      <div>{children}</div>
+    </details>
+  );
+}
+
 export function PanelFrameCloseButton({
   className,
   "aria-label": ariaLabel = "Close panel",

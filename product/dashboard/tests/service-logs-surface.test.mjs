@@ -91,7 +91,7 @@ test("Service Logs keeps unavailable, permission, empty, filtered-empty, partial
   const source = await readFile(componentUrl, "utf8");
   for (const state of [
     "READING_SERVICE_LOGS", "SERVICE_LOG_RESPONSE_UNAVAILABLE", "SERVICE_LOG_TRANSPORT_UNAVAILABLE",
-    "permission denied", "filtered-empty", "Partial evidence", "Previous observation",
+    "permission denied", "filtered-empty", "Some events unavailable", "Previous events",
   ]) assert.ok(source.includes(state), `missing ${state}`);
   assert.match(source, /setPages\(\[\]\);[\s\S]*setSelectedIdentity\(null\);[\s\S]*setUnavailableReason/u);
 });

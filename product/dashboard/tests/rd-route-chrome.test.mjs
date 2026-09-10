@@ -3,7 +3,10 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("only admitted R&D surfaces embed their route chrome", async () => {
-  const shell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
+  const [shell, css] = await Promise.all([
+    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
   const predicate = shell.match(/const embedsRouteChrome = ([\s\S]*?);\n/u)?.[1];
 
   assert.ok(predicate, "embedded route chrome predicate is missing");
@@ -24,7 +27,8 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
     shell,
     /\{suppressShellPageHeader \? <h1 className="sr-only">\{page\.label\}<\/h1> : <header className="page-header">/u,
   );
-  assert.match(shell, /\{!ownsRouteChrome \? <footer className="prototype-notice">/u);
+  assert.match(shell, /\{!ownsRouteChrome && !operationsConnected \? <footer className="prototype-notice">/u);
+  assert.match(css, /\.module-tabs \{[^}]*justify-self: end;/u);
   assert.doesNotMatch(predicate, /hypoth|decision|backtest|market|runtime|portfolio|operation/iu);
 });
 

@@ -1,4 +1,5 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import { InterfaceIcons } from "./iconography";
 
 export function EvidenceStrip({
   children,
@@ -45,7 +46,18 @@ export function UnavailableState({
   detail?: ReactNode;
   density?: "regular" | "compact";
 }) {
-  return <div className="unavailable-state" data-density={density}>{icon}<div><b>{title}</b>{detail ? <p>{detail}</p> : null}<code>{reason}</code></div></div>;
+  return (
+    <div className="unavailable-state" data-density={density}>
+      {icon}
+      <div><b>{title}</b>{detail ? <p>{detail}</p> : null}</div>
+      <details className="unavailable-state-info">
+        <summary aria-label="View technical reason" title="Technical reason">
+          <InterfaceIcons.info aria-hidden="true" size={14} />
+        </summary>
+        <code>{reason}</code>
+      </details>
+    </div>
+  );
 }
 
 export function EmptyState({

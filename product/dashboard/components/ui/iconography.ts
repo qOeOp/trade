@@ -75,6 +75,7 @@ import {
 export type DashboardIcon = LucideIcon;
 
 export const InterfaceIcons = {
+  info: CircleHelp,
   menu: Menu,
   search: Search,
   notification: Bell,

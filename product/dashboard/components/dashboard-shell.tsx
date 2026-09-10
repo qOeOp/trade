@@ -41,11 +41,6 @@ function TopBar({ current }: { current: string }) {
   return (
     <header className="top-bar">
       <MobileModuleDrawer current={current} />
-      <div className="status-tape" aria-label="System evidence status">
-        <span title="MODE Unavailable">MODE <b>Unavailable</b></span>
-        <span title="DATA Unavailable">DATA <b>Unavailable</b></span>
-        <span title="RUNTIME Not ready">RUNTIME <b>Not ready</b></span>
-      </div>
       <ModuleTabLinks activeHref={activeHref} ariaLabel={`${activeModule.label} pages`}
         className="module-tabs" tabs={activeModule.tabs} />
       <div className="top-actions">
@@ -177,10 +172,14 @@ export function DashboardShell({
               <h1>{page.label}</h1>
               <span>{activeModule.purpose}</span>
             </div>
-            <div className="authority-block">
-              <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
-              <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
-              <small>{artifactSourceDetail
+            <details className="authority-disclosure">
+              <summary aria-label="View interface scope" title="Interface scope">
+                <InterfaceIcons.info aria-hidden="true" size={16} />
+              </summary>
+              <div className="authority-block">
+                <span className={`maturity maturity-${maturity === "DRAWABLE_EXACT" ? "exact" : "unavailable"}`}>{maturity}</span>
+                <b>{artifactSourceDetail ? "Verified Artifact read" : artifactDirectory ? "Verified Artifact directory" : researchDirectory ? "Verified Research directory" : sourceIntakeReadback ? "Source Intake exact readback" : composerReadback ? "Develop Composer exact readback" : exploratoryReplayReadback ? "Replay request exact readback" : marketDataFoundation ? "Market Data Owner foundation" : runtimeFoundation ? "Runtime foundation" : portfolioUnavailable ? "Portfolio contract" : operationsConnected ? "Shadow operations" : drawableExact ? "Documented unavailable state" : "Navigation only"}</b>
+                <small>{artifactSourceDetail
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_EDIT_OR_EXECUTION"
                 : artifactDirectory
                 ? "IMPLEMENTATION_ADMITTED - OWNER_CUSTODY_READ_ONLY - NO_BUILD_OR_EXECUTION"
@@ -211,7 +210,8 @@ export function DashboardShell({
                 : drawableExact
                 ? exactBlueprint?.state ?? "IMPLEMENTATION_ADMITTED - FAIL_CLOSED_UNAVAILABLE"
                 : "No Dashboard consumer or action is connected."}</small>
-            </div>
+              </div>
+            </details>
           </header>}
           {operationsRuns ? <OperationsRunStorePreview />
             : operationsRunDetail ? <OperationsRunDetail runIdentity={runIdentity ?? "example"} />
@@ -236,7 +236,7 @@ export function DashboardShell({
               : drawableExact && exactBlueprint ? <ExactRouteGrid blueprint={exactBlueprint} />
                 : <UnavailableBlueprint maturity={maturity as "DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY" | "BLUEPRINT_ONLY_NOT_IMPLEMENTABLE"}
                   routeLabel={rdPlaceholderRoute ? page.label : undefined} />}
-          {!ownsRouteChrome ? <footer className="prototype-notice">
+          {!ownsRouteChrome && !operationsConnected ? <footer className="prototype-notice">
             {artifactSourceDetail
               ? "Source is reconstructed and verified by the Artifact Owner. The viewer cannot edit, execute or mutate custody."
               : artifactDirectory
@@ -256,7 +256,7 @@ export function DashboardShell({
               : portfolioUnavailable
               ? "Only the fixed Portfolio request contract is shown. No Dashboard request, response instance, positive projection or domain action exists."
               : connected
-                ? "Registry, RunStore and zero-effect shadow workers are Trade-owned. Windmill remains active for other Tasks and every non-migrated effect."
+                ? "This page is read only. Actions remain unavailable until their product workflow is connected."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
           </footer> : null}
         </div>
