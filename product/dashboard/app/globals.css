@@ -1369,11 +1369,12 @@ button.panel-info-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 2px colo
 
 @container compact-status-group (max-width: 520px) {
   .compact-status-group-label { padding-left: 12px; }
-  .compact-status-item { min-height: 44px; padding: 7px 10px; gap: 12px; }
+  .compact-status-item { min-height: 50px; padding: 5px 10px; flex-direction: column; justify-content: center; gap: 0; text-align: center; }
 }
 
 @container compact-status-group (max-width: 380px) {
   .compact-status-group dl { grid-template-columns: minmax(0, 1fr); }
+  .compact-status-item { min-height: 44px; padding: 7px 10px; flex-direction: row; justify-content: space-between; gap: 12px; text-align: left; }
   .compact-status-item:last-child:nth-child(odd) { grid-column: auto; }
 }
 

@@ -108,7 +108,9 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 11\.25px, var\(--compact-status-shell\) 11\.75px\)/u);
   assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: column;[^}]+text-align: center;/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
+  assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+text-align: left;/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
   assert.match(runDetail, /<CompactStatusBar className="run-detail-summaries" aria-label="Run summary">/u);
   assert.match(runDetail, /<CompactStatusGroup label="outcome">[\s\S]+?<CompactStatusGroup label="timing">/u);
