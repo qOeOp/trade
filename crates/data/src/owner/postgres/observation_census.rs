@@ -415,10 +415,10 @@ pub(super) async fn load_observation_census_v1(
 ) -> Result<Option<ObservationCensusReadbackV1>, ObservationCensusErrorV1> {
     let query = match read_mode {
         ObservationCensusReadModeV1::LockRows => sqlx::query(
-            "SELECT request_meaning_digest,request_bytes,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1 FOR SHARE",
+            "SELECT request_meaning_digest,request_bytes,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,outbox_identity FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1 FOR SHARE",
         ),
         ObservationCensusReadModeV1::ReadOnly => sqlx::query(
-            "SELECT request_meaning_digest,request_bytes,census_bytes FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1",
+            "SELECT request_meaning_digest,request_bytes,census_identity,census_bytes,census_receipt_identity,census_receipt_bytes,outbox_identity FROM market_data_private.observation_census_records_v1 WHERE request_identity=$1",
         ),
     };
     let Some(row) = query
@@ -442,6 +442,13 @@ pub(super) async fn load_observation_census_v1(
         authority::decode_observation_census_storage_v1(row_bytes(&row, "census_bytes")?)?;
 
     authority::validate_observation_census_for_request_v1(&request, &readback)?;
+    if row_bytes(&row, "census_identity")? != readback.record().identity().as_bytes()
+        || row_bytes(&row, "census_receipt_identity")? != readback.receipt().identity().as_bytes()
+        || row_bytes(&row, "census_receipt_bytes")? != readback.receipt().canonical_bytes()
+        || row_bytes(&row, "outbox_identity")? != readback.receipt().identity().as_bytes()
+    {
+        return Err(ObservationCensusErrorV1::DigestMismatch);
+    }
     let expected = readback
         .record()
         .entries()
@@ -467,10 +474,10 @@ pub(super) async fn load_observation_census_v1(
     .await?;
     let outbox_query = match read_mode {
         ObservationCensusReadModeV1::LockRows => sqlx::query(
-            "SELECT payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1 FOR SHARE",
+            "SELECT outbox_identity,payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1 FOR SHARE",
         ),
         ObservationCensusReadModeV1::ReadOnly => sqlx::query(
-            "SELECT payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1",
+            "SELECT outbox_identity,payload_digest,payload FROM market_data_private.observation_census_outbox_v1 WHERE request_identity=$1",
         ),
     };
     let outbox = outbox_query
@@ -480,7 +487,9 @@ pub(super) async fn load_observation_census_v1(
         .map_err(|_| ObservationCensusErrorV1::StoreUnavailable)?
         .ok_or(ObservationCensusErrorV1::CommitInterrupted)?;
 
-    if row_bytes(&outbox, "payload_digest")? != readback.record().identity().as_bytes()
+    if row_bytes(&outbox, "outbox_identity")? != row_bytes(&row, "outbox_identity")?
+        || row_bytes(&outbox, "outbox_identity")? != readback.receipt().identity().as_bytes()
+        || row_bytes(&outbox, "payload_digest")? != readback.record().identity().as_bytes()
         || row_bytes(&outbox, "payload")? != row_bytes(&row, "census_bytes")?
     {
         return Err(ObservationCensusErrorV1::DigestMismatch);

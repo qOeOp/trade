@@ -753,6 +753,35 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let original_outbox_payload_digest: Vec<u8> = outbox_row.try_get("payload_digest")?;
     let original_outbox_payload: Vec<u8> = outbox_row.try_get("payload")?;
 
+    let damaged_census_receipt = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_receipt_bytes=census_receipt_bytes || decode('00','hex') WHERE request_identity=$1",
+    )
+    .bind(&request_identity)
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(damaged_census_receipt.rows_affected() == 1);
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "damaged census receipt escaped V4 read-only resolution"
+    );
+    let restored_census_receipt = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET census_receipt_bytes=$1 WHERE request_identity=$2",
+    )
+    .bind(&original_census_receipt)
+    .bind(&request_identity)
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(restored_census_receipt.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
     let extra_entry = forge_observation_census_extra_entry(&original_census_storage)?;
     let mut extra_entry_custody = original_joined_cut_custody.clone();
     anyhow::ensure!(extra_entry_custody.len() >= 130);
