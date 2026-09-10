@@ -1369,7 +1369,7 @@ button.panel-info-trigger:focus-visible { outline: 0; box-shadow: 0 0 0 2px colo
 
 @container compact-status-group (max-width: 520px) {
   .compact-status-group-label { padding-left: 12px; }
-  .compact-status-item { min-height: 44px; padding: 7px 12px; gap: 12px; }
+  .compact-status-item { min-height: 44px; padding: 7px 10px; gap: 12px; }
 }
 
 @container compact-status-group (max-width: 380px) {

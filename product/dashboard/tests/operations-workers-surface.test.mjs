@@ -67,6 +67,7 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(css, /\.compact-status-item\[data-tone="protected"\] dd \{ color: var\(--status-protected\); \}/u);
   assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]*padding: 7px 10px;[^}]*gap: 12px;/u);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
   assert.match(workers, /<CompactStatusGroup label="workload">/u);
   for (const label of ["available", "expired", "claimed", "active"]) {
