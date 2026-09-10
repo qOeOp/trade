@@ -865,6 +865,7 @@ pub fn verify_strategy_input_joined_cut_readback_v1(
 pub(crate) fn validate_strategy_input_joined_cut_custody_v1(
     custody: &[u8],
     request: &UntrustedObservationCensusRequestV1,
+    census: &ObservationCensusReadbackV1,
     locator: &UntrustedStrategyInputJoinedCutLocatorV1,
     joined_cut_receipt_digest: BindingDigest,
 ) -> Result<(), ObservationCensusErrorV1> {
@@ -879,10 +880,11 @@ pub(crate) fn validate_strategy_input_joined_cut_custody_v1(
     let decoded_joined_cut_receipt_digest = decoder.digest()?;
     decoder.finish()?;
 
-    if request_identity != request.request_identity()
+    if !verify_observation_census_readback_v1(census)
+        || request_identity != request.request_identity()
         || request_meaning_digest != request.request_meaning_digest()
-        || census_identity != census_digest
-        || !codec::nonzero(census_identity)
+        || census_identity != census.record().identity()
+        || census_digest != census.record().digest()
         || decoded_joined_cut_receipt_digest != joined_cut_receipt_digest
         || codec::digest(codec::JOINED_CUT_CUSTODY_DOMAIN, custody) != locator.joined_cut_identity()
         || locator.joined_cut_identity() != locator.joined_cut_digest()

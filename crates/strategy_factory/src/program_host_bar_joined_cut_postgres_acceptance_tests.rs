@@ -17,6 +17,16 @@ use vibe_data::owner::{
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
+const JOINED_CUT_CUSTODY_DOMAIN: &[u8] = b"VIBE_STRATEGY_INPUT_JOINED_CUT_CUSTODY_V1";
+
+fn joined_cut_custody_identity(custody: &[u8]) -> [u8; 32] {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(JOINED_CUT_CUSTODY_DOMAIN);
+    hasher.update(&[0]);
+    hasher.update(custody);
+    *hasher.finalize().as_bytes()
+}
+
 use crate::{
     OwnerBarJoinedCutPreparationV1,
     artifact_v2::StrategyArtifactV2,
@@ -144,6 +154,45 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     )
     .bind(&original_joined_cut_custody)
     .bind(joined_cut_identity.as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(restored.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
+    let mut forged_custody = original_joined_cut_custody.clone();
+    anyhow::ensure!(forged_custody.len() >= 130);
+    let forged_census_identity = [0x5a; 32];
+    anyhow::ensure!(forged_custody[66..98] != forged_census_identity);
+    forged_custody[66..98].copy_from_slice(&forged_census_identity);
+    forged_custody[98..130].copy_from_slice(&forged_census_identity);
+    let forged_joined_cut_identity = joined_cut_custody_identity(&forged_custody);
+    let forged = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET joined_cut_custody_bytes=$1,joined_cut_identity=$2 WHERE joined_cut_identity=$3",
+    )
+    .bind(&forged_custody)
+    .bind(forged_joined_cut_identity.as_slice())
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(forged.rows_affected() == 1);
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "self-consistent joined-cut custody substituted another census"
+    );
+    let restored = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET joined_cut_custody_bytes=$1,joined_cut_identity=$2 WHERE joined_cut_identity=$3",
+    )
+    .bind(&original_joined_cut_custody)
+    .bind(joined_cut_identity.as_bytes().as_slice())
+    .bind(forged_joined_cut_identity.as_slice())
     .execute(market_mutation_pool)
     .await?;
     anyhow::ensure!(restored.rows_affected() == 1);

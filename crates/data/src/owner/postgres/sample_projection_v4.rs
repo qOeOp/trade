@@ -464,9 +464,18 @@ async fn load_and_validate_joined_custody(
         .await
         .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?
         .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
+    let census = super::observation_census::load_observation_census_v1(
+        transaction,
+        &request.locator(),
+        validation_mode.census_read_mode(),
+    )
+    .await
+    .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?
+    .ok_or(StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
     crate::owner::observation_census::authority::validate_strategy_input_joined_cut_custody_v1(
         &custody,
         &request,
+        &census,
         &locator,
         receipt_digest,
     )
