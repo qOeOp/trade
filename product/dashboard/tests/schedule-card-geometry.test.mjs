@@ -51,9 +51,9 @@ test("schedule unavailable and filtered-empty states are compact and truth prese
 
   assert.match(component, /data-availability="unavailable"/u);
   assert.match(component, /scheduleAvailabilityPresentationV1\(error\)\.title/u);
-  assert.match(component, /!schedules\.length \? <div className=\{styles\.emptyResult\} role="status">/u);
+  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\}/u);
   assert.doesNotMatch(component, /<ScheduleCalendar schedules=\{\[\]\}/u);
   assert.doesNotMatch(component, /CALENDAR_ITEMS_MOCK|Add Event/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*min-height:\s*144px;/u);
-  assert.doesNotMatch(css, /\.unavailableCalendar[^{}]*(?:height|min-height):\s*clamp\((?:500|760)px/u);
+  assert.match(css, /\.scheduleNotice \{[^}]*min-height:\s*144px;/u);
+  assert.doesNotMatch(css, /\.unavailableCalendar|\.emptyResult|\.availabilityNotice/u);
 });

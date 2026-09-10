@@ -13,6 +13,7 @@ import {
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
+import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
@@ -49,10 +50,16 @@ function AvailableReadback({ projection }: { projection: ExploratoryReplayBrowse
           <FactItem label="Simulator" mono title={projection.replayBasis.simulatorIdentity}>{projection.replayBasis.simulatorIdentity}</FactItem>
         </FactGroup>
       </FactGroupGrid>
-      <div className={styles.resultRail} role="status">
-        <EvidenceIcons.warning aria-hidden="true" size={15} />
-        <div><b>Result projection unavailable</b><span>No admitted Owner result readback is connected.</span></div>
-      </div>
+      <InlineNotice
+        className={styles.resultNotice}
+        density="compact"
+        icon={<EvidenceIcons.warning size={15} />}
+        role="status"
+        title="Result projection unavailable"
+        tone="warning"
+      >
+        No admitted Owner result readback is connected.
+      </InlineNotice>
     </>
   );
 }

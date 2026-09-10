@@ -136,20 +136,17 @@ test("calendar body retains the source view, cell, badge, and inspection hierarc
 test("unavailable schedule data preserves the source controls without inventing an empty calendar", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../components/ui/schedule-calendar.module.css", import.meta.url), "utf8");
-  assert.match(component, /error \? <div className=\{styles\.unavailableCalendar\}/);
+  assert.match(component, /error \? <InlineNotice className=\{styles\.scheduleNotice\}/);
   assert.match(component, /data-availability="unavailable"/);
   assert.doesNotMatch(component, /<ScheduleCalendar schedules=\{\[\]\}/);
-  assert.doesNotMatch(css, /\.unavailableCalendar[^{}]*height:\s*clamp\(500px/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*min-height:\s*144px/u);
-  assert.match(css, /\.unavailableCalendar, \.emptyResult \{[^}]*border-radius: var\(--panel-inner-radius\)/u);
-  assert.match(css, /\.availabilityNotice \{/);
-  assert.doesNotMatch(css, /\.availabilityNotice \{[^}]*border-radius:/u);
+  assert.match(css, /\.scheduleNotice \{[^}]*min-height:\s*144px/u);
+  assert.doesNotMatch(css, /\.unavailableCalendar|\.emptyResult|\.availabilityNotice/u);
   assert.match(css, /\.dialog \{[^}]*border-radius: var\(--panel-radius\)/u);
 });
 
 test("filtered schedule data uses a compact content-aware state outside the split inspector", async () => {
   const component = await readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8");
-  assert.match(component, /!schedules\.length \? <div className=\{styles\.emptyResult\} role="status">/u);
+  assert.match(component, /!schedules\.length \? <InlineNotice className=\{styles\.scheduleNotice\}/u);
   assert.match(component, /No matching schedules/u);
   assert.ok(component.indexOf("!schedules.length") < component.indexOf("className={styles.split}"));
 });
