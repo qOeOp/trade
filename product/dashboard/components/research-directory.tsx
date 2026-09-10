@@ -11,6 +11,7 @@ import {
 } from "../lib/research-directory-gateway";
 import type { HistoricalResearchCandidateV1 } from "../lib/rd-historical-custody-client";
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
+import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
@@ -292,11 +293,11 @@ export function ResearchDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<div className={`data-workspace-empty ${availability === "loading" && !showPending
-                ? styles.pendingQuiet : ""}`}>
-                <EvidenceIcons.research aria-hidden="true" size={18} />
-                <p>{availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}</p>
-              </div>}
+              noDataComponent={<DataWorkspaceEmpty state={availability === "loading" ? "loading" : "empty"}
+                className={availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
+                icon={<EvidenceIcons.research aria-hidden="true" size={18} />}>
+                {availability === "loading" ? "Reading verified research…" : "No verified request matches this cut."}
+              </DataWorkspaceEmpty>}
             /> : custodyCandidates.availability === "unavailable" ? (
               <OwnerDirectoryUnavailable
                 icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}
@@ -315,13 +316,13 @@ export function ResearchDirectory() {
               paginationPerPage={20}
               paginationResetKey={normalizedSearch}
               paginationRowsPerPageOptions={[20, 50]}
-              noDataComponent={<div className={`data-workspace-empty ${custodyCandidates.availability === "loading" && !showPending
-                ? styles.pendingQuiet : ""}`}>
-                <EvidenceIcons.pending aria-hidden="true" size={18} />
-                <p>{custodyCandidates.availability === "loading"
+              noDataComponent={<DataWorkspaceEmpty state={custodyCandidates.availability === "loading" ? "loading" : "empty"}
+                className={custodyCandidates.availability === "loading" && !showPending ? styles.pendingQuiet : undefined}
+                icon={<EvidenceIcons.pending aria-hidden="true" size={18} />}>
+                {custodyCandidates.availability === "loading"
                   ? "Reading custody candidates…"
-                  : "No candidate identity matches this cut."}</p>
-              </div>}
+                  : "No candidate identity matches this cut."}
+              </DataWorkspaceEmpty>}
             />}
           </DataTableSurface>
         </PanelFrameBody>
