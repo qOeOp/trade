@@ -20,11 +20,7 @@ import {
   parseOperationalCancellationEnvelopeV1,
   type OperationalCancellationEnvelopeV1,
 } from "../lib/run-cancellation-contract";
-import {
-  AggregateSummary,
-  AggregateSummaryFact,
-  AggregateSummaryGroup,
-} from "./ui/aggregate-summary";
+import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import {
   DetailFact,
   DetailFactGrid,
@@ -38,7 +34,7 @@ import {
 import { EmptyState, EvidenceActions, EvidenceField, EvidenceStrip, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterLink, FilterTabs } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
-import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
+import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
 import { StatusBadge } from "./ui/status-badge";
@@ -289,18 +285,13 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         title={run.operation_id}
         titleId="run-detail-title"
         actions={<>
-          <details className="panel-info-disclosure">
-            <summary aria-label="View run information" title="Run information">
-              <InterfaceIcons.info aria-hidden="true" size={14} />
-            </summary>
-            <div>
-              <span>Observed</span>
-              <b>{new Date(result.observed_at).toLocaleString()}</b>
-              <span>Run identity</span>
-              <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
-              <p>Owner outcome and operational timing are reported independently.</p>
-            </div>
-          </details>
+          <PanelFrameInfo label="View run information">
+            <span>Observed</span>
+            <b>{new Date(result.observed_at).toLocaleString()}</b>
+            <span>Run identity</span>
+            <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
+            <p>Owner outcome and operational timing are reported independently.</p>
+          </PanelFrameInfo>
           <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
           </button>
@@ -325,25 +316,25 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
         </>}
       />
       <PanelFrameBody>
-      <AggregateSummary className="run-detail-summaries" aria-label="Run summary">
-        <AggregateSummaryGroup eyebrow="Outcome" label="Owner outcome"
-          value={run.owner_outcome_state}
-          tone={ownerOutcomeTone(run.owner_outcome_state)}>
-          <AggregateSummaryFact label="Execution" value={run.state} tone={executionStateTone(run.state)} />
-          <AggregateSummaryFact label="Terminal state" value={terminalPresentation.terminalState}
+      <CompactStatusBar className="run-detail-summaries" aria-label="Run summary">
+        <CompactStatusGroup label="outcome">
+          <CompactStatusItem label="owner outcome" value={run.owner_outcome_state}
+            tone={ownerOutcomeTone(run.owner_outcome_state)} />
+          <CompactStatusItem label="execution" value={run.state} tone={executionStateTone(run.state)} />
+          <CompactStatusItem label="terminal state" value={terminalPresentation.terminalState}
             tone={run.terminal_code ? executionStateTone(run.state) : terminalPresentation.terminalTone} />
-          <AggregateSummaryFact label="Transition" value={run.transition_version} />
-        </AggregateSummaryGroup>
-        <AggregateSummaryGroup eyebrow="Timing" label="Duration"
-          value={terminalPresentation.duration}
-          tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)}>
-          <AggregateSummaryFact label="Received" value={displayTime(run.received_at)} />
-          <AggregateSummaryFact label="Started" value={displayTime(run.started_at)} />
-          <AggregateSummaryFact label="Completed"
+          <CompactStatusItem label="transition" value={run.transition_version} />
+        </CompactStatusGroup>
+        <CompactStatusGroup label="timing">
+          <CompactStatusItem label="duration" value={terminalPresentation.duration}
+            tone={run.duration_ms === null ? terminalPresentation.durationTone : executionStateTone(run.state)} />
+          <CompactStatusItem label="received" value={displayTime(run.received_at)} />
+          <CompactStatusItem label="started" value={displayTime(run.started_at)} />
+          <CompactStatusItem label="completed"
             value={run.completed_at ? displayTime(run.completed_at) : "In progress"}
             tone={run.completed_at ? executionStateTone(run.state) : "info"} />
-        </AggregateSummaryGroup>
-      </AggregateSummary>
+        </CompactStatusGroup>
+      </CompactStatusBar>
 
       {operationalCancellation.state !== "none" ? <DetailInspector
         as="section" id="dependency-cancellation-panel" className="dependency-cancellation-panel"
