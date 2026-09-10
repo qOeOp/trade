@@ -15,7 +15,6 @@ use vibe_data::owner::{
     sample_projection_v4::StrategyInputSampleProjectionResolverV4,
     sealed_replay_input::{SealedReplayInput, sealed_replay_input_contains_joined_cut_v1},
     source_binding::BindingDigest,
-    strategy_input_joined_cut::derive_strategy_input_join_identity_v2,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -24,6 +23,10 @@ const OBSERVATION_CENSUS_REQUEST_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_REQUE
 const OBSERVATION_CENSUS_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_RECORD_V1";
 const OBSERVATION_CENSUS_RECEIPT_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_RECEIPT_V1";
 const OBSERVATION_CENSUS_STORAGE_DOMAIN: &[u8] = b"VIBE_OBSERVATION_CENSUS_STORAGE_V1";
+const STRATEGY_INPUT_BINDING_DECLARATION_DOMAIN: &[u8] =
+    b"VIBE_STRATEGY_INPUT_BINDING_DECLARATION_V1";
+const STRATEGY_INPUT_BINDING_DECLARATION_MEANING_DOMAIN: &[u8] =
+    b"VIBE_STRATEGY_INPUT_BINDING_DECLARATION_MEANING_V1";
 
 struct ForgedObservationCensus {
     storage: Vec<u8>,
@@ -48,6 +51,40 @@ fn observation_census_digest(domain: &[u8], bytes: &[u8]) -> [u8; 32] {
 
 fn joined_cut_custody_identity(custody: &[u8]) -> [u8; 32] {
     observation_census_digest(JOINED_CUT_CUSTODY_DOMAIN, custody)
+}
+
+fn forge_strategy_input_binding_scale(original: &[u8]) -> anyhow::Result<(Vec<u8>, [u8; 32])> {
+    let mut cursor = 0;
+    let domain = take_census_storage_field(original, &mut cursor)?;
+    anyhow::ensure!(&original[domain] == STRATEGY_INPUT_BINDING_DECLARATION_DOMAIN);
+    cursor = cursor
+        .checked_add(2 + 32 * 3)
+        .ok_or_else(|| anyhow::anyhow!("binding request header overflow"))?;
+    anyhow::ensure!(
+        original.get(cursor) == Some(&1),
+        "expected exact-instrument scope"
+    );
+    cursor += 1;
+    take_census_storage_field(original, &mut cursor)?;
+    cursor = cursor
+        .checked_add(2)
+        .ok_or_else(|| anyhow::anyhow!("binding semantic header overflow"))?;
+    take_census_storage_field(original, &mut cursor)?;
+    cursor = cursor
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("binding unit overflow"))?;
+    let original_scale = *original
+        .get(cursor)
+        .ok_or_else(|| anyhow::anyhow!("binding scale missing"))?;
+    let forged_scale = original_scale
+        .checked_add(1)
+        .unwrap_or_else(|| original_scale - 1);
+    let mut forged = original.to_vec();
+    forged[cursor] = forged_scale;
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(STRATEGY_INPUT_BINDING_DECLARATION_MEANING_DOMAIN);
+    hasher.update(&forged);
+    Ok((forged, *hasher.finalize().as_bytes()))
 }
 
 fn take_census_storage_field(
@@ -261,7 +298,6 @@ fn forge_observation_census_join_staleness(
     original_max_staleness_ns: u64,
     forged_max_staleness_ns: u64,
 ) -> anyhow::Result<ForgedObservationCensusTrigger> {
-    anyhow::ensure!(original_join_identity != forged_join_identity);
     anyhow::ensure!(original_max_staleness_ns != forged_max_staleness_ns);
     anyhow::ensure!(original_request.len() >= 70);
     let meaning_length = usize::try_from(u32::from_be_bytes(original_request[66..70].try_into()?))?;
@@ -417,19 +453,6 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     let forged_max_staleness_ns = original_max_staleness_ns
         .checked_add(1)
         .ok_or_else(|| anyhow::anyhow!("join max staleness overflow"))?;
-    let join_inputs = design_join
-        .roles
-        .iter()
-        .map(|role| role.semantic_id.clone())
-        .collect::<Vec<_>>();
-    let forged_join_identity = *derive_strategy_input_join_identity_v2(
-        &design_join.semantic_id,
-        &join_inputs,
-        &design_join.alignment_semantic_id,
-        &design_join.trigger_input_id,
-        forged_max_staleness_ns,
-    )
-    .as_bytes();
     let fixture = Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
         basis, role_set,
     ))
@@ -463,6 +486,53 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     anyhow::ensure!(
         first_projection.schedule_dependency_set_digest()
             == recovered_projection.schedule_dependency_set_digest()
+    );
+
+    let binding_row = sqlx::query(
+        "SELECT request_bytes,request_meaning_digest,owner_binding_digest FROM market_data_private.strategy_input_binding_declarations_v1 WHERE strategy_design_identity=$1 AND input_role_identity=$2",
+    )
+    .bind(design_identity.as_bytes().as_slice())
+    .bind(input_role_identities[0].as_bytes().as_slice())
+    .fetch_one(market_mutation_pool)
+    .await?;
+    let original_binding_request: Vec<u8> = binding_row.try_get("request_bytes")?;
+    let original_binding_meaning: Vec<u8> = binding_row.try_get("request_meaning_digest")?;
+    let original_binding_digest: Vec<u8> = binding_row.try_get("owner_binding_digest")?;
+    let (forged_binding_request, forged_binding_meaning) =
+        forge_strategy_input_binding_scale(&original_binding_request)?;
+    let forged_binding = sqlx::query(
+        "UPDATE market_data_private.strategy_input_binding_declarations_v1 SET request_bytes=$1,request_meaning_digest=$2 WHERE strategy_design_identity=$3 AND input_role_identity=$4",
+    )
+    .bind(&forged_binding_request)
+    .bind(forged_binding_meaning.as_slice())
+    .bind(design_identity.as_bytes().as_slice())
+    .bind(input_role_identities[0].as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(forged_binding.rows_affected() == 1);
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "coherent binding declaration scale substitution escaped Owner rederivation"
+    );
+    let restored_binding = sqlx::query(
+        "UPDATE market_data_private.strategy_input_binding_declarations_v1 SET request_bytes=$1,request_meaning_digest=$2,owner_binding_digest=$3 WHERE strategy_design_identity=$4 AND input_role_identity=$5",
+    )
+    .bind(&original_binding_request)
+    .bind(&original_binding_meaning)
+    .bind(&original_binding_digest)
+    .bind(design_identity.as_bytes().as_slice())
+    .bind(input_role_identities[0].as_bytes().as_slice())
+    .execute(market_mutation_pool)
+    .await?;
+    anyhow::ensure!(restored_binding.rows_affected() == 1);
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
     );
 
     let joined_cut_identity = native_request.joined_cut_identity;
@@ -800,7 +870,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
         &original_request,
         &original_census_storage,
         original_join_identity,
-        forged_join_identity,
+        original_join_identity,
         original_max_staleness_ns,
         forged_max_staleness_ns,
     )?;
@@ -843,7 +913,7 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
             .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
             .await
             .is_err(),
-        "coherent join-staleness substitution escaped the immutable V4 subject meaning"
+        "coherent max-staleness substitution retained a stale derived join identity"
     );
     let mut restore_staleness_transaction = market_mutation_pool.begin().await?;
     let restored_staleness_outbox = sqlx::query(

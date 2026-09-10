@@ -29,8 +29,8 @@ use crate::owner::{
 };
 
 use super::{
-    load_durable_instrument_readback, load_pit_for_update, load_pit_observation_batch_for_update,
-    load_source_for_update,
+    load_durable_instrument_readback, load_pit, load_pit_for_update, load_pit_observation_batch,
+    load_pit_observation_batch_for_update, load_source_for_update,
 };
 
 pub(super) const MAX_STRATEGY_INPUT_BINDING_REQUEST_BYTES_V1: usize = codec::MAX_REQUEST_BYTES;
@@ -281,6 +281,32 @@ async fn resolve_and_bind(
     let instrument =
         validate_native_instrument_master(transaction, request, &batch, semantics_fact).await?;
     validate_native_market_semantics(request, &batch, instrument, semantics_fact)?;
+    bind_strategy_input_role(request, &batch)
+        .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
+}
+
+pub(super) async fn rederive_strategy_input_binding_read_only_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    request: &UntrustedStrategyInputBindingRequest,
+) -> Result<StrategyInputBindingReceipt, StrategyInputBindingRegistryErrorV1> {
+    let aggregate = load_pit(transaction, request.snapshot_identity, false, false)
+        .await
+        .map_err(map_pit_error)?
+        .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
+    let stored = load_pit_observation_batch(transaction, &aggregate, false)
+        .await
+        .map_err(map_pit_error)?
+        .ok_or(StrategyInputBindingRegistryErrorV1::PitUnavailable)?;
+    let batch = verify_observation_batch(
+        &aggregate,
+        stored.source_binding_identity,
+        stored.source_binding_lineage_root,
+        stored.source_binding_lineage_version,
+        stored.digest,
+        &stored.bytes,
+        &stored.rows,
+    )
+    .map_err(map_pit_error)?;
     bind_strategy_input_role(request, &batch)
         .map_err(StrategyInputBindingRegistryErrorV1::BindingUnavailable)
 }

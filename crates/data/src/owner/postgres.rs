@@ -4605,13 +4605,25 @@ async fn load_pit_for_update(
     snapshot_identity: BindingDigest,
     require_current_head: bool,
 ) -> Result<Option<PitSnapshotCommitAggregate>, PitSnapshotError> {
-    let row = sqlx::query(
-        "SELECT f.snapshot_identity AS row_identity,f.fact_digest,f.request_identity,f.request_digest,f.correction_stream_identity,f.correction_sequence,f.lineage_root AS fact_lineage_root,f.lineage_version AS fact_lineage_version,f.aggregate_json,o.event_identity AS outbox_event_identity,o.aggregate_identity AS outbox_aggregate_identity,o.payload AS outbox_payload,o.payload_digest AS outbox_digest,h.lineage_root AS head_lineage_root,h.snapshot_identity AS head_identity,h.fact_digest AS head_digest,h.lineage_version AS head_version FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity=f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root=f.lineage_root WHERE f.snapshot_identity=$1 FOR UPDATE OF f,o,h",
-    )
-    .bind(snapshot_identity.as_bytes().as_slice())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    load_pit(transaction, snapshot_identity, require_current_head, true).await
+}
+
+async fn load_pit(
+    transaction: &mut Transaction<'_, Postgres>,
+    snapshot_identity: BindingDigest,
+    require_current_head: bool,
+    lock: bool,
+) -> Result<Option<PitSnapshotCommitAggregate>, PitSnapshotError> {
+    let query = if lock {
+        "SELECT f.snapshot_identity AS row_identity,f.fact_digest,f.request_identity,f.request_digest,f.correction_stream_identity,f.correction_sequence,f.lineage_root AS fact_lineage_root,f.lineage_version AS fact_lineage_version,f.aggregate_json,o.event_identity AS outbox_event_identity,o.aggregate_identity AS outbox_aggregate_identity,o.payload AS outbox_payload,o.payload_digest AS outbox_digest,h.lineage_root AS head_lineage_root,h.snapshot_identity AS head_identity,h.fact_digest AS head_digest,h.lineage_version AS head_version FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity=f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root=f.lineage_root WHERE f.snapshot_identity=$1 FOR UPDATE OF f,o,h"
+    } else {
+        "SELECT f.snapshot_identity AS row_identity,f.fact_digest,f.request_identity,f.request_digest,f.correction_stream_identity,f.correction_sequence,f.lineage_root AS fact_lineage_root,f.lineage_version AS fact_lineage_version,f.aggregate_json,o.event_identity AS outbox_event_identity,o.aggregate_identity AS outbox_aggregate_identity,o.payload AS outbox_payload,o.payload_digest AS outbox_digest,h.lineage_root AS head_lineage_root,h.snapshot_identity AS head_identity,h.fact_digest AS head_digest,h.lineage_version AS head_version FROM market_data_private.pit_snapshot_facts_v1 AS f JOIN market_data_private.pit_snapshot_outbox_v1 AS o ON o.aggregate_identity=f.snapshot_identity JOIN market_data_private.pit_snapshot_heads_v1 AS h ON h.lineage_root=f.lineage_root WHERE f.snapshot_identity=$1"
+    };
+    let row = sqlx::query(query)
+        .bind(snapshot_identity.as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     row.map(|row| decode_pit_row(&row, require_current_head))
         .transpose()
 }
@@ -4837,14 +4849,25 @@ async fn load_pit_observation_batch_for_update(
     transaction: &mut Transaction<'_, Postgres>,
     aggregate: &PitSnapshotCommitAggregate,
 ) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
+    load_pit_observation_batch(transaction, aggregate, true).await
+}
+
+async fn load_pit_observation_batch(
+    transaction: &mut Transaction<'_, Postgres>,
+    aggregate: &PitSnapshotCommitAggregate,
+    lock: bool,
+) -> Result<Option<StoredPitObservationBatch>, PitSnapshotError> {
     let fact = aggregate.fact();
-    let Some(header) = sqlx::query(
-        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1 FOR UPDATE",
-    )
-    .bind(fact.snapshot_identity().as_bytes().as_slice())
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
+    let header_query = if lock {
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1 FOR UPDATE"
+    } else {
+        "SELECT source_binding_identity,source_binding_lineage_root,source_binding_lineage_version,batch_digest,batch_bytes,row_count FROM market_data_private.pit_observation_batches_v1 WHERE snapshot_identity=$1"
+    };
+    let Some(header) = sqlx::query(header_query)
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?
     else {
         return Ok(None);
     };
@@ -4873,13 +4896,16 @@ async fn load_pit_observation_batch_for_update(
     let bytes: Vec<u8> = header
         .try_get("batch_bytes")
         .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
-    let native_rows = sqlx::query(
-        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal FOR UPDATE",
-    )
-    .bind(fact.snapshot_identity().as_bytes().as_slice())
-    .fetch_all(&mut **transaction)
-    .await
-    .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+    let rows_query = if lock {
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal FOR UPDATE"
+    } else {
+        "SELECT ordinal,symbolic_key,member_key,row_bytes FROM market_data_private.pit_observation_rows_v1 WHERE snapshot_identity=$1 ORDER BY ordinal"
+    };
+    let native_rows = sqlx::query(rows_query)
+        .bind(fact.snapshot_identity().as_bytes().as_slice())
+        .fetch_all(&mut **transaction)
+        .await
+        .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
     let rows = native_rows
         .into_iter()
         .map(|row| {

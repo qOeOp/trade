@@ -383,10 +383,13 @@ fn decode_time_evidence(
 fn validate_request(
     request: &UntrustedObservationCensusRequestV1,
 ) -> Result<(), ObservationCensusErrorV1> {
-    if !codec::nonzero(request.request_identity)
+    if crate::owner::strategy_input_joined_cut::validate_strategy_input_join_claim_v1(
+        &request.join_claim,
+    )
+    .is_err()
+        || !codec::nonzero(request.request_identity)
         || !codec::nonzero(request.stable_correlation)
         || request.trigger_logical_time == 0
-        || request.join_claim.roles.len() < 2
         || request.request_meaning_digest != request_meaning_digest(request)?
     {
         Err(ObservationCensusErrorV1::InvalidRequest)

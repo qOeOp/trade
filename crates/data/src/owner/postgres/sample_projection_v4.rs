@@ -541,6 +541,13 @@ async fn validate_joined_design_bindings(
         let owner_binding_digest: &[u8] = row
             .try_get("owner_binding_digest")
             .map_err(|_| StrategyInputSampleProjectionErrorV4::StoreUntrusted)?;
+        let rederived =
+            super::strategy_input_binding_registry::rederive_strategy_input_binding_read_only_v1(
+                transaction,
+                &binding_request,
+            )
+            .await
+            .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
         if binding_request.pit_request_identity != request.pit_locator().request_identity
             || binding_request.strategy_design_identity
                 != request.join_claim().strategy_design_identity
@@ -550,6 +557,7 @@ async fn validate_joined_design_bindings(
                 .as_bytes()
                 != request_meaning_digest
             || owner_binding_digest != &exact[32..64]
+            || rederived.digest().as_bytes() != owner_binding_digest
         {
             return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
         }
