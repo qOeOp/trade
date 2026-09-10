@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
 import { UnavailableState } from "./ui/evidence-strip";
 import { FilterButton } from "./ui/filter-toolbar";
-import { EvidenceIcons, InterfaceIcons, ModuleIcons } from "./ui/iconography";
+import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
 import {
   PanelFrame,
   PanelFrameBody,
@@ -15,7 +16,6 @@ import {
   PanelFrameInfo,
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
-import { SummaryItem, SummaryList } from "./ui/summary-list";
 import { PageStack } from "./ui/page-stack";
 
 const FOUNDATION_REVISION = "73edb0e32f1745cc835951a1b9bd6cb38e456c35";
@@ -25,6 +25,7 @@ const SOURCE_LOCATOR = `https://github.com/qOeOp/trade/blob/${FOUNDATION_REVISIO
 
 const prerequisites = [
   {
+    sequence: "01",
     label: "Permissions",
     detail: "Authorized strategy generation",
     owner: "Governance",
@@ -32,6 +33,7 @@ const prerequisites = [
     href: `${SOURCE_LOCATOR}#L33-L35`,
   },
   {
+    sequence: "02",
     label: "Instance storage",
     detail: "Create and restore custody",
     owner: "Runtime",
@@ -39,6 +41,7 @@ const prerequisites = [
     href: `${SOURCE_LOCATOR}#L36-L37`,
   },
   {
+    sequence: "03",
     label: "Artifact checks",
     detail: "Compatibility recovery",
     owner: "Artifact",
@@ -46,6 +49,7 @@ const prerequisites = [
     href: `${SOURCE_LOCATOR}#L38-L39`,
   },
   {
+    sequence: "04",
     label: "Execution recovery",
     detail: "Latest safe recovery point",
     owner: "Execution",
@@ -53,6 +57,59 @@ const prerequisites = [
     href: `${SOURCE_LOCATOR}#L40-L41`,
   },
 ] as const;
+
+type RuntimePrerequisite = (typeof prerequisites)[number];
+
+const prerequisiteColumns: DataWorkspaceColumn<RuntimePrerequisite>[] = [
+  {
+    id: "sequence",
+    name: "#",
+    selector: (item) => item.sequence,
+    width: "64px",
+    minWidth: "64px",
+    cell: (item) => <span className="table-cell-numeric">{item.sequence}</span>,
+  },
+  {
+    id: "owner",
+    name: "Owner",
+    selector: (item) => item.owner,
+    width: "132px",
+    minWidth: "132px",
+  },
+  {
+    id: "requirement",
+    name: "Requirement",
+    selector: (item) => item.label,
+    minWidth: "300px",
+    grow: 2,
+    cell: (item) => (
+      <div className="table-cell-stack">
+        <b>{item.label}</b>
+        <span>{item.detail}</span>
+      </div>
+    ),
+  },
+  {
+    id: "dependency",
+    name: "Canonical dependency",
+    selector: (item) => item.dependency,
+    minWidth: "300px",
+    grow: 2,
+    cell: (item) => (
+      <a className="table-cell-stack" href={item.href} target="_blank" rel="noreferrer">
+        <b>{item.dependency}</b>
+      </a>
+    ),
+  },
+  {
+    id: "state",
+    name: "State",
+    selector: () => "Pending",
+    width: "112px",
+    minWidth: "112px",
+    cell: () => <StatusBadge tone="warning">Pending</StatusBadge>,
+  },
+];
 
 export function RuntimeFoundationNotReadyCard() {
   const router = useRouter();
@@ -104,18 +161,13 @@ export function RuntimeFoundationNotReadyCard() {
             reason="RUNTIME_FOUNDATION_NOT_READY"
             detail="Connect all four required services before creating or restoring a strategy instance."
           />
-          <SummaryList aria-label="Required Runtime services">
-            {prerequisites.map((item, index) => (
-              <SummaryItem
-                key={item.label}
-                eyebrow={`Requirement ${String(index + 1).padStart(2, "0")}`}
-                title={item.label}
-                description={item.detail}
-                leading={<EvidenceIcons.pending aria-label="Pending" size={15} />}
-                trailing={<StatusBadge tone="warning">Pending</StatusBadge>}
-              />
-            ))}
-          </SummaryList>
+          <DataWorkspaceTable<RuntimePrerequisite>
+            ariaLabel="Required Runtime services"
+            columns={prerequisiteColumns}
+            data={prerequisites}
+            dense
+            keyField="label"
+          />
         </PageStack>
       </PanelFrameBody>
       <PanelFrameFooter layout="split">
