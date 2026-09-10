@@ -1,5 +1,6 @@
 .root {
   min-width: 0;
+  container: readback-lookup / inline-size;
 }
 
 .rail {
@@ -114,7 +115,7 @@
   font-size: 10px;
 }
 
-@media (max-width: 720px) {
+@container readback-lookup (max-width: 640px) {
   .rail,
   .rail[data-columns="double"] {
     grid-template-columns: 1fr;
