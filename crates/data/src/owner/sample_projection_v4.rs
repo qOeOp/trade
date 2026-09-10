@@ -20,7 +20,7 @@ pub(super) const SCHEMA_V4: u16 = 4;
 pub(super) const FRAME_KIND_V4: u8 = 1;
 pub(super) const JOINED_CUT_KIND_V4: u8 = 2;
 pub(super) const BAR_LIFECYCLE_V4: u8 = 2;
-pub(super) const HEADER_LEN_V4: usize = 74;
+pub(super) const HEADER_LEN_V4: usize = 106;
 pub(super) const COMPONENT_LEN_V4: usize = 612;
 pub(super) const V3_HEADER_LEN: usize = 42;
 const RECEIPT_DOMAIN_V4: &[u8] = b"market-data.sample-projection-receipt.v4\0";
@@ -250,6 +250,7 @@ pub(super) struct DecodedStrategyInputSampleProjectionV4 {
     receipt_digest: [u8; 32],
     kind: StrategyInputSampleProjectionKindV4,
     subject_identity: [u8; 32],
+    subject_join_identity: [u8; 32],
     schedule_dependency_set_digest: [u8; 32],
     component_count: u32,
     components: Box<[StrategyInputSampleProjectionComponentV4]>,
@@ -266,6 +267,10 @@ impl DecodedStrategyInputSampleProjectionV4 {
 
     pub(super) const fn subject_identity(&self) -> [u8; 32] {
         self.subject_identity
+    }
+
+    pub(super) const fn subject_join_identity(&self) -> [u8; 32] {
+        self.subject_join_identity
     }
 
     pub(super) const fn schedule_dependency_set_digest(&self) -> [u8; 32] {
@@ -305,6 +310,7 @@ pub(super) fn prepare_frame_v4(
     prepare_v4(
         StrategyInputSampleProjectionKindV4::Frame,
         source.projection.subject_identity(),
+        [0; 32],
         None,
         &[source],
     )
@@ -320,6 +326,7 @@ pub(super) fn prepare_joined_cut_v4(
     prepare_v4(
         StrategyInputSampleProjectionKindV4::JoinedCut,
         *joined_cut.digest().as_bytes(),
+        *joined_cut.join_identity().as_bytes(),
         Some(joined_cut),
         sources,
     )
@@ -328,6 +335,7 @@ pub(super) fn prepare_joined_cut_v4(
 fn prepare_v4(
     kind: StrategyInputSampleProjectionKindV4,
     subject_identity: [u8; 32],
+    subject_join_identity: [u8; 32],
     joined_cut: Option<&StrategyInputJoinedCutReceiptV1>,
     sources: &[VerifiedV3ProjectionSourceV4<'_>],
 ) -> Result<PreparedStrategyInputSampleProjectionV4, StrategyInputSampleProjectionErrorV4> {
@@ -426,6 +434,7 @@ fn prepare_v4(
     bytes.push(kind.tag());
     bytes.push(BAR_LIFECYCLE_V4);
     bytes.extend_from_slice(&subject_identity);
+    bytes.extend_from_slice(&subject_join_identity);
     bytes.extend_from_slice(&schedule_dependency_set_digest);
     bytes.extend_from_slice(&component_count.to_le_bytes());
     for component in exact_components {
@@ -438,6 +447,7 @@ fn prepare_v4(
             receipt_digest,
             kind,
             subject_identity,
+            subject_join_identity,
             schedule_dependency_set_digest,
             component_count,
             components: components.into_boxed_slice(),
@@ -588,11 +598,20 @@ pub(super) fn decode_v4(
     let subject_identity = bytes[6..38]
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
-    let schedule_dependency_set_digest = bytes[38..70]
+    let subject_join_identity = bytes[38..70]
+        .try_into()
+        .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
+    if (kind == StrategyInputSampleProjectionKindV4::Frame && subject_join_identity != [0; 32])
+        || (kind == StrategyInputSampleProjectionKindV4::JoinedCut
+            && subject_join_identity == [0; 32])
+    {
+        return Err(StrategyInputSampleProjectionErrorV4::SubjectMismatch);
+    }
+    let schedule_dependency_set_digest = bytes[70..102]
         .try_into()
         .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?;
     let component_count = u32::from_le_bytes(
-        bytes[70..74]
+        bytes[102..106]
             .try_into()
             .map_err(|_| StrategyInputSampleProjectionErrorV4::InvalidLength)?,
     );
@@ -624,6 +643,7 @@ pub(super) fn decode_v4(
         receipt_digest: actual,
         kind,
         subject_identity,
+        subject_join_identity,
         schedule_dependency_set_digest,
         component_count,
         components: components.into_boxed_slice(),
@@ -748,9 +768,9 @@ mod tests {
         assert_eq!(
             prepared.receipt_digest(),
             [
-                0x53, 0x37, 0x5b, 0x9d, 0xcc, 0xb4, 0x0f, 0x9b, 0x27, 0x7e, 0x90, 0xff, 0x5a, 0x8e,
-                0x26, 0x1a, 0x8e, 0x48, 0xf8, 0xeb, 0xa1, 0xab, 0xea, 0x5c, 0x16, 0xf6, 0xf6, 0x13,
-                0x00, 0x34, 0x2f, 0x42,
+                0x51, 0x0d, 0xbb, 0x5a, 0x4d, 0x3a, 0x61, 0xe8, 0x27, 0xae, 0x3f, 0x97, 0x42, 0xb9,
+                0xe0, 0xd6, 0x08, 0xe8, 0x39, 0xab, 0x39, 0xcb, 0x45, 0x4a, 0xe9, 0xb8, 0x72, 0x71,
+                0x9e, 0xce, 0x2f, 0x49,
             ]
         );
         assert_eq!(prepared.kind(), StrategyInputSampleProjectionKindV4::Frame);
@@ -823,7 +843,7 @@ mod tests {
         second[304..612].fill(22);
 
         let mut bytes = prepared.canonical_bytes()[..HEADER_LEN_V4].to_vec();
-        bytes[70..74].copy_from_slice(&2_u32.to_le_bytes());
+        bytes[102..106].copy_from_slice(&2_u32.to_le_bytes());
         bytes.extend_from_slice(&first);
         bytes.extend_from_slice(&second);
         let expected_digest = digest(RECEIPT_DOMAIN_V4, &bytes);

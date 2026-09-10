@@ -483,6 +483,7 @@ async fn load_and_validate_joined_custody(
     .map_err(|_| StrategyInputSampleProjectionErrorV4::SubjectMismatch)?;
     validate_joined_design_bindings(transaction, decoded, &request, validation_mode).await?;
     if receipt_digest.as_bytes() != &subject_digest
+        || request.join_claim().join_identity.as_bytes() != &decoded.subject_join_identity()
         || !crate::owner::sample_projection_v4::joined_components_match_observation_census_v4(
             decoded, &request, &census,
         )

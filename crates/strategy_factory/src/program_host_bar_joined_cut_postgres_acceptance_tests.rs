@@ -15,6 +15,7 @@ use vibe_data::owner::{
     sample_projection_v4::StrategyInputSampleProjectionResolverV4,
     sealed_replay_input::{SealedReplayInput, sealed_replay_input_contains_joined_cut_v1},
     source_binding::BindingDigest,
+    strategy_input_joined_cut::derive_strategy_input_join_identity_v2,
 };
 use vibe_testkit::postgres::{CanonicalOwnerPostgresTestDatabaseV1, CanonicalOwnerTestRoleV1};
 
@@ -252,6 +253,96 @@ fn forge_observation_census_design_identity(
     })
 }
 
+fn forge_observation_census_join_staleness(
+    original_request: &[u8],
+    original_storage: &[u8],
+    original_join_identity: [u8; 32],
+    forged_join_identity: [u8; 32],
+    original_max_staleness_ns: u64,
+    forged_max_staleness_ns: u64,
+) -> anyhow::Result<ForgedObservationCensusTrigger> {
+    anyhow::ensure!(original_join_identity != forged_join_identity);
+    anyhow::ensure!(original_max_staleness_ns != forged_max_staleness_ns);
+    anyhow::ensure!(original_request.len() >= 70);
+    let meaning_length = usize::try_from(u32::from_be_bytes(original_request[66..70].try_into()?))?;
+    let meaning_start = 70_usize;
+    let meaning_end = meaning_start
+        .checked_add(meaning_length)
+        .ok_or_else(|| anyhow::anyhow!("request meaning length overflow"))?;
+    anyhow::ensure!(meaning_end == original_request.len());
+    let matches = original_request[meaning_start..meaning_end]
+        .windows(original_join_identity.len())
+        .enumerate()
+        .filter_map(|(offset, bytes)| (bytes == original_join_identity).then_some(offset))
+        .collect::<Vec<_>>();
+    let [join_offset] = matches.as_slice() else {
+        anyhow::bail!("request must contain the exact join identity once");
+    };
+    let join_start = meaning_start + join_offset;
+    let join_end = join_start + original_join_identity.len();
+    let mut max_staleness_start = join_end;
+    take_census_storage_field(original_request, &mut max_staleness_start)?;
+    take_census_storage_field(original_request, &mut max_staleness_start)?;
+    let max_staleness_end = max_staleness_start
+        .checked_add(8)
+        .ok_or_else(|| anyhow::anyhow!("request max staleness overflow"))?;
+    anyhow::ensure!(max_staleness_end <= meaning_end);
+    anyhow::ensure!(
+        u64::from_be_bytes(original_request[max_staleness_start..max_staleness_end].try_into()?)
+            == original_max_staleness_ns
+    );
+
+    let mut request = original_request.to_vec();
+    request[join_start..join_end].copy_from_slice(&forged_join_identity);
+    request[max_staleness_start..max_staleness_end]
+        .copy_from_slice(&forged_max_staleness_ns.to_be_bytes());
+    let request_meaning_digest = observation_census_digest(
+        OBSERVATION_CENSUS_REQUEST_DOMAIN,
+        &request[meaning_start..meaning_end],
+    );
+    request[34..66].copy_from_slice(&request_meaning_digest);
+
+    anyhow::ensure!(original_storage.len() >= 38);
+    let count = u32::from_be_bytes(original_storage[34..38].try_into()?);
+    let mut cursor = 38;
+    for _ in 0..count {
+        take_census_storage_field(original_storage, &mut cursor)?;
+    }
+    let record_range = take_census_storage_field(original_storage, &mut cursor)?;
+    let receipt_range = take_census_storage_field(original_storage, &mut cursor)?;
+    anyhow::ensure!(cursor == original_storage.len());
+    anyhow::ensure!(record_range.len() >= 170);
+    anyhow::ensure!(receipt_range.len() == 130);
+
+    let mut storage = original_storage.to_vec();
+    storage[record_range.start + 34..record_range.start + 66]
+        .copy_from_slice(&request_meaning_digest);
+    storage[record_range.start + 130..record_range.start + 162]
+        .copy_from_slice(&forged_join_identity);
+    let census_identity =
+        observation_census_digest(OBSERVATION_CENSUS_DOMAIN, &storage[record_range.clone()]);
+    storage[receipt_range.start + 34..receipt_range.start + 66]
+        .copy_from_slice(&request_meaning_digest);
+    storage[receipt_range.start + 66..receipt_range.start + 98].copy_from_slice(&census_identity);
+    let receipt_identity = observation_census_digest(
+        OBSERVATION_CENSUS_RECEIPT_DOMAIN,
+        &storage[receipt_range.clone()],
+    );
+    let storage_identity =
+        observation_census_digest(OBSERVATION_CENSUS_STORAGE_DOMAIN, &storage[32..]);
+    storage[..32].copy_from_slice(&storage_identity);
+    Ok(ForgedObservationCensusTrigger {
+        request,
+        request_meaning_digest,
+        census: ForgedObservationCensus {
+            receipt: storage[receipt_range].to_vec(),
+            storage,
+            census_identity,
+            receipt_identity,
+        },
+    })
+}
+
 use crate::{
     OwnerBarJoinedCutPreparationV1,
     artifact_v2::StrategyArtifactV2,
@@ -318,6 +409,27 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     anyhow::ensure!(plan.bfp_role_bindings().len() == 12);
     let composer = issue_sealed_develop_composer_readback_for_acceptance_v2(&plan, &artifact)?;
     let role_set = issue_strategy_design_role_set_for_acceptance_v1(&composer)?;
+    let [design_join] = role_set.joins.as_slice() else {
+        anyhow::bail!("six-role BAR design must contain one join");
+    };
+    let original_join_identity = *design_join.join_identity.as_bytes();
+    let original_max_staleness_ns = design_join.max_staleness_ns;
+    let forged_max_staleness_ns = original_max_staleness_ns
+        .checked_add(1)
+        .ok_or_else(|| anyhow::anyhow!("join max staleness overflow"))?;
+    let join_inputs = design_join
+        .roles
+        .iter()
+        .map(|role| role.semantic_id.clone())
+        .collect::<Vec<_>>();
+    let forged_join_identity = *derive_strategy_input_join_identity_v2(
+        &design_join.semantic_id,
+        &join_inputs,
+        &design_join.alignment_semantic_id,
+        &design_join.trigger_input_id,
+        forged_max_staleness_ns,
+    )
+    .as_bytes();
     let fixture = Box::pin(complete_owner_bar_joined_cut_acceptance_fixture_v1(
         basis, role_set,
     ))
@@ -677,6 +789,90 @@ async fn owner_postgres_v4_moves_through_program_host_and_real_backtest() -> any
     .await?;
     anyhow::ensure!(restored_design_record.rows_affected() == 1);
     restore_design_transaction.commit().await?;
+    let restored_projection = recovered_owner
+        .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+        .await?;
+    anyhow::ensure!(
+        restored_projection.canonical_bytes() == recovered_projection.canonical_bytes()
+    );
+
+    let forged_staleness = forge_observation_census_join_staleness(
+        &original_request,
+        &original_census_storage,
+        original_join_identity,
+        forged_join_identity,
+        original_max_staleness_ns,
+        forged_max_staleness_ns,
+    )?;
+    let mut forged_staleness_custody = original_joined_cut_custody.clone();
+    anyhow::ensure!(forged_staleness_custody.len() >= 162);
+    forged_staleness_custody[34..66].copy_from_slice(&forged_staleness.request_meaning_digest);
+    forged_staleness_custody[66..98].copy_from_slice(&forged_staleness.census.census_identity);
+    forged_staleness_custody[98..130].copy_from_slice(&forged_staleness.census.census_identity);
+    let forged_staleness_joined_cut_identity =
+        joined_cut_custody_identity(&forged_staleness_custody);
+    let mut forged_staleness_transaction = market_mutation_pool.begin().await?;
+    let forged_staleness_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(forged_staleness.census.receipt_identity.as_slice())
+    .bind(forged_staleness.census.census_identity.as_slice())
+    .bind(&forged_staleness.census.storage)
+    .bind(&request_identity)
+    .execute(&mut *forged_staleness_transaction)
+    .await?;
+    anyhow::ensure!(forged_staleness_outbox.rows_affected() == 1);
+    let forged_staleness_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET request_meaning_digest=$1,request_bytes=$2,census_identity=$3,census_bytes=$4,census_receipt_identity=$5,census_receipt_bytes=$6,outbox_identity=$5,joined_cut_identity=$7,joined_cut_custody_bytes=$8 WHERE request_identity=$9",
+    )
+    .bind(forged_staleness.request_meaning_digest.as_slice())
+    .bind(&forged_staleness.request)
+    .bind(forged_staleness.census.census_identity.as_slice())
+    .bind(&forged_staleness.census.storage)
+    .bind(forged_staleness.census.receipt_identity.as_slice())
+    .bind(&forged_staleness.census.receipt)
+    .bind(forged_staleness_joined_cut_identity.as_slice())
+    .bind(&forged_staleness_custody)
+    .bind(&request_identity)
+    .execute(&mut *forged_staleness_transaction)
+    .await?;
+    anyhow::ensure!(forged_staleness_record.rows_affected() == 1);
+    forged_staleness_transaction.commit().await?;
+    anyhow::ensure!(
+        recovered_owner
+            .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
+            .await
+            .is_err(),
+        "coherent join-staleness substitution escaped the immutable V4 subject meaning"
+    );
+    let mut restore_staleness_transaction = market_mutation_pool.begin().await?;
+    let restored_staleness_outbox = sqlx::query(
+        "UPDATE market_data_private.observation_census_outbox_v1 SET outbox_identity=$1,payload_digest=$2,payload=$3 WHERE request_identity=$4",
+    )
+    .bind(&original_outbox_row_identity)
+    .bind(&original_outbox_payload_digest)
+    .bind(&original_outbox_payload)
+    .bind(&request_identity)
+    .execute(&mut *restore_staleness_transaction)
+    .await?;
+    anyhow::ensure!(restored_staleness_outbox.rows_affected() == 1);
+    let restored_staleness_record = sqlx::query(
+        "UPDATE market_data_private.observation_census_records_v1 SET request_meaning_digest=$1,request_bytes=$2,census_identity=$3,census_bytes=$4,census_receipt_identity=$5,census_receipt_bytes=$6,outbox_identity=$7,joined_cut_identity=$8,joined_cut_custody_bytes=$9 WHERE request_identity=$10",
+    )
+    .bind(&original_request_meaning_digest)
+    .bind(&original_request)
+    .bind(&original_census_identity)
+    .bind(&original_census_storage)
+    .bind(&original_census_receipt_identity)
+    .bind(&original_census_receipt)
+    .bind(&original_outbox_identity)
+    .bind(&original_joined_cut_identity)
+    .bind(&original_joined_cut_custody)
+    .bind(&request_identity)
+    .execute(&mut *restore_staleness_transaction)
+    .await?;
+    anyhow::ensure!(restored_staleness_record.rows_affected() == 1);
+    restore_staleness_transaction.commit().await?;
     let restored_projection = recovered_owner
         .resolve_strategy_input_sample_projection_v4(recovered_native_join.locator())
         .await?;
