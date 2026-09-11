@@ -148,6 +148,8 @@ ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_
 ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_bytes BYTEA;
 ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_digest TEXT;
 ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_bytes BYTEA;
@@ -573,6 +575,133 @@ AS $function$
         END
 $function$;
 -- END INTERNAL_VERIFY_SOURCE_V3
+-- BEGIN NATIVE_SOURCE_STORAGE_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE research record;
+        DECLARE family record;
+        DECLARE member record;
+        DECLARE replay_outbox record;
+        DECLARE all_missing boolean;
+        DECLARE all_present boolean;
+        BEGIN
+          IF session_user NOT IN ('rd_owner','backtest_owner')
+             OR current_user <> 'rd_exploratory_replay_api_owner'
+             OR pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable')
+          THEN RETURN NULL; END IF;
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v3(
+            requested_request_identity,requested_meaning_digest,
+            requested_receipt_identity,requested_seal_digest
+          );
+          IF base IS NULL THEN
+            base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
+              requested_request_identity,requested_meaning_digest,
+              requested_receipt_identity,requested_seal_digest
+            );
+          END IF;
+          IF base IS NULL OR base->>'availability'<>'AVAILABLE' THEN RETURN NULL; END IF;
+
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity;
+          SELECT * INTO STRICT research
+            FROM public.rd_research_request_receipts_v1
+           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
+          SELECT * INTO STRICT family
+            FROM public.rd_trial_families_v1
+           WHERE trial_family_identity=sealed.trial_family_identity
+             AND intent_identity=sealed.intent_identity;
+          SELECT * INTO STRICT member
+            FROM public.rd_trial_family_members_v1
+           WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
+          SELECT * INTO STRICT replay_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          all_missing := research.request_storage_bytes IS NULL
+            AND research.request_storage_digest IS NULL
+            AND research.receipt_storage_bytes IS NULL
+            AND research.receipt_storage_digest IS NULL
+            AND research.intent_storage_bytes IS NULL
+            AND research.intent_storage_digest IS NULL
+            AND family.root_storage_bytes IS NULL
+            AND family.root_storage_digest IS NULL
+            AND family.root_receipt_storage_bytes IS NULL
+            AND family.root_receipt_storage_digest IS NULL
+            AND family.initial_frontier_storage_bytes IS NULL
+            AND family.initial_frontier_storage_digest IS NULL
+            AND member.member_storage_bytes IS NULL
+            AND member.member_storage_digest IS NULL
+            AND member.membership_receipt_storage_bytes IS NULL
+            AND member.membership_receipt_storage_digest IS NULL
+            AND sealed.v2_request_storage_digest IS NULL
+            AND sealed.v2_receipt_storage_bytes IS NULL
+            AND sealed.v2_receipt_storage_digest IS NULL
+            AND replay_outbox.canonical_payload_bytes IS NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NULL
+            AND replay_outbox.canonical_envelope_bytes IS NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NULL;
+          IF all_missing THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','LEGACY_MISSING');
+          END IF;
+          all_present := research.request_storage_bytes IS NOT NULL
+            AND research.request_storage_digest IS NOT NULL
+            AND research.receipt_storage_bytes IS NOT NULL
+            AND research.receipt_storage_digest IS NOT NULL
+            AND research.intent_storage_bytes IS NOT NULL
+            AND research.intent_storage_digest IS NOT NULL
+            AND family.root_storage_bytes IS NOT NULL
+            AND family.root_storage_digest IS NOT NULL
+            AND family.root_receipt_storage_bytes IS NOT NULL
+            AND family.root_receipt_storage_digest IS NOT NULL
+            AND family.initial_frontier_storage_bytes IS NOT NULL
+            AND family.initial_frontier_storage_digest IS NOT NULL
+            AND member.member_storage_bytes IS NOT NULL
+            AND member.member_storage_digest IS NOT NULL
+            AND member.membership_receipt_storage_bytes IS NOT NULL
+            AND member.membership_receipt_storage_digest IS NOT NULL
+            AND sealed.v2_request_storage_digest IS NOT NULL
+            AND sealed.v2_receipt_storage_bytes IS NOT NULL
+            AND sealed.v2_receipt_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_payload_bytes IS NOT NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_envelope_bytes IS NOT NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NOT NULL;
+          IF NOT all_present THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+          END IF;
+
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,'custody_state','AVAILABLE',
+            'research_request_identity',research.request_identity,
+            'research_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.request_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.request_storage_digest,'mirror',research.request_json),
+            'research_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.receipt_storage_digest,'mirror',research.receipt_json),
+            'research_intent',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.intent_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.intent_storage_digest,'mirror',research.intent_json),
+            'trial_family_root',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_storage_digest,'mirror',family.root_json),
+            'trial_family_root_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_receipt_storage_digest,'mirror',family.root_receipt_json),
+            'trial_family_initial_member',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.member_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.member_storage_digest,'mirror',member.member_json),
+            'trial_family_membership_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.membership_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.membership_receipt_storage_digest,'mirror',member.membership_receipt_json),
+            'trial_family_frontier',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.initial_frontier_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.initial_frontier_storage_digest,'mirror',pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_request_storage_digest,'mirror',pg_catalog.convert_from(sealed.v2_canonical_request_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_receipt_storage_digest,'mirror',sealed.v2_receipt_json),
+            'replay_outbox_payload',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_payload_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_payload_storage_digest,'mirror',replay_outbox.payload_json),
+            'replay_outbox',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_envelope_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_envelope_storage_digest,'mirror',pg_catalog.jsonb_build_object('event_identity',replay_outbox.event_identity,'aggregate_identity',replay_outbox.aggregate_identity,'event_kind',replay_outbox.event_kind,'payload_digest',replay_outbox.payload_digest,'payload_json',replay_outbox.payload_json,'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms))
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+          RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+        END
+$function$;
+-- END NATIVE_SOURCE_STORAGE_SOURCE_V2
 -- BEGIN SELECTOR_RESOLVER_SOURCE_V2
 CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
   requested_request_identity text,
@@ -625,12 +754,15 @@ AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' 
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner;
 DO $replay_internal_verifier_acl$
 DECLARE verifier regprocedure;
 BEGIN

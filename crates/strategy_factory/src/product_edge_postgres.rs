@@ -451,6 +451,9 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("v2_meaning_digest", "text"),
             crate::schema_materialization::optional("v2_seal_digest", "text"),
             crate::schema_materialization::optional("v2_receipt_json", "jsonb"),
+            crate::schema_materialization::optional("v2_request_storage_digest", "text"),
+            crate::schema_materialization::optional("v2_receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("v2_receipt_storage_digest", "text"),
         ],
         constraints: &["p:request_identity:::false:false:true:"],
         indexes: &[

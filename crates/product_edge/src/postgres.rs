@@ -2394,7 +2394,7 @@ impl ProductEdgePostgresOwnerV1 {
         let canonical_storage_json =
             serde_json::from_slice::<serde_json::Value>(&canonical_storage_bytes)
                 .map_err(|_| ProductEdgeError::Unavailable)?;
-        sqlx::query("UPDATE product_edge_request_admissions_v1 SET canonical_storage_bytes=$1, canonical_storage_digest=$2, canonical_storage_json=$3 WHERE request_identity=$4 AND canonical_storage_bytes IS NULL AND canonical_storage_digest IS NULL AND canonical_storage_json IS NULL")
+        let persisted = sqlx::query("UPDATE product_edge_request_admissions_v1 SET canonical_storage_bytes=$1, canonical_storage_digest=$2, canonical_storage_json=$3 WHERE request_identity=$4 AND canonical_storage_bytes IS NULL AND canonical_storage_digest IS NULL AND canonical_storage_json IS NULL")
             .bind(&canonical_storage_bytes)
             .bind(&canonical_storage_digest)
             .bind(canonical_storage_json)
@@ -2402,8 +2402,26 @@ impl ProductEdgePostgresOwnerV1 {
             .execute(&mut *transaction)
             .await
             .map_err(storage)?;
-        result.canonical_storage_bytes = canonical_storage_bytes;
-        result.canonical_storage_digest = canonical_storage_digest;
+        if persisted.rows_affected() != 1 {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        let storage_row = sqlx::query("SELECT canonical_storage_bytes,canonical_storage_digest,canonical_storage_json FROM product_edge_request_admissions_v1 WHERE request_identity=$1 FOR SHARE")
+            .bind(&stored_request_identity)
+            .fetch_one(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        verify_admission_storage(
+            &mut result,
+            storage_row
+                .try_get("canonical_storage_bytes")
+                .map_err(storage)?,
+            storage_row
+                .try_get("canonical_storage_digest")
+                .map_err(storage)?,
+            storage_row
+                .try_get("canonical_storage_json")
+                .map_err(storage)?,
+        )?;
         transaction.commit().await.map_err(storage)?;
         Ok(result)
     }

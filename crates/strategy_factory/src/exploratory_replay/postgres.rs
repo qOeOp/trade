@@ -624,6 +624,124 @@ struct LockedOutboxRowV1 {
     committed_at_epoch_ms: u64,
 }
 
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE research record;
+        DECLARE family record;
+        DECLARE member record;
+        DECLARE replay_outbox record;
+        DECLARE all_missing boolean;
+        DECLARE all_present boolean;
+        BEGIN
+          IF session_user NOT IN ('rd_owner','backtest_owner')
+             OR current_user <> 'rd_exploratory_replay_api_owner'
+             OR pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable')
+          THEN RETURN NULL; END IF;
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v3(
+            requested_request_identity,requested_meaning_digest,
+            requested_receipt_identity,requested_seal_digest
+          );
+          IF base IS NULL THEN
+            base := rd_owner_api.verify_exploratory_replay_request_internal_v2(
+              requested_request_identity,requested_meaning_digest,
+              requested_receipt_identity,requested_seal_digest
+            );
+          END IF;
+          IF base IS NULL OR base->>'availability'<>'AVAILABLE' THEN RETURN NULL; END IF;
+
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity;
+          SELECT * INTO STRICT research
+            FROM public.rd_research_request_receipts_v1
+           WHERE intent_json->>'intent_identity'=sealed.intent_identity;
+          SELECT * INTO STRICT family
+            FROM public.rd_trial_families_v1
+           WHERE trial_family_identity=sealed.trial_family_identity
+             AND intent_identity=sealed.intent_identity;
+          SELECT * INTO STRICT member
+            FROM public.rd_trial_family_members_v1
+           WHERE trial_family_identity=sealed.trial_family_identity AND ordinal=0;
+          SELECT * INTO STRICT replay_outbox
+            FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          all_missing := research.request_storage_bytes IS NULL
+            AND research.request_storage_digest IS NULL
+            AND research.receipt_storage_bytes IS NULL
+            AND research.receipt_storage_digest IS NULL
+            AND research.intent_storage_bytes IS NULL
+            AND research.intent_storage_digest IS NULL
+            AND family.root_storage_bytes IS NULL
+            AND family.root_storage_digest IS NULL
+            AND family.root_receipt_storage_bytes IS NULL
+            AND family.root_receipt_storage_digest IS NULL
+            AND family.initial_frontier_storage_bytes IS NULL
+            AND family.initial_frontier_storage_digest IS NULL
+            AND member.member_storage_bytes IS NULL
+            AND member.member_storage_digest IS NULL
+            AND member.membership_receipt_storage_bytes IS NULL
+            AND member.membership_receipt_storage_digest IS NULL
+            AND sealed.v2_request_storage_digest IS NULL
+            AND sealed.v2_receipt_storage_bytes IS NULL
+            AND sealed.v2_receipt_storage_digest IS NULL
+            AND replay_outbox.canonical_payload_bytes IS NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NULL
+            AND replay_outbox.canonical_envelope_bytes IS NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NULL;
+          IF all_missing THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','LEGACY_MISSING');
+          END IF;
+          all_present := research.request_storage_bytes IS NOT NULL
+            AND research.request_storage_digest IS NOT NULL
+            AND research.receipt_storage_bytes IS NOT NULL
+            AND research.receipt_storage_digest IS NOT NULL
+            AND research.intent_storage_bytes IS NOT NULL
+            AND research.intent_storage_digest IS NOT NULL
+            AND family.root_storage_bytes IS NOT NULL
+            AND family.root_storage_digest IS NOT NULL
+            AND family.root_receipt_storage_bytes IS NOT NULL
+            AND family.root_receipt_storage_digest IS NOT NULL
+            AND family.initial_frontier_storage_bytes IS NOT NULL
+            AND family.initial_frontier_storage_digest IS NOT NULL
+            AND member.member_storage_bytes IS NOT NULL
+            AND member.member_storage_digest IS NOT NULL
+            AND member.membership_receipt_storage_bytes IS NOT NULL
+            AND member.membership_receipt_storage_digest IS NOT NULL
+            AND sealed.v2_request_storage_digest IS NOT NULL
+            AND sealed.v2_receipt_storage_bytes IS NOT NULL
+            AND sealed.v2_receipt_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_payload_bytes IS NOT NULL
+            AND replay_outbox.canonical_payload_storage_digest IS NOT NULL
+            AND replay_outbox.canonical_envelope_bytes IS NOT NULL
+            AND replay_outbox.canonical_envelope_storage_digest IS NOT NULL;
+          IF NOT all_present THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+          END IF;
+
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,'custody_state','AVAILABLE',
+            'research_request_identity',research.request_identity,
+            'research_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.request_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.request_storage_digest,'mirror',research.request_json),
+            'research_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.receipt_storage_digest,'mirror',research.receipt_json),
+            'research_intent',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.intent_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.intent_storage_digest,'mirror',research.intent_json),
+            'trial_family_root',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_storage_digest,'mirror',family.root_json),
+            'trial_family_root_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.root_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.root_receipt_storage_digest,'mirror',family.root_receipt_json),
+            'trial_family_initial_member',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.member_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.member_storage_digest,'mirror',member.member_json),
+            'trial_family_membership_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(member.membership_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',member.membership_receipt_storage_digest,'mirror',member.membership_receipt_json),
+            'trial_family_frontier',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(family.initial_frontier_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',family.initial_frontier_storage_digest,'mirror',pg_catalog.convert_from(family.initial_frontier_storage_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_request_storage_digest,'mirror',pg_catalog.convert_from(sealed.v2_canonical_request_bytes,'UTF8')::pg_catalog.jsonb),
+            'replay_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(sealed.v2_receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',sealed.v2_receipt_storage_digest,'mirror',sealed.v2_receipt_json),
+            'replay_outbox_payload',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_payload_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_payload_storage_digest,'mirror',replay_outbox.payload_json),
+            'replay_outbox',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(replay_outbox.canonical_envelope_bytes,'base64'),pg_catalog.chr(10),''),'digest',replay_outbox.canonical_envelope_storage_digest,'mirror',pg_catalog.jsonb_build_object('event_identity',replay_outbox.event_identity,'aggregate_identity',replay_outbox.aggregate_identity,'event_kind',replay_outbox.event_kind,'payload_digest',replay_outbox.payload_digest,'payload_json',replay_outbox.payload_json,'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms))
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows OR data_exception THEN
+          RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+        END
+"#;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct LockedEnvelopeV1 {
@@ -903,10 +1021,10 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
               committed_at_epoch_ms BIGINT NOT NULL,
               request_schema_version SMALLINT NOT NULL DEFAULT 1,
               v2_canonical_request_bytes BYTEA,
-              v2_request_storage_digest TEXT,
               v2_meaning_digest TEXT,
               v2_seal_digest TEXT,
               v2_receipt_json JSONB,
+              v2_request_storage_digest TEXT,
               v2_receipt_storage_bytes BYTEA,
               v2_receipt_storage_digest TEXT
             );
@@ -1012,6 +1130,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     let mut publication = pool.begin().await.map_err(storage)?;
 
     for statement in [
+        "DROP FUNCTION IF EXISTS rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)",
         "DROP FUNCTION IF EXISTS rd_owner_api.resolve_exploratory_replay_request_v2(text,text)",
@@ -1391,6 +1510,12 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         .await
         .map_err(storage)?;
     }
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "CREATE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(requested_request_identity text,requested_meaning_digest text,requested_receipt_identity text,requested_seal_digest text) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog AS $function${NATIVE_SOURCE_STORAGE_SOURCE_V2}$function$"
+    )))
+    .execute(&mut *publication)
+    .await
+    .map_err(storage)?;
     sqlx::query(
         "
         CREATE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
@@ -1491,6 +1616,9 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner",
+        "ALTER FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
+        "GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner",
@@ -2135,13 +2263,12 @@ pub(crate) async fn lock_for_backtest_v2(
             .fetch_one(&backtest.pool)
             .await
             .map_err(storage)?;
-    let mut result = decode_v2_read_result(
+    let result = decode_v2_read_result(
         &locator.request_identity,
         &locator.meaning_digest,
         Some(locator),
         value,
     )?;
-    hydrate_exact_replay_storage_pool(&backtest.pool, &mut result).await?;
     Ok(result)
 }
 
@@ -2156,13 +2283,12 @@ pub(crate) async fn resolve_for_rd_v2(
             .fetch_one(rd_pool)
             .await
             .map_err(storage)?;
-    let mut result = decode_v2_read_result(
+    let result = decode_v2_read_result(
         &selector.request_identity,
         &selector.meaning_digest,
         None,
         value,
     )?;
-    hydrate_exact_replay_storage_pool(rd_pool, &mut result).await?;
     Ok(result)
 }
 
@@ -2177,153 +2303,13 @@ pub(crate) async fn resolve_for_rd_v2_in_transaction(
             .fetch_one(&mut **transaction)
             .await
             .map_err(storage)?;
-    let mut result = decode_v2_read_result(
+    let result = decode_v2_read_result(
         &locator.request_identity,
         &locator.meaning_digest,
         Some(locator),
         value,
     )?;
-    hydrate_exact_replay_storage_transaction(transaction, &mut result).await?;
     Ok(result)
-}
-
-async fn hydrate_exact_replay_storage_pool(
-    pool: &PgPool,
-    result: &mut ExploratoryReplayReadResultV2,
-) -> Result<(), ExploratoryReplayOwnerError> {
-    let Some(readback) = result.readback.as_mut() else {
-        return Ok(());
-    };
-    let sealed = sqlx::query("SELECT v2_canonical_request_bytes,v2_request_storage_digest,v2_receipt_storage_bytes,v2_receipt_storage_digest,v2_receipt_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
-        .bind(readback.request_identity()).fetch_one(pool).await.map_err(storage)?;
-    let outbox = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2' FOR SHARE")
-        .bind(readback.request_identity()).fetch_one(pool).await.map_err(storage)?;
-    hydrate_exact_replay_storage_rows(readback, &sealed, &outbox)
-}
-
-async fn hydrate_exact_replay_storage_transaction(
-    transaction: &mut Transaction<'_, Postgres>,
-    result: &mut ExploratoryReplayReadResultV2,
-) -> Result<(), ExploratoryReplayOwnerError> {
-    let Some(readback) = result.readback.as_mut() else {
-        return Ok(());
-    };
-    let sealed = sqlx::query("SELECT v2_canonical_request_bytes,v2_request_storage_digest,v2_receipt_storage_bytes,v2_receipt_storage_digest,v2_receipt_json FROM public.rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
-        .bind(readback.request_identity()).fetch_one(&mut **transaction).await.map_err(storage)?;
-    let outbox = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM public.rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2' FOR SHARE")
-        .bind(readback.request_identity()).fetch_one(&mut **transaction).await.map_err(storage)?;
-    hydrate_exact_replay_storage_rows(readback, &sealed, &outbox)
-}
-
-fn hydrate_exact_replay_storage_rows(
-    readback: &mut SealedExploratoryReplayReadbackV2,
-    sealed: &sqlx::postgres::PgRow,
-    outbox: &sqlx::postgres::PgRow,
-) -> Result<(), ExploratoryReplayOwnerError> {
-    let request_bytes: Option<Vec<u8>> = sealed
-        .try_get("v2_canonical_request_bytes")
-        .map_err(storage)?;
-    let request_digest: Option<String> = sealed
-        .try_get("v2_request_storage_digest")
-        .map_err(storage)?;
-    let receipt_bytes: Option<Vec<u8>> = sealed
-        .try_get("v2_receipt_storage_bytes")
-        .map_err(storage)?;
-    let receipt_digest: Option<String> = sealed
-        .try_get("v2_receipt_storage_digest")
-        .map_err(storage)?;
-    let envelope_bytes: Option<Vec<u8>> = outbox
-        .try_get("canonical_envelope_bytes")
-        .map_err(storage)?;
-    let envelope_digest: Option<String> = outbox
-        .try_get("canonical_envelope_storage_digest")
-        .map_err(storage)?;
-    let payload_bytes: Option<Vec<u8>> =
-        outbox.try_get("canonical_payload_bytes").map_err(storage)?;
-    let payload_digest: Option<String> = outbox
-        .try_get("canonical_payload_storage_digest")
-        .map_err(storage)?;
-    if request_bytes.is_none()
-        && request_digest.is_none()
-        && receipt_bytes.is_none()
-        && receipt_digest.is_none()
-        && envelope_bytes.is_none()
-        && envelope_digest.is_none()
-        && payload_bytes.is_none()
-        && payload_digest.is_none()
-    {
-        return Ok(());
-    }
-    let (
-        Some(request_bytes),
-        Some(request_digest),
-        Some(receipt_bytes),
-        Some(receipt_digest),
-        Some(envelope_bytes),
-        Some(envelope_digest),
-        Some(payload_bytes),
-        Some(payload_digest),
-    ) = (
-        request_bytes,
-        request_digest,
-        receipt_bytes,
-        receipt_digest,
-        envelope_bytes,
-        envelope_digest,
-        payload_bytes,
-        payload_digest,
-    )
-    else {
-        return Err(ExploratoryReplayOwnerError::Unavailable(
-            "Replay original-byte custody missing".into(),
-        ));
-    };
-    let receipt_json: serde_json::Value = sealed.try_get("v2_receipt_json").map_err(storage)?;
-    let outbox_payload_json: serde_json::Value = outbox.try_get("payload_json").map_err(storage)?;
-    let outbox_json = serde_json::json!({
-        "event_identity": outbox.try_get::<String, _>("event_identity").map_err(storage)?,
-        "aggregate_identity": outbox.try_get::<String, _>("aggregate_identity").map_err(storage)?,
-        "event_kind": outbox.try_get::<String, _>("event_kind").map_err(storage)?,
-        "payload_digest": outbox.try_get::<String, _>("payload_digest").map_err(storage)?,
-        "payload_json": outbox_payload_json,
-        "committed_at_epoch_ms": u64::try_from(outbox.try_get::<i64, _>("committed_at_epoch_ms").map_err(storage)?).map_err(unavailable)?,
-    });
-    if serde_json::from_slice::<serde_json::Value>(&request_bytes).map_err(unavailable)?
-        != serde_json::to_value(&readback.request).map_err(unavailable)?
-        || serde_json::from_slice::<serde_json::Value>(&receipt_bytes).map_err(unavailable)?
-            != receipt_json
-        || serde_json::from_slice::<serde_json::Value>(&payload_bytes).map_err(unavailable)?
-            != outbox_json["payload_json"]
-        || serde_json::from_slice::<serde_json::Value>(&envelope_bytes).map_err(unavailable)?
-            != outbox_json
-        || crate::native_replay_rd_sources_v2::owner_storage_digest(
-            crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1,
-            &request_bytes,
-        ) != request_digest
-        || crate::native_replay_rd_sources_v2::owner_storage_digest(
-            crate::native_replay_rd_sources_v2::REPLAY_RECEIPT_STORAGE_DOMAIN_V1,
-            &receipt_bytes,
-        ) != receipt_digest
-        || crate::native_replay_rd_sources_v2::owner_storage_digest(
-            crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
-            &payload_bytes,
-        ) != payload_digest
-        || crate::native_replay_rd_sources_v2::owner_storage_digest(
-            crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
-            &envelope_bytes,
-        ) != envelope_digest
-    {
-        return Err(ExploratoryReplayOwnerError::Unavailable(
-            "Replay original-byte custody mismatch".into(),
-        ));
-    }
-    readback.canonical_request_bytes = request_bytes;
-    readback.canonical_request_storage_digest = request_digest;
-    readback.canonical_receipt_bytes = receipt_bytes;
-    readback.canonical_receipt_storage_digest = receipt_digest;
-    readback.canonical_outbox_bytes = envelope_bytes;
-    readback.canonical_outbox_storage_digest = envelope_digest;
-    Ok(())
 }
 
 fn decode_v2_read_result(
@@ -3906,7 +3892,10 @@ fn unavailable(error: impl Display) -> ExploratoryReplayOwnerError {
 
 #[cfg(test)]
 mod source_tests {
-    use super::{INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2, INTERNAL_VERIFY_SOURCE_V3};
+    use super::{
+        INTERNAL_VERIFY_SOURCE_V1, INTERNAL_VERIFY_SOURCE_V2, INTERNAL_VERIFY_SOURCE_V3,
+        NATIVE_SOURCE_STORAGE_SOURCE_V2,
+    };
 
     const AUTHORITY_MIGRATION: &str = include_str!(
         "../../../../product/rd-workbench/postgres-init/10-migrate-authority-custody.sh"
@@ -3918,6 +3907,10 @@ mod source_tests {
             ("INTERNAL_VERIFY_SOURCE_V1", INTERNAL_VERIFY_SOURCE_V1),
             ("INTERNAL_VERIFY_SOURCE_V2", INTERNAL_VERIFY_SOURCE_V2),
             ("INTERNAL_VERIFY_SOURCE_V3", INTERNAL_VERIFY_SOURCE_V3),
+            (
+                "NATIVE_SOURCE_STORAGE_SOURCE_V2",
+                NATIVE_SOURCE_STORAGE_SOURCE_V2,
+            ),
         ] {
             assert_eq!(migration_prosrc(marker), source, "{marker} drifted");
         }

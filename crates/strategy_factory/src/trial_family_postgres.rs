@@ -52,7 +52,7 @@ pub(crate) const TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
         ("trial_family_identity", "text"), ("intent_identity", "text"),
         ("root_digest", "text"), ("root_json", "jsonb"),
         ("root_receipt_json", "jsonb"), ("committed_at_epoch_ms", "bigint")
-    ], optional [("root_storage_bytes", "bytea"), ("root_storage_digest", "text"), ("root_receipt_storage_bytes", "bytea"), ("root_receipt_storage_digest", "text")], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
+    ], optional [("root_storage_bytes", "bytea"), ("root_storage_digest", "text"), ("root_receipt_storage_bytes", "bytea"), ("root_receipt_storage_digest", "text"), ("initial_frontier_storage_bytes", "bytea"), ("initial_frontier_storage_digest", "text")], ["p:trial_family_identity:::false:false:true:", "u:intent_identity:::false:false:true:"],
     [primary "trial_family_identity", unique "intent_identity"]),
     table!("rd_trial_family_members_v1", &["rd_exploratory_replay_api_owner"], [
         ("member_identity", "text"), ("trial_family_identity", "text"),
@@ -108,19 +108,19 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
     for (relation_name, statement) in [
         (
             "rd_trial_families_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, root_storage_bytes BYTEA, root_storage_digest TEXT, root_receipt_storage_bytes BYTEA, root_receipt_storage_digest TEXT, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS rd_trial_families_v1 (trial_family_identity TEXT PRIMARY KEY, intent_identity TEXT NOT NULL UNIQUE, root_digest TEXT NOT NULL, root_json JSONB NOT NULL, root_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, root_storage_bytes BYTEA, root_storage_digest TEXT, root_receipt_storage_bytes BYTEA, root_receipt_storage_digest TEXT, initial_frontier_storage_bytes BYTEA, initial_frontier_storage_digest TEXT)",
         ),
         (
             "rd_trial_family_members_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, member_storage_bytes BYTEA, member_storage_digest TEXT, membership_receipt_storage_bytes BYTEA, membership_receipt_storage_digest TEXT, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, ordinal))",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_members_v1 (member_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), ordinal INTEGER NOT NULL, fact_identity TEXT NOT NULL UNIQUE, member_digest TEXT NOT NULL, member_json JSONB NOT NULL, membership_receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, member_storage_bytes BYTEA, member_storage_digest TEXT, membership_receipt_storage_bytes BYTEA, membership_receipt_storage_digest TEXT, UNIQUE (trial_family_identity, ordinal))",
         ),
         (
             "rd_trial_family_heads_v1",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, frontier_storage_bytes BYTEA, frontier_storage_digest TEXT, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_heads_v1 (trial_family_identity TEXT PRIMARY KEY REFERENCES rd_trial_families_v1(trial_family_identity), frontier_identity TEXT NOT NULL UNIQUE, frontier_digest TEXT NOT NULL, frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, frontier_storage_bytes BYTEA, frontier_storage_digest TEXT)",
         ),
         (
             "rd_trial_family_attempt_cuts_v2",
-            "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, census_frontier_storage_bytes BYTEA, census_frontier_storage_digest TEXT, attempt_frontier_storage_bytes BYTEA, attempt_frontier_storage_digest TEXT, candidate_set_frontier_storage_bytes BYTEA, candidate_set_frontier_storage_digest TEXT, committed_at_epoch_ms BIGINT NOT NULL, UNIQUE (trial_family_identity, attempt_ordinal))",
+            "CREATE TABLE IF NOT EXISTS rd_trial_family_attempt_cuts_v2 (census_frontier_identity TEXT PRIMARY KEY, trial_family_identity TEXT NOT NULL REFERENCES rd_trial_families_v1(trial_family_identity), attempt_ordinal INTEGER NOT NULL, attempt_frontier_identity TEXT NOT NULL UNIQUE, candidate_set_frontier_identity TEXT NOT NULL UNIQUE, census_frontier_json JSONB NOT NULL, attempt_frontier_json JSONB NOT NULL, candidate_set_frontier_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL, census_frontier_storage_bytes BYTEA, census_frontier_storage_digest TEXT, attempt_frontier_storage_bytes BYTEA, attempt_frontier_storage_digest TEXT, candidate_set_frontier_storage_bytes BYTEA, candidate_set_frontier_storage_digest TEXT, UNIQUE (trial_family_identity, attempt_ordinal))",
         ),
         (
             "rd_artifact_trial_family_bindings_v1",
@@ -140,6 +140,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), TrialFamilyError> {
         "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT",
         "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_bytes BYTEA",
         "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_digest TEXT",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_bytes BYTEA",
+        "ALTER TABLE rd_trial_families_v1 ADD COLUMN IF NOT EXISTS initial_frontier_storage_digest TEXT",
         "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_bytes BYTEA",
         "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_digest TEXT",
         "ALTER TABLE rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_bytes BYTEA",
@@ -193,12 +195,13 @@ pub(crate) async fn persist_initial_family(
         crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
         &family.census_frontier,
     )?;
-    sqlx::query("INSERT INTO rd_trial_families_v1 (trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes,root_storage_digest,root_receipt_storage_bytes,root_receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
+    sqlx::query("INSERT INTO rd_trial_families_v1 (trial_family_identity, intent_identity, root_digest, root_json, root_receipt_json, root_storage_bytes,root_storage_digest,root_receipt_storage_bytes,root_receipt_storage_digest,initial_frontier_storage_bytes,initial_frontier_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)")
         .bind(family.root.trial_family_identity())
         .bind(family.root_receipt.intent_identity())
         .bind(family.root.root_digest())
         .bind(root_json).bind(root_receipt_json)
         .bind(root_bytes).bind(root_storage_digest).bind(root_receipt_bytes).bind(root_receipt_storage_digest)
+        .bind(&frontier_bytes).bind(&frontier_storage_digest)
         .bind(committed_at)
         .execute(&mut **transaction)
         .await
