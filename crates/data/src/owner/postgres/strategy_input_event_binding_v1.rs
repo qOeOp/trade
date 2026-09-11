@@ -723,7 +723,16 @@ fn validate_rd_request_against_package(
     }
     let request = readback.request().as_dto();
     let replay = package.replay_input();
-    if parse_owner_digest(request.pit_scope.digest.as_str())? != replay.scope_digest()
+    let corpus_strategy_design = package
+        .corpus()
+        .members()
+        .first()
+        .map(|member| member.joined_cut().strategy_design_identity())
+        .ok_or(StrategyInputEventBindingErrorV1::InvalidEventCensus)?;
+    if !strategy_identity_matches(
+        request.strategy_design.identity.as_str(),
+        corpus_strategy_design,
+    )? || parse_owner_digest(request.pit_scope.digest.as_str())? != replay.scope_digest()
         || parse_owner_digest(request.pit_snapshot.identity.as_str())? != replay.snapshot_identity()
         || parse_owner_digest(request.pit_snapshot.digest.as_str())?
             != replay.snapshot_fact_digest()
@@ -741,6 +750,14 @@ fn validate_rd_request_against_package(
         return Err(StrategyInputEventBindingErrorV1::InvalidRequest);
     }
     Ok(())
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn strategy_identity_matches(
+    requested: &str,
+    corpus: BindingDigest,
+) -> Result<bool, StrategyInputEventBindingErrorV1> {
+    Ok(parse_owner_digest(requested)? == corpus)
 }
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -1675,6 +1692,27 @@ mod tests {
                 Err(StrategyInputEventBindingErrorV1::InvalidRequest)
             );
         }
+    }
+
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    #[test]
+    fn fixed_port_rejects_request_a_with_strategy_corpus_b() {
+        let strategy_a = d(0x11);
+        let strategy_b = d(0x22);
+        let request_a = format!(
+            "sha256:{}",
+            strategy_a
+                .as_bytes()
+                .iter()
+                .map(|byte| format!("{byte:02x}"))
+                .collect::<String>()
+        );
+        assert_eq!(strategy_identity_matches(&request_a, strategy_a), Ok(true));
+        assert_eq!(strategy_identity_matches(&request_a, strategy_b), Ok(false));
+        assert_eq!(
+            strategy_identity_matches("missing-owner-digest", strategy_a),
+            Err(StrategyInputEventBindingErrorV1::InvalidRequest)
+        );
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
