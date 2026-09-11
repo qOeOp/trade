@@ -16,7 +16,7 @@ import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
-import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
 
@@ -156,7 +156,7 @@ export function ExploratoryReplayReadbackWorkbench({
           }}
         >
           <ReadbackLookupField label="Request identity" mono>
-            <input
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
@@ -170,7 +170,7 @@ export function ExploratoryReplayReadbackWorkbench({
             />
           </ReadbackLookupField>
           <ReadbackLookupField label="Meaning digest" mono>
-            <input
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"

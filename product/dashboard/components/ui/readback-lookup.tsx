@@ -1,10 +1,11 @@
 import type {
-  ButtonHTMLAttributes,
   FormHTMLAttributes,
   LabelHTMLAttributes,
   ReactNode,
 } from "react";
 
+import { Button, type ButtonProps } from "./button";
+import { Input, type InputProps } from "./input";
 import styles from "./readback-lookup.module.css";
 
 function classes(...values: Array<string | undefined>) {
@@ -62,15 +63,25 @@ export function ReadbackLookupField({
   );
 }
 
+export function ReadbackLookupInput({ className, ...props }: InputProps) {
+  return <Input {...props} className={classes(styles.input, className)} />;
+}
+
 export function ReadbackLookupAction({
   children,
   className,
   type = "submit",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) {
+}: ButtonProps) {
   return (
-    <button {...props} className={classes(styles.action, className)} type={type}>
+    <Button
+      {...props}
+      className={classes(styles.action, className)}
+      size="default"
+      type={type}
+      variant="default"
+    >
       {children}
-    </button>
+    </Button>
   );
 }
