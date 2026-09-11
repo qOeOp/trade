@@ -19,6 +19,77 @@ export type VerifiedS1ConsumerContextV1 = {
   valid_through_epoch_ms: number
 }
 
+const PROVIDER_SHA256 = /^sha256:[0-9a-f]{64}$/
+const PROVIDER_ADMISSION_IDENTITY = /^product-edge-request-admission-v1-[0-9a-f]{64}$/
+const PROVIDER_INVOCATION_RECEIPT_IDENTITY =
+  /^product-edge-provider-invocation-admission-receipt-v1-[0-9a-f]{64}$/
+const PROVIDER_CLAIM_IDENTITY = /^product-edge-provider-invocation-claim-v1-[0-9a-f]{64}$/
+const providerEncoder = new TextEncoder()
+
+function providerU64(value: number): Uint8Array {
+  const bytes = new Uint8Array(8)
+  new DataView(bytes.buffer).setBigUint64(0, BigInt(value))
+  return bytes
+}
+
+async function providerFramedSha256(domain: string, parts: Uint8Array[]): Promise<string> {
+  const domainBytes = providerEncoder.encode(domain)
+  const size = 8 + domainBytes.length + parts.reduce((sum, part) => sum + 8 + part.length, 0)
+  const framed = new Uint8Array(size)
+  let offset = 0
+  framed.set(providerU64(domainBytes.length), offset)
+  offset += 8
+  framed.set(domainBytes, offset)
+  offset += domainBytes.length
+  for (const part of parts) {
+    framed.set(providerU64(part.length), offset)
+    offset += 8
+    framed.set(part, offset)
+    offset += part.length
+  }
+  const digest = await crypto.subtle.digest("SHA-256", framed)
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
+async function providerCanonicalDigest(domain: string, value: unknown): Promise<string> {
+  return `sha256:${await providerFramedSha256(domain, [providerEncoder.encode(JSON.stringify(value))])}`
+}
+
+async function verifyProviderInvocationCustodyV1(value: Json): Promise<boolean> {
+  if (!PROVIDER_ADMISSION_IDENTITY.test(value.admission_identity)
+    || !PROVIDER_INVOCATION_RECEIPT_IDENTITY.test(value.invocation_admission_receipt_identity)
+    || !PROVIDER_CLAIM_IDENTITY.test(value.claim_identity)
+    || !PROVIDER_SHA256.test(value.invocation_admission_receipt_digest)
+    || !PROVIDER_SHA256.test(value.claim_digest) || !PROVIDER_SHA256.test(value.state_digest)) return false
+  const claimIdentity = `product-edge-provider-invocation-claim-v1-${await providerFramedSha256(
+    "product-edge-provider-invocation-claim-v1",
+    [value.admission_identity, value.attempt_identity, value.invocation_admission_receipt_identity]
+      .map((part) => providerEncoder.encode(part)),
+  )}`
+  if (value.claim_identity !== claimIdentity) return false
+  const claimDigest = await providerCanonicalDigest("product-edge.provider-invocation-claim.v1", {
+    schema_version: value.schema_version,
+    claim_identity: value.claim_identity,
+    admission_identity: value.admission_identity,
+    attempt_identity: value.attempt_identity,
+    invocation_admission_receipt_identity: value.invocation_admission_receipt_identity,
+    invocation_admission_receipt_digest: value.invocation_admission_receipt_digest,
+    claim_digest: "",
+    committed_at_epoch_ms: value.committed_at_epoch_ms,
+  })
+  if (value.claim_digest !== claimDigest) return false
+  return value.state_digest === await providerCanonicalDigest("product-edge.provider-invocation-state.v1", {
+    schema_version: value.schema_version,
+    claim_identity: value.claim_identity,
+    admission_identity: value.admission_identity,
+    attempt_identity: value.attempt_identity,
+    claim_digest: value.claim_digest,
+    state: value.state,
+    state_digest: "",
+    updated_at_epoch_ms: value.committed_at_epoch_ms,
+  })
+}
+
 const object = (value: unknown): value is Json => !!value && typeof value === "object" && !Array.isArray(value)
 const text = (value: unknown): value is string => typeof value === "string" && value.length > 0
 const epoch = (value: unknown): value is number => Number.isSafeInteger(value) && Number(value) >= 0
@@ -372,22 +443,35 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   const feedbackValid = basisValid && await validFeedback(raw.protected_feedback, raw.independence_basis)
   const researchSuffix = await sha256Text(`v2:${requestIdentity}:${raw.owner_receipt.semantic_digest}`)
   const stale = raw.research_view?.availability === "STALE"
-  if (!validResearchView(raw.research_view, requestIdentity, intent, "INTENT_FROZEN", true)) return fail("VIEW_SHAPE_PHASE")
+  const artifactAvailable = raw.research_view?.phase === "ARTIFACT_AVAILABLE"
+  const viewPhase = artifactAvailable ? "ARTIFACT_AVAILABLE" : "INTENT_FROZEN"
+  if (!validResearchView(raw.research_view, requestIdentity, intent, viewPhase, true)) return fail("VIEW_SHAPE_PHASE")
   if (raw.research_view.projection_identity !== await canonicalResearchViewIdentityV2(raw.research_view)) return fail("VIEW_IDENTITY")
-  if (raw.research_view.source_cut !== `rd-source-cut-v2-${researchSuffix}`) return fail("VIEW_SOURCE_CUT")
-  if (stale
-      ? raw.research_view.projection_at_epoch_ms < raw.owner_receipt.committed_at_epoch_ms
-      : raw.research_view.projection_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_PROJECTION_TIME")
-  if (raw.research_view.valid_through_epoch_ms !== Math.min(
-      raw.owner_receipt.committed_at_epoch_ms + 600_000,
-      raw.protected_feedback?.valid_through_epoch_ms,
-    )) return fail("VIEW_VALIDITY_WINDOW")
+  const expectedSourceCut = artifactAvailable
+    ? `rd-artifact-cut-v1-${raw.research_view.artifact_identity}`
+    : `rd-source-cut-v2-${researchSuffix}`
+  if (raw.research_view.source_cut !== expectedSourceCut) return fail("VIEW_SOURCE_CUT")
+  const projectionTimeValid = artifactAvailable
+    ? (stale
+      ? raw.research_view.projection_at_epoch_ms >= raw.research_view.observed_at_epoch_ms
+      : raw.research_view.projection_at_epoch_ms === raw.research_view.observed_at_epoch_ms)
+      && raw.research_view.observed_at_epoch_ms >= raw.owner_receipt.committed_at_epoch_ms
+    : stale
+      ? raw.research_view.projection_at_epoch_ms >= raw.owner_receipt.committed_at_epoch_ms
+      : raw.research_view.projection_at_epoch_ms === raw.owner_receipt.committed_at_epoch_ms
+  if (!projectionTimeValid) return fail("VIEW_PROJECTION_TIME")
+  const expectedValidThrough = artifactAvailable
+    ? raw.research_view.observed_at_epoch_ms + 600_000
+    : Math.min(raw.owner_receipt.committed_at_epoch_ms + 600_000, raw.protected_feedback?.valid_through_epoch_ms)
+  if (raw.research_view.valid_through_epoch_ms !== expectedValidThrough) return fail("VIEW_VALIDITY_WINDOW")
   if (stale
       ? raw.research_view.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
         || raw.next_legal_action !== "RESOLVE_SAME_REQUEST_IDENTITY"
-      : raw.research_view.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION"
-        || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION") return fail("VIEW_NEXT_ACTION")
-  if (raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_OBSERVED_TIME")
+      : artifactAvailable
+        ? raw.research_view.next_legal_action !== "REVIEW_ARTIFACT" || raw.next_legal_action !== "REVIEW_ARTIFACT"
+        : raw.research_view.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION"
+          || raw.next_legal_action !== "WAIT_FOR_R_AND_D_EXECUTION") return fail("VIEW_NEXT_ACTION")
+  if (!artifactAvailable && raw.research_view.observed_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("VIEW_OBSERVED_TIME")
   if (raw.research_view.trusted_principal !== raw.independence_basis?.principal) return fail("VIEW_PRINCIPAL")
   if (JSON.stringify(raw.research_view.authorized_scope) !== JSON.stringify(raw.independence_basis?.request_scope)) return fail("VIEW_SCOPE")
   if (!basisValid) return fail("BASIS")
@@ -399,7 +483,7 @@ export async function deriveResearchConsumerProjectionV1(value: unknown, request
   if (raw.protected_feedback.receipt.committed_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_COMMIT_TIME")
   if (raw.protected_feedback.projection_at_epoch_ms > raw.owner_receipt.committed_at_epoch_ms) return fail("FEEDBACK_PROJECTION_TIME")
   if (raw.owner_receipt.committed_at_epoch_ms >= raw.protected_feedback.valid_through_epoch_ms) return fail("RECEIPT_FEEDBACK_VALIDITY")
-  if (raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms) return fail("VIEW_FEEDBACK_VALIDITY")
+  if (!artifactAvailable && raw.research_view.valid_through_epoch_ms > raw.protected_feedback.valid_through_epoch_ms) return fail("VIEW_FEEDBACK_VALIDITY")
   if (raw.trial_family.root.created_at_epoch_ms !== raw.owner_receipt.committed_at_epoch_ms) return fail("FAMILY_CREATION_TIME")
   if (!await canonicalTrialFamilyV1(
       raw.trial_family, intent, raw.owner_receipt.semantic_digest, fail,
@@ -468,7 +552,12 @@ export function unknownArtifactProjectionV1(
   }
 }
 
-function validInvocation(value: unknown, build: string, attempt: string, state: string): value is Json {
+async function validInvocation(
+  value: unknown,
+  build: string,
+  attempt: string,
+  state: "CLAIMED" | "INVOCATION_STARTED",
+): Promise<boolean> {
   return version(value) && exactKeys(value, [
     "schema_version", "request_identity", "claim_identity", "admission_identity", "attempt_identity",
     "invocation_admission_receipt_identity", "invocation_admission_receipt_digest", "claim_digest",
@@ -483,6 +572,7 @@ function validInvocation(value: unknown, build: string, attempt: string, state: 
     && value.state === state
     && value.next_legal_action === (state === "INVOCATION_STARTED"
       ? "MANUALLY_RECONCILE_PROVIDER_INVOCATION" : "RUN_BOUNDED_EXECUTION_AGENT")
+    && await verifyProviderInvocationCustodyV1(value)
 }
 
 function validLegacyArtifactReceipt(value: unknown, build: string, attempt: string, intent: string): value is Json {
@@ -555,7 +645,7 @@ function validArtifactIdentity(
     "build_recipe_locator", "build_recipe_digest", "rustc_release", "rustc_commit", "target",
     "program_profile", "artifact_digest", "trial_id", "parameters_digest", "strategy_spec_digest",
   ]
-  if (!version(value) || !exactKeys(value, keys)) return false
+  if (!version(value, 2) || !exactKeys(value, keys)) return false
   return value.artifact_digest === receipt.artifact_identity && text(value.intent_digest)
     && value.trial_id === receipt.attempt_identity
     && value.parameters_digest === parametersIdentity
@@ -737,10 +827,10 @@ export async function deriveArtifactConsumerProjectionV1(
     || raw.attempt_identity !== attempt) return unknown
 
   if (raw.owner_receipt === null) {
-    if (validInvocation(raw.provider_invocation, build, attempt, "INVOCATION_STARTED")) {
+    if (await validInvocation(raw.provider_invocation, build, attempt, "INVOCATION_STARTED")) {
       return unknownArtifactProjectionV1(build, attempt, raw.provider_invocation)
     }
-    if (validInvocation(raw.provider_invocation, build, attempt, "CLAIMED")) {
+    if (await validInvocation(raw.provider_invocation, build, attempt, "CLAIMED")) {
       return unknownArtifactProjectionV1(build, attempt, raw.provider_invocation)
     }
     return unknown

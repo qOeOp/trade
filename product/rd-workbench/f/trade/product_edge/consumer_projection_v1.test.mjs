@@ -6,6 +6,11 @@ import { spawnSync } from "node:child_process"
 import { pathToFileURL } from "node:url"
 
 import { actionControls, artifactActionControls } from "../rd_workbench.raw_app/control-policy.mjs"
+import {
+  providerInvocationClaimDigestV1,
+  providerInvocationClaimIdentityV1,
+  providerInvocationStateDigestV1,
+} from "../../../../rd-owner-client/provider_invocation_custody_v1.ts"
 
 const projectionModule = await import(pathToFileURL(new URL("./consumer_projection_v1.ts", import.meta.url).pathname))
 const {
@@ -313,16 +318,27 @@ function artifactBase() {
   }
 }
 
-function invocation(state) {
-  return {
-    schema_version: 1, request_identity: "build-1", claim_identity: "claim-1",
-    admission_identity: "admission-1", attempt_identity: "attempt-1", claim_digest: "sha256:claim",
-    invocation_admission_receipt_identity: "invocation-admission-receipt-1",
-    invocation_admission_receipt_digest: "sha256:invocation-admission-receipt",
-    state_digest: state === "CLAIMED" ? "sha256:claimed" : "sha256:started", committed_at_epoch_ms: 200,
+async function invocation(state) {
+  const admission_identity = `product-edge-request-admission-v1-${"11".repeat(32)}`
+  const invocation_admission_receipt_identity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"22".repeat(32)}`
+  const invocation_admission_receipt_digest = `sha256:${"33".repeat(32)}`
+  const claim_identity = await providerInvocationClaimIdentityV1(
+    admission_identity, "attempt-1", invocation_admission_receipt_identity,
+  )
+  const value = {
+    schema_version: 1, request_identity: "build-1", claim_identity,
+    admission_identity, attempt_identity: "attempt-1", claim_digest: "",
+    invocation_admission_receipt_identity, invocation_admission_receipt_digest,
+    state_digest: "", committed_at_epoch_ms: 200,
     disposition: state === "CLAIMED" ? "CLAIMED_NEW" : "ALREADY_CLAIMED", state,
     next_legal_action: state === "CLAIMED" ? "RUN_BOUNDED_EXECUTION_AGENT" : "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
   }
+  value.claim_digest = await providerInvocationClaimDigestV1(value)
+  value.state_digest = await providerInvocationStateDigestV1({
+    ...value, updated_at_epoch_ms: value.committed_at_epoch_ms,
+  })
+  return value
 }
 
 function legacyArtifact(disposition = "FAILED_NO_ARTIFACT") {
@@ -379,7 +395,7 @@ function successArtifact() {
     artifact_review: {
       schema_version: 1, review_identity: "rd-artifact-review-v1-artifact",
       artifact_identity: {
-        schema_version: 1, intent_digest: "blake3:intent-bytes", trial_id: "attempt-1",
+        schema_version: 2, intent_digest: "blake3:intent-bytes", trial_id: "attempt-1",
         parameters_digest: "blake3:parameters", strategy_spec_digest: "blake3:parameters",
         wasm_digest: "blake3:wasm",
         guest_source_locator: "capsule://source", guest_source_digest: "sha256:source-capsule",
@@ -1017,6 +1033,7 @@ test("artifact success exhaustively binds artifact, build, review, family, and a
     (v) => { v.owner_receipt.artifact_identity = "blake3:wrong" },
     (v) => { v.research_view.attempt_identity = "attempt-2" },
     (v) => { v.research_view.availability = "STALE" },
+    (v) => { v.artifact_review.artifact_identity.schema_version = 1 },
     (v) => { v.artifact_review.artifact_identity.trial_id = "attempt-2" },
     (v) => { v.artifact_review.artifact_identity.parameters_digest = "blake3:wrong" },
     (v) => { v.artifact_review.artifact_identity.wasm_digest = "blake3:wrong" },
@@ -1067,16 +1084,18 @@ test("artifact projection rejects consistently cross-spliced S1 request and fami
 
 test("claimed and invocation-started response loss preserve exact custody and terminal receipts win", async () => {
   const claimed = artifactBase()
-  claimed.provider_invocation = invocation("CLAIMED")
+  claimed.provider_invocation = await invocation("CLAIMED")
   delete claimed.trial_family_resolution
   delete claimed.artifact_trial_family
   const claimedResult = await deriveArtifactConsumerProjectionV1(
     claimed, "build-1", "attempt-1", "request-1", intentIdentity,
   )
   assert.equal(claimedResult.next_legal_action, "RUN_BOUNDED_EXECUTION_AGENT")
-  assert.equal(claimedResult.provider_invocation.claim_identity, "claim-1")
-  assert.equal(claimedResult.provider_invocation.invocation_admission_receipt_identity, "invocation-admission-receipt-1")
-  assert.equal(claimedResult.provider_invocation.invocation_admission_receipt_digest, "sha256:invocation-admission-receipt")
+  assert.equal(claimedResult.provider_invocation.claim_identity, claimed.provider_invocation.claim_identity)
+  assert.equal(claimedResult.provider_invocation.invocation_admission_receipt_identity,
+    claimed.provider_invocation.invocation_admission_receipt_identity)
+  assert.equal(claimedResult.provider_invocation.invocation_admission_receipt_digest,
+    claimed.provider_invocation.invocation_admission_receipt_digest)
   assert.equal(artifactActionControls(claimedResult, "build-1", "attempt-1").canRun, true)
 
   const alreadyClaimed = clone(claimed)
@@ -1086,16 +1105,18 @@ test("claimed and invocation-started response loss preserve exact custody and te
   )).provider_invocation.disposition, "ALREADY_CLAIMED")
 
   const started = artifactBase()
-  started.provider_invocation = invocation("INVOCATION_STARTED")
+  started.provider_invocation = await invocation("INVOCATION_STARTED")
   delete started.trial_family_resolution
   delete started.artifact_trial_family
   const startedResult = await deriveArtifactConsumerProjectionV1(
     started, "build-1", "attempt-1", "request-1", intentIdentity,
   )
   assert.equal(startedResult.next_legal_action, "MANUALLY_RECONCILE_PROVIDER_INVOCATION")
-  assert.equal(startedResult.provider_invocation.admission_identity, "admission-1")
-  assert.equal(startedResult.provider_invocation.invocation_admission_receipt_identity, "invocation-admission-receipt-1")
-  assert.equal(startedResult.provider_invocation.invocation_admission_receipt_digest, "sha256:invocation-admission-receipt")
+  assert.equal(startedResult.provider_invocation.admission_identity, started.provider_invocation.admission_identity)
+  assert.equal(startedResult.provider_invocation.invocation_admission_receipt_identity,
+    started.provider_invocation.invocation_admission_receipt_identity)
+  assert.equal(startedResult.provider_invocation.invocation_admission_receipt_digest,
+    started.provider_invocation.invocation_admission_receipt_digest)
   assert.deepEqual(artifactActionControls(startedResult, "build-1", "attempt-1"), {
     canRun: false, canResolve: false, canCreateSuccessor: false,
   })

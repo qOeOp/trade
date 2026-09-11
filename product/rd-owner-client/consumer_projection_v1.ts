@@ -224,11 +224,14 @@ function validReplayPolicyBindingV2(value: unknown): value is Json {
     "catalog_record_id", "catalog_version", "policy_grammar_parser_id",
     "policy_grammar_parser_digest", "policy_canonical_bytes", "policy_digest",
     "catalog_record_digest",
-  ]) && ownerIdentity(value.catalog_record_id) && integer(value.catalog_version)
+  ]) && typeof value.catalog_record_id === "string" && value.catalog_record_id.length > 0
+    && value.catalog_record_id.length <= 256 && /^[\x00-\x7f]+$/.test(value.catalog_record_id)
+    && value.catalog_record_id.trim() === value.catalog_record_id && integer(value.catalog_version)
     && value.catalog_version > 0
     && value.policy_grammar_parser_id === "rd.replay-execution-policy.fixed-record-le.v2"
     && JSON.stringify(value.policy_grammar_parser_digest) === JSON.stringify(replayParserDigestV2)
     && bytes(value.policy_canonical_bytes) && value.policy_canonical_bytes.length > 0
+    && value.policy_canonical_bytes.length <= 16384
     && bytes(value.policy_grammar_parser_digest, 32) && bytes(value.policy_digest, 32)
     && bytes(value.catalog_record_digest, 32)
 }
@@ -905,7 +908,7 @@ function sameReplayPolicyBindingV2(left: unknown, right: unknown): boolean {
   if (left === undefined || right === undefined) {
     return left === undefined && right === undefined
   }
-  return object(left) && object(right)
+  return validReplayPolicyBindingV2(left) && validReplayPolicyBindingV2(right)
     && JSON.stringify(orderedReplayPolicyBindingV2(left))
       === JSON.stringify(orderedReplayPolicyBindingV2(right))
 }
@@ -986,8 +989,56 @@ async function sha256Array(value: Uint8Array): Promise<number[]> {
   return Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", owned.buffer)))
 }
 
-async function canonicalReplayPolicyBindingV2(value: Json): Promise<boolean> {
+// Exact fixed-record grammar from ReplayExecutionPolicyV2::parse_canonical.
+function replayPolicyModelIdentitiesV2(input: number[]): string[] | null {
+  if (input.length > 16384) return null
+  const data = Uint8Array.from(input)
+  const view = new DataView(data.buffer)
+  const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true })
+  let offset = 0
+  const take = (length: number) => {
+    if (length > data.length - offset) throw new Error("truncated policy")
+    const start = offset
+    offset += length
+    return start
+  }
+  const readText = (digest = false) => {
+    const length = view.getUint32(take(4), true)
+    if (length > 16384) throw new Error("policy text exceeds bound")
+    const start = take(length)
+    const value = decoder.decode(data.subarray(start, start + length))
+    if (digest ? length !== 71 || !/^(sha256|blake3):[0-9a-f]{64}$/.test(value)
+      : length === 0 || length > 256 || /^\p{White_Space}|\p{White_Space}$/u.test(value)) {
+      throw new Error("invalid policy component")
+    }
+    return value
+  }
+  try {
+    if (view.getUint32(take(4), true) !== 0x32455052
+      || view.getUint16(take(2), true) !== 2 || view.getUint16(take(2), true) !== 17) return null
+    const models: string[] = []
+    for (let tag = 1; tag <= 17; tag++) {
+      const kind = tag === 8 ? 2 : tag === 9 ? 3 : tag >= 15 ? 4 : 1
+      if (data[take(1)] !== tag || data[take(1)] !== kind) return null
+      if (kind === 2) take(8)
+      else if (kind === 3) {
+        const start = view.getBigUint64(take(8), true)
+        if (start >= view.getBigUint64(take(8), true)) return null
+      } else {
+        const identity = readText()
+        readText(kind === 4)
+        if (tag >= 3 && tag <= 5) models.push(identity)
+      }
+    }
+    return offset === data.length ? models : null
+  } catch { return null }
+}
+
+async function canonicalReplayPolicyBindingV2(value: Json, policy: Json): Promise<boolean> {
   if (!validReplayPolicyBindingV2(value)) return false
+  const models = replayPolicyModelIdentitiesV2(value.policy_canonical_bytes)
+  if (!models || models[0] !== policy.cost_model_identity
+    || models[1] !== policy.slippage_model_identity || models[2] !== policy.capacity_model_identity) return false
   const encoder = new TextEncoder()
   const canonicalPolicy = Uint8Array.from(value.policy_canonical_bytes)
   const policyDigest = await sha256Array(concatenateBytes([
@@ -1076,7 +1127,7 @@ async function canonicalTrialFamilyV1(
   )) return null
   const policy = canonicalTrialFamilyPolicyV1(root.policy)
   const replayPolicy = policy.replay_execution_policy_v2
-  if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy)) return null
+  if (replayPolicy !== undefined && !await canonicalReplayPolicyBindingV2(replayPolicy, policy)) return null
   const policyDigest = await canonicalDigest("rd.trial-family.policy.v1", policy)
   const familyIdentityDigest = await canonicalDigest("rd.trial-family.identity.v1", {
     intent_identity: intentIdentity,

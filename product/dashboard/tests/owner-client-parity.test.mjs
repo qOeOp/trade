@@ -51,6 +51,49 @@ const unknownArtifact = {
   next_legal_action: "RESOLVE_SAME_ATTEMPT_IDENTITY",
 };
 
+async function canonicalDigest(domain, value) {
+  const bytes = new TextEncoder().encode(JSON.stringify({ domain, value }));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+}
+
+async function artifactAvailableResearch() {
+  const value = structuredClone(acceptedResearch);
+  const view = {
+    ...value.research_view,
+    source_cut: "rd-artifact-cut-v1-blake3:artifact",
+    observed_at_epoch_ms: 300,
+    projection_at_epoch_ms: 300,
+    valid_through_epoch_ms: 600300,
+    phase: "ARTIFACT_AVAILABLE",
+    next_legal_action: "REVIEW_ARTIFACT",
+    attempt_identity: "attempt-1",
+    artifact_identity: "blake3:artifact",
+    build_receipt_identity: "rd-build-receipt-v1-artifact",
+    artifact_review_identity: "rd-artifact-review-v1-artifact",
+  };
+  const identityDigest = await canonicalDigest("rd.research-view.identity.v2", {
+    schema_version: view.schema_version,
+    request_identity: view.request_identity,
+    trusted_principal: view.trusted_principal,
+    authorized_scope: view.authorized_scope,
+    authorization_policy_cut: view.authorization_policy_cut,
+    source_owner: view.source_owner,
+    source_cut: view.source_cut,
+    phase: view.phase,
+    intent_identity: view.intent_identity,
+    source_frontier: view.source_frontier,
+    attempt_identity: view.attempt_identity,
+    artifact_identity: view.artifact_identity,
+    build_receipt_identity: view.build_receipt_identity,
+    artifact_review_identity: view.artifact_review_identity,
+  });
+  view.projection_identity = `rd-research-view-terminal-v2-${identityDigest.slice("sha256:".length)}`;
+  value.research_view = view;
+  value.next_legal_action = "REVIEW_ARTIFACT";
+  return value;
+}
+
 function malformedSourceReadback(responseStatus) {
   const value = structuredClone(sourceTerminal);
   Object.assign(value, {
@@ -105,6 +148,64 @@ test("first-party and Windmill adapters retain one Research projection", async (
   assert.equal(firstParty.resolution, "ACCEPTED");
   assert.equal(windmill.resolution, "ACCEPTED");
   assert.deepEqual(firstParty, windmill);
+});
+
+test("Research parity retains the Owner terminal artifact phase", async () => {
+  const raw = await artifactAvailableResearch();
+  const firstParty = await deriveFirstPartyResearchProjectionV1(raw, researchRequestIdentity);
+  const windmill = await deriveWindmillResearchProjectionV1(raw, researchRequestIdentity);
+  assert.equal(firstParty.resolution, "ACCEPTED");
+  assert.equal(windmill.resolution, "ACCEPTED");
+  assert.equal(firstParty.research_view.phase, "ARTIFACT_AVAILABLE");
+  assert.deepEqual(firstParty, windmill);
+});
+
+test("Artifact parity rejects a provider invocation without canonical custody", async () => {
+  const raw = structuredClone(unknownArtifact);
+  raw.provider_invocation = {
+    schema_version: 1,
+    request_identity: artifactRequest.build_request_identity,
+    claim_identity: "forged-claim",
+    admission_identity: "forged-admission",
+    attempt_identity: artifactRequest.attempt_identity,
+    invocation_admission_receipt_identity: "forged-receipt",
+    invocation_admission_receipt_digest: "forged-receipt-digest",
+    claim_digest: "forged-claim-digest",
+    state_digest: "forged-state-digest",
+    committed_at_epoch_ms: 100,
+    disposition: "CLAIMED_NEW",
+    state: "CLAIMED",
+    next_legal_action: "RUN_BOUNDED_EXECUTION_AGENT",
+  };
+  const firstParty = await executeArtifactBuildV1(artifactRequest, {
+    owner_url: "https://owner.example.test",
+    owner_token: "adapter-parity-owner-token",
+    provider_url: "https://provider.example.test",
+    provider_api_key: undefined,
+    provider_model: "provider-not-called",
+    dispatcher: "TRADE_DASHBOARD",
+    fetcher: async () => Response.json(raw),
+  });
+  const priorToken = process.env.RD_OWNER_API_TOKEN;
+  const priorFetch = globalThis.fetch;
+  try {
+    process.env.RD_OWNER_API_TOKEN = "adapter-parity-owner-token";
+    globalThis.fetch = async () => Response.json(raw);
+    const windmill = await runWindmillArtifactAdapterV1(
+      artifactRequest.action,
+      artifactRequest.build_request_identity,
+      artifactRequest.attempt_identity,
+      artifactRequest.research_request_identity,
+      artifactRequest.identity_mode,
+    );
+    assert.equal(firstParty.provider_invocation, null);
+    assert.equal(windmill.provider_invocation, null);
+    assert.deepEqual(firstParty, windmill);
+  } finally {
+    globalThis.fetch = priorFetch;
+    if (priorToken === undefined) delete process.env.RD_OWNER_API_TOKEN;
+    else process.env.RD_OWNER_API_TOKEN = priorToken;
+  }
 });
 
 test("same-attempt recovery preserves projection parity while Dashboard removes the legacy preflight read", {
