@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+REPO_ROOT=$(cd "$HOOK_DIR/.." && pwd -P)
+readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program_lowerer_v1.rs"
+bash "$HOOK_DIR/check_frozen_source_convention_baseline.sh" "$REPO_ROOT"
+
 # Color output
 RED='\033[0;31m'
 YELLOW='\033[0;33m'
@@ -38,7 +43,7 @@ trap 'rm -f "$rust_results" "$aaa_results" "$python_results"' EXIT
 # Search for #[test] attribute in Rust files
 # We want to find standalone #[test], not #[tokio::test] or #[rstest]
 # Pattern: lines with #[test] but not #[test(...)] or #[tokio::test] or followed by #[rstest]
-rg -n '^\s*#\[test\]' crates --type rust 2> /dev/null > "$rust_results" || true
+rg -n --glob "!$FROZEN_SOURCE_PATH" '^\s*#\[test\]' crates --type rust 2> /dev/null > "$rust_results" || true
 
 while IFS=: read -r file line_num line_content; do
   # Skip empty lines
@@ -65,7 +70,7 @@ echo "Checking for AAA-style comments in Rust tests..."
 # Search for // Arrange, // Act, // Assert comments (standalone or with trailing content)
 # Pattern: lines starting with whitespace, then // followed by Arrange, Act, or Assert
 # We look for the standalone markers, not comments that happen to contain these words in context
-rg -n '^\s*//\s*(Arrange|Act|Assert)\s*($|:|\s*-)' crates --type rust 2> /dev/null > "$aaa_results" || true
+rg -n --glob "!$FROZEN_SOURCE_PATH" '^\s*//\s*(Arrange|Act|Assert)\s*($|:|\s*-)' crates --type rust 2> /dev/null > "$aaa_results" || true
 
 while IFS=: read -r file line_num line_content; do
   # Skip empty lines

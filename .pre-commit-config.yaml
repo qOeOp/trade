@@ -160,6 +160,19 @@ repos:
             scripts/ci/(check-miri-toolchain|test-check-miri-toolchain)\.bash
           )$
         pass_filenames: false
+      - id: test-frozen-source-convention-baseline
+        name: test frozen source convention baseline
+        description: Verifies the capsule-bound lowerer convention exclusion fails closed
+        entry: bash .pre-commit-hooks/test_check_frozen_source_convention_baseline.sh
+        language: system
+        files: >-
+          (?x)^(
+
+            \.pre-commit-config\.yaml|
+            \.pre-commit-hooks/(check_error_conventions|check_testing_conventions|check_formatting_rs|check_frozen_source_convention_baseline|test_check_frozen_source_convention_baseline)\.sh|
+            crates/strategy_factory/src/bounded_feature_program_lowerer_v1\.rs
+          )$
+        pass_filenames: false
       - id: check-error-conventions
         name: check error conventions
         description: Enforces error variable naming conventions

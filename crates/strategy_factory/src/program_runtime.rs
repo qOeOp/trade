@@ -214,6 +214,7 @@ pub(crate) fn validate_plugin_candidate_v3(
     if manifest.abi_version != 3 {
         return Err(ProgramRuntimeError::Abi("plugin ABI 3"));
     }
+
     if max_wasm_bytes == 0 {
         return Err(ProgramRuntimeError::ResourceLimit("module bytes"));
     }
