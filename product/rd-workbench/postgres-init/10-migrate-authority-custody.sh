@@ -652,7 +652,9 @@ AS $function$
             AND replay_outbox.canonical_envelope_bytes IS NULL
             AND replay_outbox.canonical_envelope_storage_digest IS NULL;
           IF all_missing THEN
-            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','LEGACY_MISSING');
+            RETURN pg_catalog.jsonb_build_object(
+              'schema_version',1,'custody_state','LEGACY_MISSING','replay',base
+            );
           END IF;
           all_present := research.request_storage_bytes IS NOT NULL
             AND research.request_storage_digest IS NOT NULL
@@ -681,9 +683,36 @@ AS $function$
             RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
           END IF;
 
+          IF research.request_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR research.receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR research.intent_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.root_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.root_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR family.initial_frontier_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR member.member_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR member.membership_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR sealed.v2_request_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR sealed.v2_receipt_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR replay_outbox.canonical_payload_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR replay_outbox.canonical_envelope_storage_digest !~ '^blake3:[0-9a-f]{64}$'
+             OR pg_catalog.convert_from(research.request_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.request_json
+             OR pg_catalog.convert_from(research.receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.receipt_json
+             OR pg_catalog.convert_from(research.intent_storage_bytes,'UTF8')::pg_catalog.jsonb <> research.intent_json
+             OR pg_catalog.convert_from(family.root_storage_bytes,'UTF8')::pg_catalog.jsonb <> family.root_json
+             OR pg_catalog.convert_from(family.root_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> family.root_receipt_json
+             OR pg_catalog.convert_from(member.member_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.member_json
+             OR pg_catalog.convert_from(member.membership_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.membership_receipt_json
+             OR pg_catalog.convert_from(sealed.v2_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> sealed.v2_receipt_json
+             OR pg_catalog.convert_from(replay_outbox.canonical_payload_bytes,'UTF8')::pg_catalog.jsonb <> replay_outbox.payload_json
+          THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
+          END IF;
+
           RETURN pg_catalog.jsonb_build_object(
             'schema_version',1,'custody_state','AVAILABLE',
+            'replay',base,
             'research_request_identity',research.request_identity,
+            'research_view',research.view_json,
             'research_request',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.request_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.request_storage_digest,'mirror',research.request_json),
             'research_receipt',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.receipt_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.receipt_storage_digest,'mirror',research.receipt_json),
             'research_intent',pg_catalog.jsonb_build_object('bytes_base64',pg_catalog.replace(pg_catalog.encode(research.intent_storage_bytes,'base64'),pg_catalog.chr(10),''),'digest',research.intent_storage_digest,'mirror',research.intent_json),
@@ -712,10 +741,10 @@ SET search_path = pg_catalog
 AS $function$
         DECLARE stored_receipt_identity text;
         DECLARE stored_seal_digest text;
-        DECLARE stored_schema_version text;
+        DECLARE storage jsonb;
         BEGIN
-          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest,v2_receipt_json->>'schema_version'
-            INTO STRICT stored_receipt_identity,stored_seal_digest,stored_schema_version
+          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest
+            INTO STRICT stored_receipt_identity,stored_seal_digest
             FROM public.rd_sealed_exploratory_replay_requests_v1
            WHERE request_identity=requested_request_identity
              AND request_schema_version=2
@@ -723,18 +752,12 @@ AS $function$
              AND v2_meaning_digest=requested_meaning_digest
            FOR SHARE;
           IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
-          IF stored_schema_version='2' THEN
-            RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
-              requested_request_identity,requested_meaning_digest,
-              stored_receipt_identity,stored_seal_digest
-            );
-          ELSIF stored_schema_version='3' THEN
-            RETURN rd_owner_api.verify_exploratory_replay_request_internal_v3(
-              requested_request_identity,requested_meaning_digest,
-              stored_receipt_identity,stored_seal_digest
-            );
-          END IF;
-          RETURN NULL;
+          storage := rd_owner_api.resolve_native_replay_source_storage_v2(
+            requested_request_identity,requested_meaning_digest,
+            stored_receipt_identity,stored_seal_digest
+          );
+          IF storage IS NULL OR storage->>'custody_state'='CORRUPT_PARTIAL' THEN RETURN NULL; END IF;
+          RETURN storage->'replay';
         EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
         END
         $function$;
@@ -1455,8 +1478,8 @@ BEGIN
 END
 $function$;
 ALTER FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) OWNER TO product_edge_owner;
-REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner;
-GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner;
+REVOKE ALL ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner;
 
 CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_state_v1(
   requested_request_identity text,

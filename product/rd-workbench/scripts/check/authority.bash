@@ -199,7 +199,9 @@ grep -Fq "R&D exploratory Replay internal verifier owner/ACL mismatch" "$package
 grep -Fq -- '-- BEGIN SELECTOR_RESOLVER_SOURCE_V2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'RETURN rd_owner_api.verify_exploratory_replay_request_internal_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'storage := rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "storage->>'custody_state'='CORRUPT_PARTIAL'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "RETURN storage->'replay'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'result := rd_owner_api.verify_exploratory_replay_request_internal_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 if grep -Fq "verify_exploratory_replay_request_internal_v2(\$1,\$2,'','')" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"; then
   echo 'Replay selector must not bypass exact receipt and seal equality' >&2
@@ -256,7 +258,7 @@ grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURIT
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
