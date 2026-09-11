@@ -14,7 +14,7 @@
 
 use std::fmt::Display;
 
-use vibe_core::UnixNanos;
+use vibe_core::{UnixNanos, correctness::check_valid_string_utf8};
 use vibe_model::types::{
     fixed::mantissa_exponent_to_fixed_i128,
     price::{Price, PriceRaw, check_positive_price},
@@ -333,36 +333,39 @@ impl InstrumentMasterReadbackV1 {
         &self.canonical_bytes
     }
 
-    /// Validates one exact V1 fact and mapping for later native crypto-perpetual composition.
+    /// Projects the public structural terms of one exact V1 crypto-perpetual fact and mapping.
     ///
     /// The complete readback is reverified before any value crosses the Owner boundary. The
     /// mapping selector must identify exactly one sealed venue/source tuple; no first-match or
-    /// caller default is accepted. This projection carries public Instrument Master terms only.
-    /// Account-specific fees, leverage, margin ratios, and execution policy remain outside Market
-    /// Data custody.
+    /// caller default is accepted. The result is an explicitly incomplete structural projection,
+    /// not native instrument admission. V1 does not seal the Owner-authoritative inverse flag, lot
+    /// size, contract status, or limit dispositions required to construct a native instrument.
     ///
     /// # Errors
     ///
     /// Returns a fail-closed error for a malformed or cross-spliced readback, an absent or
     /// ambiguous mapping, an unsupported class, incomplete currencies, or a value that cannot be
     /// represented by the native fixed-point and timestamp types.
-    pub fn validate_native_crypto_perpetual_public_terms(
+    pub fn project_validated_v1_crypto_perpetual_structural_public_terms(
         &self,
         canonical_identity: &str,
         venue_identity: &str,
         source_identity: &str,
-    ) -> Result<ValidatedInstrumentMasterPublicTermsV1, NativePublicTermsValidationErrorV1> {
+    ) -> Result<
+        ValidatedInstrumentMasterV1StructuralPublicTermsProjection,
+        V1StructuralPublicTermsProjectionError,
+    > {
         if !verify_instrument_master_readback(self) {
-            return Err(NativePublicTermsValidationErrorV1::InvalidReadback);
+            return Err(V1StructuralPublicTermsProjectionError::InvalidReadback);
         }
 
         let fact = self
             .facts
             .iter()
             .find(|fact| fact.canonical_identity() == canonical_identity)
-            .ok_or(NativePublicTermsValidationErrorV1::UnknownInstrument)?;
+            .ok_or(V1StructuralPublicTermsProjectionError::UnknownInstrument)?;
         if fact.instrument_class() != InstrumentClass::CryptoPerpetual {
-            return Err(NativePublicTermsValidationErrorV1::UnsupportedClass(
+            return Err(V1StructuralPublicTermsProjectionError::UnsupportedClass(
                 fact.instrument_class(),
             ));
         }
@@ -372,49 +375,54 @@ impl InstrumentMasterReadbackV1 {
         });
         let mapping = mappings
             .next()
-            .ok_or(NativePublicTermsValidationErrorV1::MissingMapping)?;
+            .ok_or(V1StructuralPublicTermsProjectionError::MissingMapping)?;
         if mappings.next().is_some() {
-            return Err(NativePublicTermsValidationErrorV1::AmbiguousMapping);
+            return Err(V1StructuralPublicTermsProjectionError::AmbiguousMapping);
         }
         let raw_symbol = std::str::from_utf8(&mapping.source_instrument)
             .map_err(|_| {
-                NativePublicTermsValidationErrorV1::NativeRepresentation(
-                    NativePublicTermsFieldV1::SourceInstrument,
+                V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+                    V1StructuralPublicTermsField::SourceInstrument,
                 )
             })?
             .to_owned();
+        check_valid_string_utf8(&raw_symbol, "source_instrument").map_err(|_| {
+            V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+                V1StructuralPublicTermsField::SourceInstrument,
+            )
+        })?;
 
         let base_currency = require_native_currency(
             fact.proposal.base_currency.as_deref(),
-            NativePublicTermsFieldV1::BaseCurrency,
+            V1StructuralPublicTermsField::BaseCurrency,
         )?;
         let quote_currency = require_native_currency(
             fact.proposal.quote_currency.as_deref(),
-            NativePublicTermsFieldV1::QuoteCurrency,
+            V1StructuralPublicTermsField::QuoteCurrency,
         )?;
         let settlement_currency = require_native_currency(
             fact.proposal.settlement_currency.as_deref(),
-            NativePublicTermsFieldV1::SettlementCurrency,
+            V1StructuralPublicTermsField::SettlementCurrency,
         )?;
         let margin_currency = optional_native_currency(
             fact.proposal.margin_currency.as_deref(),
-            NativePublicTermsFieldV1::MarginCurrency,
+            V1StructuralPublicTermsField::MarginCurrency,
         )?;
 
         validate_native_price_v1(
             fact.proposal.price_increment,
-            NativePublicTermsFieldV1::PriceIncrement,
+            V1StructuralPublicTermsField::PriceIncrement,
         )?;
         validate_native_quantity_v1(
             fact.proposal.quantity_increment,
-            NativePublicTermsFieldV1::QuantityIncrement,
+            V1StructuralPublicTermsField::QuantityIncrement,
         )?;
         validate_native_quantity_v1(
             fact.proposal.contract_multiplier,
-            NativePublicTermsFieldV1::ContractMultiplier,
+            V1StructuralPublicTermsField::ContractMultiplier,
         )?;
 
-        Ok(ValidatedInstrumentMasterPublicTermsV1 {
+        Ok(ValidatedInstrumentMasterV1StructuralPublicTermsProjection {
             readback_identity: self.identity,
             request_identity: self.request_identity,
             request_meaning_digest: self.request_meaning_digest,
@@ -450,32 +458,34 @@ impl InstrumentMasterReadbackV1 {
             correction_frontier: fact.proposal.correction_frontier,
             effective_from: native_timestamp_v1(
                 fact.proposal.effective_from,
-                NativePublicTermsFieldV1::EffectiveFrom,
+                V1StructuralPublicTermsField::EffectiveFrom,
             )?,
             effective_until: fact
                 .proposal
                 .effective_until
-                .map(|value| native_timestamp_v1(value, NativePublicTermsFieldV1::EffectiveUntil))
+                .map(|value| {
+                    native_timestamp_v1(value, V1StructuralPublicTermsField::EffectiveUntil)
+                })
                 .transpose()?,
             provider_available: native_timestamp_v1(
                 fact.proposal.provider_available,
-                NativePublicTermsFieldV1::ProviderAvailable,
+                V1StructuralPublicTermsField::ProviderAvailable,
             )?,
             retrieval: native_timestamp_v1(
                 fact.proposal.retrieval,
-                NativePublicTermsFieldV1::Retrieval,
+                V1StructuralPublicTermsField::Retrieval,
             )?,
             correction_publication: native_timestamp_v1(
                 fact.proposal.correction_publication,
-                NativePublicTermsFieldV1::CorrectionPublication,
+                V1StructuralPublicTermsField::CorrectionPublication,
             )?,
             owner_observation: native_timestamp_v1(
                 fact.proposal.owner_observation,
-                NativePublicTermsFieldV1::OwnerObservation,
+                V1StructuralPublicTermsField::OwnerObservation,
             )?,
             effective_instant: native_timestamp_v1(
                 self.cut.effective_instant,
-                NativePublicTermsFieldV1::EffectiveInstant,
+                V1StructuralPublicTermsField::EffectiveInstant,
             )?,
             decision_cut: self.cut.decision_cut,
             clock_head_identity: self.cut.clock.head_identity,
@@ -486,7 +496,7 @@ impl InstrumentMasterReadbackV1 {
 
 /// One field whose value is required to cross the V1 native public-terms boundary.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NativePublicTermsFieldV1 {
+pub enum V1StructuralPublicTermsField {
     SourceInstrument,
     BaseCurrency,
     QuoteCurrency,
@@ -506,30 +516,30 @@ pub enum NativePublicTermsFieldV1 {
 
 /// Failure to derive one exact native public-terms projection from a sealed V1 readback.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NativePublicTermsValidationErrorV1 {
+pub enum V1StructuralPublicTermsProjectionError {
     InvalidReadback,
     UnknownInstrument,
     MissingMapping,
     AmbiguousMapping,
     UnsupportedClass(InstrumentClass),
-    MissingField(NativePublicTermsFieldV1),
-    NativeRepresentation(NativePublicTermsFieldV1),
+    MissingField(V1StructuralPublicTermsField),
+    InvalidPublicTerm(V1StructuralPublicTermsField),
 }
 
-impl Display for NativePublicTermsValidationErrorV1 {
+impl Display for V1StructuralPublicTermsProjectionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(formatter, "{self:?}")
     }
 }
 
-impl std::error::Error for NativePublicTermsValidationErrorV1 {}
+impl std::error::Error for V1StructuralPublicTermsProjectionError {}
 
-/// Move-only Market Data-owned V1 public terms for later native composition.
+/// Move-only Market Data-owned V1 structural public-terms projection.
 ///
-/// Callers can inspect this value but cannot construct, clone, or deserialize it. It deliberately
-/// carries no account-specific or execution-policy economics.
+/// Callers can inspect this value but cannot construct, clone, or deserialize it. Its name and
+/// completeness API make explicit that it cannot authorize native instrument construction.
 #[derive(Debug, Eq, PartialEq)]
-pub struct ValidatedInstrumentMasterPublicTermsV1 {
+pub struct ValidatedInstrumentMasterV1StructuralPublicTermsProjection {
     readback_identity: InstrumentMasterIdentity,
     request_identity: InstrumentMasterIdentity,
     request_meaning_digest: InstrumentMasterIdentity,
@@ -584,7 +594,7 @@ macro_rules! digest_getter {
     };
 }
 
-impl ValidatedInstrumentMasterPublicTermsV1 {
+impl ValidatedInstrumentMasterV1StructuralPublicTermsProjection {
     digest_getter!(readback_identity, readback_identity);
     digest_getter!(request_identity, request_identity);
     digest_getter!(request_meaning_digest, request_meaning_digest);
@@ -735,71 +745,129 @@ impl ValidatedInstrumentMasterPublicTermsV1 {
     pub const fn store_append_sequence(&self) -> u64 {
         self.store_append_sequence
     }
+
+    /// Fails closed because V1 lacks fields required for native instrument construction.
+    pub const fn require_complete_native_crypto_perpetual_construction(
+        &self,
+    ) -> Result<(), NativeCryptoPerpetualConstructionUnavailableV1> {
+        Err(NativeCryptoPerpetualConstructionUnavailableV1 {
+            missing_owner_fields: NATIVE_CRYPTO_PERPETUAL_V1_MISSING_OWNER_FIELDS,
+        })
+    }
 }
+
+/// Owner-authoritative field absent from the V1 Instrument Master schema.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MissingNativeCryptoPerpetualOwnerFieldV1 {
+    IsInverse,
+    LotSize,
+    ContractStatus,
+    LimitDispositions,
+}
+
+const NATIVE_CRYPTO_PERPETUAL_V1_MISSING_OWNER_FIELDS: [MissingNativeCryptoPerpetualOwnerFieldV1;
+    4] = [
+    MissingNativeCryptoPerpetualOwnerFieldV1::IsInverse,
+    MissingNativeCryptoPerpetualOwnerFieldV1::LotSize,
+    MissingNativeCryptoPerpetualOwnerFieldV1::ContractStatus,
+    MissingNativeCryptoPerpetualOwnerFieldV1::LimitDispositions,
+];
+
+/// Explicit fail-closed result for attempts to treat the V1 projection as native capability.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct NativeCryptoPerpetualConstructionUnavailableV1 {
+    missing_owner_fields: [MissingNativeCryptoPerpetualOwnerFieldV1; 4],
+}
+
+impl NativeCryptoPerpetualConstructionUnavailableV1 {
+    #[must_use]
+    pub const fn missing_owner_fields(&self) -> &[MissingNativeCryptoPerpetualOwnerFieldV1; 4] {
+        &self.missing_owner_fields
+    }
+}
+
+impl Display for NativeCryptoPerpetualConstructionUnavailableV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "V1 public-terms projection is incomplete for native crypto-perpetual construction: {:?}",
+            self.missing_owner_fields
+        )
+    }
+}
+
+impl std::error::Error for NativeCryptoPerpetualConstructionUnavailableV1 {}
 
 fn require_native_currency(
     value: Option<&str>,
-    field: NativePublicTermsFieldV1,
-) -> Result<String, NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<String, V1StructuralPublicTermsProjectionError> {
     match value {
-        Some(value) if !value.is_empty() => Ok(value.to_owned()),
-        _ => Err(NativePublicTermsValidationErrorV1::MissingField(field)),
+        Some(value) => {
+            check_valid_string_utf8(value, "currency")
+                .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
+            Ok(value.to_owned())
+        }
+        None => Err(V1StructuralPublicTermsProjectionError::MissingField(field)),
     }
 }
 
 fn optional_native_currency(
     value: Option<&str>,
-    field: NativePublicTermsFieldV1,
-) -> Result<Option<String>, NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<Option<String>, V1StructuralPublicTermsProjectionError> {
     match value {
         None => Ok(None),
-        Some(value) if !value.is_empty() => Ok(Some(value.to_owned())),
-        Some(_) => Err(NativePublicTermsValidationErrorV1::MissingField(field)),
+        Some(value) => {
+            check_valid_string_utf8(value, "currency")
+                .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
+            Ok(Some(value.to_owned()))
+        }
     }
 }
 
 fn native_raw_v1(
     value: InstrumentDecimal,
-    field: NativePublicTermsFieldV1,
-) -> Result<i128, NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<i128, V1StructuralPublicTermsProjectionError> {
     let exponent = i8::try_from(value.scale)
         .map(|scale| -scale)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
     mantissa_exponent_to_fixed_i128(value.mantissa, exponent, value.scale)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))
 }
 
 fn validate_native_price_v1(
     value: InstrumentDecimal,
-    field: NativePublicTermsFieldV1,
-) -> Result<(), NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<(), V1StructuralPublicTermsProjectionError> {
     let raw = PriceRaw::try_from(native_raw_v1(value, field)?)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
     let price = Price::from_raw_checked(raw, value.scale)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
     check_positive_price(price, "V1 public instrument price")
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))
 }
 
 fn validate_native_quantity_v1(
     value: InstrumentDecimal,
-    field: NativePublicTermsFieldV1,
-) -> Result<(), NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<(), V1StructuralPublicTermsProjectionError> {
     let raw = QuantityRaw::try_from(native_raw_v1(value, field)?)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
     let quantity = Quantity::from_raw_checked(raw, value.scale)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))?;
     check_positive_quantity(quantity, "V1 public instrument quantity")
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))
 }
 
 fn native_timestamp_v1(
     value: i128,
-    field: NativePublicTermsFieldV1,
-) -> Result<UnixNanos, NativePublicTermsValidationErrorV1> {
+    field: V1StructuralPublicTermsField,
+) -> Result<UnixNanos, V1StructuralPublicTermsProjectionError> {
     u64::try_from(value)
         .map(UnixNanos::new)
-        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+        .map_err(|_| V1StructuralPublicTermsProjectionError::InvalidPublicTerm(field))
 }
 
 /// Sealed complete membership supplied only by an existing Owner-derived Universe receipt.

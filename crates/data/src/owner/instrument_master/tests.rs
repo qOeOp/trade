@@ -1,8 +1,8 @@
 use super::{
     BACKTEST_OWNER_V1, InstrumentClass, InstrumentDecimal, InstrumentMasterError,
     InstrumentMasterFactProposalV1, InstrumentMasterScopeV1, InstrumentVenueSourceMapping,
-    NativePublicTermsFieldV1, NativePublicTermsValidationErrorV1,
-    UntrustedInstrumentMasterRequestV1,
+    MissingNativeCryptoPerpetualOwnerFieldV1, UntrustedInstrumentMasterRequestV1,
+    V1StructuralPublicTermsField, V1StructuralPublicTermsProjectionError,
     authority::{
         build_cut, build_fact, build_readback, build_receipt, decode_cut, decode_fact,
         select_facts, validate_fact_graph,
@@ -343,10 +343,14 @@ fn exact_scope_and_nested_fact_cut_receipt_readback_equalities_are_enforced() {
 }
 
 #[rstest]
-fn v1_native_public_terms_preserve_exact_mapping_terms_and_owner_evidence() {
+fn v1_public_terms_projection_preserve_exact_mapping_terms_and_owner_evidence() {
     let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
     let terms = readback
-        .validate_native_crypto_perpetual_public_terms("ETHUSDT-PERP.SIM", "SIM", "BINANCE")
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        )
         .unwrap();
 
     assert_eq!(terms.readback_identity(), readback.identity());
@@ -411,11 +415,40 @@ fn v1_native_public_terms_preserve_exact_mapping_terms_and_owner_evidence() {
 }
 
 #[rstest]
-fn v1_native_public_terms_reject_missing_and_ambiguous_mapping_or_currency() {
+fn v1_public_terms_projection_cannot_claim_complete_native_construction() {
+    let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
+    let projection = readback
+        .project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        )
+        .unwrap();
+
+    let unavailable = projection
+        .require_complete_native_crypto_perpetual_construction()
+        .unwrap_err();
+    assert_eq!(
+        unavailable.missing_owner_fields(),
+        &[
+            MissingNativeCryptoPerpetualOwnerFieldV1::IsInverse,
+            MissingNativeCryptoPerpetualOwnerFieldV1::LotSize,
+            MissingNativeCryptoPerpetualOwnerFieldV1::ContractStatus,
+            MissingNativeCryptoPerpetualOwnerFieldV1::LimitDispositions,
+        ]
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_reject_missing_and_ambiguous_mapping_or_currency() {
     let readback = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
     assert_eq!(
-        readback.validate_native_crypto_perpetual_public_terms("ETHUSDT-PERP.SIM", "SIM", "OTHER",),
-        Err(NativePublicTermsValidationErrorV1::MissingMapping)
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "OTHER",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::MissingMapping)
     );
 
     let mut ambiguous = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
@@ -438,35 +471,67 @@ fn v1_native_public_terms_reject_missing_and_ambiguous_mapping_or_currency() {
     });
     let readback = readback_for(ambiguous);
     assert_eq!(
-        readback.validate_native_crypto_perpetual_public_terms(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
             "ETHUSDT-PERP.SIM",
             "SIM",
             "BINANCE",
         ),
-        Err(NativePublicTermsValidationErrorV1::AmbiguousMapping)
+        Err(V1StructuralPublicTermsProjectionError::AmbiguousMapping)
     );
 
     let mut missing_currency = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
     missing_currency.base_currency = None;
     let readback = readback_for(missing_currency);
     assert_eq!(
-        readback.validate_native_crypto_perpetual_public_terms(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
             "ETHUSDT-PERP.SIM",
             "SIM",
             "BINANCE",
         ),
-        Err(NativePublicTermsValidationErrorV1::MissingField(
-            NativePublicTermsFieldV1::BaseCurrency
+        Err(V1StructuralPublicTermsProjectionError::MissingField(
+            V1StructuralPublicTermsField::BaseCurrency
         ))
     );
 }
 
 #[rstest]
-fn v1_native_public_terms_reject_unsupported_native_values_and_cross_readback() {
+fn v1_public_terms_projection_rejects_whitespace_raw_symbol_and_currency() {
+    let mut whitespace_symbol = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    whitespace_symbol.mappings[0].source_instrument = b"   ".to_vec();
+    let readback = readback_for(whitespace_symbol);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::SourceInstrument
+        ))
+    );
+
+    let mut whitespace_currency = crypto_perpetual_proposal("ETHUSDT-PERP.SIM");
+    whitespace_currency.base_currency = Some("   ".into());
+    let readback = readback_for(whitespace_currency);
+    assert_eq!(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
+            "ETHUSDT-PERP.SIM",
+            "SIM",
+            "BINANCE",
+        ),
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::BaseCurrency
+        ))
+    );
+}
+
+#[rstest]
+fn v1_public_terms_projection_reject_unsupported_native_values_and_cross_readback() {
     let readback = readback_for(proposal("AAPL", None, 55, 6));
     assert_eq!(
-        readback.validate_native_crypto_perpetual_public_terms("AAPL", "XNAS", "SIP"),
-        Err(NativePublicTermsValidationErrorV1::UnsupportedClass(
+        readback
+            .project_validated_v1_crypto_perpetual_structural_public_terms("AAPL", "XNAS", "SIP"),
+        Err(V1StructuralPublicTermsProjectionError::UnsupportedClass(
             InstrumentClass::Equity
         ))
     );
@@ -478,25 +543,25 @@ fn v1_native_public_terms_reject_unsupported_native_values_and_cross_readback() 
     };
     let readback = readback_for(invalid_decimal);
     assert_eq!(
-        readback.validate_native_crypto_perpetual_public_terms(
+        readback.project_validated_v1_crypto_perpetual_structural_public_terms(
             "ETHUSDT-PERP.SIM",
             "SIM",
             "BINANCE",
         ),
-        Err(NativePublicTermsValidationErrorV1::NativeRepresentation(
-            NativePublicTermsFieldV1::PriceIncrement
+        Err(V1StructuralPublicTermsProjectionError::InvalidPublicTerm(
+            V1StructuralPublicTermsField::PriceIncrement
         ))
     );
 
     let mut cross_spliced = readback_for(crypto_perpetual_proposal("ETHUSDT-PERP.SIM"));
     cross_spliced.cut.resolutions[0].fact_digest = d(99);
     assert_eq!(
-        cross_spliced.validate_native_crypto_perpetual_public_terms(
+        cross_spliced.project_validated_v1_crypto_perpetual_structural_public_terms(
             "ETHUSDT-PERP.SIM",
             "SIM",
             "BINANCE",
         ),
-        Err(NativePublicTermsValidationErrorV1::InvalidReadback)
+        Err(V1StructuralPublicTermsProjectionError::InvalidReadback)
     );
 }
 
