@@ -1402,12 +1402,10 @@ impl StoredStrategyInputSampleProjectionV2 {
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
-    pub(super) fn into_public_readback(
-        self,
-    ) -> super::sample_projection::StrategyInputSampleProjectionReadbackV2 {
-        super::sample_projection::StrategyInputSampleProjectionReadbackV2::from_postgres_verified(
-            StrategyInputSampleProjectionPostgresProofV2::new(self.decoded),
-        )
+    pub(super) fn components(
+        &self,
+    ) -> &[super::sample_projection::DecodedStrategyInputSampleProjectionComponentV2] {
+        self.decoded.components()
     }
 }
 

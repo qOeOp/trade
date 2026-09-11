@@ -34,13 +34,10 @@ use crate::owner::{
 };
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
-use crate::owner::{
-    strategy_input_binding::STRATEGY_INPUT_FIXED_I128_LE_V1,
-    strategy_input_event_corpus_v1::{
-        StrategyInputSampleEventOrderKeyV1, StrategyInputSampleEventReadbackV1,
-        StrategyInputSampleEventResolveErrorV1, StrategyInputSampleEventResolverV1,
-        StrategyInputSampleEventValueV1, sample_event_resolver_port_v1,
-    },
+use crate::owner::strategy_input_event_corpus_v1::{
+    StrategyInputSampleEventOrderKeyV1, StrategyInputSampleEventReadbackV1,
+    StrategyInputSampleEventResolveErrorV1, StrategyInputSampleEventResolverV1,
+    StrategyInputSampleEventValueV1, sample_event_resolver_port_v1,
 };
 
 use super::MarketDataOwnerPostgres;
@@ -782,17 +779,6 @@ impl sample_event_resolver_port_v1::Port for StrategyInputSampleEventPostgresPor
 }
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
-struct SelectedProjectionComponentV1 {
-    role_identity: [u8; 32],
-    binding_receipt_digest: [u8; 32],
-    value_trigger_digest: BindingDigest,
-    owner_event_identity: [u8; 16],
-    timeframe_projection_digest: [u8; 32],
-    sample_identity: [u8; 32],
-    sample_receipt_digest: [u8; 32],
-}
-
-#[cfg(feature = "isolated-event-replay-acceptance")]
 async fn resolve_strategy_input_sample_event_from_pool_v1(
     pool: &PgPool,
     locator: &StrategyInputEventBindingLocatorV1,
@@ -825,34 +811,13 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
     {
         return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
     }
-    let selected_components = decode_selected_projection_components_v1(
-        projection.canonical_bytes(),
-        projection.component_count(),
-    )?;
-    let projection_readback = projection.into_public_readback();
-    if projection_readback.kind() != StrategyInputSampleProjectionKindV2::JoinedCut
-        || projection_readback.lifecycle()
-            != crate::owner::strategy_input_binding::StrategyInputEventKind::Event
-        || projection_readback.receipt_digest() != *binding.projection_receipt_digest().as_bytes()
-        || projection_readback.components().len() != selected_components.len()
-        || projection_readback
-            .components()
-            .iter()
-            .zip(&selected_components)
-            .any(|(promoted, decoded)| {
-                promoted.role_identity() != decoded.role_identity
-                    || promoted.binding_receipt_digest() != decoded.binding_receipt_digest
-            })
-    {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-
-    let mut values = Vec::with_capacity(selected_components.len());
-    for component in selected_components {
-        let stored = super::load_sample_custody(&mut transaction, component.sample_receipt_digest)
-            .await
-            .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?
-            .ok_or(StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
+    let mut values = Vec::with_capacity(projection.components().len());
+    for component in projection.components() {
+        let stored =
+            super::load_sample_custody(&mut transaction, component.sample_receipt_digest())
+                .await
+                .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?
+                .ok_or(StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
         let sample = crate::owner::sample_fact::verify_stored_sample_readback_v1(
             &stored.prepared.fact_bytes,
             stored.prepared.fact_digest,
@@ -860,20 +825,18 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
             stored.prepared.receipt_digest,
         )
         .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
-        let (value_bytes, value_scale) =
-            fixed_i128_from_sample_fact_v1(sample.fact().canonical_bytes())?;
-        if sample.receipt().sample_identity() != component.sample_identity
-            || sample.receipt().digest() != component.sample_receipt_digest
-            || stored.prepared.projection_receipt_digest != component.timeframe_projection_digest
-            || sample.receipt().owner_event_identity() != component.owner_event_identity
+        if sample.receipt().sample_identity() != component.sample_identity()
+            || sample.receipt().digest() != component.sample_receipt_digest()
+            || stored.prepared.projection_receipt_digest != component.timeframe_projection_digest()
+            || sample.receipt().owner_event_identity() != component.owner_event_identity()
         {
             return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
         }
         values.push(StrategyInputSampleEventValueV1 {
-            role_identity: component.role_identity,
-            binding_receipt_digest: component.binding_receipt_digest,
-            value_bytes,
-            value_scale,
+            role_identity: component.role_identity(),
+            binding_receipt_digest: component.binding_receipt_digest(),
+            value_bytes: *sample.fact().value_bytes(),
+            value_scale: sample.fact().value_scale(),
             sample_identity: sample.receipt().sample_identity(),
             sample_receipt_digest: sample.receipt().digest(),
             sample_fact_digest: sample.receipt().fact_digest(),
@@ -882,7 +845,9 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
             snapshot_fact_digest: sample.fact().snapshot_fact_digest(),
             observation_batch_digest: sample.fact().observation_batch_digest(),
             timeframe_identity: sample.receipt().timeframe_identity(),
-            value_trigger_digest: component.value_trigger_digest,
+            value_trigger_digest: BindingDigest::from_untrusted_bytes(
+                component.value_trigger_digest(),
+            ),
             owner_event_identity: sample.receipt().owner_event_identity(),
             logical_time: sample.receipt().logical_time(),
             event_time: sample.receipt().event_effective(),
@@ -919,153 +884,9 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
         census_digest: binding.census_digest(),
         event_count: binding.event_count(),
         projection_receipt_digest: binding.projection_receipt_digest(),
-        projection_subject_identity: projection_readback.subject_identity(),
+        projection_subject_identity: projection.subject_identity(),
         values: values.into_boxed_slice(),
     })
-}
-
-#[cfg(feature = "isolated-event-replay-acceptance")]
-fn decode_selected_projection_components_v1(
-    bytes: &[u8],
-    expected_count: u32,
-) -> Result<Vec<SelectedProjectionComponentV1>, StrategyInputEventBindingErrorV1> {
-    const HEADER_LEN: usize = 41;
-    const ENTRY_LEN: usize = 612;
-    const COORDINATE_LEN: usize = 308;
-    let count = usize::try_from(expected_count)
-        .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
-    if count < 2 || bytes.len() != HEADER_LEN.saturating_add(ENTRY_LEN.saturating_mul(count)) {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    let mut reader = ExactBytesV1::new(bytes);
-    if reader.u16()? != 2 || reader.u16()? != 0 || reader.u8()? != JOINED_CUT_KIND_V2 {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    reader.take(32)?;
-    if reader.u32()? != expected_count {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    let mut components = Vec::with_capacity(count);
-    for _ in 0..count {
-        let role_identity = reader.identity()?;
-        let binding_receipt_digest = reader.identity()?;
-        reader.take(32)?;
-        let value_trigger_digest = BindingDigest::from_untrusted_bytes(reader.identity()?);
-        let owner_event_identity = reader.identity16()?;
-        reader.take(32)?;
-        let timeframe_projection_digest = reader.identity()?;
-        let sample_identity = reader.identity()?;
-        let sample_receipt_digest = reader.identity()?;
-        reader.take(32)?;
-        reader.take(COORDINATE_LEN)?;
-        components.push(SelectedProjectionComponentV1 {
-            role_identity,
-            binding_receipt_digest,
-            value_trigger_digest,
-            owner_event_identity,
-            timeframe_projection_digest,
-            sample_identity,
-            sample_receipt_digest,
-        });
-    }
-    if !reader.is_done() {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    Ok(components)
-}
-
-#[cfg(feature = "isolated-event-replay-acceptance")]
-fn fixed_i128_from_sample_fact_v1(
-    bytes: &[u8],
-) -> Result<([u8; 16], u8), StrategyInputEventBindingErrorV1> {
-    let mut reader = ExactBytesV1::new(bytes);
-    if reader.u16()? != 1 || reader.u16()? != 0 {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    reader.take(32 * 3)?;
-    let predecessor_tag = reader.u8()?;
-    match predecessor_tag {
-        0 => {}
-        1 => {
-            reader.take(32)?;
-        }
-        _ => return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable),
-    }
-    reader.take(32 * 3)?;
-    reader.var()?;
-    reader.take(2)?;
-    reader.var()?;
-    reader.take(32 + 16 + 8 * 6)?;
-    if reader.var()? != STRATEGY_INPUT_FIXED_I128_LE_V1.as_bytes() {
-        return Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable);
-    }
-    let value: [u8; 16] = reader
-        .var()?
-        .try_into()
-        .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
-    let scale = reader.u8()?;
-    Ok((value, scale))
-}
-
-#[cfg(feature = "isolated-event-replay-acceptance")]
-struct ExactBytesV1<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-#[cfg(feature = "isolated-event-replay-acceptance")]
-impl<'a> ExactBytesV1<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn take(&mut self, len: usize) -> Result<&'a [u8], StrategyInputEventBindingErrorV1> {
-        let end = self
-            .offset
-            .checked_add(len)
-            .filter(|end| *end <= self.bytes.len())
-            .ok_or(StrategyInputEventBindingErrorV1::ProjectionUnavailable)?;
-        let value = &self.bytes[self.offset..end];
-        self.offset = end;
-        Ok(value)
-    }
-
-    fn u8(&mut self) -> Result<u8, StrategyInputEventBindingErrorV1> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16(&mut self) -> Result<u16, StrategyInputEventBindingErrorV1> {
-        Ok(u16::from_le_bytes(
-            self.take(2)?.try_into().expect("fixed width"),
-        ))
-    }
-
-    fn u32(&mut self) -> Result<u32, StrategyInputEventBindingErrorV1> {
-        Ok(u32::from_le_bytes(
-            self.take(4)?.try_into().expect("fixed width"),
-        ))
-    }
-
-    fn identity(&mut self) -> Result<[u8; 32], StrategyInputEventBindingErrorV1> {
-        self.take(32)?
-            .try_into()
-            .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)
-    }
-
-    fn identity16(&mut self) -> Result<[u8; 16], StrategyInputEventBindingErrorV1> {
-        self.take(16)?
-            .try_into()
-            .map_err(|_| StrategyInputEventBindingErrorV1::ProjectionUnavailable)
-    }
-
-    fn var(&mut self) -> Result<&'a [u8], StrategyInputEventBindingErrorV1> {
-        let len = usize::from(self.u16()?);
-        self.take(len)
-    }
-
-    const fn is_done(&self) -> bool {
-        self.offset == self.bytes.len()
-    }
 }
 
 #[cfg(feature = "isolated-event-replay-acceptance")]
@@ -2164,61 +1985,6 @@ mod tests {
         assert!(derived_window < derived_event);
         assert!(derived_event < owner_commit);
         assert!(owner_commit < transaction_end);
-    }
-
-    #[cfg(feature = "isolated-event-replay-acceptance")]
-    #[test]
-    fn exact_selected_projection_and_fixed_i128_value_are_decoded_without_a_selector() {
-        let mut projection = Vec::new();
-        projection.extend_from_slice(&2_u16.to_le_bytes());
-        projection.extend_from_slice(&0_u16.to_le_bytes());
-        projection.push(JOINED_CUT_KIND_V2);
-        projection.extend_from_slice(&[9; 32]);
-        projection.extend_from_slice(&2_u32.to_le_bytes());
-        for ordinal in 1_u8..=2 {
-            projection.extend_from_slice(&[ordinal; 32]);
-            projection.extend_from_slice(&[ordinal + 2; 32]);
-            projection.extend_from_slice(&[ordinal + 4; 32]);
-            let trigger = [ordinal + 6; 32];
-            projection.extend_from_slice(&trigger);
-            projection.extend_from_slice(&trigger[..16]);
-            projection.extend_from_slice(&[ordinal + 8; 32]);
-            projection.extend_from_slice(&[ordinal + 10; 32]);
-            projection.extend_from_slice(&[ordinal + 12; 32]);
-            projection.extend_from_slice(&[ordinal + 14; 32]);
-            projection.extend_from_slice(&[ordinal + 16; 32]);
-            projection.extend_from_slice(&[ordinal + 18; 308]);
-        }
-        let components = decode_selected_projection_components_v1(&projection, 2).unwrap();
-        assert_eq!(components.len(), 2);
-        assert_eq!(components[0].role_identity, [1; 32]);
-        assert_eq!(components[1].sample_receipt_digest, [16; 32]);
-        assert!(matches!(
-            decode_selected_projection_components_v1(&projection, 1),
-            Err(StrategyInputEventBindingErrorV1::ProjectionUnavailable)
-        ));
-
-        let mut fact = Vec::new();
-        fact.extend_from_slice(&1_u16.to_le_bytes());
-        fact.extend_from_slice(&0_u16.to_le_bytes());
-        fact.extend_from_slice(&[1; 32 * 3]);
-        fact.push(0);
-        fact.extend_from_slice(&[2; 32 * 3]);
-        for value in [b"instrument".as_slice(), b"field".as_slice()] {
-            fact.extend_from_slice(&(value.len() as u16).to_le_bytes());
-            fact.extend_from_slice(value);
-            if value == b"instrument" {
-                fact.extend_from_slice(&[1, 2]);
-            }
-        }
-        fact.extend_from_slice(&[3; 32 + 16 + 8 * 6]);
-        fact.extend_from_slice(&(STRATEGY_INPUT_FIXED_I128_LE_V1.len() as u16).to_le_bytes());
-        fact.extend_from_slice(STRATEGY_INPUT_FIXED_I128_LE_V1.as_bytes());
-        let value = (-123_456_i128).to_le_bytes();
-        fact.extend_from_slice(&(value.len() as u16).to_le_bytes());
-        fact.extend_from_slice(&value);
-        fact.push(4);
-        assert_eq!(fixed_i128_from_sample_fact_v1(&fact), Ok((value, 4)));
     }
 
     #[cfg(feature = "isolated-event-replay-acceptance")]
