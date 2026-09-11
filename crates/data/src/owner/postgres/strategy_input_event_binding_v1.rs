@@ -39,6 +39,8 @@ const RESOLVE_CENSUS_SOURCE_V1: &str = "SELECT event_ordinal,logical_time,event_
 const BINDING_COLUMN_SIGNATURE_V1: &str = "request_identity:bytea:true,request_meaning_digest:bytea:true,request_locator_bytes:bytea:true,request_bytes:bytea:true,request_receipt_bytes:bytea:true,request_receipt_identity:bytea:true,request_seal_digest:bytea:true,replay_start_event_ns:numeric(39,0):true,replay_end_event_ns_exclusive:numeric(39,0):true,selected_event_ordinal:bigint:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,selected_event_identity:bytea:true,selected_trigger_digest:bytea:true,source_digest:bytea:true,corpus_digest:bytea:true,census_digest:bytea:true,event_count:bigint:true,binding_identity:bytea:true,binding_bytes:bytea:true,receipt_identity:bytea:true,receipt_bytes:bytea:true,readback_identity:bytea:true,readback_bytes:bytea:true,custody_digest:bytea:true";
 const CENSUS_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,event_ordinal:bigint:true,logical_time:bigint:true,event_time:bigint:true,owner_sequence:bigint:true,event_identity:bytea:true,trigger_digest:bytea:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,entry_bytes:bytea:true";
 const OUTBOX_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,outbox_identity:bytea:true,payload:bytea:true,custody_digest:bytea:true";
+const TRUSTED_DEPARSE_SEARCH_PATH_V1: &str =
+    "SELECT pg_catalog.set_config('search_path','pg_catalog',true)";
 const EXPECTED_CHECKS_V1: &[(&str, &str)] = &[
     (
         "strategy_input_event_bindings_v1",
@@ -1028,6 +1030,13 @@ async fn verify_contract(
     if !topology_is_exact {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
+    let trusted_search_path: String = sqlx::query_scalar(TRUSTED_DEPARSE_SEARCH_PATH_V1)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(store_error)?;
+    if trusted_search_path != "pg_catalog" {
+        return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
+    }
     let check_rows = sqlx::query(
         "SELECT relation.relname::TEXT AS table_name,pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false) AS predicate FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='market_data_private' AND relation.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1') AND constraint_fact.contype='c'",
     )
@@ -1498,6 +1507,23 @@ mod tests {
             .unwrap();
         event_count.1 = "(event_count>=0)".to_owned();
         assert!(!check_predicates_are_exact(&weakened_checks));
+
+        let mut hostile_function_checks = EXPECTED_CHECKS_V1
+            .iter()
+            .map(|(table, predicate)| ((*table).to_owned(), (*predicate).to_owned()))
+            .collect::<Vec<_>>();
+        let request_identity = hostile_function_checks
+            .iter_mut()
+            .find(|(_, predicate)| predicate.contains("octet_length(request_identity)"))
+            .unwrap();
+        request_identity.1 = request_identity
+            .1
+            .replacen("octet_length", "public.octet_length", 1);
+        assert!(!check_predicates_are_exact(&hostile_function_checks));
+        assert_eq!(
+            TRUSTED_DEPARSE_SEARCH_PATH_V1,
+            "SELECT pg_catalog.set_config('search_path','pg_catalog',true)"
+        );
     }
 
     fn exact_multiset_for_test<T: Ord + Clone>(expected: &[T], actual: &[T]) -> bool {
