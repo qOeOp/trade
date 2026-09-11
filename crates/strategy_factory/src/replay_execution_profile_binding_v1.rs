@@ -458,6 +458,11 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
 
     let mut economic_input = economic_fixture();
     economic_input.venue_identity = "XNAS".into();
+    economic_input.starting_balance =
+        crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+            mantissa: 1_000_000,
+            scale: 0,
+        };
     economic_input.starting_balance_currency = "USD".into();
     economic_input.common_quote_currency = "USD".into();
     economic_input.instrument_terms.instrument_identity = "AAPL".into();
@@ -1096,14 +1101,18 @@ mod tests {
         assert!(!locator.receipt_identity.is_empty());
         assert!(!locator.seal_digest.is_empty());
         assert!(binding.matches_request_locator(&locator));
+        let economic = ReplayEconomicConfigurationV1::parse_canonical(
+            binding.economic_configuration_canonical_bytes(),
+        )
+        .unwrap();
         assert_eq!(
-            ReplayEconomicConfigurationV1::parse_canonical(
-                binding.economic_configuration_canonical_bytes()
-            )
-            .unwrap()
-            .digest(),
-            binding.economic_configuration_digest()
+            economic.input().starting_balance,
+            crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+                mantissa: 1_000_000,
+                scale: 0,
+            }
         );
+        assert_eq!(economic.digest(), binding.economic_configuration_digest());
         assert_eq!(
             ReplayRunnerOperationalProfileV1::parse_canonical(
                 binding.runner_operational_profile_canonical_bytes()
