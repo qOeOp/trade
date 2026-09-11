@@ -42,7 +42,7 @@ use crate::rd_owner_postgres_custody::{
     ResearchCustodyLookupV1, admit_all_research_custodies_in_transaction,
     admit_independence_basis_by_identity_in_transaction, admit_research_custody_in_transaction,
     admit_research_v2_custody_read_only_in_transaction, require_rd_owner_api_schema,
-    resolve_verified_artifact_family,
+    resolve_exploratory_replay_result_for_rd_in_transaction, resolve_verified_artifact_family,
 };
 use crate::{
     replay_policy_catalog_postgres_v2::resolve_current_for_trial_family_formation,
@@ -1292,6 +1292,31 @@ impl PostgresResearchGoalOwnerV1 {
         })?;
         crate::exploratory_replay::postgres::lock_for_backtest_v2(&self.pool, backtest, locator)
             .await
+    }
+
+    /// Reads one complete Backtest-owned exploratory result inside an R&D transaction.
+    ///
+    /// The returned value exists only when the canonical Result, receipt, and outbox aggregate
+    /// passes the neutral custody validator. The transaction is always rolled back so this
+    /// consumer cannot create an R&D fact.
+    pub async fn resolve_exploratory_replay_result_v2(
+        &self,
+        locator: crate::ExploratoryReplayResultLocatorV2<'_>,
+    ) -> Result<Option<crate::LockedExploratoryReplayResultV2>, crate::BacktestResultCustodyErrorV2>
+    {
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        let result =
+            resolve_exploratory_replay_result_for_rd_in_transaction(&mut transaction, locator)
+                .await;
+        transaction
+            .rollback()
+            .await
+            .map_err(|_| crate::BacktestResultCustodyErrorV2::Unavailable)?;
+        result
     }
 
     pub async fn preflight_request_identity(
