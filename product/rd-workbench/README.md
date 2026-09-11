@@ -154,6 +154,15 @@ docker compose \
 
 The sole default browser entry is `http://127.0.0.1:18000`. On a fresh volume, complete Windmill's authenticated first-user setup in that browser and create the local `trade-rd` workspace. Create a workspace token for deployment, keep it outside the repository, and deploy the repository projection:
 
+The opt-in `dashboard-preview` profile additionally starts
+`rd-artifact-owner-read-api`. That process exposes only the authenticated
+verified Artifact directory GET and health check; it owns no sandbox or
+Artifact mutation port. Configure its separate
+`RD_ARTIFACT_OWNER_READ_API_TOKEN`. Dashboard consumes the matching internal
+URL/token pair and fails closed when either half is missing. Starting the
+default Workbench without the profile does not start this reader or change any
+Windmill route.
+
 ```bash
 WINDMILL_TOKEN_FILE=/absolute/path/to/private-deployment-token \
 WINDMILL_WORKSPACE_ID=trade-rd \

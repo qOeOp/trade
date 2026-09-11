@@ -56,6 +56,30 @@ test("Dashboard image and migration are opt-in Compose services", () => {
   }
 });
 
+test("Artifact verified-directory reads use a dedicated GET-only Compose service", () => {
+  const artifactRead = serviceBlock("rd-artifact-owner-read-api");
+  const dashboard = serviceBlock("dashboard-web");
+
+  assert.match(artifactRead, /profiles: \["dashboard-preview"\]/);
+  assert.match(artifactRead, /strategy-factory-rd-artifact-read-api/);
+  assert.match(artifactRead, /RD_ARTIFACT_OWNER_READ_DATABASE_URL:/);
+  assert.match(artifactRead, /RD_ARTIFACT_OWNER_READ_API_TOKEN:/);
+  assert.match(artifactRead, /expose:\n\s+- 8082/);
+  assert.doesNotMatch(artifactRead, /ports:/);
+  assert.match(artifactRead, /read_only: true/);
+  assert.match(artifactRead, /cap_drop:\n\s+- ALL/);
+
+  assert.match(dashboard, /rd-artifact-owner-read-api:\n\s+condition: service_healthy/);
+  assert.match(
+    dashboard,
+    /RD_ARTIFACT_OWNER_READ_API_URL:[\s\S]*http:\/\/rd-artifact-owner-read-api:8082/,
+  );
+  assert.match(
+    dashboard,
+    /RD_ARTIFACT_OWNER_READ_API_TOKEN: \$\{RD_ARTIFACT_OWNER_READ_API_TOKEN:-\}/,
+  );
+});
+
 test("Windmill remains independent of the opt-in Dashboard profile", () => {
   const server = serviceBlock("windmill-server");
   const worker = serviceBlock("windmill-worker");

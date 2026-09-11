@@ -71,6 +71,38 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  rd-artifact-owner-read-api:
+    profiles: ["dashboard-preview"]
+    build:
+      context: ../..
+      dockerfile: product/rd-workbench/Dockerfile.owner
+    entrypoint: ["/usr/local/bin/strategy-factory-rd-artifact-read-api"]
+    restart: unless-stopped
+    environment:
+      RD_ARTIFACT_OWNER_READ_DATABASE_URL: ${RD_OWNER_DATABASE_URL:?set RD_OWNER_DATABASE_URL}
+      RD_ARTIFACT_OWNER_READ_API_TOKEN: >-
+        ${RD_ARTIFACT_OWNER_READ_API_TOKEN:?set RD_ARTIFACT_OWNER_READ_API_TOKEN}
+      RUST_LOG: info
+    expose:
+      - 8082
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=10001,gid=10001,mode=0700
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8082'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+
   schema-materialize:
     build:
       context: ../..
@@ -273,6 +305,8 @@ services:
     depends_on:
       dashboard-run-store-migrate:
         condition: service_completed_successfully
+      rd-artifact-owner-read-api:
+        condition: service_healthy
     environment:
       DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
       DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
@@ -289,6 +323,9 @@ services:
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:-}
       RD_OWNER_READ_API_URL: ${RD_OWNER_READ_API_URL:-}
       RD_OWNER_READ_API_TOKEN: ${RD_OWNER_READ_API_TOKEN:-}
+      RD_ARTIFACT_OWNER_READ_API_URL: >-
+        ${RD_ARTIFACT_OWNER_READ_API_URL:-http://rd-artifact-owner-read-api:8082}
+      RD_ARTIFACT_OWNER_READ_API_TOKEN: ${RD_ARTIFACT_OWNER_READ_API_TOKEN:-}
     ports:
       - 127.0.0.1:${DASHBOARD_PORT:-3100}:3100
     read_only: true

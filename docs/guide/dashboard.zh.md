@@ -277,6 +277,13 @@ custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 
 valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
 payload 或 storage 字段。
 
+verified directory GET 由独立的 `strategy-factory-rd-artifact-read-api` 打包。它的 router 只暴露 `/health` 与
+`/v1/artifact-builds/directory`，state 只持有 typed `ArtifactDirectoryOwnerPort`，不持有 sandbox 或任何 Artifact
+mutation port。PostgreSQL adapter 保持普通 read-committed locking reader，因为 canonical verifier 需要
+`FOR SHARE`；若改成 read-only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过独立且必须成对
+配置的 `RD_ARTIFACT_OWNER_READ_API_URL` 与 `RD_ARTIFACT_OWNER_READ_API_TOKEN` 绑定该 endpoint；只配置其中一项时
+必须 fail closed，绝不能借用 write API 的另一半 credential。
+
 唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older` 与打开一个
 精确 verified Artifact。目录不 submit
 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写

@@ -321,6 +321,15 @@ Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-bindin
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
 
+The verified-directory GET is packaged as the dedicated
+`strategy-factory-rd-artifact-read-api`. Its router exposes only `/health` and
+`/v1/artifact-builds/directory`; its state holds only the typed
+`ArtifactDirectoryOwnerPort`, never a sandbox or an Artifact mutation port. The PostgreSQL adapter remains a normal
+read-committed locking reader because the canonical verifier requires `FOR SHARE`; changing it to a read-only
+transaction would reject the verifier itself. Dashboard binds this endpoint through the separate, atomically
+configured `RD_ARTIFACT_OWNER_READ_API_URL` and `RD_ARTIFACT_OWNER_READ_API_TOKEN` pair. If either dedicated value is
+present without the other, the read fails closed and never borrows a credential from the write API.
+
 `Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, and opening one
 exact verified Artifact are the only actions. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate

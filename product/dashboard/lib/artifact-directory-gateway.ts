@@ -39,6 +39,12 @@ const BROWSER_ITEM_KEYS = [
 const BROWSER_CURSOR_KEYS = ["buildRequestIdentity", "preparedAtEpochMs"];
 
 type Fetcher = typeof fetch;
+type ArtifactDirectoryEnvironmentV1 = Record<string, string | undefined>;
+
+export type ArtifactDirectoryOwnerTargetV1 = Readonly<{
+  baseUrl: string | undefined;
+  token: string | undefined;
+}>;
 
 export type ArtifactDirectoryCursorV1 = Readonly<{
   preparedAtEpochMs: number;
@@ -128,6 +134,20 @@ function unavailable(reason: string): ArtifactDirectoryProjectionV1 {
     nextCursor: null,
     items: [],
     reason,
+  };
+}
+
+export function artifactDirectoryOwnerTargetV1(
+  environment: ArtifactDirectoryEnvironmentV1 = process.env,
+): ArtifactDirectoryOwnerTargetV1 {
+  const readBaseUrl = environment.RD_ARTIFACT_OWNER_READ_API_URL || undefined;
+  const readToken = environment.RD_ARTIFACT_OWNER_READ_API_TOKEN || undefined;
+  if (readBaseUrl || readToken) {
+    return { baseUrl: readBaseUrl, token: readToken };
+  }
+  return {
+    baseUrl: environment.RD_OWNER_API_URL,
+    token: environment.RD_OWNER_API_TOKEN,
   };
 }
 
@@ -258,26 +278,33 @@ export function parseArtifactDirectoryBrowserProjectionV1(
 
 export async function readArtifactDirectoryGatewayV1({
   cursor,
-  baseUrl = process.env.RD_OWNER_API_URL,
-  token = process.env.RD_OWNER_API_TOKEN,
+  baseUrl,
+  token,
+  environment = process.env,
   fetcher = fetch,
 }: {
   cursor?: ArtifactDirectoryCursorV1;
   baseUrl?: string;
   token?: string;
+  environment?: ArtifactDirectoryEnvironmentV1;
   fetcher?: Fetcher;
 } = {}): Promise<ArtifactDirectoryGatewayResultV1> {
   if (cursor && (!safeEpoch(cursor.preparedAtEpochMs) || !identity(cursor.buildRequestIdentity))) {
     return { status: 400, projection: unavailable("ARTIFACT_DIRECTORY_CURSOR_INVALID") };
   }
-  const endpoint = baseUrl ? ownerEndpoint(baseUrl, cursor) : null;
-  if (!endpoint || !token) {
+  const configuredTarget = baseUrl !== undefined || token !== undefined
+    ? { baseUrl, token }
+    : artifactDirectoryOwnerTargetV1(environment);
+  const endpoint = configuredTarget.baseUrl
+    ? ownerEndpoint(configuredTarget.baseUrl, cursor)
+    : null;
+  if (!endpoint || !configuredTarget.token) {
     return { status: 503, projection: unavailable("OWNER_CONFIGURATION_UNAVAILABLE") };
   }
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     });

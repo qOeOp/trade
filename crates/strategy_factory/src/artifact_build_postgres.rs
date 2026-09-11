@@ -80,6 +80,18 @@ pub struct PostgresArtifactBuildOwnerV1 {
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
 }
 
+/// PostgreSQL capability narrowed to verified Artifact directory reads.
+///
+/// This type deliberately owns neither a sandbox nor any Artifact mutation
+/// port. Directory reads retain the canonical `FOR SHARE` custody verifier,
+/// which requires a normal read-committed transaction rather than a PostgreSQL
+/// read-only transaction.
+#[derive(Clone)]
+pub struct PostgresArtifactDirectoryOwnerV1 {
+    pool: PgPool,
+    clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
+}
+
 #[cfg(feature = "sealed-artifact-source-acceptance")]
 #[derive(Clone)]
 struct SealedArtifactSourceAcceptanceSandboxV1;
@@ -1549,10 +1561,26 @@ impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
 const ARTIFACT_DIRECTORY_MAX_RETURNED: u32 = 20;
 const ARTIFACT_DIRECTORY_MAX_SCANNED: i64 = 60;
 
-#[async_trait]
-impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
-    async fn list_artifacts(
-        &self,
+impl PostgresArtifactDirectoryOwnerV1 {
+    pub async fn connect(database_url: &str) -> Result<Self, ArtifactBuildError> {
+        crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(database_url)?;
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(database_url)
+            .await
+            .map_err(storage)?;
+        crate::schema_materialization::require_existing_public_tables(&pool, ARTIFACT_BUILD_TABLES)
+            .await
+            .map_err(storage)?;
+        Ok(Self {
+            pool,
+            clock: Arc::new(current_epoch_ms),
+        })
+    }
+
+    async fn list_from_pool(
+        pool: &PgPool,
+        clock: &(dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync),
         after: Option<&ArtifactDirectoryCursorV1>,
         limit: u32,
     ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
@@ -1578,7 +1606,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
             .bind(i64::try_from(cursor.prepared_at_epoch_ms).map_err(json_storage)?)
             .bind(&cursor.build_request_identity)
             .bind(scan_limit)
-            .fetch_all(&self.pool)
+            .fetch_all(pool)
             .await
             .map_err(storage)?
         } else {
@@ -1586,7 +1614,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
                 "SELECT build_request_identity, prepared_at_epoch_ms FROM rd_artifact_build_attempts_v1 ORDER BY prepared_at_epoch_ms DESC, build_request_identity COLLATE \"C\" DESC LIMIT $1",
             )
             .bind(scan_limit)
-            .fetch_all(&self.pool)
+            .fetch_all(pool)
             .await
             .map_err(storage)?
         };
@@ -1618,7 +1646,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
             });
             scanned += 1;
 
-            let mut transaction = self.pool.begin().await.map_err(storage)?;
+            let mut transaction = pool.begin().await.map_err(storage)?;
             let custody = Box::pin(admit_attempt_custody_in_transaction(
                 &mut transaction,
                 &build_request_identity,
@@ -1665,7 +1693,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
             .flatten();
         Ok(ArtifactDirectoryReadbackV1 {
             schema_version: 1,
-            observed_at_epoch_ms: (self.clock)()?,
+            observed_at_epoch_ms: clock()?,
             completeness: if omitted_count == 0 {
                 ArtifactDirectoryCompletenessV1::Complete
             } else {
@@ -1675,6 +1703,40 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
             next_cursor,
             items,
         })
+    }
+}
+
+#[async_trait]
+impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
+    async fn list_artifacts(
+        &self,
+        after: Option<&ArtifactDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
+        Box::pin(PostgresArtifactDirectoryOwnerV1::list_from_pool(
+            &self.pool,
+            self.clock.as_ref(),
+            after,
+            limit,
+        ))
+        .await
+    }
+}
+
+#[async_trait]
+impl ArtifactDirectoryOwnerPort for PostgresArtifactDirectoryOwnerV1 {
+    async fn list_artifacts(
+        &self,
+        after: Option<&ArtifactDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
+        Box::pin(Self::list_from_pool(
+            &self.pool,
+            self.clock.as_ref(),
+            after,
+            limit,
+        ))
+        .await
     }
 }
 
