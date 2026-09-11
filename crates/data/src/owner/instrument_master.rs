@@ -14,6 +14,13 @@
 
 use std::fmt::Display;
 
+use vibe_core::UnixNanos;
+use vibe_model::types::{
+    fixed::mantissa_exponent_to_fixed_i128,
+    price::{Price, PriceRaw, check_positive_price},
+    quantity::{Quantity, QuantityRaw, check_positive_quantity},
+};
+
 use super::{
     shared_time_evidence::UntrustedClockHeadLocator,
     source_binding::BindingDigest,
@@ -325,6 +332,474 @@ impl InstrumentMasterReadbackV1 {
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
+
+    /// Validates one exact V1 fact and mapping for later native crypto-perpetual composition.
+    ///
+    /// The complete readback is reverified before any value crosses the Owner boundary. The
+    /// mapping selector must identify exactly one sealed venue/source tuple; no first-match or
+    /// caller default is accepted. This projection carries public Instrument Master terms only.
+    /// Account-specific fees, leverage, margin ratios, and execution policy remain outside Market
+    /// Data custody.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed error for a malformed or cross-spliced readback, an absent or
+    /// ambiguous mapping, an unsupported class, incomplete currencies, or a value that cannot be
+    /// represented by the native fixed-point and timestamp types.
+    pub fn validate_native_crypto_perpetual_public_terms(
+        &self,
+        canonical_identity: &str,
+        venue_identity: &str,
+        source_identity: &str,
+    ) -> Result<ValidatedInstrumentMasterPublicTermsV1, NativePublicTermsValidationErrorV1> {
+        if !verify_instrument_master_readback(self) {
+            return Err(NativePublicTermsValidationErrorV1::InvalidReadback);
+        }
+
+        let fact = self
+            .facts
+            .iter()
+            .find(|fact| fact.canonical_identity() == canonical_identity)
+            .ok_or(NativePublicTermsValidationErrorV1::UnknownInstrument)?;
+        if fact.instrument_class() != InstrumentClass::CryptoPerpetual {
+            return Err(NativePublicTermsValidationErrorV1::UnsupportedClass(
+                fact.instrument_class(),
+            ));
+        }
+
+        let mut mappings = fact.proposal.mappings.iter().filter(|mapping| {
+            mapping.venue_identity == venue_identity && mapping.source_identity == source_identity
+        });
+        let mapping = mappings
+            .next()
+            .ok_or(NativePublicTermsValidationErrorV1::MissingMapping)?;
+        if mappings.next().is_some() {
+            return Err(NativePublicTermsValidationErrorV1::AmbiguousMapping);
+        }
+        let raw_symbol = std::str::from_utf8(&mapping.source_instrument)
+            .map_err(|_| {
+                NativePublicTermsValidationErrorV1::NativeRepresentation(
+                    NativePublicTermsFieldV1::SourceInstrument,
+                )
+            })?
+            .to_owned();
+
+        let base_currency = require_native_currency(
+            fact.proposal.base_currency.as_deref(),
+            NativePublicTermsFieldV1::BaseCurrency,
+        )?;
+        let quote_currency = require_native_currency(
+            fact.proposal.quote_currency.as_deref(),
+            NativePublicTermsFieldV1::QuoteCurrency,
+        )?;
+        let settlement_currency = require_native_currency(
+            fact.proposal.settlement_currency.as_deref(),
+            NativePublicTermsFieldV1::SettlementCurrency,
+        )?;
+        let margin_currency = optional_native_currency(
+            fact.proposal.margin_currency.as_deref(),
+            NativePublicTermsFieldV1::MarginCurrency,
+        )?;
+
+        validate_native_price_v1(
+            fact.proposal.price_increment,
+            NativePublicTermsFieldV1::PriceIncrement,
+        )?;
+        validate_native_quantity_v1(
+            fact.proposal.quantity_increment,
+            NativePublicTermsFieldV1::QuantityIncrement,
+        )?;
+        validate_native_quantity_v1(
+            fact.proposal.contract_multiplier,
+            NativePublicTermsFieldV1::ContractMultiplier,
+        )?;
+
+        Ok(ValidatedInstrumentMasterPublicTermsV1 {
+            readback_identity: self.identity,
+            request_identity: self.request_identity,
+            request_meaning_digest: self.request_meaning_digest,
+            cut_identity: self.cut.identity,
+            receipt_identity: self.receipt_identity,
+            outbox_identity: self.outbox_identity,
+            stable_correlation: self.stable_correlation,
+            store_generation_identity: self.store_generation_identity,
+            store_append_sequence: self.store_append_sequence,
+            fact_identity: fact.identity,
+            predecessor_fact_digest: fact.proposal.predecessor_fact_digest,
+            canonical_identity: fact.proposal.canonical_identity.clone(),
+            venue_identity: mapping.venue_identity.clone(),
+            source_identity: mapping.source_identity.clone(),
+            source_instrument: mapping.source_instrument.clone(),
+            raw_symbol,
+            instrument_class: fact.proposal.instrument_class,
+            base_currency,
+            quote_currency,
+            settlement_currency,
+            margin_currency,
+            price_increment: fact.proposal.price_increment,
+            quantity_increment: fact.proposal.quantity_increment,
+            contract_multiplier: fact.proposal.contract_multiplier,
+            calendar_identity: fact.proposal.calendar_identity.clone(),
+            session_identity: fact.proposal.session_identity.clone(),
+            time_zone_identity: fact.proposal.time_zone_identity.clone(),
+            lifecycle_frontier: fact.proposal.lifecycle_frontier,
+            corporate_action_frontier: fact.proposal.corporate_action_frontier,
+            historical_membership_frontier: fact.proposal.historical_membership_frontier,
+            market_semantics_identity: fact.proposal.market_semantics_identity,
+            source_frontier: fact.proposal.source_frontier,
+            correction_frontier: fact.proposal.correction_frontier,
+            effective_from: native_timestamp_v1(
+                fact.proposal.effective_from,
+                NativePublicTermsFieldV1::EffectiveFrom,
+            )?,
+            effective_until: fact
+                .proposal
+                .effective_until
+                .map(|value| native_timestamp_v1(value, NativePublicTermsFieldV1::EffectiveUntil))
+                .transpose()?,
+            provider_available: native_timestamp_v1(
+                fact.proposal.provider_available,
+                NativePublicTermsFieldV1::ProviderAvailable,
+            )?,
+            retrieval: native_timestamp_v1(
+                fact.proposal.retrieval,
+                NativePublicTermsFieldV1::Retrieval,
+            )?,
+            correction_publication: native_timestamp_v1(
+                fact.proposal.correction_publication,
+                NativePublicTermsFieldV1::CorrectionPublication,
+            )?,
+            owner_observation: native_timestamp_v1(
+                fact.proposal.owner_observation,
+                NativePublicTermsFieldV1::OwnerObservation,
+            )?,
+            effective_instant: native_timestamp_v1(
+                self.cut.effective_instant,
+                NativePublicTermsFieldV1::EffectiveInstant,
+            )?,
+            decision_cut: self.cut.decision_cut,
+            clock_head_identity: self.cut.clock.head_identity,
+            clock_head_digest: self.cut.clock.head_digest,
+        })
+    }
+}
+
+/// One field whose value is required to cross the V1 native public-terms boundary.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativePublicTermsFieldV1 {
+    SourceInstrument,
+    BaseCurrency,
+    QuoteCurrency,
+    SettlementCurrency,
+    MarginCurrency,
+    PriceIncrement,
+    QuantityIncrement,
+    ContractMultiplier,
+    EffectiveFrom,
+    EffectiveUntil,
+    ProviderAvailable,
+    Retrieval,
+    CorrectionPublication,
+    OwnerObservation,
+    EffectiveInstant,
+}
+
+/// Failure to derive one exact native public-terms projection from a sealed V1 readback.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativePublicTermsValidationErrorV1 {
+    InvalidReadback,
+    UnknownInstrument,
+    MissingMapping,
+    AmbiguousMapping,
+    UnsupportedClass(InstrumentClass),
+    MissingField(NativePublicTermsFieldV1),
+    NativeRepresentation(NativePublicTermsFieldV1),
+}
+
+impl Display for NativePublicTermsValidationErrorV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for NativePublicTermsValidationErrorV1 {}
+
+/// Move-only Market Data-owned V1 public terms for later native composition.
+///
+/// Callers can inspect this value but cannot construct, clone, or deserialize it. It deliberately
+/// carries no account-specific or execution-policy economics.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ValidatedInstrumentMasterPublicTermsV1 {
+    readback_identity: InstrumentMasterIdentity,
+    request_identity: InstrumentMasterIdentity,
+    request_meaning_digest: InstrumentMasterIdentity,
+    cut_identity: InstrumentMasterIdentity,
+    receipt_identity: InstrumentMasterIdentity,
+    outbox_identity: InstrumentMasterIdentity,
+    stable_correlation: InstrumentMasterIdentity,
+    store_generation_identity: InstrumentMasterIdentity,
+    store_append_sequence: u64,
+    fact_identity: InstrumentMasterIdentity,
+    predecessor_fact_digest: Option<InstrumentMasterIdentity>,
+    canonical_identity: String,
+    venue_identity: String,
+    source_identity: String,
+    source_instrument: Vec<u8>,
+    raw_symbol: String,
+    instrument_class: InstrumentClass,
+    base_currency: String,
+    quote_currency: String,
+    settlement_currency: String,
+    margin_currency: Option<String>,
+    price_increment: InstrumentDecimal,
+    quantity_increment: InstrumentDecimal,
+    contract_multiplier: InstrumentDecimal,
+    calendar_identity: String,
+    session_identity: String,
+    time_zone_identity: String,
+    lifecycle_frontier: InstrumentMasterIdentity,
+    corporate_action_frontier: InstrumentMasterIdentity,
+    historical_membership_frontier: InstrumentMasterIdentity,
+    market_semantics_identity: InstrumentMasterIdentity,
+    source_frontier: InstrumentMasterIdentity,
+    correction_frontier: InstrumentMasterIdentity,
+    effective_from: UnixNanos,
+    effective_until: Option<UnixNanos>,
+    provider_available: UnixNanos,
+    retrieval: UnixNanos,
+    correction_publication: UnixNanos,
+    owner_observation: UnixNanos,
+    effective_instant: UnixNanos,
+    decision_cut: u64,
+    clock_head_identity: InstrumentMasterIdentity,
+    clock_head_digest: InstrumentMasterIdentity,
+}
+
+macro_rules! digest_getter {
+    ($name:ident, $field:ident) => {
+        #[must_use]
+        pub const fn $name(&self) -> InstrumentMasterIdentity {
+            self.$field
+        }
+    };
+}
+
+impl ValidatedInstrumentMasterPublicTermsV1 {
+    digest_getter!(readback_identity, readback_identity);
+    digest_getter!(request_identity, request_identity);
+    digest_getter!(request_meaning_digest, request_meaning_digest);
+    digest_getter!(cut_identity, cut_identity);
+    digest_getter!(receipt_identity, receipt_identity);
+    digest_getter!(outbox_identity, outbox_identity);
+    digest_getter!(stable_correlation, stable_correlation);
+    digest_getter!(store_generation_identity, store_generation_identity);
+    digest_getter!(fact_identity, fact_identity);
+    digest_getter!(lifecycle_frontier, lifecycle_frontier);
+    digest_getter!(corporate_action_frontier, corporate_action_frontier);
+    digest_getter!(
+        historical_membership_frontier,
+        historical_membership_frontier
+    );
+    digest_getter!(market_semantics_identity, market_semantics_identity);
+    digest_getter!(source_frontier, source_frontier);
+    digest_getter!(correction_frontier, correction_frontier);
+    digest_getter!(clock_head_identity, clock_head_identity);
+    digest_getter!(clock_head_digest, clock_head_digest);
+
+    #[must_use]
+    pub const fn predecessor_fact_digest(&self) -> Option<InstrumentMasterIdentity> {
+        self.predecessor_fact_digest
+    }
+
+    #[must_use]
+    pub fn canonical_identity(&self) -> &str {
+        &self.canonical_identity
+    }
+
+    #[must_use]
+    pub fn venue_identity(&self) -> &str {
+        &self.venue_identity
+    }
+
+    #[must_use]
+    pub fn source_identity(&self) -> &str {
+        &self.source_identity
+    }
+
+    #[must_use]
+    pub fn source_instrument(&self) -> &[u8] {
+        &self.source_instrument
+    }
+
+    #[must_use]
+    pub fn raw_symbol(&self) -> &str {
+        &self.raw_symbol
+    }
+
+    #[must_use]
+    pub const fn instrument_class(&self) -> InstrumentClass {
+        self.instrument_class
+    }
+
+    #[must_use]
+    pub fn base_currency(&self) -> &str {
+        &self.base_currency
+    }
+
+    #[must_use]
+    pub fn quote_currency(&self) -> &str {
+        &self.quote_currency
+    }
+
+    #[must_use]
+    pub fn settlement_currency(&self) -> &str {
+        &self.settlement_currency
+    }
+
+    #[must_use]
+    pub fn margin_currency(&self) -> Option<&str> {
+        self.margin_currency.as_deref()
+    }
+
+    #[must_use]
+    pub const fn price_increment(&self) -> InstrumentDecimal {
+        self.price_increment
+    }
+
+    #[must_use]
+    pub const fn quantity_increment(&self) -> InstrumentDecimal {
+        self.quantity_increment
+    }
+
+    #[must_use]
+    pub const fn contract_multiplier(&self) -> InstrumentDecimal {
+        self.contract_multiplier
+    }
+
+    #[must_use]
+    pub fn calendar_identity(&self) -> &str {
+        &self.calendar_identity
+    }
+
+    #[must_use]
+    pub fn session_identity(&self) -> &str {
+        &self.session_identity
+    }
+
+    #[must_use]
+    pub fn time_zone_identity(&self) -> &str {
+        &self.time_zone_identity
+    }
+
+    #[must_use]
+    pub const fn effective_from(&self) -> UnixNanos {
+        self.effective_from
+    }
+
+    #[must_use]
+    pub const fn effective_until(&self) -> Option<UnixNanos> {
+        self.effective_until
+    }
+
+    #[must_use]
+    pub const fn provider_available(&self) -> UnixNanos {
+        self.provider_available
+    }
+
+    #[must_use]
+    pub const fn retrieval(&self) -> UnixNanos {
+        self.retrieval
+    }
+
+    #[must_use]
+    pub const fn correction_publication(&self) -> UnixNanos {
+        self.correction_publication
+    }
+
+    #[must_use]
+    pub const fn owner_observation(&self) -> UnixNanos {
+        self.owner_observation
+    }
+
+    #[must_use]
+    pub const fn effective_instant(&self) -> UnixNanos {
+        self.effective_instant
+    }
+
+    #[must_use]
+    pub const fn decision_cut(&self) -> u64 {
+        self.decision_cut
+    }
+
+    #[must_use]
+    pub const fn store_append_sequence(&self) -> u64 {
+        self.store_append_sequence
+    }
+}
+
+fn require_native_currency(
+    value: Option<&str>,
+    field: NativePublicTermsFieldV1,
+) -> Result<String, NativePublicTermsValidationErrorV1> {
+    match value {
+        Some(value) if !value.is_empty() => Ok(value.to_owned()),
+        _ => Err(NativePublicTermsValidationErrorV1::MissingField(field)),
+    }
+}
+
+fn optional_native_currency(
+    value: Option<&str>,
+    field: NativePublicTermsFieldV1,
+) -> Result<Option<String>, NativePublicTermsValidationErrorV1> {
+    match value {
+        None => Ok(None),
+        Some(value) if !value.is_empty() => Ok(Some(value.to_owned())),
+        Some(_) => Err(NativePublicTermsValidationErrorV1::MissingField(field)),
+    }
+}
+
+fn native_raw_v1(
+    value: InstrumentDecimal,
+    field: NativePublicTermsFieldV1,
+) -> Result<i128, NativePublicTermsValidationErrorV1> {
+    let exponent = i8::try_from(value.scale)
+        .map(|scale| -scale)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+    mantissa_exponent_to_fixed_i128(value.mantissa, exponent, value.scale)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+}
+
+fn validate_native_price_v1(
+    value: InstrumentDecimal,
+    field: NativePublicTermsFieldV1,
+) -> Result<(), NativePublicTermsValidationErrorV1> {
+    let raw = PriceRaw::try_from(native_raw_v1(value, field)?)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+    let price = Price::from_raw_checked(raw, value.scale)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+    check_positive_price(price, "V1 public instrument price")
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+}
+
+fn validate_native_quantity_v1(
+    value: InstrumentDecimal,
+    field: NativePublicTermsFieldV1,
+) -> Result<(), NativePublicTermsValidationErrorV1> {
+    let raw = QuantityRaw::try_from(native_raw_v1(value, field)?)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+    let quantity = Quantity::from_raw_checked(raw, value.scale)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))?;
+    check_positive_quantity(quantity, "V1 public instrument quantity")
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
+}
+
+fn native_timestamp_v1(
+    value: i128,
+    field: NativePublicTermsFieldV1,
+) -> Result<UnixNanos, NativePublicTermsValidationErrorV1> {
+    u64::try_from(value)
+        .map(UnixNanos::new)
+        .map_err(|_| NativePublicTermsValidationErrorV1::NativeRepresentation(field))
 }
 
 /// Sealed complete membership supplied only by an existing Owner-derived Universe receipt.
