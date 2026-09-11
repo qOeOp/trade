@@ -206,6 +206,7 @@ pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     host: ProgramHostV2,
     instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
     bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+    expected_account_id: Option<AccountId>,
     universe_frames: BTreeMap<u64, BacktestUniverseFrameV2>,
     pending_bars: BTreeMap<u64, [Option<Bar>; TARGET_SET_MEMBER_COUNT]>,
     position_orders: BTreeMap<ClientOrderId, NativeOrderBindingV2>,
@@ -226,6 +227,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         universe_frames: impl IntoIterator<Item = StrategyInputUniverseFrameReceipt>,
+        expected_account_id: Option<AccountId>,
         restore_after_first_terminal_fill: bool,
         restore_performed: Rc<Cell<bool>>,
         trace: Rc<RefCell<TargetSetBacktestTraceV2>>,
@@ -267,6 +269,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             host,
             instrument_ids,
             bar_types,
+            expected_account_id,
             universe_frames: frames,
             pending_bars: BTreeMap::new(),
             position_orders: BTreeMap::new(),
@@ -305,6 +308,21 @@ impl BacktestTargetSetProgramHostStrategyV2 {
     }
 
     fn on_start_checked(&mut self) -> anyhow::Result<()> {
+        if let Some(expected_account_id) = self.expected_account_id {
+            let venue = self.instrument_ids[0].venue;
+            let accounts = self
+                .cache()
+                .accounts_all()
+                .into_iter()
+                .filter(|account| account.id().get_issuer() == venue)
+                .collect::<Vec<_>>();
+            anyhow::ensure!(
+                accounts.len() == 1
+                    && accounts[0].id() == expected_account_id
+                    && self.cache().account_id(&venue) == Some(expected_account_id),
+                "Backtest target-set actual venue account mismatches Owner scope"
+            );
+        }
         for instrument_id in self.instrument_ids {
             self.cache().try_instrument(&instrument_id)?;
         }
@@ -525,7 +543,10 @@ impl BacktestTargetSetProgramHostStrategyV2 {
         );
         let account_id = accounts[0].id();
         anyhow::ensure!(
-            self.cache().account_id(&venue) == Some(account_id),
+            self.cache().account_id(&venue) == Some(account_id)
+                && self
+                    .expected_account_id
+                    .is_none_or(|expected| expected == account_id),
             "Backtest target-set venue account binding is ambiguous"
         );
         let portfolio = self.portfolio();

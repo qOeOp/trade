@@ -21,7 +21,7 @@ use vibe_data::owner::{
 use vibe_model::{
     data::{BarType, Data},
     enums::{AccountType, OmsType},
-    identifiers::StrategyId,
+    identifiers::{AccountId, StrategyId},
     instruments::{Instrument, InstrumentAny},
 };
 
@@ -45,8 +45,9 @@ pub struct ProgramHostSimEventCapabilityV1 {
     artifact: StrategyArtifactV2,
     universe_frame: StrategyInputUniverseFrameReceipt,
     execution_profile_digest: BindingDigest,
-    instrument_fact_digest: [u8; 32],
-    instrument_receipt_digest: [u8; 32],
+    instrument_fact_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
+    instrument_receipt_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
+    account_scope_id: AccountId,
     engine_config: BacktestEngineConfig,
     venue_config: SimulatedVenueConfig,
     strategy_id: StrategyId,
@@ -63,8 +64,9 @@ impl ProgramHostSimEventCapabilityV1 {
         artifact: StrategyArtifactV2,
         universe_frame: StrategyInputUniverseFrameReceipt,
         execution_profile_digest: BindingDigest,
-        instrument_fact_digest: [u8; 32],
-        instrument_receipt_digest: [u8; 32],
+        instrument_fact_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
+        instrument_receipt_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
+        account_scope_id: AccountId,
         engine_config: BacktestEngineConfig,
         venue_config: SimulatedVenueConfig,
         strategy_id: StrategyId,
@@ -78,7 +80,12 @@ impl ProgramHostSimEventCapabilityV1 {
             "Sim EVENT capability has no execution-profile binding"
         );
         anyhow::ensure!(
-            instrument_fact_digest != [0; 32] && instrument_receipt_digest != [0; 32],
+            instrument_fact_digests
+                .iter()
+                .all(|digest| *digest != [0; 32])
+                && instrument_receipt_digests
+                    .iter()
+                    .all(|digest| *digest != [0; 32]),
             "Sim EVENT capability has no Instrument Owner binding"
         );
         anyhow::ensure!(
@@ -113,8 +120,9 @@ impl ProgramHostSimEventCapabilityV1 {
             artifact,
             universe_frame,
             execution_profile_digest,
-            instrument_fact_digest,
-            instrument_receipt_digest,
+            instrument_fact_digests,
+            instrument_receipt_digests,
+            account_scope_id,
             engine_config,
             venue_config,
             strategy_id,
@@ -204,8 +212,8 @@ impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV
 pub struct ProgramHostSimEventReadbackV1 {
     execution_route: String,
     execution_profile_digest: [u8; 32],
-    instrument_fact_digest: [u8; 32],
-    instrument_receipt_digest: [u8; 32],
+    instrument_fact_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
+    instrument_receipt_digests: [[u8; 32]; TARGET_SET_MEMBER_COUNT],
     canonical_result_digest: [u8; 32],
     target_set_count: usize,
     position_submit_count: usize,
@@ -225,13 +233,13 @@ impl ProgramHostSimEventReadbackV1 {
     }
 
     #[must_use]
-    pub const fn instrument_fact_digest(&self) -> [u8; 32] {
-        self.instrument_fact_digest
+    pub const fn instrument_fact_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+        self.instrument_fact_digests
     }
 
     #[must_use]
-    pub const fn instrument_receipt_digest(&self) -> [u8; 32] {
-        self.instrument_receipt_digest
+    pub const fn instrument_receipt_digests(&self) -> [[u8; 32]; TARGET_SET_MEMBER_COUNT] {
+        self.instrument_receipt_digests
     }
 
     #[must_use]
@@ -274,8 +282,9 @@ pub fn run_program_host_sim_event_consumer_v1(
         artifact,
         universe_frame,
         execution_profile_digest,
-        instrument_fact_digest,
-        instrument_receipt_digest,
+        instrument_fact_digests,
+        instrument_receipt_digests,
+        account_scope_id,
         engine_config,
         venue_config,
         strategy_id,
@@ -292,6 +301,7 @@ pub fn run_program_host_sim_event_consumer_v1(
         instruments.each_ref().map(Instrument::id),
         bar_types,
         [universe_frame],
+        Some(account_scope_id),
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
@@ -326,8 +336,8 @@ pub fn run_program_host_sim_event_consumer_v1(
     Ok(ProgramHostSimEventReadbackV1 {
         execution_route: "EVENT".to_owned(),
         execution_profile_digest: *execution_profile_digest.as_bytes(),
-        instrument_fact_digest,
-        instrument_receipt_digest,
+        instrument_fact_digests,
+        instrument_receipt_digests,
         canonical_result_digest,
         target_set_count: observed.canonical_target_sets.len(),
         position_submit_count: observed.successful_position_submits.len(),

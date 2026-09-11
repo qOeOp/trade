@@ -39,7 +39,7 @@ use vibe_model::{
     accounts::margin_model::{MarginModelAny, StandardMarginModel},
     data::{BarType, Data},
     enums::{AccountType, BarAggregation, BarIntervalType, BookType, OmsType},
-    identifiers::{ClientId, InstrumentId, StrategyId, Symbol, TraderId, Venue},
+    identifiers::{AccountId, ClientId, InstrumentId, StrategyId, Symbol, TraderId, Venue},
     instruments::{Instrument, InstrumentAny},
     types::{Currency, Money, Price},
 };
@@ -91,7 +91,8 @@ pub struct ReplayNativeExecutionProfileV1 {
     engine_config: BacktestEngineConfig,
     venue_config: SimulatedVenueConfig,
     instrument_id: InstrumentId,
-    instrument_terms: BoundInstrumentEconomicTermsV1,
+    instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
     materialization_digest: [u8; 32],
     fill_seed: u64,
     instance_id: UUID4,
@@ -115,18 +116,24 @@ impl ReplayNativeExecutionProfileV1 {
     }
 
     #[must_use]
-    pub const fn instrument_fact_digest(&self) -> [u8; 32] {
-        self.instrument_terms.instrument_fact_digest
+    pub fn instrument_fact_digest(&self) -> [u8; 32] {
+        self.primary_instrument_terms().instrument_fact_digest
     }
 
     #[must_use]
-    pub const fn instrument_receipt_digest(&self) -> [u8; 32] {
-        self.instrument_terms.instrument_receipt_digest
+    pub fn instrument_receipt_digest(&self) -> [u8; 32] {
+        self.primary_instrument_terms().instrument_receipt_digest
     }
 
     #[must_use]
     pub const fn deterministic_fill_seed(&self) -> u64 {
         self.fill_seed
+    }
+
+    fn primary_instrument_terms(&self) -> &BoundInstrumentEconomicTermsV1 {
+        let ordinal = usize::from(self.instrument_ids[0] != self.instrument_id);
+        debug_assert_eq!(self.instrument_ids[ordinal], self.instrument_id);
+        &self.instrument_terms[ordinal]
     }
 
     /// Moves this exact native profile into the sole ProgramHost Sim EVENT consumer capability.
@@ -151,11 +158,10 @@ impl ReplayNativeExecutionProfileV1 {
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         data: Vec<Data>,
     ) -> anyhow::Result<ProgramHostSimEventCapabilityV1> {
-        let bound_instrument = instruments
-            .iter()
-            .find(|instrument| instrument.id() == self.instrument_id)
-            .ok_or(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)?;
-        self.validate_instrument(bound_instrument)?;
+        self.validate_target_set(&instruments)?;
+        self.validate_account_scope()?;
+        self.validate_data(&data)?;
+        let account_scope_id = AccountId::from(format!("{}-001", self.venue_config.venue).as_str());
         let Self {
             engine_config,
             venue_config,
@@ -163,13 +169,20 @@ impl ReplayNativeExecutionProfileV1 {
             instrument_terms,
             ..
         } = self;
+        let instrument_fact_digests = instrument_terms
+            .each_ref()
+            .map(|terms| terms.instrument_fact_digest);
+        let instrument_receipt_digests = instrument_terms
+            .each_ref()
+            .map(|terms| terms.instrument_receipt_digest);
         ProgramHostSimEventCapabilityV1::new(
             plan,
             artifact,
             universe_frame,
             BindingDigest::from_untrusted_bytes(materialization_digest),
-            instrument_terms.instrument_fact_digest,
-            instrument_terms.instrument_receipt_digest,
+            instrument_fact_digests,
+            instrument_receipt_digests,
+            account_scope_id,
             engine_config,
             venue_config,
             strategy_id,
@@ -189,31 +202,50 @@ impl ReplayNativeExecutionProfileV1 {
     /// or margin terms differ. Native configuration or engine registration errors also fail closed.
     pub fn into_backtest_engine(
         self,
-        instrument: &InstrumentAny,
+        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
     ) -> Result<BacktestEngine, ReplayNativeExecutionProfileErrorV1> {
-        self.validate_instrument(instrument)?;
+        self.validate_target_set(instruments)?;
+        self.validate_account_scope()?;
         let mut engine = BacktestEngine::new(self.engine_config)
             .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
         engine
             .add_venue(self.venue_config)
             .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
-        engine
-            .add_instrument(instrument)
-            .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
+        for instrument in instruments {
+            engine
+                .add_instrument(instrument)
+                .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
+        }
         Ok(engine)
+    }
+
+    fn validate_target_set(
+        &self,
+        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
+    ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
+        if instruments[0].id() >= instruments[1].id()
+            || instruments.each_ref().map(|instrument| instrument.id()) != self.instrument_ids
+        {
+            return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+        }
+        for (instrument, terms) in instruments.iter().zip(&self.instrument_terms) {
+            self.validate_instrument(instrument, terms)?;
+        }
+        Ok(())
     }
 
     fn validate_instrument(
         &self,
         instrument: &InstrumentAny,
+        terms: &BoundInstrumentEconomicTermsV1,
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
-        let terms = &self.instrument_terms;
         let quote_currency = native_currency(&terms.quote_currency)?;
         let maker_fee = native_decimal(terms.maker_fee)?;
         let taker_fee = native_decimal(terms.taker_fee)?;
         let initial_margin = native_decimal(terms.initial_margin)?;
         let maintenance_margin = native_decimal(terms.maintenance_margin)?;
-        if instrument.id() != self.instrument_id
+        if instrument.id().to_string()
+            != format!("{}.{}", terms.instrument_identity, terms.venue_identity)
             || instrument.quote_currency() != quote_currency
             || instrument.maker_fee() != maker_fee
             || instrument.taker_fee() != taker_fee
@@ -224,6 +256,74 @@ impl ReplayNativeExecutionProfileV1 {
         }
         Ok(())
     }
+
+    fn validate_account_scope(&self) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
+        let expected = format!("{}-001", self.venue_config.venue);
+        if self
+            .instrument_terms
+            .iter()
+            .any(|terms| terms.account_scope_identity != expected)
+        {
+            return Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch);
+        }
+        Ok(())
+    }
+
+    fn validate_data(&self, data: &[Data]) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
+        let mut signal_time = [None; TARGET_SET_MEMBER_COUNT];
+        let mut event_time = [None; TARGET_SET_MEMBER_COUNT];
+        for datum in data {
+            let instrument_id = datum.instrument_id();
+            let ordinal = self
+                .instrument_ids
+                .iter()
+                .position(|expected| *expected == instrument_id)
+                .ok_or(ReplayNativeExecutionProfileErrorV1::EventInputMismatch)?;
+            let ts_event = data_event_time_ns(datum)?;
+            let terms = &self.instrument_terms[ordinal];
+            if ts_event < terms.valid_from_ns || ts_event >= terms.valid_until_ns_exclusive {
+                return Err(ReplayNativeExecutionProfileErrorV1::EventTimeOutsideOwnerValidity);
+            }
+            match datum {
+                Data::Bar(_) => {
+                    if signal_time[ordinal].replace(ts_event).is_some() {
+                        return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch);
+                    }
+                }
+                Data::Delta(_)
+                | Data::Deltas(_)
+                | Data::Depth10(_)
+                | Data::Quote(_)
+                | Data::Trade(_) => {
+                    event_time[ordinal] = Some(
+                        event_time[ordinal].map_or(ts_event, |current: i128| current.max(ts_event)),
+                    );
+                }
+                _ => return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch),
+            }
+        }
+        if signal_time
+            .iter()
+            .zip(event_time)
+            .any(|(signal, event)| !matches!((*signal, event), (Some(signal), Some(event)) if event > signal))
+        {
+            return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch);
+        }
+        Ok(())
+    }
+}
+
+fn data_event_time_ns(data: &Data) -> Result<i128, ReplayNativeExecutionProfileErrorV1> {
+    let value = match data {
+        Data::Delta(value) => value.ts_event,
+        Data::Deltas(value) => value.ts_event,
+        Data::Depth10(value) => value.ts_event,
+        Data::Quote(value) => value.ts_event,
+        Data::Trade(value) => value.ts_event,
+        Data::Bar(value) => value.ts_event,
+        _ => return Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch),
+    };
+    Ok(i128::from(value.as_u64()))
 }
 
 /// Materializes both exact seals into native Backtest and Sim Exchange configuration.
@@ -254,6 +354,16 @@ pub fn materialize_event_replay_execution_profile_v1(
     let symbol = Symbol::new_checked(&economic_input.instrument_terms.instrument_identity)
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
     let instrument_id = InstrumentId::new(symbol, venue);
+    let instrument_ids = binding.instrument_terms().each_ref().map(|terms| {
+        Symbol::new_checked(&terms.instrument_identity)
+            .map(|symbol| InstrumentId::new(symbol, venue))
+            .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)
+    });
+    let [first, second] = instrument_ids;
+    let instrument_ids = [first?, second?];
+    if instrument_ids[0] >= instrument_ids[1] || !instrument_ids.contains(&instrument_id) {
+        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+    }
     let starting_currency = native_currency(&economic_input.starting_balance_currency)?;
     let quote_currency = native_currency(&economic_input.common_quote_currency)?;
     if starting_currency != quote_currency {
@@ -291,7 +401,9 @@ pub fn materialize_event_replay_execution_profile_v1(
     let ReplayLiquidationPolicyV1::Disabled = economic_input.liquidation_policy;
 
     let mut leverages = AHashMap::new();
-    leverages.insert(instrument_id, instrument_leverage);
+    for member_id in instrument_ids {
+        leverages.insert(member_id, instrument_leverage);
+    }
     let venue_config = SimulatedVenueConfig::builder()
         .venue(venue)
         .oms_type(OmsType::Netting)
@@ -333,13 +445,17 @@ pub fn materialize_event_replay_execution_profile_v1(
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
 
     let instrument_terms = binding.instrument_terms();
-    if instrument_terms.instrument_identity != economic_input.instrument_terms.instrument_identity
-        || instrument_terms.venue_identity != economic_input.venue_identity
-        || instrument_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
-        || instrument_terms.maker_fee != economic_input.instrument_terms.maker_fee
-        || instrument_terms.taker_fee != economic_input.instrument_terms.taker_fee
-        || instrument_terms.initial_margin != economic_input.instrument_terms.initial_margin
-        || instrument_terms.maintenance_margin != economic_input.instrument_terms.maintenance_margin
+    let Some(primary_terms) = instrument_terms.iter().find(|terms| {
+        terms.instrument_identity == economic_input.instrument_terms.instrument_identity
+    }) else {
+        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+    };
+    if primary_terms.venue_identity != economic_input.venue_identity
+        || primary_terms.margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+        || primary_terms.maker_fee != economic_input.instrument_terms.maker_fee
+        || primary_terms.taker_fee != economic_input.instrument_terms.taker_fee
+        || primary_terms.initial_margin != economic_input.instrument_terms.initial_margin
+        || primary_terms.maintenance_margin != economic_input.instrument_terms.maintenance_margin
     {
         return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
     }
@@ -350,6 +466,7 @@ pub fn materialize_event_replay_execution_profile_v1(
         engine_config,
         venue_config,
         instrument_id,
+        instrument_ids,
         instrument_terms,
         materialization_digest,
         fill_seed,
@@ -715,11 +832,15 @@ fn materialization_digest(
     hasher.update(binding.binding_digest());
     hasher.update(binding.economic_configuration_digest());
     hasher.update(binding.runner_operational_profile_digest());
-    hasher.update(terms.instrument_fact_digest);
-    hasher.update(terms.instrument_receipt_digest);
-    hasher.update(terms.terms_digest);
-    hash_bytes(&mut hasher, terms.account_scope_identity.as_bytes())?;
-    hasher.update(terms.event_time_ns.to_be_bytes());
+    for terms in terms {
+        hasher.update(terms.instrument_fact_digest);
+        hasher.update(terms.instrument_receipt_digest);
+        hasher.update(terms.terms_digest);
+        hash_bytes(&mut hasher, terms.account_scope_identity.as_bytes())?;
+        hasher.update(terms.event_time_ns.to_be_bytes());
+        hasher.update(terms.valid_from_ns.to_be_bytes());
+        hasher.update(terms.valid_until_ns_exclusive.to_be_bytes());
+    }
     hash_bytes(&mut hasher, instrument_id.to_string().as_bytes())?;
     hasher.update(instance_id.as_bytes());
     Ok(hasher.finalize().into())
@@ -756,6 +877,14 @@ pub enum ReplayNativeExecutionProfileErrorV1 {
     NativeConfiguration,
     #[error("Replay native instrument does not match sealed Instrument Owner terms")]
     InstrumentTermsMismatch,
+    #[error("Replay native venue account does not match sealed Instrument Owner scope")]
+    AccountScopeMismatch,
+    #[error(
+        "Replay native market data does not provide BAR signal plus later EVENT execution input"
+    )]
+    EventInputMismatch,
+    #[error("Replay native market data event is outside sealed Instrument Owner validity")]
+    EventTimeOutsideOwnerValidity,
 }
 
 #[cfg(test)]
@@ -765,8 +894,11 @@ mod tests {
     use rstest::rstest;
     use vibe_execution::models::fill::FillModel;
     use vibe_model::{
+        data::{Bar, BarSpecification, BookOrder, OrderBookDelta},
+        enums::{AggregationSource, BookAction, OrderSide, PriceType},
         identifiers::{InstrumentId, Symbol},
         instruments::{InstrumentAny, stubs::crypto_perpetual_ethusdt},
+        types::Quantity,
     };
 
     use super::*;
@@ -822,7 +954,7 @@ mod tests {
         .unwrap()
     }
 
-    fn matching_instrument() -> InstrumentAny {
+    fn matching_instruments() -> [InstrumentAny; TARGET_SET_MEMBER_COUNT] {
         let mut instrument = crypto_perpetual_ethusdt();
         instrument.id = InstrumentId::from("ETHUSDT-PERP.SIM");
         instrument.raw_symbol = Symbol::from("ETHUSDT-PERP");
@@ -830,7 +962,54 @@ mod tests {
         instrument.taker_fee = Decimal::new(4, 4);
         instrument.margin_init = Decimal::new(1, 1);
         instrument.margin_maint = Decimal::new(5, 2);
-        InstrumentAny::CryptoPerpetual(instrument)
+        let mut second = instrument.clone();
+        second.id = InstrumentId::from("SOLUSDT-PERP.SIM");
+        second.raw_symbol = Symbol::from("SOLUSDT-PERP");
+        [
+            InstrumentAny::CryptoPerpetual(instrument),
+            InstrumentAny::CryptoPerpetual(second),
+        ]
+    }
+
+    fn event_data(
+        instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        event_time: u64,
+    ) -> Vec<Data> {
+        let bar_types = instruments.each_ref().map(|instrument| {
+            BarType::new(
+                instrument.id(),
+                BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+                AggregationSource::External,
+            )
+        });
+        let mut data = Vec::new();
+        for (ordinal, (instrument, bar_type)) in instruments.iter().zip(bar_types).enumerate() {
+            data.push(Data::Bar(Bar::new(
+                bar_type,
+                Price::from("100"),
+                Price::from("101"),
+                Price::from("99"),
+                Price::from("100"),
+                Quantity::from("10"),
+                1_u64.into(),
+                1_u64.into(),
+            )));
+            data.push(Data::Delta(OrderBookDelta::new(
+                instrument.id(),
+                BookAction::Add,
+                BookOrder::new(
+                    OrderSide::Sell,
+                    Price::from("100"),
+                    Quantity::from("10"),
+                    ordinal as u64 + 1,
+                ),
+                0,
+                ordinal as u64 + 1,
+                event_time.into(),
+                event_time.into(),
+            )));
+        }
+        data
     }
 
     #[rstest]
@@ -1200,7 +1379,11 @@ mod tests {
             &runner,
         )
         .unwrap();
-        assert!(profile.into_backtest_engine(&matching_instrument()).is_ok());
+        assert!(
+            profile
+                .into_backtest_engine(&matching_instruments())
+                .is_ok()
+        );
 
         let profile = materialize_event_replay_execution_profile_v1(
             fixture_binding(&economic, &runner, [4; 32]),
@@ -1208,14 +1391,58 @@ mod tests {
             &runner,
         )
         .unwrap();
-        let mut wrong = matching_instrument();
-        if let InstrumentAny::CryptoPerpetual(instrument) = &mut wrong {
+        let mut wrong = matching_instruments();
+        if let InstrumentAny::CryptoPerpetual(instrument) = &mut wrong[1] {
             instrument.maker_fee = Decimal::new(3, 4);
         }
         assert!(matches!(
             profile.into_backtest_engine(&wrong),
             Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)
         ));
+    }
+
+    #[rstest]
+    fn account_validity_and_bar_only_inputs_fail_before_engine_or_host_state() {
+        let (economic, runner) = fixture_profiles();
+        let mut wrong_account = materialize_event_replay_execution_profile_v1(
+            fixture_binding(&economic, &runner, [4; 32]),
+            &economic,
+            &runner,
+        )
+        .unwrap();
+        wrong_account.instrument_terms[1].account_scope_identity = "OTHER-001".into();
+        assert_eq!(
+            wrong_account.validate_account_scope(),
+            Err(ReplayNativeExecutionProfileErrorV1::AccountScopeMismatch)
+        );
+
+        let instruments = matching_instruments();
+        let mut expired = materialize_event_replay_execution_profile_v1(
+            fixture_binding(&economic, &runner, [4; 32]),
+            &economic,
+            &runner,
+        )
+        .unwrap();
+        expired.instrument_terms[1].valid_until_ns_exclusive = 2;
+        assert_eq!(
+            expired.validate_data(&event_data(&instruments, 2)),
+            Err(ReplayNativeExecutionProfileErrorV1::EventTimeOutsideOwnerValidity)
+        );
+
+        let profile = materialize_event_replay_execution_profile_v1(
+            fixture_binding(&economic, &runner, [4; 32]),
+            &economic,
+            &runner,
+        )
+        .unwrap();
+        let bars_only = event_data(&instruments, 2)
+            .into_iter()
+            .filter(|data| matches!(data, Data::Bar(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            profile.validate_data(&bars_only),
+            Err(ReplayNativeExecutionProfileErrorV1::EventInputMismatch)
+        );
     }
 
     #[rstest]

@@ -5,6 +5,7 @@
 //! remains unavailable until the real `ProgramHostV2` to Sim Exchange EVENT consumer exists.
 
 use sha2::{Digest, Sha256};
+use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
 use vibe_data::owner::instrument_economic_terms_v1::{
     InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicTermsReadbackV1,
@@ -75,6 +76,8 @@ pub struct SealedInstrumentEconomicTermsProvenanceV1 {
     quote_currency: String,
     account_scope_identity: String,
     event_time_ns: i128,
+    valid_from_ns: i128,
+    valid_until_ns_exclusive: i128,
     margin_model: InstrumentMarginModelSelectionV1,
     maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
@@ -110,41 +113,63 @@ pub fn seal_instrument_economic_terms_provenance_v1(
     economic: &ReplayEconomicConfigurationV1,
     context: InstrumentEconomicTermsConsumptionContextV1<'_>,
 ) -> Result<SealedInstrumentEconomicTermsProvenanceV1, ReplayExecutionProfileBindingErrorV1> {
+    let provenance = seal_target_set_member_instrument_economic_terms_provenance_v1(
+        readback, economic, context,
+    )?;
+    let expected = &economic.input().instrument_terms;
+    if provenance.instrument_identity != expected.instrument_identity
+        || provenance.instrument_fact_digest != expected.instrument_fact_digest
+        || provenance.instrument_receipt_digest != expected.instrument_receipt_digest
+        || provenance.terms_digest != instrument_terms_digest(expected)?
+        || provenance.quote_currency != expected.quote_currency
+        || provenance.maker_fee != expected.maker_fee
+        || provenance.taker_fee != expected.taker_fee
+        || provenance.initial_margin != expected.initial_margin
+        || provenance.maintenance_margin != expected.maintenance_margin
+    {
+        return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
+    }
+    Ok(provenance)
+}
+
+/// Mints one member of the complete target-set terms capability from verified Owner readback.
+///
+/// Unlike the legacy primary-member helper, this function does not compare the Owner fact to the
+/// profile's caller-visible primary instrument. The verified readback is authoritative for the
+/// additional member; its exact terms are retained privately and joined into the profile binding.
+///
+/// # Errors
+///
+/// Returns before provenance exists for invalid custody, venue, account, time, currency, receipt,
+/// or margin meaning.
+pub fn seal_target_set_member_instrument_economic_terms_provenance_v1(
+    readback: &InstrumentEconomicTermsReadbackV1,
+    economic: &ReplayEconomicConfigurationV1,
+    context: InstrumentEconomicTermsConsumptionContextV1<'_>,
+) -> Result<SealedInstrumentEconomicTermsProvenanceV1, ReplayExecutionProfileBindingErrorV1> {
     if !readback.verify() {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
     }
     let owner = readback.fact().input();
-    let expected = &economic.input().instrument_terms;
     if context.venue_identity != economic.input().venue_identity
-        || owner.instrument_identity != expected.instrument_identity
-        || owner.instrument_public_fact_digest != expected.instrument_fact_digest
         || owner.venue_identity != context.venue_identity
         || owner.account_scope_identity != context.account_scope_identity
         || owner.account_applicability != InstrumentEconomicAccountApplicabilityV1::MarginAccount
         || context.event_time_ns < owner.valid_from_ns
         || context.event_time_ns >= owner.valid_until_ns_exclusive
-        || owner.quote_currency != expected.quote_currency
-        || owner.fee_currency != expected.quote_currency
+        || owner.quote_currency != economic.input().common_quote_currency
+        || owner.fee_currency != economic.input().common_quote_currency
         || owner.margin_meaning != InstrumentMarginMeaningV1::StandardNotionalRate
-        || readback.receipt_identity() != expected.instrument_receipt_digest
-        || !same_decimal(owner.maker_fee, expected.maker_fee)
-        || !same_decimal(owner.taker_fee, expected.taker_fee)
-        || !same_decimal(owner.initial_margin, expected.initial_margin)
-        || !same_decimal(owner.maintenance_margin, expected.maintenance_margin)
+        || owner.instrument_public_fact_digest == [0; 32]
+        || readback.receipt_identity() == [0; 32]
     {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
     }
-    Ok(SealedInstrumentEconomicTermsProvenanceV1 {
+    let terms = InstrumentEconomicTermsBindingV1 {
         instrument_identity: owner.instrument_identity.clone(),
+        quote_currency: owner.quote_currency.clone(),
         instrument_fact_digest: owner.instrument_public_fact_digest,
         instrument_receipt_digest: readback.receipt_identity(),
-        terms_digest: instrument_terms_digest(expected)?,
-        economic_configuration_digest: economic.digest(),
-        venue_identity: context.venue_identity.into(),
-        quote_currency: owner.quote_currency.clone(),
-        account_scope_identity: context.account_scope_identity.into(),
-        event_time_ns: context.event_time_ns,
-        margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
         maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
             mantissa: owner.maker_fee.mantissa,
             scale: owner.maker_fee.scale,
@@ -161,6 +186,24 @@ pub fn seal_instrument_economic_terms_provenance_v1(
             mantissa: owner.maintenance_margin.mantissa,
             scale: owner.maintenance_margin.scale,
         },
+    };
+    Ok(SealedInstrumentEconomicTermsProvenanceV1 {
+        instrument_identity: owner.instrument_identity.clone(),
+        instrument_fact_digest: owner.instrument_public_fact_digest,
+        instrument_receipt_digest: readback.receipt_identity(),
+        terms_digest: instrument_terms_digest(&terms)?,
+        economic_configuration_digest: economic.digest(),
+        venue_identity: context.venue_identity.into(),
+        quote_currency: owner.quote_currency.clone(),
+        account_scope_identity: context.account_scope_identity.into(),
+        event_time_ns: context.event_time_ns,
+        valid_from_ns: owner.valid_from_ns,
+        valid_until_ns_exclusive: owner.valid_until_ns_exclusive,
+        margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
+        maker_fee: terms.maker_fee,
+        taker_fee: terms.taker_fee,
+        initial_margin: terms.initial_margin,
+        maintenance_margin: terms.maintenance_margin,
     })
 }
 
@@ -174,6 +217,8 @@ pub(crate) struct BoundInstrumentEconomicTermsV1 {
     pub(crate) quote_currency: String,
     pub(crate) account_scope_identity: String,
     pub(crate) event_time_ns: i128,
+    pub(crate) valid_from_ns: i128,
+    pub(crate) valid_until_ns_exclusive: i128,
     pub(crate) margin_model: InstrumentMarginModelSelectionV1,
     pub(crate) maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
     pub(crate) taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
@@ -189,7 +234,7 @@ pub struct ReplayExecutionProfileBindingV1 {
     economic_configuration_digest: [u8; 32],
     runner_operational_profile_digest: [u8; 32],
     binding_digest: [u8; 32],
-    instrument_terms: BoundInstrumentEconomicTermsV1,
+    instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
 }
 
 impl ReplayExecutionProfileBindingV1 {
@@ -215,11 +260,15 @@ impl ReplayExecutionProfileBindingV1 {
         self.runner_operational_profile_digest
     }
 
-    pub(crate) fn instrument_terms(&self) -> &BoundInstrumentEconomicTermsV1 {
+    pub(crate) fn instrument_terms(
+        &self,
+    ) -> &[BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
         &self.instrument_terms
     }
 
-    pub(crate) fn into_instrument_terms(self) -> BoundInstrumentEconomicTermsV1 {
+    pub(crate) fn into_instrument_terms(
+        self,
+    ) -> [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
         self.instrument_terms
     }
 }
@@ -250,7 +299,7 @@ pub fn bind_replay_execution_profiles_v1(
     request: &ReplayExecutionProfileRequestBindingV1,
     economic: &ReplayEconomicConfigurationV1,
     runner: &ReplayRunnerOperationalProfileV1,
-    instrument_terms: SealedInstrumentEconomicTermsProvenanceV1,
+    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<ReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     validate_schema_and_identity(family, request)?;
     if family.trial_family_identity != request.trial_family_identity
@@ -266,7 +315,25 @@ pub fn bind_replay_execution_profiles_v1(
     {
         return Err(ReplayExecutionProfileBindingErrorV1::ProfileMismatch);
     }
-    let instrument_context = validate_instrument_terms(economic, instrument_terms)?;
+    let instrument_context =
+        instrument_terms.map(|terms| validate_instrument_terms(economic, terms));
+    let [first, second] = instrument_context;
+    let mut instrument_context = [first?, second?];
+    instrument_context
+        .sort_by(|left, right| left.instrument_identity.cmp(&right.instrument_identity));
+    if instrument_context[0].instrument_identity == instrument_context[1].instrument_identity
+        || instrument_context
+            .iter()
+            .filter(|terms| terms_match_profile_primary(terms, economic).unwrap_or(false))
+            .count()
+            != 1
+        || instrument_context[0].venue_identity != instrument_context[1].venue_identity
+        || instrument_context[0].quote_currency != instrument_context[1].quote_currency
+        || instrument_context[0].account_scope_identity
+            != instrument_context[1].account_scope_identity
+    {
+        return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
+    }
 
     let mut hasher = Sha256::new();
     hasher.update(PROFILE_BINDING_DIGEST_DOMAIN_V1);
@@ -276,12 +343,17 @@ pub fn bind_replay_execution_profiles_v1(
     hasher.update(family.trial_family_digest);
     hasher.update(economic.digest());
     hasher.update(runner.digest());
-    encode_bytes(&mut hasher, instrument_context.venue_identity.as_bytes())?;
-    encode_bytes(
-        &mut hasher,
-        instrument_context.account_scope_identity.as_bytes(),
-    )?;
-    hasher.update(instrument_context.event_time_ns.to_be_bytes());
+    for terms in &instrument_context {
+        encode_bytes(&mut hasher, terms.instrument_identity.as_bytes())?;
+        hasher.update(terms.instrument_fact_digest);
+        hasher.update(terms.instrument_receipt_digest);
+        hasher.update(terms.terms_digest);
+        encode_bytes(&mut hasher, terms.venue_identity.as_bytes())?;
+        encode_bytes(&mut hasher, terms.account_scope_identity.as_bytes())?;
+        hasher.update(terms.event_time_ns.to_be_bytes());
+        hasher.update(terms.valid_from_ns.to_be_bytes());
+        hasher.update(terms.valid_until_ns_exclusive.to_be_bytes());
+    }
     Ok(ReplayExecutionProfileBindingV1 {
         request_identity: request.request_identity.clone(),
         request_meaning_digest: request.request_meaning_digest,
@@ -290,6 +362,22 @@ pub fn bind_replay_execution_profiles_v1(
         binding_digest: hasher.finalize().into(),
         instrument_terms: instrument_context,
     })
+}
+
+fn terms_match_profile_primary(
+    terms: &BoundInstrumentEconomicTermsV1,
+    economic: &ReplayEconomicConfigurationV1,
+) -> Result<bool, ReplayExecutionProfileBindingErrorV1> {
+    let expected = &economic.input().instrument_terms;
+    Ok(terms.instrument_identity == expected.instrument_identity
+        && terms.instrument_fact_digest == expected.instrument_fact_digest
+        && terms.instrument_receipt_digest == expected.instrument_receipt_digest
+        && terms.terms_digest == instrument_terms_digest(expected)?
+        && terms.quote_currency == expected.quote_currency
+        && terms.maker_fee == expected.maker_fee
+        && terms.taker_fee == expected.taker_fee
+        && terms.initial_margin == expected.initial_margin
+        && terms.maintenance_margin == expected.maintenance_margin)
 }
 
 /// Revalidates the two seals against the binding and returns the exact unavailable prerequisites.
@@ -383,7 +471,6 @@ fn validate_instrument_terms(
     economic: &ReplayEconomicConfigurationV1,
     provenance: SealedInstrumentEconomicTermsProvenanceV1,
 ) -> Result<BoundInstrumentEconomicTermsV1, ReplayExecutionProfileBindingErrorV1> {
-    let expected = &economic.input().instrument_terms;
     let SealedInstrumentEconomicTermsProvenanceV1 {
         instrument_identity,
         instrument_fact_digest,
@@ -394,6 +481,8 @@ fn validate_instrument_terms(
         quote_currency,
         account_scope_identity,
         event_time_ns,
+        valid_from_ns,
+        valid_until_ns_exclusive,
         margin_model,
         maker_fee,
         taker_fee,
@@ -401,18 +490,28 @@ fn validate_instrument_terms(
         maintenance_margin,
     } = provenance;
 
-    if instrument_identity != expected.instrument_identity
-        || instrument_fact_digest != expected.instrument_fact_digest
-        || instrument_receipt_digest != expected.instrument_receipt_digest
-        || terms_digest != instrument_terms_digest(expected)?
+    if instrument_identity.is_empty()
+        || instrument_fact_digest == [0; 32]
+        || instrument_receipt_digest == [0; 32]
+        || terms_digest == [0; 32]
         || economic_configuration_digest != economic.digest()
         || venue_identity != economic.input().venue_identity
-        || quote_currency != expected.quote_currency
+        || quote_currency != economic.input().common_quote_currency
+        || account_scope_identity.is_empty()
+        || event_time_ns < valid_from_ns
+        || event_time_ns >= valid_until_ns_exclusive
         || margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
-        || maker_fee != expected.maker_fee
-        || taker_fee != expected.taker_fee
-        || initial_margin != expected.initial_margin
-        || maintenance_margin != expected.maintenance_margin
+        || terms_digest
+            != instrument_terms_digest(&InstrumentEconomicTermsBindingV1 {
+                instrument_identity: instrument_identity.clone(),
+                quote_currency: quote_currency.clone(),
+                instrument_fact_digest,
+                instrument_receipt_digest,
+                maker_fee,
+                taker_fee,
+                initial_margin,
+                maintenance_margin,
+            })?
     {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
     }
@@ -425,19 +524,14 @@ fn validate_instrument_terms(
         quote_currency,
         account_scope_identity,
         event_time_ns,
+        valid_from_ns,
+        valid_until_ns_exclusive,
         margin_model,
         maker_fee,
         taker_fee,
         initial_margin,
         maintenance_margin,
     })
-}
-
-fn same_decimal(
-    owner: vibe_data::owner::instrument_economic_terms_v1::InstrumentEconomicDecimalV1,
-    expected: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
-) -> bool {
-    owner.mantissa == expected.mantissa && owner.scale == expected.scale
 }
 
 fn instrument_terms_digest(
@@ -454,18 +548,114 @@ fn instrument_terms_digest(
 #[cfg(test)]
 pub(crate) fn instrument_terms_provenance_fixture_v1(
     economic: &ReplayEconomicConfigurationV1,
-) -> SealedInstrumentEconomicTermsProvenanceV1 {
+) -> [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT] {
     let terms = &economic.input().instrument_terms;
+    [
+        instrument_terms_provenance_for_fixture(
+            economic,
+            terms.instrument_identity.clone(),
+            terms.instrument_fact_digest,
+            terms.instrument_receipt_digest,
+            terms.maker_fee,
+            terms.taker_fee,
+            terms.initial_margin,
+            terms.maintenance_margin,
+            &format!("{}-001", economic.input().venue_identity),
+            0,
+            i128::MAX,
+        ),
+        instrument_terms_provenance_for_fixture(
+            economic,
+            "SOLUSDT-PERP".into(),
+            [11; 32],
+            [12; 32],
+            terms.maker_fee,
+            terms.taker_fee,
+            terms.initial_margin,
+            terms.maintenance_margin,
+            &format!("{}-001", economic.input().venue_identity),
+            0,
+            i128::MAX,
+        ),
+    ]
+}
+
+#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+pub(crate) fn instrument_terms_provenance_target_set_fixture_v1(
+    economic: &ReplayEconomicConfigurationV1,
+    second: InstrumentEconomicTermsBindingV1,
+    account_scope_identity: &str,
+    valid_from_ns: i128,
+    valid_until_ns_exclusive: i128,
+) -> [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT] {
+    let first = &economic.input().instrument_terms;
+    [
+        instrument_terms_provenance_for_fixture(
+            economic,
+            first.instrument_identity.clone(),
+            first.instrument_fact_digest,
+            first.instrument_receipt_digest,
+            first.maker_fee,
+            first.taker_fee,
+            first.initial_margin,
+            first.maintenance_margin,
+            account_scope_identity,
+            valid_from_ns,
+            valid_until_ns_exclusive,
+        ),
+        instrument_terms_provenance_for_fixture(
+            economic,
+            second.instrument_identity,
+            second.instrument_fact_digest,
+            second.instrument_receipt_digest,
+            second.maker_fee,
+            second.taker_fee,
+            second.initial_margin,
+            second.maintenance_margin,
+            account_scope_identity,
+            valid_from_ns,
+            valid_until_ns_exclusive,
+        ),
+    ]
+}
+
+#[cfg(test)]
+fn instrument_terms_provenance_for_fixture(
+    economic: &ReplayEconomicConfigurationV1,
+    instrument_identity: String,
+    instrument_fact_digest: [u8; 32],
+    instrument_receipt_digest: [u8; 32],
+    maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    account_scope_identity: &str,
+    valid_from_ns: i128,
+    valid_until_ns_exclusive: i128,
+) -> SealedInstrumentEconomicTermsProvenanceV1 {
+    let profile_terms = &economic.input().instrument_terms;
+    let terms = InstrumentEconomicTermsBindingV1 {
+        instrument_identity: instrument_identity.clone(),
+        quote_currency: profile_terms.quote_currency.clone(),
+        instrument_fact_digest,
+        instrument_receipt_digest,
+        maker_fee,
+        taker_fee,
+        initial_margin,
+        maintenance_margin,
+    };
     SealedInstrumentEconomicTermsProvenanceV1 {
-        instrument_identity: terms.instrument_identity.clone(),
-        instrument_fact_digest: terms.instrument_fact_digest,
-        instrument_receipt_digest: terms.instrument_receipt_digest,
-        terms_digest: instrument_terms_digest(terms).expect("fixture terms digest"),
+        instrument_identity,
+        instrument_fact_digest,
+        instrument_receipt_digest,
+        terms_digest: instrument_terms_digest(&terms).expect("fixture terms digest"),
         economic_configuration_digest: economic.digest(),
         venue_identity: economic.input().venue_identity.clone(),
-        quote_currency: terms.quote_currency.clone(),
-        account_scope_identity: "fixture-account".into(),
-        event_time_ns: 1,
+        quote_currency: terms.quote_currency,
+        account_scope_identity: account_scope_identity.into(),
+        event_time_ns: valid_from_ns,
+        valid_from_ns,
+        valid_until_ns_exclusive,
         margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
         maker_fee: terms.maker_fee,
         taker_fee: terms.taker_fee,
@@ -508,7 +698,7 @@ mod tests {
         ReplayRunnerOperationalProfileV1,
         ReplayExecutionProfileFamilyBindingV1,
         ReplayExecutionProfileRequestBindingV1,
-        SealedInstrumentEconomicTermsProvenanceV1,
+        [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
     ) {
         let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
         let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
@@ -528,23 +718,7 @@ mod tests {
             economic_configuration_digest: economic.digest(),
             runner_operational_profile_digest: runner.digest(),
         };
-        let terms = &economic.input().instrument_terms;
-        let provenance = SealedInstrumentEconomicTermsProvenanceV1 {
-            instrument_identity: terms.instrument_identity.clone(),
-            instrument_fact_digest: terms.instrument_fact_digest,
-            instrument_receipt_digest: terms.instrument_receipt_digest,
-            terms_digest: instrument_terms_digest(terms).unwrap(),
-            economic_configuration_digest: economic.digest(),
-            venue_identity: economic.input().venue_identity.clone(),
-            quote_currency: terms.quote_currency.clone(),
-            account_scope_identity: "fixture-account".into(),
-            event_time_ns: 1,
-            margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
-            maker_fee: terms.maker_fee,
-            taker_fee: terms.taker_fee,
-            initial_margin: terms.initial_margin,
-            maintenance_margin: terms.maintenance_margin,
-        };
+        let provenance = instrument_terms_provenance_fixture_v1(&economic);
         (economic, runner, family, request, provenance)
     }
 
@@ -600,9 +774,42 @@ mod tests {
     #[rstest]
     fn caller_visible_terms_cannot_replace_sealed_owner_provenance() {
         let (economic, runner, family, request, mut provenance) = fixtures();
-        provenance.instrument_receipt_digest = [7; 32];
+        provenance[1].instrument_receipt_digest = [7; 32];
         assert_eq!(
             bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, provenance),
+            Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+        );
+    }
+
+    #[rstest]
+    fn second_member_terms_substitution_and_duplicate_fail_closed() {
+        let (economic, runner, family, request, mut substituted) = fixtures();
+        substituted[1].maker_fee.mantissa += 1;
+        assert_eq!(
+            bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, substituted,),
+            Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
+        );
+
+        let (economic, runner, family, request, mut duplicate) = fixtures();
+        duplicate[1] = instrument_terms_provenance_for_fixture(
+            &economic,
+            economic
+                .input()
+                .instrument_terms
+                .instrument_identity
+                .clone(),
+            [21; 32],
+            [22; 32],
+            economic.input().instrument_terms.maker_fee,
+            economic.input().instrument_terms.taker_fee,
+            economic.input().instrument_terms.initial_margin,
+            economic.input().instrument_terms.maintenance_margin,
+            "SIM-001",
+            0,
+            i128::MAX,
+        );
+        assert_eq!(
+            bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, duplicate,),
             Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch)
         );
     }
@@ -691,7 +898,9 @@ mod tests {
         };
         let provenance =
             seal_instrument_economic_terms_provenance_v1(&readback, &economic, context).unwrap();
-        bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, provenance)
+        let mut target_terms = instrument_terms_provenance_fixture_v1(&economic);
+        target_terms[0] = provenance;
+        bind_replay_execution_profiles_v1(&family, &request, &economic, &runner, target_terms)
             .unwrap();
 
         for wrong in [

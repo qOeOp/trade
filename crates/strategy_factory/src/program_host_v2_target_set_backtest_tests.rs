@@ -18,7 +18,7 @@ use vibe_data::owner::{
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
 };
 use vibe_model::{
-    data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta},
+    data::{Bar, BarSpecification, BarType, BookOrder, Data, OrderBookDelta, QuoteTick},
     enums::{
         AccountType, AggregationSource, BarAggregation, BookAction, BookType, OmsType, OrderSide,
         PriceType,
@@ -50,6 +50,204 @@ use super::{
         issue_plugin_implementation_receipt_v2_for_test,
     },
 };
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use super::{
+    program_host_sim_event_consumer_v1::run_program_host_sim_event_consumer_v1,
+    replay_economic_configuration_v1::{
+        InstrumentEconomicTermsBindingV1, ReplayEconomicConfigurationV1, ReplayFixedDecimalV1,
+        economic_fixture,
+    },
+    replay_execution_profile_binding_v1::{
+        ReplayExecutionProfileFamilyBindingV1, ReplayExecutionProfileRequestBindingV1,
+        bind_replay_execution_profiles_v1, instrument_terms_provenance_target_set_fixture_v1,
+    },
+    replay_execution_profile_native_v1::materialize_event_replay_execution_profile_v1,
+    replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+};
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
+    let mut instruments = instruments();
+    for instrument in &mut instruments {
+        let instrument = crypto_perpetual_mut(instrument);
+        instrument.maker_fee = rust_decimal::Decimal::new(2, 4);
+        instrument.taker_fee = rust_decimal::Decimal::new(4, 4);
+        instrument.margin_init = rust_decimal::Decimal::new(1, 1);
+        instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
+    }
+    let mut economic_input = economic_fixture();
+    economic_input.venue_identity = "XNAS".into();
+    economic_input.starting_balance = ReplayFixedDecimalV1 {
+        mantissa: 1_000_000,
+        scale: 0,
+    };
+    economic_input.starting_balance_currency = "USD".into();
+    economic_input.common_quote_currency = "USD".into();
+    economic_input.instrument_terms = InstrumentEconomicTermsBindingV1 {
+        instrument_identity: "AAPL".into(),
+        quote_currency: "USD".into(),
+        instrument_fact_digest: [61; 32],
+        instrument_receipt_digest: [62; 32],
+        maker_fee: ReplayFixedDecimalV1 {
+            mantissa: 2,
+            scale: 4,
+        },
+        taker_fee: ReplayFixedDecimalV1 {
+            mantissa: 4,
+            scale: 4,
+        },
+        initial_margin: ReplayFixedDecimalV1 {
+            mantissa: 1,
+            scale: 1,
+        },
+        maintenance_margin: ReplayFixedDecimalV1 {
+            mantissa: 5,
+            scale: 2,
+        },
+    };
+    let economic = ReplayEconomicConfigurationV1::seal(economic_input).unwrap();
+    let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+    let family = ReplayExecutionProfileFamilyBindingV1 {
+        schema_version: 1,
+        trial_family_identity: "target-set-family".into(),
+        trial_family_digest: [63; 32],
+        economic_configuration_digest: economic.digest(),
+        runner_operational_profile_digest: runner.digest(),
+    };
+    let request = ReplayExecutionProfileRequestBindingV1 {
+        schema_version: 1,
+        request_identity: "target-set-request".into(),
+        request_meaning_digest: [64; 32],
+        trial_family_identity: family.trial_family_identity.clone(),
+        trial_family_digest: family.trial_family_digest,
+        economic_configuration_digest: economic.digest(),
+        runner_operational_profile_digest: runner.digest(),
+    };
+    let second_terms = InstrumentEconomicTermsBindingV1 {
+        instrument_identity: "MSFT".into(),
+        quote_currency: "USD".into(),
+        instrument_fact_digest: [65; 32],
+        instrument_receipt_digest: [66; 32],
+        maker_fee: ReplayFixedDecimalV1 {
+            mantissa: 2,
+            scale: 4,
+        },
+        taker_fee: ReplayFixedDecimalV1 {
+            mantissa: 4,
+            scale: 4,
+        },
+        initial_margin: ReplayFixedDecimalV1 {
+            mantissa: 1,
+            scale: 1,
+        },
+        maintenance_margin: ReplayFixedDecimalV1 {
+            mantissa: 5,
+            scale: 2,
+        },
+    };
+    let binding = bind_replay_execution_profiles_v1(
+        &family,
+        &request,
+        &economic,
+        &runner,
+        instrument_terms_provenance_target_set_fixture_v1(
+            &economic,
+            second_terms,
+            "XNAS-001",
+            0,
+            i128::MAX,
+        ),
+    )
+    .unwrap();
+    let profile =
+        materialize_event_replay_execution_profile_v1(binding, &economic, &runner).unwrap();
+    let (plan, artifact, frame) = fixture().unwrap();
+    let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
+    let time = admitted.envelope().order_key.logical_time_ns;
+    let instrument_ids = instruments.each_ref().map(Instrument::id);
+    let bar_types = instrument_ids.map(|instrument_id| {
+        BarType::new(
+            instrument_id,
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+            AggregationSource::External,
+        )
+    });
+    let bars = [
+        Bar::new(
+            bar_types[0],
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            time.into(),
+            time.into(),
+        ),
+        Bar::new(
+            bar_types[1],
+            Price::from("419.81"),
+            Price::from("425.00"),
+            Price::from("418.00"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            time.into(),
+            time.into(),
+        ),
+    ];
+    let mut data = bars.into_iter().map(Data::Bar).collect::<Vec<_>>();
+    data.extend([
+        Data::Quote(QuoteTick::new(
+            instruments[0].id(),
+            Price::from("187.24"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            Quantity::from("100"),
+            (time + 1).into(),
+            (time + 1).into(),
+        )),
+        Data::Quote(QuoteTick::new(
+            instruments[1].id(),
+            Price::from("421.14"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            Quantity::from("100.0"),
+            (time + 2).into(),
+            (time + 2).into(),
+        )),
+    ]);
+    let capability = profile
+        .into_program_host_sim_event_capability_v1(
+            plan,
+            artifact,
+            frame,
+            StrategyId::from("TARGET-SET-PROFILE-EVENT-001"),
+            "target-set-profile-event".into(),
+            instruments,
+            bar_types,
+            data,
+        )
+        .unwrap();
+    let readback = run_program_host_sim_event_consumer_v1(capability).unwrap();
+    assert_eq!(readback.execution_route(), "EVENT");
+    assert_eq!(readback.target_set_count(), 1);
+    assert!(readback.position_submit_count() >= 2);
+    assert!(
+        readback
+            .actual_fills()
+            .iter()
+            .any(|fill| fill.instrument() == "AAPL.XNAS")
+    );
+    assert!(
+        readback
+            .actual_fills()
+            .iter()
+            .any(|fill| fill.instrument() == "MSFT.XNAS")
+    );
+    assert_eq!(readback.instrument_fact_digests(), [[61; 32], [65; 32]]);
+    assert_eq!(readback.instrument_receipt_digests(), [[62; 32], [66; 32]]);
+}
 
 #[derive(Serialize)]
 struct Corpus<'a> {
@@ -469,6 +667,7 @@ fn run_corpus_with_fault(restore: bool, second_submit_fault: bool) -> anyhow::Re
         instrument_ids,
         bar_types,
         [frame],
+        None,
         restore,
         Rc::clone(&restored),
         Rc::clone(&trace),
@@ -600,6 +799,7 @@ fn run_invalid_batch(case: InvalidBatchCase) -> anyhow::Result<TargetSetBacktest
         instrument_ids,
         bar_types,
         [frame],
+        None,
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
@@ -752,6 +952,7 @@ fn run_multi_frame_equity_corpus() -> anyhow::Result<TargetSetBacktestTraceV2> {
         instrument_ids,
         bar_types,
         [frame],
+        None,
         false,
         Rc::new(Cell::new(false)),
         Rc::clone(&trace),
