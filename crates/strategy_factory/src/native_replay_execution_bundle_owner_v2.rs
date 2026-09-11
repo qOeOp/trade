@@ -246,13 +246,22 @@ fn parse_digest(value: &str) -> Result<BindingDigest, NativeReplayExecutionPrere
         .strip_prefix("sha256:")
         .or_else(|| value.strip_prefix("blake3:"))
         .ok_or(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)?;
-    if hex.len() != 64 {
+    let hex = hex.as_bytes();
+    if hex.len() != 64
+        || !hex
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
         return Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable);
     }
     let mut bytes = [0_u8; 32];
-    for (index, byte) in bytes.iter_mut().enumerate() {
-        *byte = u8::from_str_radix(&hex[index * 2..index * 2 + 2], 16)
-            .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)?;
+    for (output, pair) in bytes.iter_mut().zip(hex.chunks_exact(2)) {
+        let decode = |byte| match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            _ => unreachable!("canonical hexadecimal bytes were checked above"),
+        };
+        *output = (decode(pair[0]) << 4) | decode(pair[1]);
     }
     Ok(BindingDigest::from_untrusted_bytes(bytes))
 }
@@ -269,6 +278,18 @@ mod tests {
         );
         assert_eq!(
             parse_digest("sha256:00"),
+            Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)
+        );
+        assert_eq!(
+            parse_digest(&format!("sha256:€{}", "0".repeat(61))),
+            Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)
+        );
+        assert_eq!(
+            parse_digest(&format!("sha256:A{}", "0".repeat(63))),
+            Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)
+        );
+        assert_eq!(
+            parse_digest(&format!("sha256:g{}", "0".repeat(63))),
             Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable)
         );
         assert!(parse_digest(&format!("blake3:{}", "01".repeat(32))).is_ok());
