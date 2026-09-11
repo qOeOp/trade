@@ -40,13 +40,11 @@ export function ReadbackLookupField({
   label,
   labelHidden = false,
   leading,
-  mono = false,
   ...props
 }: LabelHTMLAttributes<HTMLLabelElement> & {
   label: ReactNode;
   labelHidden?: boolean;
   leading?: ReactNode;
-  mono?: boolean;
 }) {
   return (
     <label
@@ -54,7 +52,6 @@ export function ReadbackLookupField({
       className={classes(styles.field, className)}
       data-label-hidden={labelHidden}
       data-leading={Boolean(leading)}
-      data-mono={mono}
     >
       <span className={labelHidden ? "sr-only" : styles.label}>{label}</span>
       <span className={styles.control}>
@@ -65,8 +62,8 @@ export function ReadbackLookupField({
   );
 }
 
-export function ReadbackLookupInput({ className, ...props }: InputProps) {
-  return <Input {...props} className={className} variant="surface" />;
+export function ReadbackLookupInput({ className, typography = "default", ...props }: InputProps) {
+  return <Input {...props} className={className} typography={typography} variant="surface" />;
 }
 
 export function ReadbackLookupAction({

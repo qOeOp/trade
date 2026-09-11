@@ -155,7 +155,7 @@ export function ExploratoryReplayReadbackWorkbench({
             void read(requestInput, meaningInput);
           }}
         >
-          <ReadbackLookupField label="Request identity" mono>
+          <ReadbackLookupField label="Request identity">
             <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -166,10 +166,11 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="request identity"
               spellCheck={false}
+              typography="mono"
               value={requestInput}
             />
           </ReadbackLookupField>
-          <ReadbackLookupField label="Meaning digest" mono>
+          <ReadbackLookupField label="Meaning digest">
             <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
@@ -180,6 +181,7 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="blake3:…"
               spellCheck={false}
+              typography="mono"
               value={meaningInput}
             />
           </ReadbackLookupField>

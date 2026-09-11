@@ -49,10 +49,6 @@
   padding-left: 36px;
 }
 
-.field[data-mono="true"] [data-slot="input"] {
-  font: 10px/1.2 var(--font-mono);
-}
-
 .action {
   white-space: nowrap;
 }

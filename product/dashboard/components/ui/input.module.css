@@ -18,6 +18,10 @@
   border-color: var(--status-warning);
 }
 
+.mono {
+  font: 10px/1.2 var(--font-mono);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .surface {
     animation: none;
