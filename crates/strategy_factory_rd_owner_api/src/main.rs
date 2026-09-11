@@ -3492,20 +3492,14 @@ mod tests {
         snapshot
     }
 
-    async fn get_exploratory_result(
+    async fn get_exploratory_result_target(
         address: std::net::SocketAddr,
         token: &str,
-        result_identity: &str,
-        request_identity: &str,
-        attempt_identity: &str,
-        extra_query: Option<(&str, &str)>,
+        target: &str,
     ) -> (StatusCode, Vec<u8>) {
         let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
-        let extra_query = extra_query
-            .map(|(name, value)| format!("&{name}={value}"))
-            .unwrap_or_default();
         let request = format!(
-            "GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}{extra_query} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+            "GET {target} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
         );
         stream.write_all(request.as_bytes()).await.unwrap();
         let mut response = Vec::new();
@@ -3524,6 +3518,27 @@ mod tests {
             .and_then(|value| StatusCode::from_u16(value).ok())
             .expect("HTTP response status");
         (status, response[header_end..].to_vec())
+    }
+
+    async fn get_exploratory_result(
+        address: std::net::SocketAddr,
+        token: &str,
+        result_identity: &str,
+        request_identity: &str,
+        attempt_identity: &str,
+        extra_query: Option<(&str, &str)>,
+    ) -> (StatusCode, Vec<u8>) {
+        let extra_query = extra_query
+            .map(|(name, value)| format!("&{name}={value}"))
+            .unwrap_or_default();
+        get_exploratory_result_target(
+            address,
+            token,
+            &format!(
+                "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}{extra_query}"
+            ),
+        )
+        .await
     }
 
     #[tokio::test]
@@ -3557,6 +3572,20 @@ mod tests {
         let owner = Arc::new(
             PostgresResearchGoalOwnerV1::connect(
                 test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let rd_database_url = test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner);
+        let query_separator = if rd_database_url.contains('?') {
+            '&'
+        } else {
+            '?'
+        };
+        let unavailable_owner = Arc::new(
+            PostgresResearchGoalOwnerV1::connect(
+                &format!("{rd_database_url}{query_separator}options=-c%20lock_timeout%3D200ms"),
                 test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
             )
             .await
@@ -3638,9 +3667,69 @@ mod tests {
             .0,
             StatusCode::BAD_REQUEST
         );
+        let invalid_or_missing_targets = [
+            format!(
+                "/v2/exploratory-replay-results/%20?request_identity={request_identity}&attempt_identity={attempt_identity}"
+            ),
+            format!(
+                "/v2/exploratory-replay-results/{result_identity}?request_identity=%20&attempt_identity={attempt_identity}"
+            ),
+            format!(
+                "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity=%20"
+            ),
+            format!("/v2/exploratory-replay-results/{result_identity}"),
+            format!(
+                "/v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}"
+            ),
+            format!(
+                "/v2/exploratory-replay-results/{result_identity}?attempt_identity={attempt_identity}"
+            ),
+        ];
+        for target in invalid_or_missing_targets {
+            let (status, body) = get_exploratory_result_target(address, token, &target).await;
+            assert_eq!(status, StatusCode::BAD_REQUEST);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap()["error"],
+                "INVALID_EXPLORATORY_REPLAY_RESULT_LOCATOR"
+            );
+        }
 
         server.abort();
         let _ = server.await;
+
+        let mut topology_fault = rd_pool.begin().await.unwrap();
+        sqlx::query("SELECT pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended($1,0))")
+            .bind("vibe.backtest.result-topology.v2")
+            .execute(&mut *topology_fault)
+            .await
+            .unwrap();
+        let unavailable_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let unavailable_address = unavailable_listener.local_addr().unwrap();
+        let unavailable_server = tokio::spawn(async move {
+            axum::serve(
+                unavailable_listener,
+                exploratory_replay::result_router(unavailable_owner, token_digest),
+            )
+            .await
+        });
+        let (status, body) = get_exploratory_result(
+            unavailable_address,
+            token,
+            &result_identity,
+            &request_identity,
+            &attempt_identity,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["error"],
+            "EXPLORATORY_REPLAY_RESULT_UNAVAILABLE"
+        );
+        unavailable_server.abort();
+        let _ = unavailable_server.await;
+        topology_fault.rollback().await.unwrap();
+
         let after = rd_owned_relation_snapshot(rd_pool).await;
         assert_eq!(
             after, before,
