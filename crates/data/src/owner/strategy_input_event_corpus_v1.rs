@@ -380,6 +380,14 @@ impl StrategyInputEventReplayPackageV1 {
     pub const fn corpus(&self) -> &StrategyInputEventCorpusV1 {
         &self.corpus
     }
+
+    /// Consumes the package inside the Market Data Owner without weakening its atomic binding.
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) fn into_owner_parts(
+        self,
+    ) -> (SealedReplayInput, StrategyInputEventCorpusV1) {
+        (self.replay_input, self.corpus)
+    }
 }
 
 /// Atomically seals the terminal replay anchor and its complete ordered EVENT corpus.
@@ -575,6 +583,8 @@ impl StrategyInputEventBindingReadbackV1 {
 /// Fail-closed durable binding categories. No error contains a partial binding or census.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StrategyInputEventBindingErrorV1 {
+    #[error("the sealed R&D request is unavailable from its fixed Owner port")]
+    RequestUnavailable,
     #[error("the sealed R&D request evidence is invalid")]
     InvalidRequest,
     #[error("the complete EVENT corpus or selected event is invalid")]

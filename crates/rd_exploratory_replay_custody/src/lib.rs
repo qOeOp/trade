@@ -96,6 +96,7 @@ pub enum ExploratoryReplayAvailabilityV2 {
 pub struct SealedExploratoryReplayReadbackV2 {
     request: ReplayRequestV2,
     canonical_request_bytes: Vec<u8>,
+    canonical_receipt_proof_bytes: Vec<u8>,
     meaning_digest: String,
     receipt_identity: String,
     seal_digest: String,
@@ -112,6 +113,15 @@ impl SealedExploratoryReplayReadbackV2 {
     #[must_use]
     pub fn canonical_request_bytes(&self) -> &[u8] {
         &self.canonical_request_bytes
+    }
+
+    /// Returns deterministic bytes of the already-validated stored Owner receipt.
+    ///
+    /// These bytes are derived only after the durable receipt, seal, and outbox have all been
+    /// verified. They are proof material and do not provide a constructor for this readback.
+    #[must_use]
+    pub fn canonical_receipt_proof_bytes(&self) -> &[u8] {
+        &self.canonical_receipt_proof_bytes
     }
 
     #[must_use]
@@ -970,12 +980,15 @@ fn decode_owner_envelope(
             readback: None,
         });
     }
+    let canonical_receipt_proof_bytes =
+        serde_json::to_vec(&receipt).map_err(|_| ExploratoryReplayCustodyError::Unavailable)?;
     Ok(ExploratoryReplayReadResultV2 {
         request_identity: selector.request_identity.clone(),
         availability: ExploratoryReplayAvailabilityV2::Available,
         readback: Some(SealedExploratoryReplayReadbackV2 {
             request,
             canonical_request_bytes,
+            canonical_receipt_proof_bytes,
             meaning_digest,
             receipt_identity: receipt.receipt_identity,
             seal_digest,
@@ -1981,7 +1994,7 @@ mod tests {
     }
 
     #[rstest]
-    fn market_data_port_requires_exact_request_receipt_and_seal_equality() {
+    fn fixed_port_requires_exact_request_receipt_and_seal_equality() {
         let envelope = valid_market_data_envelope(ExploratoryReplayAvailabilityV2::Available);
         let locator = exact_locator(&envelope);
         let result =
@@ -1996,6 +2009,11 @@ mod tests {
             BASE64
                 .decode(envelope.v2_canonical_request_base64.as_ref().unwrap())
                 .unwrap()
+        );
+        let stored_receipt: StoredReceiptV2 = exact(envelope.v2_receipt.as_ref().unwrap()).unwrap();
+        assert_eq!(
+            result.readback().unwrap().canonical_receipt_proof_bytes(),
+            serde_json::to_vec(&stored_receipt).unwrap()
         );
 
         for changed in [

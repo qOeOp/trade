@@ -13,6 +13,15 @@
 use sha2::{Digest, Sha256};
 use sqlx::{Postgres, Row, Transaction};
 
+#[cfg(feature = "isolated-event-replay-acceptance")]
+use vibe_rd_exploratory_replay_custody::{
+    ExploratoryReplayAvailabilityV2, SealedExploratoryReplayReadbackV2,
+    SealedExploratoryReplayRequestLocatorV2,
+    lock_sealed_exploratory_replay_request_for_market_data_v1,
+};
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+use crate::owner::strategy_input_event_corpus_v1::StrategyInputEventReplayPackageV1;
 use crate::owner::{
     sample_projection::StrategyInputSampleProjectionKindV2,
     source_binding::BindingDigest,
@@ -283,6 +292,49 @@ struct AuthenticatedRdReplayRequestV1 {
 }
 
 impl AuthenticatedRdReplayRequestV1 {
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    fn from_fixed_owner_readback(
+        locator: &SealedExploratoryReplayRequestLocatorV2,
+        readback: SealedExploratoryReplayReadbackV2,
+    ) -> Result<Self, StrategyInputEventBindingErrorV1> {
+        let request_meaning = readback
+            .request()
+            .meaning_digest()
+            .map_err(|_| StrategyInputEventBindingErrorV1::InvalidRequest)?;
+        if readback.request().request_identity().as_str() != locator.request_identity
+            || readback.meaning_digest() != locator.meaning_digest
+            || request_meaning.as_str() != locator.meaning_digest
+            || readback.receipt_identity() != locator.receipt_identity
+            || readback.seal_digest() != locator.seal_digest
+            || readback
+                .request()
+                .to_canonical_bytes()
+                .map_err(|_| StrategyInputEventBindingErrorV1::InvalidRequest)?
+                != readback.canonical_request_bytes()
+        {
+            return Err(StrategyInputEventBindingErrorV1::InvalidRequest);
+        }
+        let value = Self {
+            request_identity: locator.request_identity.clone().into_boxed_str(),
+            request_meaning_digest: locator.meaning_digest.clone().into_boxed_str(),
+            request_receipt_identity: locator.receipt_identity.clone().into_boxed_str(),
+            request_seal_digest: locator.seal_digest.clone().into_boxed_str(),
+            request_locator_bytes: serde_json::to_vec(locator)
+                .map_err(|_| StrategyInputEventBindingErrorV1::InvalidRequest)?
+                .into_boxed_slice(),
+            request_bytes: readback
+                .canonical_request_bytes()
+                .to_vec()
+                .into_boxed_slice(),
+            request_receipt_bytes: readback
+                .canonical_receipt_proof_bytes()
+                .to_vec()
+                .into_boxed_slice(),
+        };
+        value.validate()?;
+        Ok(value)
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[cfg(test)]
     fn from_test_readback(
@@ -580,34 +632,16 @@ pub(super) async fn install(
 }
 
 impl MarketDataOwnerPostgres {
-    async fn commit_strategy_input_event_binding_v1(
+    /// Issues the isolated-acceptance request-to-EVENT binding through the fixed R&D Owner port.
+    ///
+    /// The caller supplies only an untrusted four-coordinate locator and the move-only Market Data
+    /// package. Window, selected EVENT, R&D receipt bytes, transaction, and storage are all derived
+    /// or retained inside this Owner boundary.
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) async fn issue_strategy_input_event_binding_v1(
         &self,
-        prepared: &StrategyInputEventBindingPreparationV1,
-    ) -> Result<StrategyInputEventBindingReadbackV1, StrategyInputEventBindingErrorV1> {
-        self.commit_strategy_input_event_binding_inner_v1(prepared, false, false)
-            .await
-    }
-
-    #[cfg(test)]
-    async fn commit_strategy_input_event_binding_with_fault_v1(
-        &self,
-        prepared: &StrategyInputEventBindingPreparationV1,
-        rollback_before_commit: bool,
-        response_loss: bool,
-    ) -> Result<StrategyInputEventBindingReadbackV1, StrategyInputEventBindingErrorV1> {
-        self.commit_strategy_input_event_binding_inner_v1(
-            prepared,
-            rollback_before_commit,
-            response_loss,
-        )
-        .await
-    }
-
-    async fn commit_strategy_input_event_binding_inner_v1(
-        &self,
-        prepared: &StrategyInputEventBindingPreparationV1,
-        rollback_before_commit: bool,
-        response_loss: bool,
+        locator: &SealedExploratoryReplayRequestLocatorV2,
+        package: StrategyInputEventReplayPackageV1,
     ) -> Result<StrategyInputEventBindingReadbackV1, StrategyInputEventBindingErrorV1> {
         let mut transaction = self
             .pool
@@ -619,51 +653,36 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
         verify_contract(&mut transaction).await?;
-        advisory_lock(&mut transaction, prepared.rd.request_identity.as_bytes()).await?;
-        validate_projection_custody(&mut transaction, &prepared.events, true).await?;
-        if let Some(existing) = load_by_request(
-            &mut transaction,
-            prepared.rd.request_identity.as_bytes(),
-            true,
-        )
-        .await?
-        {
-            if !readback_matches_prepared(&existing, prepared) {
-                return Err(StrategyInputEventBindingErrorV1::ReplayConflict);
-            }
-            transaction
-                .commit()
+        let rd_result =
+            lock_sealed_exploratory_replay_request_for_market_data_v1(&mut transaction, locator)
                 .await
-                .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
-            return Ok(existing);
+                .map_err(|_| StrategyInputEventBindingErrorV1::RequestUnavailable)?;
+        if rd_result.availability() != ExploratoryReplayAvailabilityV2::Available {
+            return Err(StrategyInputEventBindingErrorV1::RequestUnavailable);
         }
-        if let Some(conflict) =
-            load_by_binding(&mut transaction, prepared.binding_identity, true).await?
-        {
-            if !readback_matches_prepared(&conflict, prepared) {
-                return Err(StrategyInputEventBindingErrorV1::ReplayConflict);
-            }
-        } else {
-            persist(&mut transaction, prepared).await?;
-        }
-        let stored = load_by_binding(&mut transaction, prepared.binding_identity, true)
-            .await?
-            .ok_or(StrategyInputEventBindingErrorV1::StoreUnavailable)?;
-        if !readback_matches_prepared(&stored, prepared) {
-            return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
-        }
-        if rollback_before_commit {
-            return Err(StrategyInputEventBindingErrorV1::CommitInterrupted);
-        }
+        let rd_readback = rd_result
+            .into_readback()
+            .ok_or(StrategyInputEventBindingErrorV1::RequestUnavailable)?;
+        validate_rd_request_against_package(&rd_readback, &package)?;
+        let window = rd_readback.request().as_dto().window.clone();
+        let selected_event_ordinal = terminal_replay_event_ordinal(&package)?;
+        let rd = AuthenticatedRdReplayRequestV1::from_fixed_owner_readback(locator, rd_readback)?;
+        let (_, corpus) = package.into_owner_parts();
+        let prepared = StrategyInputEventBindingPreparationV1::from_owner_corpus(
+            rd,
+            i128::from(window.start_event_ns),
+            i128::from(window.end_event_ns_exclusive),
+            selected_event_ordinal,
+            corpus,
+        )?;
+        let stored =
+            commit_strategy_input_event_binding_in_transaction_v1(&mut transaction, &prepared)
+                .await?;
         transaction
             .commit()
             .await
             .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
-        if response_loss {
-            Err(StrategyInputEventBindingErrorV1::ResponseLost)
-        } else {
-            Ok(stored)
-        }
+        Ok(stored)
     }
 
     pub(in crate::owner) async fn resolve_strategy_input_event_binding_v1(
@@ -692,6 +711,117 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
         Ok(stored)
     }
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn validate_rd_request_against_package(
+    readback: &SealedExploratoryReplayReadbackV2,
+    package: &StrategyInputEventReplayPackageV1,
+) -> Result<(), StrategyInputEventBindingErrorV1> {
+    if !package.has_valid_digest() {
+        return Err(StrategyInputEventBindingErrorV1::InvalidEventCensus);
+    }
+    let request = readback.request().as_dto();
+    let replay = package.replay_input();
+    if parse_owner_digest(request.pit_scope.digest.as_str())? != replay.scope_digest()
+        || parse_owner_digest(request.pit_snapshot.identity.as_str())? != replay.snapshot_identity()
+        || parse_owner_digest(request.pit_snapshot.digest.as_str())?
+            != replay.snapshot_fact_digest()
+        || parse_owner_digest(request.universe_selection.digest.as_str())?
+            != replay.universe_selection_digest()
+        || request.correction_rule.version.as_str() != "v2"
+        || parse_owner_digest(request.correction_rule.identity.as_str())?
+            != replay.snapshot_correction_rule_digest()
+        || request.market_semantics.version.as_str() != "v2"
+        || parse_owner_digest(request.market_semantics.identity.as_str())?
+            != replay.market_semantics_identity()
+        || replay.observation_start_event_time() < request.window.start_event_ns
+        || replay.observation_start_event_time() >= request.window.end_event_ns_exclusive
+    {
+        return Err(StrategyInputEventBindingErrorV1::InvalidRequest);
+    }
+    Ok(())
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn terminal_replay_event_ordinal(
+    package: &StrategyInputEventReplayPackageV1,
+) -> Result<usize, StrategyInputEventBindingErrorV1> {
+    if !package.has_valid_digest() {
+        return Err(StrategyInputEventBindingErrorV1::InvalidEventCensus);
+    }
+    let replay = package.replay_input();
+    let corpus = package.corpus();
+    let ordinal = corpus
+        .expected_count()
+        .checked_sub(1)
+        .ok_or(StrategyInputEventBindingErrorV1::InvalidEventCensus)?;
+    let terminal = corpus
+        .members()
+        .get(ordinal)
+        .ok_or(StrategyInputEventBindingErrorV1::InvalidEventCensus)?;
+    if replay.observation_start_event_time() != replay.observation_end_event_time()
+        || terminal.order_key().event_time() != replay.observation_start_event_time()
+    {
+        return Err(StrategyInputEventBindingErrorV1::InvalidEventCensus);
+    }
+    Ok(ordinal)
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+fn parse_owner_digest(value: &str) -> Result<BindingDigest, StrategyInputEventBindingErrorV1> {
+    let hex = value
+        .strip_prefix("sha256:")
+        .or_else(|| value.strip_prefix("blake3:"))
+        .ok_or(StrategyInputEventBindingErrorV1::InvalidRequest)?
+        .as_bytes();
+    if hex.len() != 64
+        || !hex
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        return Err(StrategyInputEventBindingErrorV1::InvalidRequest);
+    }
+    let mut bytes = [0_u8; 32];
+    for (output, pair) in bytes.iter_mut().zip(hex.chunks_exact(2)) {
+        let nibble = |byte| match byte {
+            b'0'..=b'9' => byte - b'0',
+            b'a'..=b'f' => byte - b'a' + 10,
+            _ => unreachable!("canonical hexadecimal bytes were checked above"),
+        };
+        *output = (nibble(pair[0]) << 4) | nibble(pair[1]);
+    }
+    Ok(BindingDigest::from_untrusted_bytes(bytes))
+}
+
+async fn commit_strategy_input_event_binding_in_transaction_v1(
+    transaction: &mut Transaction<'_, Postgres>,
+    prepared: &StrategyInputEventBindingPreparationV1,
+) -> Result<StrategyInputEventBindingReadbackV1, StrategyInputEventBindingErrorV1> {
+    advisory_lock(transaction, prepared.rd.request_identity.as_bytes()).await?;
+    validate_projection_custody(transaction, &prepared.events, true).await?;
+    if let Some(existing) =
+        load_by_request(transaction, prepared.rd.request_identity.as_bytes(), true).await?
+    {
+        if !readback_matches_prepared(&existing, prepared) {
+            return Err(StrategyInputEventBindingErrorV1::ReplayConflict);
+        }
+        return Ok(existing);
+    }
+    if let Some(conflict) = load_by_binding(transaction, prepared.binding_identity, true).await? {
+        if !readback_matches_prepared(&conflict, prepared) {
+            return Err(StrategyInputEventBindingErrorV1::ReplayConflict);
+        }
+    } else {
+        persist(transaction, prepared).await?;
+    }
+    let stored = load_by_binding(transaction, prepared.binding_identity, true)
+        .await?
+        .ok_or(StrategyInputEventBindingErrorV1::StoreUnavailable)?;
+    if !readback_matches_prepared(&stored, prepared) {
+        return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
+    }
+    Ok(stored)
 }
 
 async fn persist(
@@ -1524,6 +1654,72 @@ mod tests {
             TRUSTED_DEPARSE_SEARCH_PATH_V1,
             "SELECT pg_catalog.set_config('search_path','pg_catalog',true)"
         );
+    }
+
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    #[test]
+    fn fixed_port_rejects_noncanonical_owner_digests() {
+        assert_eq!(
+            parse_owner_digest(&format!("sha256:{}", "ab".repeat(32))),
+            Ok(BindingDigest::from_untrusted_bytes([0xab; 32]))
+        );
+        for invalid in [
+            "sha256:00",
+            "sha256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "sha256:000000000000000000000000000000000000000000000000000000000000000g",
+            "blake3:é00000000000000000000000000000000000000000000000000000000000000",
+            "request-digest",
+        ] {
+            assert_eq!(
+                parse_owner_digest(invalid),
+                Err(StrategyInputEventBindingErrorV1::InvalidRequest)
+            );
+        }
+    }
+
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    #[test]
+    fn fixed_positive_port_retains_transaction_and_derives_caller_forbidden_fields() {
+        let implementation = include_str!("strategy_input_event_binding_v1.rs");
+        let method = implementation
+            .split("pub(in crate::owner) async fn issue_strategy_input_event_binding_v1")
+            .nth(1)
+            .unwrap()
+            .split("pub(in crate::owner) async fn resolve_strategy_input_event_binding_v1")
+            .next()
+            .unwrap();
+        let signature = method.split('{').next().unwrap();
+        assert!(signature.contains("SealedExploratoryReplayRequestLocatorV2"));
+        assert!(signature.contains("StrategyInputEventReplayPackageV1"));
+        for forbidden in [
+            "selected_event_ordinal",
+            "replay_start_event_ns",
+            "Transaction",
+            "PgPool",
+            "database_url",
+            "request_receipt_bytes",
+        ] {
+            assert!(!signature.contains(forbidden));
+        }
+        let serializable = method.find("ISOLATION LEVEL SERIALIZABLE").unwrap();
+        let rd_lock = method
+            .find("lock_sealed_exploratory_replay_request_for_market_data_v1")
+            .unwrap();
+        let available = method
+            .find("ExploratoryReplayAvailabilityV2::Available")
+            .unwrap();
+        let derived_window = method.find("let window =").unwrap();
+        let derived_event = method.find("terminal_replay_event_ordinal").unwrap();
+        let owner_commit = method
+            .find("commit_strategy_input_event_binding_in_transaction_v1")
+            .unwrap();
+        let transaction_end = method.rfind(".commit()").unwrap();
+        assert!(serializable < rd_lock);
+        assert!(rd_lock < available);
+        assert!(available < derived_window);
+        assert!(derived_window < derived_event);
+        assert!(derived_event < owner_commit);
+        assert!(owner_commit < transaction_end);
     }
 
     fn exact_multiset_for_test<T: Ord + Clone>(expected: &[T], actual: &[T]) -> bool {

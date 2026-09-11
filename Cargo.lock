@@ -10129,6 +10129,7 @@ dependencies = [
  "vibe-core",
  "vibe-model",
  "vibe-persistence",
+ "vibe-rd-exploratory-replay-custody",
  "vibe-serialization",
  "vibe-testkit",
  "zeroize",

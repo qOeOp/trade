@@ -21,6 +21,9 @@ mod replay_market_facts_v2;
 mod sample_projection_v4;
 mod session;
 mod strategy_input_binding_registry;
+#[cfg(feature = "isolated-event-replay-acceptance")]
+pub(in crate::owner) mod strategy_input_event_binding_v1;
+#[cfg(not(feature = "isolated-event-replay-acceptance"))]
 mod strategy_input_event_binding_v1;
 mod time_zone;
 mod universe_selection;
