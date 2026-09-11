@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/operations-service-logs.tsx", import.meta.url);
 const viewportUrl = new URL("../components/ui/bounded-log-viewport.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const cssUrl = new URL("../app/globals.css", import.meta.url);
 
 test("Service Logs composes the fixed frame, status, filters, split, detail, and bounded table", async () => {

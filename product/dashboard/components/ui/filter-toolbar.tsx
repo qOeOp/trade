@@ -6,6 +6,7 @@ import type {
   ChangeEventHandler,
   ReactNode,
 } from "react";
+import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
 import { InterfaceIcons, type DashboardIcon } from "./iconography";
 
@@ -17,16 +18,21 @@ export type TableFilterSection = {
   onSelect: (value: string) => void;
 };
 
+export type FilterControlDensity = "default" | "compact";
+export type FilterActionVariant = "primary" | "secondary" | "ghost" | "warning" | "danger" | "outline";
+
 export function TableFilterMenu({
   label,
   sections,
+  density = "default",
 }: {
   label: string;
   sections: readonly TableFilterSection[];
+  density?: FilterControlDensity;
 }) {
   const reduceMotion = useReducedMotion();
   return (
-    <div className="table-filter-menu" role="group" aria-label={label}>
+    <div className="table-filter-menu" data-density={density} role="group" aria-label={label}>
       {sections.map((section) => (
         <motion.label key={section.id} className="table-filter-select"
           whileTap={reduceMotion ? undefined : { scale: 0.985 }} transition={{ duration: 0.12 }}>
@@ -94,15 +100,17 @@ export function FilterSearch({
   onChange,
   placeholder,
   maxLength,
+  density = "default",
 }: {
   label: string;
   value: string;
   onChange: ChangeEventHandler<HTMLInputElement>;
   placeholder: string;
   maxLength?: number;
+  density?: FilterControlDensity;
 }) {
   return (
-    <label className="filter-search">
+    <label className="filter-search" data-density={density}>
       <InterfaceIcons.search aria-hidden="true" size={15} />
       <span className="sr-only">{label}</span>
       <input value={value} onChange={onChange} placeholder={placeholder} maxLength={maxLength} />
@@ -114,9 +122,14 @@ export function FilterButton({
   children,
   className,
   variant = "primary",
+  density = "default",
   ...props
-}: { children: ReactNode; variant?: "primary" | "outline" } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} data-variant={variant}
+}: {
+  children: ReactNode;
+  variant?: FilterActionVariant;
+  density?: FilterControlDensity;
+} & ButtonHTMLAttributes<HTMLButtonElement>) {
+  return <button {...props} data-variant={variant} data-density={density}
     className={["filter-action", className].filter(Boolean).join(" ")}>{children}</button>;
 }
 
@@ -124,23 +137,45 @@ export function FilterLink({
   children,
   className,
   disabled = false,
+  href,
+  variant = "primary",
+  density = "default",
   ...props
 }: {
   children: ReactNode;
   disabled?: boolean;
+  variant?: FilterActionVariant;
+  density?: FilterControlDensity;
 } & AnchorHTMLAttributes<HTMLAnchorElement>) {
-  return <a {...props} className={["filter-action", className].filter(Boolean).join(" ")}
-    aria-disabled={disabled || undefined}>{children}</a>;
+  const sharedProps = {
+    ...props,
+    "data-variant": variant,
+    "data-density": density,
+    className: ["filter-action", className].filter(Boolean).join(" "),
+    "aria-disabled": disabled || undefined,
+  };
+  const usesClientNavigation = typeof href === "string"
+    && href.startsWith("/")
+    && !href.startsWith("//")
+    && !props.download
+    && props.target !== "_blank";
+  return usesClientNavigation
+    ? <Link {...sharedProps} href={href}>{children}</Link>
+    : <a {...sharedProps} href={href}>{children}</a>;
 }
 
 export function FilterToggle({
   children,
   checked,
   onChange,
+  density = "default",
 }: {
   children: ReactNode;
   checked: boolean;
   onChange: ChangeEventHandler<HTMLInputElement>;
+  density?: FilterControlDensity;
 }) {
-  return <label className="filter-toggle"><input type="checkbox" checked={checked} onChange={onChange} />{children}</label>;
+  return <label className="filter-toggle" data-density={density}>
+    <input type="checkbox" checked={checked} onChange={onChange} />{children}
+  </label>;
 }

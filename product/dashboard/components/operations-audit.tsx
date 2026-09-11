@@ -47,6 +47,7 @@ import {
 } from "./ui/panel-frame";
 import { StatusBadge } from "./ui/status-badge";
 import { auditOutcomeTone } from "./ui/status-tone-policy";
+import { TimelineItem, TimelineList } from "./ui/timeline-list";
 
 const pageSizes: OperationAuditPageSizeV1[] = [20, 50, 100];
 
@@ -134,18 +135,19 @@ function AuditDetail({ detail, pending, reason }: {
             </DetailCluster>
           </DetailClusterGrid>
           <DetailSection label="Correlation timeline" meta={`${timeline.length} ${timeline.length === 1 ? "event" : "events"}`}>
-            <ol className="timeline-list">
-              {timeline.map((event, index) => <li className="timeline-event" key={event.audit_identity}>
-                <span className="timeline-event-index">{String(index + 1).padStart(2, "0")}</span>
-                <div className="timeline-event-copy">
-                  <span>{event.action_kind}</span>
-                  <b title={event.operation}>{operationLabel(event.operation)}</b>
-                  <small title={event.receipt_identity}>{compactIdentity(event.receipt_identity)}</small>
-                </div>
-                <time className="timeline-event-meta" dateTime={event.observed_at}>{displayTime(event.observed_at)}</time>
-                <span className="timeline-event-status"><StatusBadge tone={auditOutcomeTone(event.outcome)}>{event.outcome}</StatusBadge></span>
-              </li>)}
-            </ol>
+            <TimelineList>
+              {timeline.map((event, index) => <TimelineItem
+                key={event.audit_identity}
+                index={String(index + 1).padStart(2, "0")}
+                eyebrow={event.action_kind}
+                primary={operationLabel(event.operation)}
+                primaryTitle={event.operation}
+                description={compactIdentity(event.receipt_identity)}
+                descriptionTitle={event.receipt_identity}
+                meta={<time dateTime={event.observed_at}>{displayTime(event.observed_at)}</time>}
+                status={<StatusBadge tone={auditOutcomeTone(event.outcome)}>{event.outcome}</StatusBadge>}
+              />)}
+            </TimelineList>
           </DetailSection>
         </> : <DetailEmpty icon={<EvidenceIcons.receipt aria-hidden="true" size={22} />}>
           {pending ? "Reading the selected audit event." : reason ? "The selected event is unavailable." : "Select an event to inspect its receipt and correlation."}

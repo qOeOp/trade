@@ -15,8 +15,8 @@ test("Backtest route renders one compact exact Replay request workbench", async 
   const [component, route, shell, page, css, ownerApi, ownerRouter] = await Promise.all([
     readFile(new URL("../components/exploratory-replay-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/backtest/replays/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/[[...route]]/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/(dashboard)/[...route]/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/exploratory-replay-readback-workbench.module.css", import.meta.url), "utf8"),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/exploratory_replay.rs", import.meta.url), "utf8"),
     readFile(new URL("../../../crates/strategy_factory_rd_owner_api/src/main.rs", import.meta.url), "utf8"),

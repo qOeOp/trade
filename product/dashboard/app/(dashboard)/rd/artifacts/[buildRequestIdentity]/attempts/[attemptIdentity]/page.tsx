@@ -1,4 +1,4 @@
-import { DashboardShell } from "../../../../../../components/dashboard-shell";
+import { DashboardRouteContent } from "@/components/dashboard-route-content";
 
 export const dynamic = "force-dynamic";
 
@@ -9,7 +9,7 @@ export default async function ArtifactSourcePage({
 }) {
   const { buildRequestIdentity, attemptIdentity } = await params;
   return (
-    <DashboardShell
+    <DashboardRouteContent
       current="/rd/artifacts"
       artifactBuildRequestIdentity={buildRequestIdentity}
       artifactAttemptIdentity={attemptIdentity}

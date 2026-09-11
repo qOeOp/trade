@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const audit = await readFile(new URL("../components/operations-audit.tsx", import.meta.url), "utf8");
-const shell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
+const shell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
 const listRoute = await readFile(new URL("../app/api/operations/audit/route.ts", import.meta.url), "utf8");
 const detailRoute = await readFile(new URL("../app/api/operations/audit/[auditIdentity]/route.ts", import.meta.url), "utf8");

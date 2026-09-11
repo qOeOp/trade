@@ -81,6 +81,16 @@ export function parentTabFor(href) {
   return route && "parentHref" in route && typeof route.parentHref === "string" ? route.parentHref : href;
 }
 
+/** @param {string} pathname */
+export function dashboardRouteForPathname(pathname) {
+  const current = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
+  if (/^\/operations\/runs\/[^/]+$/.test(current)) return "/operations/runs/example";
+  if (/^\/operations\/workers\/[^/]+$/.test(current)) return "/operations/workers";
+  if (/^\/rd\/artifacts\/[^/]+\/attempts\/[^/]+$/.test(current)) return "/rd/artifacts";
+  if (current === "/market") return "/dashboard";
+  return current;
+}
+
 /** @param {string} href */
 export function moduleFor(href) {
   const route = allRoutes.find((candidate) => candidate.href === href);

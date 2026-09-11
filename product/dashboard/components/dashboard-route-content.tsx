@@ -4,11 +4,8 @@ import {
   maturityFor,
   moduleFor,
   pageFor,
-  parentTabFor,
 } from "../lib/navigation.js";
 import { BentoGrid } from "./bento-grid";
-import { DesktopModuleNavigation, MobileModuleDrawer } from "./module-navigation";
-import { ModuleTabLinks } from "./module-tab-links";
 import { OperationsRunStorePreview } from "./operations-runstore-preview";
 import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
@@ -24,34 +21,16 @@ import { ExploratoryReplayReadbackWorkbench } from "./exploratory-replay-readbac
 import { MarketDataOwnerFoundationCard } from "./market-data-owner-foundation-card";
 import { RuntimeFoundationNotReadyCard } from "./runtime-foundation-not-ready-card";
 import { PortfolioViewUnavailableCard } from "./portfolio-view-unavailable-card";
-import { ThemeToggle } from "./theme-toggle";
 import { InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader } from "./ui/panel-frame";
 
-type ExactBlueprint = {
+type ExactRouteBlueprint = {
   summaries: string[];
   primary: string | null;
   context: string | null;
   terminal: string;
   state: string;
 };
-
-function TopBar({ current }: { current: string }) {
-  const activeModule = moduleFor(current);
-  const activeHref = parentTabFor(current);
-  return (
-    <header className="top-bar">
-      <MobileModuleDrawer current={current} />
-      <ModuleTabLinks activeHref={activeHref} ariaLabel={`${activeModule.label} pages`}
-        className="module-tabs" tabs={activeModule.tabs} />
-      <div className="top-actions">
-        <button type="button" disabled title="Search is not admitted"><InterfaceIcons.search size={16} /><span className="sr-only">Search unavailable</span></button>
-        <button type="button" disabled title="Notifications are not admitted"><InterfaceIcons.notification size={16} /><span className="sr-only">Notifications unavailable</span></button>
-        <ThemeToggle />
-      </div>
-    </header>
-  );
-}
 
 function SlotCard({ slot, title, className = "" }: { slot: string; title: string; className?: string }) {
   return (
@@ -63,7 +42,7 @@ function SlotCard({ slot, title, className = "" }: { slot: string; title: string
   );
 }
 
-function ExactRouteGrid({ blueprint }: { blueprint: ExactBlueprint }) {
+function ExactRouteGrid({ blueprint }: { blueprint: ExactRouteBlueprint }) {
   return (
     <div className="route-grid">
       {blueprint.summaries.map((summary, index) => <SlotCard slot={`S${index + 1}`} title={summary} key={summary} />)}
@@ -109,7 +88,7 @@ function UnavailableBlueprint({
   );
 }
 
-export function DashboardShell({
+export function DashboardRouteContent({
   current,
   runIdentity,
   workerIdentity,
@@ -133,7 +112,7 @@ export function DashboardShell({
   const activeModule = moduleFor(current);
   const page = pageFor(current);
   const maturity = maturityFor(current);
-  const exactBlueprint = exactBlueprints[current as keyof typeof exactBlueprints] as ExactBlueprint | undefined;
+  const exactBlueprint = exactBlueprints[current as keyof typeof exactBlueprints] as ExactRouteBlueprint | undefined;
   const operationsRuns = current === "/operations";
   const operationsRunDetail = current === "/operations/runs/example";
   const operationsWorkers = current === "/operations/workers";
@@ -163,11 +142,7 @@ export function DashboardShell({
   const drawableExact = maturity === "DRAWABLE_EXACT";
 
   return (
-    <div className="dashboard-shell">
-      <DesktopModuleNavigation current={current} />
-      <main className="main-column">
-        <TopBar current={current} />
-        <div className="page-viewport">
+    <div className="dashboard-route-content" data-dashboard-route={current}>
           {suppressShellPageHeader ? <h1 className="sr-only">{page.label}</h1> : <header className="page-header">
             <div>
               <p>{activeModule.label} / {page.label}</p>
@@ -265,8 +240,6 @@ export function DashboardShell({
                 ? "This page is read only. Actions remain unavailable until their product workflow is connected."
                 : "Foundation prototype. Named placeholders preserve documented geometry without asserting product availability."}
           </footer> : null}
-        </div>
-      </main>
     </div>
   );
 }

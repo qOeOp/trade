@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
@@ -21,7 +22,7 @@ import {
   DetailNotice,
 } from "./ui/detail-inspector";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
-import { UnavailableState } from "./ui/evidence-strip";
+import { LoadingState, UnavailableState } from "./ui/evidence-strip";
 import { FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
@@ -72,9 +73,9 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
           </DetailCluster>
           <DetailCluster label="Last run" meta={worker.last_run_state ?? "No claim"}>
             <DetailClusterFact label="Run">
-              {worker.last_run_identity ? <a className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
+              {worker.last_run_identity ? <Link className="detail-cluster-link" href={`/operations/runs/${encodeURIComponent(worker.last_run_identity)}`}>
                 <span title={worker.last_run_identity}>{compactRunLabel(worker.last_run_identity)}</span><InterfaceIcons.open aria-hidden="true" size={12} />
-              </a> : <span>Unavailable</span>}
+              </Link> : <span>Unavailable</span>}
             </DetailClusterFact>
             <DetailClusterFact label="Claimed at">{worker.last_run_at
               ? <time dateTime={worker.last_run_at}>{displayTime(worker.last_run_at)}</time>
@@ -94,7 +95,7 @@ function WorkerDetail({ worker, exact = false }: { worker: WorkerBrowserProjecti
         <DetailInspectorFooter>
           <code title={worker.worker_artifact_digest}>{worker.worker_artifact_digest}</code>
           <span>Artifact identity only · no unbound-run readiness claim</span>
-          {exact ? <a href="/operations/workers">Back to worker list</a> : null}
+          {exact ? <Link href="/operations/workers">Back to worker list</Link> : null}
         </DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
@@ -108,7 +109,7 @@ function ExactWorkerUnavailable({ workerIdentity, reason }: { workerIdentity: st
         status={<StatusBadge tone="unavailable">unavailable</StatusBadge>} />
       <DetailInspectorBody>
         <DetailNotice icon={<RunIcons.duration aria-hidden="true" size={14} />} title="Worker lease unavailable">{reason}</DetailNotice>
-        <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><a href="/operations/workers">Back to worker list</a></DetailInspectorFooter>
+        <DetailInspectorFooter><span>Requested identity retained · no liveness or readiness inferred</span><Link href="/operations/workers">Back to worker list</Link></DetailInspectorFooter>
       </DetailInspectorBody>
     </DetailInspector>
   );
@@ -189,9 +190,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
       minWidth: "250px",
       grow: 1.35,
       ignoreRowClick: true,
-      cell: (worker) => <a className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
+      cell: (worker) => <Link className="table-cell-stack" href={`/operations/workers/${encodeWorkerIdentitySegmentV1(worker.worker_identity)}`}>
         <b title={worker.worker_identity}>{compactWorkerLabel(worker.worker_identity)}</b><span>Registered {displayTime(worker.registered_at)}</span>
-      </a>,
+      </Link>,
     },
     {
       id: "lease",
@@ -295,16 +296,21 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
                 ? <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity} reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />
                 : <DetailEmpty icon={<RunIcons.state aria-hidden="true" size={16} />}>No worker matches this verified cut and local filter.</DetailEmpty>}
           </SplitBento>
+        ) : pending ? (
+          <LoadingState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
+            title="Reading worker store">
+            Checking the current worker cut. No availability conclusion has been made.
+          </LoadingState>
         ) : (
           initialWorkerIdentity ? <SplitBento className="operations-workers-layout"
             columns="minmax(560px, 1.55fr) minmax(300px, .8fr)">
             <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
-              title="Worker store unavailable" reason={result?.unavailable_reason ?? "READING_WORKERS"} />
+              title="Worker store unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
             {selected ? <WorkerDetail worker={selected} exact />
               : <ExactWorkerUnavailable workerIdentity={initialWorkerIdentity}
                 reason={detail?.unavailable_reason ?? "WORKER_DETAIL_RESPONSE_UNAVAILABLE"} />}
           </SplitBento> : <UnavailableState density="compact" icon={<ModuleIcons.cpu aria-hidden="true" size={16} />}
-            title="Worker store unavailable" reason={result?.unavailable_reason ?? "READING_WORKERS"} />
+            title="Worker store unavailable" reason={result?.unavailable_reason ?? "WORKER_STORE_RESPONSE_UNAVAILABLE"} />
         )}
         </PanelFrameBody>
       </PanelFrame>

@@ -4,7 +4,7 @@ import test from "node:test";
 
 test("only admitted R&D surfaces embed their route chrome", async () => {
   const [shell, css] = await Promise.all([
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
   ]);
   const predicate = shell.match(/const embedsRouteChrome = ([\s\S]*?);\n/u)?.[1];

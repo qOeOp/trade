@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import type { FormEvent, ReactNode, RefObject } from "react";
 import { useMemo, useState } from "react";
 
+import { FilterButton, FilterSearch, TableFilterMenu } from "./filter-toolbar";
 import { InterfaceIcons } from "./iconography";
 import { StatusBadge } from "./status-badge";
 import { severityTone } from "./status-tone-policy";
@@ -83,32 +84,24 @@ export function LogExplorer({
           <p>{countLabel}</p>
         </div>
         <div className="log-explorer-controls">
-          <div className="log-explorer-filter-row" role="group" aria-label={`${title} filters`}>
-            {filters.map((group) => (
-              <motion.label className="log-explorer-filter-select" key={group.id}
-                whileTap={{ scale: 0.985 }} transition={{ duration: 0.12 }}>
-                <span className="sr-only">{group.label}</span>
-                <select aria-label={group.label} value={group.value}
-                  onChange={(event) => group.onSelect(event.target.value)}>
-                  {group.options.map((option) => (
-                    <option value={option.value} key={option.value}>{option.label}</option>
-                  ))}
-                </select>
-                <InterfaceIcons.expand aria-hidden="true" size={13} />
-              </motion.label>
-            ))}
+          <div className="log-explorer-filter-row">
+            <TableFilterMenu label={`${title} filters`} sections={filters.map((group) => ({
+              id: group.id,
+              label: group.label,
+              selected: group.value,
+              items: group.options.map((option) => ({ value: option.value, label: option.label })),
+              onSelect: group.onSelect,
+            }))} density="compact" />
             {activeFilterCount ? (
-              <motion.button className="log-explorer-clear-filters" type="button"
-                whileTap={{ scale: 0.96 }} transition={{ duration: 0.12 }} onClick={onClearFilters}>
+              <FilterButton density="compact" variant="ghost" type="button" onClick={onClearFilters}>
                 Clear
-              </motion.button>
+              </FilterButton>
             ) : null}
           </div>
-          <form className="log-explorer-search" role="search" onSubmit={submitSearch}>
-            <InterfaceIcons.search aria-hidden="true" size={15} />
-            <span className="sr-only">{searchLabel}</span>
-            <input value={searchValue} onChange={(event) => onSearchChange(event.target.value)}
-              placeholder={searchPlaceholder} />
+          <form className="log-explorer-search-form" role="search" onSubmit={submitSearch}>
+            <FilterSearch label={searchLabel} value={searchValue}
+              onChange={(event) => onSearchChange(event.target.value)} placeholder={searchPlaceholder}
+              density="compact" />
           </form>
           {actions ? <div className="log-explorer-actions">{actions}</div> : null}
         </div>

@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/runtime-foundation-not-ready-card.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 
 test("Runtime surface keeps fixed evidence but presents a compact business state", async () => {
   const source = await readFile(componentUrl, "utf8");

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -156,10 +157,10 @@ export function ArtifactDirectory() {
       minWidth: "300px",
       grow: 1.5,
       cell: (item) => (
-        <a className={styles.identityCell} href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}>
+        <Link className={styles.identityCell} href={`/rd/artifacts/${encodeURIComponent(item.buildRequestIdentity)}/attempts/${encodeURIComponent(item.attemptIdentity)}`}>
           <strong title={item.artifactIdentity}>{displayIdentity(item.artifactIdentity)}</strong>
           <span title={item.buildRequestIdentity}>{displayIdentity(item.buildRequestIdentity)}</span>
-        </a>
+        </Link>
       ),
       ignoreRowClick: true,
     },

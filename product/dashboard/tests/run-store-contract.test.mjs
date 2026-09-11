@@ -189,7 +189,7 @@ test("durable enqueue stays capability protected and zero-effect bound", async (
 
 test("Run Detail is a specific dynamic route over the bounded RunStore readback", async () => {
   const page = await readFile(
-    new URL("../app/operations/runs/[runIdentity]/page.tsx", import.meta.url),
+    new URL("../app/(dashboard)/operations/runs/[runIdentity]/page.tsx", import.meta.url),
     "utf8",
   );
   const api = await readFile(
