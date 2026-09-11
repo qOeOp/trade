@@ -24,6 +24,10 @@ sealed-source-intake-composer-acceptance = [
 sealed-strategy-input-acceptance = [
   "vibe-data/sealed-strategy-input-acceptance",
 ]
+isolated-event-replay-acceptance = [
+  "sealed-strategy-input-acceptance",
+  "vibe-data/isolated-event-replay-acceptance",
+]
 
 [dependencies]
 ahash = { workspace = true }

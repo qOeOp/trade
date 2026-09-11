@@ -845,6 +845,7 @@ async fn resolve_strategy_input_sample_event_from_pool_v1(
             snapshot_fact_digest: sample.fact().snapshot_fact_digest(),
             observation_batch_digest: sample.fact().observation_batch_digest(),
             timeframe_identity: sample.receipt().timeframe_identity(),
+            timeframe_projection_digest: component.timeframe_projection_digest(),
             value_trigger_digest: BindingDigest::from_untrusted_bytes(
                 component.value_trigger_digest(),
             ),

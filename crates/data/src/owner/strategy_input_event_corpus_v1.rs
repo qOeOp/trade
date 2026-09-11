@@ -626,6 +626,7 @@ pub struct StrategyInputSampleEventValueV1 {
     pub(in crate::owner) snapshot_fact_digest: [u8; 32],
     pub(in crate::owner) observation_batch_digest: [u8; 32],
     pub(in crate::owner) timeframe_identity: [u8; 32],
+    pub(in crate::owner) timeframe_projection_digest: [u8; 32],
     pub(in crate::owner) value_trigger_digest: BindingDigest,
     pub(in crate::owner) owner_event_identity: [u8; 16],
     pub(in crate::owner) logical_time: u64,
@@ -696,6 +697,11 @@ impl StrategyInputSampleEventValueV1 {
     #[must_use]
     pub const fn timeframe_identity(&self) -> [u8; 32] {
         self.timeframe_identity
+    }
+
+    #[must_use]
+    pub const fn timeframe_projection_digest(&self) -> [u8; 32] {
+        self.timeframe_projection_digest
     }
 
     #[must_use]
