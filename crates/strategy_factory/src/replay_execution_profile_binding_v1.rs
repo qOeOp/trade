@@ -560,6 +560,44 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     })
 }
 
+/// Issues the profile authority from the exact two Owner terms readbacks retained by Native Replay.
+///
+/// Venue, account scope, and event time are derived from Owner-held state instead of accepting a
+/// second caller-selected context. This remains crate-private so the complete retained preparation
+/// cut is the only production composition entrypoint.
+pub(crate) fn issue_owner_replay_execution_profile_binding_from_readbacks_v1(
+    family: &TrialFamilyReadbackV1,
+    request: &SealedExploratoryReplayReadbackV2,
+    instrument_terms: [InstrumentEconomicTermsReadbackV1; TARGET_SET_MEMBER_COUNT],
+) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
+    let catalog = family
+        .root()
+        .policy()
+        .replay_policy_catalog_v3()
+        .ok_or(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+    let (economic, _) = catalog
+        .verify()
+        .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+    let account_scope_identity = instrument_terms[0]
+        .fact()
+        .input()
+        .account_scope_identity
+        .clone();
+    let context = InstrumentEconomicTermsConsumptionContextV1 {
+        venue_identity: &economic.input().venue_identity,
+        account_scope_identity: &account_scope_identity,
+        event_time_ns: i128::from(request.request().as_dto().window.start_event_ns),
+    };
+    let [first, second] = instrument_terms;
+    let provenance = [
+        seal_target_set_member_instrument_economic_terms_provenance_v1(&first, &economic, context)?,
+        seal_target_set_member_instrument_economic_terms_provenance_v1(
+            &second, &economic, context,
+        )?,
+    ];
+    issue_owner_replay_execution_profile_binding_v1(family, request, provenance)
+}
+
 /// Test-only entrypoint that exercises the real Owner verification and issuance path.
 ///
 /// It accepts only already issued Owner readbacks/provenance and delegates without synthesizing,

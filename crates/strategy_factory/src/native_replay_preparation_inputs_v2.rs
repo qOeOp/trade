@@ -14,6 +14,7 @@ use crate::{
     rd_owner_postgres_custody::{
         VerifiedResearchCustodyV1, resolve_native_replay_rd_cut_v2_in_transaction,
     },
+    trial_family::TrialFamilyReadbackV1,
 };
 
 /// One move-only input that preserves the exact Replay, R&D source, and Composer custody reads.
@@ -25,6 +26,7 @@ pub struct NativeReplayPreparationInputsV2 {
     replay: SealedExploratoryReplayReadbackV2,
     rd_sources: NativeReplayRdSourcesV2,
     composer: SealedDevelopComposerReadbackV2,
+    family: TrialFamilyReadbackV1,
 }
 
 impl NativeReplayPreparationInputsV2 {
@@ -41,6 +43,11 @@ impl NativeReplayPreparationInputsV2 {
     #[must_use]
     pub const fn composer(&self) -> &SealedDevelopComposerReadbackV2 {
         &self.composer
+    }
+
+    #[must_use]
+    pub const fn family(&self) -> &TrialFamilyReadbackV1 {
+        &self.family
     }
 }
 
@@ -95,6 +102,10 @@ fn issue_native_replay_preparation_inputs_v2(
 ) -> Result<NativeReplayPreparationInputsV2, NativeReplayPreparationInputsErrorV2> {
     let research_request_identity = research_request_identity(research)?;
     let research_intent_identity = research_intent_identity(research)?;
+    let family = research
+        .family()
+        .cloned()
+        .ok_or_else(|| unavailable("TrialFamily custody is unavailable"))?;
     let request = replay.request().as_dto();
     let composer_locator = composer.locator();
 
@@ -137,6 +148,7 @@ fn issue_native_replay_preparation_inputs_v2(
         replay,
         rd_sources,
         composer,
+        family,
     })
 }
 
