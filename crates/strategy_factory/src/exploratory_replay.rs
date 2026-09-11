@@ -369,7 +369,7 @@ impl SealedExploratoryReplayReadbackV2 {
     }
 }
 
-#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
+#[cfg(test)]
 pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
     request: ReplayRequestV2,
 ) -> anyhow::Result<SealedExploratoryReplayReadbackV2> {

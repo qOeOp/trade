@@ -13,10 +13,13 @@ use vibe_data::owner::instrument_economic_terms_v1::{
 };
 
 use crate::{
+    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
     replay_economic_configuration_v1::{
         InstrumentEconomicTermsBindingV1, ReplayEconomicConfigurationV1,
     },
+    replay_policy_catalog_v2::ReplayPolicyCatalogBindingV3,
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
+    trial_family::{TrialFamilyReadbackV1, verify_family},
 };
 
 /// Replay execution-profile family/request binding schema version.
@@ -237,6 +240,373 @@ pub struct ReplayExecutionProfileBindingV1 {
     instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
 }
 
+/// Move-only R&D Owner authority for consuming one exact dual-profile Replay request.
+///
+/// Public family/request binding DTOs remain useful for comparison, but cannot construct this
+/// value. The private payload retains the complete verified Instrument Owner terms and can only be
+/// transferred as a whole to the Backtest materializer.
+pub struct OwnerIssuedReplayExecutionProfileBindingV1 {
+    request_locator: ExploratoryReplayRequestLocatorV2,
+    trial_family_identity: String,
+    trial_family_digest: [u8; 32],
+    economic_configuration_canonical_bytes: Vec<u8>,
+    economic_configuration_digest: [u8; 32],
+    runner_operational_profile_canonical_bytes: Vec<u8>,
+    runner_operational_profile_digest: [u8; 32],
+    authority_digest: [u8; 32],
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "consumed by the separately leased Backtest runner authority slice"
+        )
+    )]
+    execution_profile_binding: ReplayExecutionProfileBindingV1,
+}
+
+impl OwnerIssuedReplayExecutionProfileBindingV1 {
+    #[must_use]
+    pub fn request_locator(&self) -> &ExploratoryReplayRequestLocatorV2 {
+        &self.request_locator
+    }
+
+    #[must_use]
+    pub fn matches_request_locator(&self, locator: &ExploratoryReplayRequestLocatorV2) -> bool {
+        &self.request_locator == locator
+    }
+
+    #[must_use]
+    pub fn trial_family_identity(&self) -> &str {
+        &self.trial_family_identity
+    }
+
+    #[must_use]
+    pub const fn trial_family_digest(&self) -> [u8; 32] {
+        self.trial_family_digest
+    }
+
+    #[must_use]
+    pub fn economic_configuration_canonical_bytes(&self) -> &[u8] {
+        &self.economic_configuration_canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn economic_configuration_digest(&self) -> [u8; 32] {
+        self.economic_configuration_digest
+    }
+
+    #[must_use]
+    pub fn runner_operational_profile_canonical_bytes(&self) -> &[u8] {
+        &self.runner_operational_profile_canonical_bytes
+    }
+
+    #[must_use]
+    pub const fn runner_operational_profile_digest(&self) -> [u8; 32] {
+        self.runner_operational_profile_digest
+    }
+
+    #[must_use]
+    pub const fn authority_digest(&self) -> [u8; 32] {
+        self.authority_digest
+    }
+
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "consumed by the separately leased Backtest runner authority slice"
+        )
+    )]
+    pub(crate) fn into_execution_profile_binding(self) -> ReplayExecutionProfileBindingV1 {
+        self.execution_profile_binding
+    }
+}
+
+/// Issues execution-profile authority solely from verified R&D family and request readbacks.
+///
+/// Historical families without both canonical profiles are unavailable. The complete request
+/// locator, family root, exact profile bytes, and the verified per-member binding digest all enter
+/// the authority digest.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "issued by the separately leased exploratory Replay composition slice"
+    )
+)]
+pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
+    family: &TrialFamilyReadbackV1,
+    catalog_v3: &ReplayPolicyCatalogBindingV3,
+    request: &SealedExploratoryReplayReadbackV2,
+    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
+    verify_family(family)
+        .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+    let root = family.root();
+    let catalog = root
+        .policy()
+        .replay_execution_policy_v2()
+        .ok_or(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+    if catalog_v3.replay_policy_v2() != catalog {
+        return Err(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable);
+    }
+    let (economic, runner) = catalog_v3
+        .verify()
+        .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+
+    let locator = request.locator();
+    let family_digest = decode_canonical_digest(root.root_digest())?;
+    let request_meaning_digest = decode_canonical_digest(request.meaning_digest())?;
+    let request_family = &request.request().as_dto().trial_family;
+    if request_family.identity.as_str() != root.trial_family_identity()
+        || request_family.digest.as_str() != root.root_digest()
+    {
+        return Err(ReplayExecutionProfileBindingErrorV1::TrialFamilyMismatch);
+    }
+
+    let family_binding = ReplayExecutionProfileFamilyBindingV1 {
+        schema_version: REPLAY_EXECUTION_PROFILE_BINDING_SCHEMA_VERSION_V1,
+        trial_family_identity: root.trial_family_identity().to_owned(),
+        trial_family_digest: family_digest,
+        economic_configuration_digest: economic.digest(),
+        runner_operational_profile_digest: runner.digest(),
+    };
+    let request_binding = ReplayExecutionProfileRequestBindingV1 {
+        schema_version: REPLAY_EXECUTION_PROFILE_BINDING_SCHEMA_VERSION_V1,
+        request_identity: locator.request_identity.clone(),
+        request_meaning_digest,
+        trial_family_identity: root.trial_family_identity().to_owned(),
+        trial_family_digest: family_digest,
+        economic_configuration_digest: economic.digest(),
+        runner_operational_profile_digest: runner.digest(),
+    };
+    let execution_profile_binding = bind_replay_execution_profiles_v1(
+        &family_binding,
+        &request_binding,
+        &economic,
+        &runner,
+        instrument_terms,
+    )?;
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"rd.owner-issued-replay-execution-profile-binding.v1\0");
+    encode_bytes(&mut hasher, locator.request_identity.as_bytes())?;
+    encode_bytes(&mut hasher, locator.meaning_digest.as_bytes())?;
+    encode_bytes(&mut hasher, locator.receipt_identity.as_bytes())?;
+    encode_bytes(&mut hasher, locator.seal_digest.as_bytes())?;
+    encode_bytes(&mut hasher, root.trial_family_identity().as_bytes())?;
+    hasher.update(family_digest);
+    hasher.update(economic.digest());
+    encode_bytes(&mut hasher, economic.canonical_bytes())?;
+    hasher.update(runner.digest());
+    encode_bytes(&mut hasher, runner.canonical_bytes())?;
+    hasher.update(execution_profile_binding.binding_digest());
+    let authority_digest = hasher.finalize().into();
+
+    Ok(OwnerIssuedReplayExecutionProfileBindingV1 {
+        request_locator: locator,
+        trial_family_identity: root.trial_family_identity().to_owned(),
+        trial_family_digest: family_digest,
+        economic_configuration_canonical_bytes: economic.canonical_bytes().to_vec(),
+        economic_configuration_digest: economic.digest(),
+        runner_operational_profile_canonical_bytes: runner.canonical_bytes().to_vec(),
+        runner_operational_profile_digest: runner.digest(),
+        authority_digest,
+        execution_profile_binding,
+    })
+}
+
+/// Test-only entrypoint that exercises the real Owner verification and issuance path.
+///
+/// It accepts only already issued Owner readbacks/provenance and delegates without synthesizing,
+/// defaulting, or weakening any production predicate.
+#[cfg(test)]
+pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
+    family: &TrialFamilyReadbackV1,
+    catalog_v3: &ReplayPolicyCatalogBindingV3,
+    request: &SealedExploratoryReplayReadbackV2,
+    instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
+) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
+    issue_owner_replay_execution_profile_binding_v1(family, catalog_v3, request, instrument_terms)
+}
+
+/// Genuine fixed Owner-readback fixture for the Backtest consumer seam.
+#[cfg(test)]
+pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
+-> OwnerIssuedReplayExecutionProfileBindingV1 {
+    use crate::{
+        exploratory_replay::issue_sealed_exploratory_replay_readback_for_acceptance_v2,
+        replay_economic_configuration_v1::economic_fixture,
+        replay_execution_policy_v2::ReplayExecutionPolicyV2,
+        replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
+        replay_runner_operational_profile_v1::runner_fixture,
+        trial_family::{
+            TrialFamilyIndependenceDispositionV1, TrialFamilyPolicyV1, form_initial_family,
+        },
+    };
+    use vibe_backtest_owner_contracts::{
+        CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
+        ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
+        VersionedIdentityV2,
+    };
+
+    fn opaque(value: &str) -> OpaqueIdentityV2 {
+        OpaqueIdentityV2::try_from(value.to_owned()).expect("fixture opaque identity")
+    }
+    fn digest(value: u8) -> CanonicalDigestV2 {
+        CanonicalDigestV2::try_from(format!("sha256:{}", format!("{value:x}").repeat(64)))
+            .expect("fixture digest")
+    }
+    fn content(identity: &str, value: CanonicalDigestV2) -> ContentIdentityV2 {
+        ContentIdentityV2 {
+            identity: opaque(identity),
+            digest: value,
+        }
+    }
+    fn versioned(identity: &str) -> VersionedIdentityV2 {
+        VersionedIdentityV2 {
+            identity: opaque(identity),
+            version: opaque("v1"),
+        }
+    }
+
+    let mut economic_input = economic_fixture();
+    economic_input.instrument_terms.instrument_identity = "AAPL.XNAS".into();
+    let economic = ReplayEconomicConfigurationV1::seal(economic_input).expect("economic fixture");
+    let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).expect("runner fixture");
+    let execution_policy = ReplayExecutionPolicyV2 {
+        runtime_kernel: versioned("runtime-kernel-v2"),
+        simulator: versioned("simulator-v2"),
+        cost: versioned("cost-model-v1"),
+        slippage: versioned("slippage-model-v1"),
+        capacity: versioned("capacity-model-v1"),
+        runner_operational_profile: versioned("runner-profile-v1"),
+        diagnostic_policy: versioned("diagnostic-policy-v1"),
+        deterministic_seed: 17,
+        window: ReplayWindowV2 {
+            start_event_ns: 100,
+            end_event_ns_exclusive: 200,
+        },
+        calendar: versioned("xnas-calendar-v1"),
+        session: versioned("xnas-session-v1"),
+        time_zone: versioned("america-new-york-v1"),
+        correction_rule: versioned("correction-rule-v1"),
+        market_semantics: versioned("market-semantics-v1"),
+        replay_configuration: content("economic-profile-v1", digest(1)),
+        corporate_action_cut: content("corporate-action-cut-v1", digest(2)),
+        historical_membership_cut: content("membership-cut-v1", digest(3)),
+    };
+    let catalog_v2 = ReplayPolicyCatalogBindingV2::from_policy(
+        "replay-policy-catalog-aapl-msft-v2",
+        1,
+        &execution_policy,
+    )
+    .expect("Catalog V2 fixture");
+    let catalog_v3 = ReplayPolicyCatalogBindingV3::issue(catalog_v2.clone(), &economic, &runner)
+        .expect("Catalog V3 fixture");
+    let family = form_initial_family(
+        "rd-research-intent-aapl-msft-v1",
+        &format!("sha256:{}", "4".repeat(64)),
+        TrialFamilyPolicyV1 {
+            trial_budget: 1,
+            stop_rule: "one fixed attempt".into(),
+            pit_rule_identity: "pit-rule-v1".into(),
+            cost_model_identity: "cost-model-v1".into(),
+            slippage_model_identity: "slippage-model-v1".into(),
+            capacity_model_identity: "capacity-model-v1".into(),
+            semantic_predecessor_frontier: Vec::new(),
+            protected_feedback_frontier: "protected-feedback-frontier-v1".into(),
+            independence_disposition: TrialFamilyIndependenceDispositionV1::Independent,
+            independence_basis_identity: "independence-basis-v1".into(),
+            frozen_falsifier_binding: format!("sha256:{}", "5".repeat(64)),
+            replay_execution_policy_v2: Some(catalog_v2),
+        },
+        1,
+    )
+    .expect("verified family fixture");
+    let request = ReplayRequestV2::try_from(ReplayRequestDtoV2 {
+        schema_version: 2,
+        request_identity: opaque("rd-replay-request-aapl-msft-v2"),
+        frozen_research_intent: content("rd-research-intent-aapl-msft-v1", digest(4)),
+        trial_family: content(
+            family.root().trial_family_identity(),
+            CanonicalDigestV2::try_from(family.root().root_digest().to_owned())
+                .expect("family digest"),
+        ),
+        trial_family_census_frontier: content(
+            family.census_frontier().frontier_identity(),
+            CanonicalDigestV2::try_from(family.census_frontier().frontier_digest().to_owned())
+                .expect("frontier digest"),
+        ),
+        replay_authority: ReplayAuthorityClaimV2::Exploratory,
+        strategy_design: content("strategy-design-v2", digest(6)),
+        strategy_plan: content("strategy-plan-v2", digest(7)),
+        artifact: content("strategy-artifact-v2", digest(8)),
+        resolved_owner_inputs: content("owner-inputs-v2", digest(9)),
+        pit_scope: content("pit-scope-v2", digest(10)),
+        pit_snapshot: content("pit-snapshot-v2", digest(11)),
+        universe_selection: content("aapl-msft-universe-v1", digest(12)),
+        correction_rule: execution_policy.correction_rule.clone(),
+        market_semantics: execution_policy.market_semantics.clone(),
+        replay_configuration: execution_policy.replay_configuration.clone(),
+        models: ReplayModelProfilesV2 {
+            runtime_kernel: execution_policy.runtime_kernel.clone(),
+            simulator: execution_policy.simulator.clone(),
+            cost: execution_policy.cost.clone(),
+            slippage: execution_policy.slippage.clone(),
+            capacity: execution_policy.capacity.clone(),
+        },
+        runner_operational_profile: execution_policy.runner_operational_profile.clone(),
+        diagnostic_policy: execution_policy.diagnostic_policy.clone(),
+        deterministic_seed: execution_policy.deterministic_seed,
+        window: execution_policy.window,
+        calendar: execution_policy.calendar,
+        session: execution_policy.session,
+        time_zone: execution_policy.time_zone,
+        corporate_action_cut: execution_policy.corporate_action_cut,
+        historical_membership_cut: execution_policy.historical_membership_cut,
+    })
+    .expect("Replay V2 fixture");
+    let request = issue_sealed_exploratory_replay_readback_for_acceptance_v2(request)
+        .expect("sealed Replay Owner fixture");
+    let terms = &economic.input().instrument_terms;
+    let provenance = [
+        instrument_terms_provenance_for_fixture(
+            &economic,
+            "AAPL.XNAS".into(),
+            terms.instrument_fact_digest,
+            terms.instrument_receipt_digest,
+            terms.maker_fee,
+            terms.taker_fee,
+            terms.initial_margin,
+            terms.maintenance_margin,
+            "SIM-001",
+            0,
+            i128::MAX,
+        ),
+        instrument_terms_provenance_for_fixture(
+            &economic,
+            "MSFT.XNAS".into(),
+            [21; 32],
+            [22; 32],
+            terms.maker_fee,
+            terms.taker_fee,
+            terms.initial_margin,
+            terms.maintenance_margin,
+            "SIM-001",
+            0,
+            i128::MAX,
+        ),
+    ];
+    issue_owner_replay_execution_profile_binding_for_test_v1(
+        &family,
+        &catalog_v3,
+        &request,
+        provenance,
+    )
+    .expect("Owner-issued dual-profile fixture")
+}
+
 impl ReplayExecutionProfileBindingV1 {
     #[must_use]
     pub const fn binding_digest(&self) -> [u8; 32] {
@@ -411,6 +781,8 @@ pub fn preflight_event_replay_execution_profile_v1(
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum ReplayExecutionProfileBindingErrorV1 {
+    #[error("Replay execution-profile R&D Owner authority is unavailable")]
+    OwnerAuthorityUnavailable,
     #[error("Replay execution-profile binding schema is unsupported")]
     UnsupportedSchema,
     #[error("Replay execution-profile binding identity is invalid")]
@@ -675,6 +1047,48 @@ fn encode_bytes(
     Ok(())
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "used by the staged Owner issuance seam before its composition consumer lands"
+    )
+)]
+fn decode_canonical_digest(value: &str) -> Result<[u8; 32], ReplayExecutionProfileBindingErrorV1> {
+    let Some((algorithm, hexadecimal)) = value.split_once(':') else {
+        return Err(ReplayExecutionProfileBindingErrorV1::InvalidDigest);
+    };
+    if !matches!(algorithm, "sha256" | "blake3")
+        || hexadecimal.len() != 64
+        || !hexadecimal
+            .as_bytes()
+            .iter()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(byte))
+    {
+        return Err(ReplayExecutionProfileBindingErrorV1::InvalidDigest);
+    }
+    let mut output = [0_u8; 32];
+    for (index, pair) in hexadecimal.as_bytes().chunks_exact(2).enumerate() {
+        output[index] = (hex_nibble(pair[0])? << 4) | hex_nibble(pair[1])?;
+    }
+    Ok(output)
+}
+
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "used by the staged Owner issuance seam before its composition consumer lands"
+    )
+)]
+fn hex_nibble(value: u8) -> Result<u8, ReplayExecutionProfileBindingErrorV1> {
+    match value {
+        b'0'..=b'9' => Ok(value - b'0'),
+        b'a'..=b'f' => Ok(value - b'a' + 10),
+        _ => Err(ReplayExecutionProfileBindingErrorV1::InvalidDigest),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -720,6 +1134,36 @@ mod tests {
         };
         let provenance = instrument_terms_provenance_fixture_v1(&economic);
         (economic, runner, family, request, provenance)
+    }
+
+    #[rstest]
+    fn owner_fixture_uses_complete_request_locator_and_exact_profile_bytes() {
+        let binding = owner_replay_execution_profile_binding_fixture_v1();
+        let locator = binding.request_locator().clone();
+        assert_eq!(locator.request_identity, "rd-replay-request-aapl-msft-v2");
+        assert!(!locator.meaning_digest.is_empty());
+        assert!(!locator.receipt_identity.is_empty());
+        assert!(!locator.seal_digest.is_empty());
+        assert!(binding.matches_request_locator(&locator));
+        assert_eq!(
+            ReplayEconomicConfigurationV1::parse_canonical(
+                binding.economic_configuration_canonical_bytes()
+            )
+            .unwrap()
+            .digest(),
+            binding.economic_configuration_digest()
+        );
+        assert_eq!(
+            ReplayRunnerOperationalProfileV1::parse_canonical(
+                binding.runner_operational_profile_canonical_bytes()
+            )
+            .unwrap()
+            .digest(),
+            binding.runner_operational_profile_digest()
+        );
+        assert_ne!(binding.authority_digest(), [0; 32]);
+        let inner = binding.into_execution_profile_binding();
+        assert_eq!(inner.request_identity(), locator.request_identity);
     }
 
     #[rstest]
