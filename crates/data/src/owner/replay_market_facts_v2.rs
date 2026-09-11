@@ -58,6 +58,32 @@ pub struct ReplayCompositionOwnerV1 {
 }
 
 impl super::sample_projection_v4::sealed::Sealed for ReplayCompositionOwnerV1 {}
+impl resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
+impl composition::resolver_seal::Sealed for ReplayCompositionOwnerV1 {}
+
+#[async_trait::async_trait]
+impl ReplayMarketFactsResolverV2 for ReplayCompositionOwnerV1 {
+    async fn resolve_replay_market_facts_v2(
+        &self,
+        request: &UntrustedReplayMarketFactsRequestV2,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
+        self.owner
+            .resolve_replay_market_facts_readback_v2(request)
+            .await
+    }
+}
+
+#[async_trait::async_trait]
+impl ReplayCompositionBindingResolverV1 for ReplayCompositionOwnerV1 {
+    async fn resolve_replay_market_facts_composition_v1(
+        &self,
+        request: &UntrustedReplayMarketFactsCompositionRequestV1,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+        self.owner
+            .resolve_replay_composition_readback_v1(request)
+            .await
+    }
+}
 
 #[async_trait::async_trait]
 impl super::sample_projection_v4::StrategyInputSampleProjectionResolverV4

@@ -92,6 +92,11 @@ use super::{
             verify_aggregate as verify_pit_aggregate, verify_observation_batch,
         },
     },
+    replay_market_facts_v2::{
+        ReplayCompositionBindingErrorV1, ReplayMarketFactsErrorV2, ReplayMarketFactsReadbackV2,
+        UntrustedReplayMarketFactsRequestV2,
+        composition::UntrustedReplayMarketFactsCompositionRequestV1,
+    },
     sample_fact::{
         PreparedSampleCommitV1, StoredSampleReadbackV1, verify_stored_sample_readback_v1,
         verify_stored_timeframe_projection_v1,
@@ -320,6 +325,67 @@ impl MarketDataOwnerPostgres {
             return Err(SourceBindingError::StoreUnavailable);
         }
         Ok(Self { pool })
+    }
+
+    pub(crate) async fn resolve_replay_market_facts_readback_v2(
+        &self,
+        request: &UntrustedReplayMarketFactsRequestV2,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
+        super::replay_market_facts_v2::postgres::verify_replay_market_facts_read_contract_v2(
+            &mut transaction,
+        )
+        .await
+        .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
+        let readback = super::replay_market_facts_v2::postgres::recover_replay_market_facts_readback_in_transaction_v2(
+            &mut transaction,
+            request,
+        )
+        .await
+        .map_err(map_replay_market_facts_postgres_error_v2)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
+        Ok(readback)
+    }
+
+    pub(crate) async fn resolve_replay_composition_readback_v1(
+        &self,
+        request: &UntrustedReplayMarketFactsCompositionRequestV1,
+    ) -> Result<ReplayMarketFactsReadbackV2, ReplayCompositionBindingErrorV1> {
+        let mut transaction = self
+            .pool
+            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        super::replay_market_facts_v2::postgres::verify_replay_market_facts_read_contract_v2(
+            &mut transaction,
+        )
+        .await
+        .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        let binding = super::replay_market_facts_v2::postgres::recover_replay_composition_binding_in_transaction_v1(
+            &mut transaction,
+            request.binding_locator(),
+        )
+        .await
+        .map_err(map_replay_composition_postgres_error_v1)?;
+        let readback = super::replay_market_facts_v2::postgres::recover_bound_replay_market_facts_readback_in_transaction_v2(
+            &mut transaction,
+            request.replay_v2_request(),
+            *binding.record().identity().as_bytes(),
+        )
+        .await
+        .map_err(map_replay_composition_postgres_error_v1)?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| ReplayCompositionBindingErrorV1::ReplayV2Unavailable)?;
+        Ok(readback)
     }
 
     async fn migrate(&self) -> Result<(), SourceBindingError> {
@@ -818,6 +884,32 @@ impl MarketDataOwnerPostgres {
             .await
             .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
         persist_clock_successor(transaction, prior, next, fault).await
+    }
+}
+
+fn map_replay_market_facts_postgres_error_v2(
+    error: super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2,
+) -> ReplayMarketFactsErrorV2 {
+    use super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as PostgresError;
+    match error {
+        PostgresError::UnknownRecord => ReplayMarketFactsErrorV2::CustodyUnavailable,
+        PostgresError::CorruptRecord => ReplayMarketFactsErrorV2::DigestMismatch,
+        _ => ReplayMarketFactsErrorV2::CustodyUnavailable,
+    }
+}
+
+fn map_replay_composition_postgres_error_v1(
+    error: super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2,
+) -> ReplayCompositionBindingErrorV1 {
+    use super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as PostgresError;
+    match error {
+        PostgresError::BindingUnavailable | PostgresError::UnknownRecord => {
+            ReplayCompositionBindingErrorV1::UnknownBinding
+        }
+        PostgresError::BindingConflict | PostgresError::CorruptRecord => {
+            ReplayCompositionBindingErrorV1::DigestMismatch
+        }
+        _ => ReplayCompositionBindingErrorV1::ReplayV2Unavailable,
     }
 }
 
