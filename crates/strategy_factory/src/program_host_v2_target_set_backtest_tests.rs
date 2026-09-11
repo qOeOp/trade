@@ -87,6 +87,18 @@ fn exact_two_member_target_set_drives_real_sim_with_bound_fills_and_restore_equa
     assert_eq!(uninterrupted.corpus, restored.corpus);
     assert_eq!(uninterrupted.corpus, repeated.corpus);
     assert_eq!(uninterrupted.trace.canonical_target_sets.len(), 1);
+    assert_eq!(uninterrupted.trace.actual_fill_consumptions.len(), 4);
+    assert!(
+        uninterrupted
+            .trace
+            .actual_fill_consumptions
+            .iter()
+            .all(|fill| {
+                matches!(fill.disposition.as_str(), "PARTIALLY_FILLED" | "FILLED")
+                    && fill.cumulative_filled_grid_units > 0
+                    && fill.checkpoint_before != fill.checkpoint_after
+            })
+    );
     assert!(!uninterrupted.trace.venue_atomicity_claimed);
     assert!(!uninterrupted.trace.cold_restart_claimed);
 
@@ -161,6 +173,7 @@ fn second_submit_boundary_fault_preserves_first_real_submission_and_committed_ho
     assert_eq!(trace.successful_position_submits.len(), 1);
     assert_eq!(evidence.native_order_count, 1);
     assert_eq!(trace.canonical_target_sets.len(), 1);
+    assert!(trace.actual_fill_consumptions.is_empty());
     assert_ne!(
         trace.batch_checkpoint_before, trace.failure_checkpoint_after,
         "the committed Host must not be rolled back after the first native submit"
@@ -353,6 +366,7 @@ fn every_invalid_batch_fact_prevents_both_submits_and_preserves_the_host_checkpo
         );
         assert_eq!(trace.position_submit_attempts, 0, "{case:?}");
         assert!(trace.native_order_observations.is_empty(), "{case:?}");
+        assert!(trace.actual_fill_consumptions.is_empty(), "{case:?}");
         assert!(trace.canonical_target_sets.is_empty(), "{case:?}");
         assert_eq!(
             trace.batch_checkpoint_before, trace.failure_checkpoint_after,

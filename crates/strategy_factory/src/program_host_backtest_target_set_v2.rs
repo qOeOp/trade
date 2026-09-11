@@ -43,13 +43,11 @@ use vibe_trading::{
     vibe_strategy,
 };
 
-#[cfg(test)]
-use crate::program_host_v2::AdmittedProgramEventV2;
 use crate::{
     artifact_v2::StrategyArtifactV2,
     program_host_v2::{
-        PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
-        admit_backtest_lifecycle_event_v2, admit_market_data_universe_program_event_v2,
+        AdmittedProgramEventV2, PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
+        admit_market_data_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
 };
@@ -95,6 +93,18 @@ pub(crate) struct TargetSetEquitySnapshotObservationV2 {
     pub(crate) snapshot_identity: [u8; 32],
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub(crate) struct TargetSetActualFillConsumptionV1 {
+    pub(crate) client_order_id: String,
+    pub(crate) instrument: String,
+    pub(crate) intent_identity: [u8; 16],
+    pub(crate) disposition: String,
+    pub(crate) cumulative_filled_grid_units: u64,
+    pub(crate) filled_native_quantity: String,
+    pub(crate) checkpoint_before: [u8; 32],
+    pub(crate) checkpoint_after: [u8; 32],
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub(crate) struct TargetSetBacktestTraceV2 {
     pub(crate) callback_failure: Option<String>,
@@ -106,6 +116,7 @@ pub(crate) struct TargetSetBacktestTraceV2 {
     pub(crate) native_order_observations: Vec<TargetSetNativeOrderObservationV2>,
     pub(crate) equity_snapshots: Vec<TargetSetEquitySnapshotObservationV2>,
     pub(crate) canonical_target_sets: Vec<Vec<u8>>,
+    pub(crate) actual_fill_consumptions: Vec<TargetSetActualFillConsumptionV1>,
     pub(crate) venue_atomicity_claimed: bool,
     pub(crate) cold_restart_claimed: bool,
 }
@@ -190,7 +201,6 @@ struct PreparedNativeOrderV2 {
 pub(crate) struct BacktestTargetSetProgramHostStrategyV2 {
     core: StrategyCore,
     plan: StrategyPlanV2,
-    artifact: StrategyArtifactV2,
     host: ProgramHostV2,
     instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
     bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
@@ -252,7 +262,6 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                     .build()?,
             ),
             plan,
-            artifact,
             host,
             instrument_ids,
             bar_types,
@@ -308,7 +317,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             ),
             EnvelopePayloadV1::Start,
         )?;
-        let event = admit_backtest_lifecycle_event_v2(&self.plan, envelope)?;
+        let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         self.host.apply_event(&event)?;
 
         for bar_type in self.bar_types {
@@ -790,12 +799,45 @@ impl BacktestTargetSetProgramHostStrategyV2 {
                 cumulative_filled_units: cumulative,
             }),
         )?;
-        let event = admit_backtest_lifecycle_event_v2(&self.plan, envelope)?;
+        let event = self.host.admit_backtest_lifecycle_event(envelope)?;
         let checkpoint_before = self.host.checkpoint().digest();
         let trace = self
             .host
             .apply_backtest_member_fill_event(&binding.instrument_id.to_string(), &event)?;
         let checkpoint_after = self.host.checkpoint().digest();
+        if matches!(
+            disposition,
+            FillDispositionV1::PartiallyFilled | FillDispositionV1::Filled
+        ) {
+            anyhow::ensure!(
+                cumulative > 0,
+                "native fill consumption did not advance filled quantity"
+            );
+            self.trace.borrow_mut().actual_fill_consumptions.push(
+                TargetSetActualFillConsumptionV1 {
+                    client_order_id: self
+                        .position_orders
+                        .iter()
+                        .find_map(|(client_order_id, candidate)| {
+                            (candidate.intent_identity == binding.intent_identity)
+                                .then(|| client_order_id.to_string())
+                        })
+                        .context("actual fill lost its native order binding")?,
+                    instrument: binding.instrument_id.to_string(),
+                    intent_identity: binding.intent_identity,
+                    disposition: match disposition {
+                        FillDispositionV1::PartiallyFilled => "PARTIALLY_FILLED",
+                        FillDispositionV1::Filled => "FILLED",
+                        _ => unreachable!("fill-only branch checked above"),
+                    }
+                    .to_owned(),
+                    cumulative_filled_grid_units: cumulative,
+                    filled_native_quantity: native_filled.to_string(),
+                    checkpoint_before: *checkpoint_before.as_bytes(),
+                    checkpoint_after: *checkpoint_after.as_bytes(),
+                },
+            );
+        }
         let target = self.members[binding.member_ordinal]
             .desired_grid_target
             .context("member fill omitted its converted target")?;
@@ -826,8 +868,7 @@ impl BacktestTargetSetProgramHostStrategyV2 {
             && disposition == FillDispositionV1::Filled
         {
             let checkpoint = self.host.checkpoint().clone();
-            self.host =
-                ProgramHostV2::restore(self.plan.clone(), self.artifact.clone(), &checkpoint)?;
+            self.host = self.host.restore_checkpoint(&checkpoint)?;
             anyhow::ensure!(
                 self.host.checkpoint() == &checkpoint,
                 "in-process target-set Host restore changed its opaque checkpoint"
