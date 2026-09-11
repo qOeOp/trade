@@ -389,20 +389,51 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
         )
         .await
         .map_err(NativeReplayRunErrorV2::from)?;
-    validate_committed_semantic_trace(disposition, &semantic_trace.sealed)
+    validate_committed_readbacks(disposition, &result, &semantic_trace.sealed)
 }
 
-fn validate_committed_semantic_trace(
+fn validate_committed_readbacks(
     disposition: NativeReplayCommitDispositionV2,
-    expected: &SealedNativeReplaySemanticTraceV2,
+    expected_result: &SealedReplayResultV2,
+    expected_semantic_trace: &SealedNativeReplaySemanticTraceV2,
 ) -> Result<NativeReplayCommitDispositionV2, NativeReplayRunErrorV2> {
     match &disposition {
-        NativeReplayCommitDispositionV2::Committed { semantic_trace, .. } => {
-            validate_semantic_trace_readback(semantic_trace, expected)?;
+        NativeReplayCommitDispositionV2::Committed {
+            result,
+            semantic_trace,
+        } => {
+            validate_result_readback(result, expected_result)?;
+            validate_semantic_trace_readback(semantic_trace, expected_semantic_trace)?;
         }
         NativeReplayCommitDispositionV2::SubmittedOrUnknown(_) => {}
     }
     Ok(disposition)
+}
+
+fn validate_result_readback(
+    actual: &ReplayResultReadbackV2,
+    expected: &SealedReplayResultV2,
+) -> Result<(), NativeReplayRunErrorV2> {
+    let expected_bytes = expected
+        .to_canonical_bytes()
+        .map_err(NativeReplayRunErrorV2::ResultConstruction)?;
+    let actual_result = actual.result();
+    if !result_canonical_bytes_match(actual.result_canonical_bytes(), &expected_bytes)
+        || &actual_result.result_identity != expected.result_identity()
+        || &actual_result.result_digest != expected.result_digest()
+        || &actual_result.request_identity != expected.request_identity()
+        || &actual_result.request_meaning_digest != expected.request_meaning_digest()
+        || actual_result.namespace != expected.namespace()
+        || &actual_result.attempt_identity != expected.attempt_identity()
+        || actual_result.terminal != expected.terminal()
+    {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(())
+}
+
+fn result_canonical_bytes_match(actual: &[u8], expected: &[u8]) -> bool {
+    actual == expected
 }
 
 fn validate_semantic_trace_readback(
@@ -570,6 +601,15 @@ mod tests {
             validate_semantic_trace_readback(&substituted, &expected),
             Err(NativeReplayRunErrorV2::IncompleteReconciliation)
         ));
+    }
+
+    #[test]
+    fn committed_result_requires_this_invocations_canonical_result_bytes() {
+        let current = br#"{"schema_version":2,"result_identity":"result-current"}"#;
+        let stale = br#"{"schema_version":2,"result_identity":"result-stale"}"#;
+
+        assert!(result_canonical_bytes_match(current, current));
+        assert!(!result_canonical_bytes_match(stale, current));
     }
 
     fn request_locator(
