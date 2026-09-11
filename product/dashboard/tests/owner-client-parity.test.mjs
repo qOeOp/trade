@@ -51,6 +51,26 @@ const unknownArtifact = {
   next_legal_action: "RESOLVE_SAME_ATTEMPT_IDENTITY",
 };
 
+function malformedSourceReadback(responseStatus) {
+  const value = structuredClone(sourceTerminal);
+  Object.assign(value, {
+    terminal: "MALFORMED",
+    content_locator: null,
+    content_digest: null,
+    provenance_identity: null,
+    source_candidate_identity: null,
+  });
+  Object.assign(value.receipt, {
+    terminal: "MALFORMED",
+    response_status: responseStatus,
+    connected_address: null,
+    response_media_type: null,
+    response_size_bytes: null,
+    content_digest: null,
+  });
+  return value;
+}
+
 test("first-party and Windmill adapters retain one Source Intake projection", () => {
   const sourceRequestIdentity = sourceTerminal.request_identity;
   const firstParty = projectFirstPartySourceReadbackV1(sourceTerminal, sourceRequestIdentity);
@@ -61,6 +81,16 @@ test("first-party and Windmill adapters retain one Source Intake projection", ()
     firstParty,
     windmill,
   );
+});
+
+test("Source Intake parity retains the Owner HTTP status domain", () => {
+  const raw = malformedSourceReadback(600);
+  const sourceRequestIdentity = raw.request_identity;
+  const firstParty = projectFirstPartySourceReadbackV1(raw, sourceRequestIdentity);
+  const windmill = projectWindmillSourceReadbackV1(raw, sourceRequestIdentity);
+  assert.equal(firstParty.resolution, "MALFORMED");
+  assert.equal(windmill.resolution, "MALFORMED");
+  assert.deepEqual(firstParty, windmill);
 });
 
 test("first-party and Windmill adapters retain one Research projection", async () => {

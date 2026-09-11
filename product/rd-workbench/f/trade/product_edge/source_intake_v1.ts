@@ -237,7 +237,7 @@ function validReceipt(
     || !validSharedTime(value.policy_decision_time)
     || (value.response_status !== null
       && !(Number.isSafeInteger(value.response_status) && Number(value.response_status) >= 100
-        && Number(value.response_status) <= 599))
+        && Number(value.response_status) <= 999))
     || (value.response_header_digest !== null && !validDigest(value.response_header_digest))
     || (value.connected_address !== null || value.response_media_type !== null
       || value.response_size_bytes !== null) && !(nonEmpty(value.connected_address)
@@ -298,7 +298,7 @@ function validReceipt(
     && validIdentity(value.invocation_identity)
     && nonNegativeSafeInteger(value.response_status)
     && Number(value.response_status) >= 100
-    && Number(value.response_status) <= 599
+    && Number(value.response_status) <= 999
     && (value.response_header_digest === null
       || (validDigest(value.response_header_digest)
         && (value.response_status === 200
