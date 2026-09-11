@@ -17,8 +17,8 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   const result = await readResearchReadbackGatewayV1({
     requestIdentity: accepted.request_identity,
     environment: {
-      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083/",
-      RD_RESEARCH_OWNER_READ_API_TOKEN: "secret",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "secret",
       RD_OWNER_API_URL: "http://rd-owner-api:8080/",
       RD_OWNER_API_TOKEN: "write-secret",
     },
@@ -46,12 +46,12 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
 });
 
-test("partial dedicated Research target fails closed without borrowing write credentials", async () => {
+test("partial consolidated Dashboard target fails closed without borrowing write credentials", async () => {
   let calls = 0;
   const result = await readResearchReadbackGatewayV1({
     requestIdentity: accepted.request_identity,
     environment: {
-      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083/",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082/",
       RD_OWNER_API_URL: "http://rd-owner-api:8080/",
       RD_OWNER_API_TOKEN: "write-secret",
     },

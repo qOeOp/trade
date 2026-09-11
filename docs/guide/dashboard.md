@@ -265,13 +265,16 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
-The verified Research directory GET is packaged as the dedicated
-`strategy-factory-rd-research-read-api`. Its router exposes only `/health`,
-`/v1/research-goals/directory`, and `/v2/research-goals/{request_identity}/readback`; its state holds only the typed
-`ResearchDirectoryOwnerPort` and `ResearchReadbackOwnerPortV1`. Dashboard binds both reads
-through the atomically configured `RD_RESEARCH_OWNER_READ_API_URL` and
-`RD_RESEARCH_OWNER_READ_API_TOKEN` pair. A partial dedicated pair fails closed and never borrows the write API's
-credential. The adapter reuses the canonical locking verifiers and exposes no submit or resolve port.
+The verified Research directory and exact-readback GETs are packaged in the consolidated
+`strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
+source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
+`ArtifactDirectoryOwnerPort`, and `ArtifactSourceOwnerPort` capabilities rather than collapsing domain boundaries
+into a generic repository. Its router exposes only `/health` and those four admitted GETs. Dashboard binds them
+through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
+`RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
+The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
+Subsequent Source Intake and Composer slices may join this same process only through their own typed read ports;
+they must not add per-domain containers, and remain unimplemented until those slices close.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
@@ -329,14 +332,14 @@ Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-bindin
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
 
-The verified-directory GET is packaged as the dedicated
-`strategy-factory-rd-artifact-read-api`. Its router exposes only `/health` and
-`/v1/artifact-builds/directory`; its state holds only the typed
-`ArtifactDirectoryOwnerPort`, never a sandbox or an Artifact mutation port. The PostgreSQL adapter remains a normal
-read-committed locking reader because the canonical verifier requires `FOR SHARE`; changing it to a read-only
-transaction would reject the verifier itself. Dashboard binds this endpoint through the separate, atomically
-configured `RD_ARTIFACT_OWNER_READ_API_URL` and `RD_ARTIFACT_OWNER_READ_API_TOKEN` pair. If either dedicated value is
-present without the other, the read fails closed and never borrows a credential from the write API.
+The verified-directory and exact-source GETs are packaged in the consolidated
+`strategy-factory-rd-dashboard-read-api` described above. Its Artifact state holds only the typed
+`ArtifactDirectoryOwnerPort` and `ArtifactSourceOwnerPort`, never a sandbox or an Artifact mutation port. The
+PostgreSQL adapter remains a normal read-committed locking reader because the canonical verifier requires
+`FOR SHARE`; changing it to a read-only transaction would reject the verifier itself. Dashboard binds these
+endpoints through the same atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
+`RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. If either value is present without the other, the read fails closed and
+never borrows the other credential from the write API.
 
 `Refresh`, switching the local directory/kind views, local search/sort/pagination, `Load older`, and opening one
 exact verified Artifact are the only actions. This

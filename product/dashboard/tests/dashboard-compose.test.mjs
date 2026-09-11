@@ -56,45 +56,34 @@ test("Dashboard image and migration are opt-in Compose services", () => {
   }
 });
 
-test("Artifact verified-directory reads use a dedicated GET-only Compose service", () => {
-  const artifactRead = serviceBlock("rd-artifact-owner-read-api");
+test("Artifact and Research reads share one GET-only Dashboard Compose service", () => {
+  const dashboardRead = serviceBlock("rd-dashboard-owner-read-api");
   const dashboard = serviceBlock("dashboard-web");
 
-  assert.match(artifactRead, /profiles: \["dashboard-preview"\]/);
-  assert.match(artifactRead, /strategy-factory-rd-artifact-read-api/);
-  assert.match(artifactRead, /RD_ARTIFACT_OWNER_READ_DATABASE_URL:/);
-  assert.match(artifactRead, /RD_ARTIFACT_OWNER_READ_API_TOKEN:/);
-  assert.match(artifactRead, /expose:\n\s+- 8082/);
-  assert.doesNotMatch(artifactRead, /ports:/);
-  assert.match(artifactRead, /read_only: true/);
-  assert.match(artifactRead, /cap_drop:\n\s+- ALL/);
+  assert.match(dashboardRead, /profiles: \["dashboard-preview"\]/);
+  assert.match(dashboardRead, /strategy-factory-rd-dashboard-read-api/);
+  assert.match(dashboardRead, /RD_DASHBOARD_OWNER_READ_DATABASE_URL:/);
+  assert.match(dashboardRead, /RD_DASHBOARD_OWNER_READ_API_TOKEN:/);
+  assert.match(
+    dashboardRead,
+    /authority-custody-migrate:\n\s+condition: service_completed_successfully/,
+  );
+  assert.match(dashboardRead, /expose:\n\s+- 8082/);
+  assert.doesNotMatch(dashboardRead, /ports:/);
+  assert.match(dashboardRead, /read_only: true/);
+  assert.match(dashboardRead, /cap_drop:\n\s+- ALL/);
 
-  assert.match(dashboard, /rd-artifact-owner-read-api:\n\s+condition: service_healthy/);
+  assert.match(dashboard, /rd-dashboard-owner-read-api:\n\s+condition: service_healthy/);
   assert.match(
     dashboard,
-    /RD_ARTIFACT_OWNER_READ_API_URL:[\s\S]*http:\/\/rd-artifact-owner-read-api:8082/,
+    /RD_DASHBOARD_OWNER_READ_API_URL:[\s\S]*http:\/\/rd-dashboard-owner-read-api:8082/,
   );
   assert.match(
     dashboard,
-    /RD_ARTIFACT_OWNER_READ_API_TOKEN: \$\{RD_ARTIFACT_OWNER_READ_API_TOKEN:-\}/,
+    /RD_DASHBOARD_OWNER_READ_API_TOKEN: \$\{RD_DASHBOARD_OWNER_READ_API_TOKEN:-\}/,
   );
-});
-
-test("Research verified-directory reads use a dedicated GET-only Compose service", () => {
-  const researchRead = serviceBlock("rd-research-owner-read-api");
-  const dashboard = serviceBlock("dashboard-web");
-
-  assert.match(researchRead, /profiles: \["dashboard-preview"\]/);
-  assert.match(researchRead, /strategy-factory-rd-research-read-api/);
-  assert.match(researchRead, /RD_RESEARCH_OWNER_READ_DATABASE_URL:/);
-  assert.match(researchRead, /RD_RESEARCH_OWNER_READ_API_TOKEN:/);
-  assert.match(researchRead, /expose:\n\s+- 8083/);
-  assert.doesNotMatch(researchRead, /ports:/);
-  assert.match(researchRead, /read_only: true/);
-  assert.match(researchRead, /cap_drop:\n\s+- ALL/);
-  assert.match(dashboard, /rd-research-owner-read-api:\n\s+condition: service_healthy/);
-  assert.match(dashboard, /RD_RESEARCH_OWNER_READ_API_URL:[\s\S]*http:\/\/rd-research-owner-read-api:8083/);
-  assert.match(dashboard, /RD_RESEARCH_OWNER_READ_API_TOKEN: \$\{RD_RESEARCH_OWNER_READ_API_TOKEN:-\}/);
+  assert.doesNotMatch(compose, /rd-(?:artifact|research)-owner-read-api:/);
+  assert.doesNotMatch(compose, /RD_(?:ARTIFACT|RESEARCH)_OWNER_READ_API_/);
 });
 
 test("Windmill remains independent of the opt-in Dashboard profile", () => {

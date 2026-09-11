@@ -58,14 +58,8 @@ doc = false
 test = false
 
 [[bin]]
-name = "strategy-factory-rd-artifact-read-api"
-path = "src/bin/artifact_directory_read_api.rs"
-doc = false
-test = false
-
-[[bin]]
-name = "strategy-factory-rd-research-read-api"
-path = "src/bin/research_directory_read_api.rs"
+name = "strategy-factory-rd-dashboard-read-api"
+path = "src/bin/dashboard_read_api.rs"
 doc = false
 test = false
 
@@ -86,9 +80,5 @@ name = "rd_owner_api_main"
 path = "src/main.rs"
 
 [[test]]
-name = "artifact_directory_read_api"
-path = "src/bin/artifact_directory_read_api.rs"
-
-[[test]]
-name = "research_directory_read_api"
-path = "src/bin/research_directory_read_api.rs"
+name = "dashboard_read_api"
+path = "src/bin/dashboard_read_api.rs"

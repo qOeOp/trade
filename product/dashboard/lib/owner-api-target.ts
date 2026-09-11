@@ -15,6 +15,18 @@ export type OwnerApiTargetV1 = {
   token: string | undefined;
 };
 
+export function dashboardReadApiTargetV1(
+  environment: OwnerApiEnvironmentV1 = process.env,
+): OwnerApiTargetV1 {
+  const baseUrl = environment.RD_DASHBOARD_OWNER_READ_API_URL || undefined;
+  const token = environment.RD_DASHBOARD_OWNER_READ_API_TOKEN || undefined;
+  if (baseUrl || token) return { baseUrl, token };
+  return {
+    baseUrl: environment.RD_OWNER_API_URL,
+    token: environment.RD_OWNER_API_TOKEN,
+  };
+}
+
 export function ownerApiTargetAvailableV1(target: OwnerApiTargetV1): boolean {
   if (!target.baseUrl || !target.token || !BEARER_CREDENTIAL.test(target.token)
     || Buffer.byteLength(target.token, "utf8") > 4_096) {
@@ -34,11 +46,7 @@ export function ownerApiTargetForOperationV1(
   environment: OwnerApiEnvironmentV1 = process.env,
 ): OwnerApiTargetV1 {
   if (operationId === RESEARCH_SHADOW_RESOLVE_OPERATION) {
-    const researchBaseUrl = environment.RD_RESEARCH_OWNER_READ_API_URL || undefined;
-    const researchToken = environment.RD_RESEARCH_OWNER_READ_API_TOKEN || undefined;
-    if (researchBaseUrl || researchToken) {
-      return { baseUrl: researchBaseUrl, token: researchToken };
-    }
+    return dashboardReadApiTargetV1(environment);
   }
   const usesReadApi = operationId === RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
     || operationId === RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION

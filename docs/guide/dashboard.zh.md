@@ -226,13 +226,15 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
-verified Research directory 与 exact readback GET 由独立的 `strategy-factory-rd-research-read-api` 打包。其
-router 只暴露 `/health`、`/v1/research-goals/directory` 与
-`/v2/research-goals/{request_identity}/readback`，state 只持有 typed `ResearchDirectoryOwnerPort` 和
-`ResearchReadbackOwnerPortV1`。Dashboard 通过必须
-原子成对配置的 `RD_RESEARCH_OWNER_READ_API_URL` 与 `RD_RESEARCH_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须
-fail closed，不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露
-submit 或 resolve port。
+verified Research directory 与 exact readback GET 由统一的
+`strategy-factory-rd-dashboard-read-api` 打包。这个第一方 Dashboard reader 还承载 Artifact directory 与 source
+GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
+`ArtifactDirectoryOwnerPort` 与 `ArtifactSourceOwnerPort`，不把业务边界合并为一个通用 repository。router 只暴露
+`/health` 及这四个已准入 GET。Dashboard 通过必须原子成对配置的
+`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
+不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
+mutation port。后续 Source Intake 与 Composer 只可通过各自 typed read port 接入同一 reader，不得再增加按域容器；
+在对应切片完成前，这不是已实现能力。
 
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或
@@ -285,12 +287,12 @@ custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 
 valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
 payload 或 storage 字段。
 
-verified directory GET 由独立的 `strategy-factory-rd-artifact-read-api` 打包。它的 router 只暴露 `/health` 与
-`/v1/artifact-builds/directory`，state 只持有 typed `ArtifactDirectoryOwnerPort`，不持有 sandbox 或任何 Artifact
-mutation port。PostgreSQL adapter 保持普通 read-committed locking reader，因为 canonical verifier 需要
-`FOR SHARE`；若改成 read-only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过独立且必须成对
-配置的 `RD_ARTIFACT_OWNER_READ_API_URL` 与 `RD_ARTIFACT_OWNER_READ_API_TOKEN` 绑定该 endpoint；只配置其中一项时
-必须 fail closed，绝不能借用 write API 的另一半 credential。
+verified directory 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api` 打包；Artifact state
+只持有 typed `ArtifactDirectoryOwnerPort` 与 `ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation
+port。PostgreSQL adapter 保持普通 read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
+改成 read-only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过同一个必须成对配置的
+`RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed，
+绝不能借用 write API 的另一半 credential。
 
 唯一 action 是 `Refresh`、切换本地 directory/kind view、local search/sort/pagination、`Load older` 与打开一个
 精确 verified Artifact。目录不 submit

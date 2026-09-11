@@ -94,22 +94,22 @@ test("gateway binds one authenticated no-store GET and a strictly advancing curs
   assert.equal(calls[0].init.body, undefined);
 });
 
-test("dedicated Artifact read target is atomic and falls back only when entirely absent", () => {
+test("consolidated Dashboard read target is atomic and falls back only when entirely absent", () => {
   assert.deepEqual(artifactDirectoryOwnerTargetV1({
-    RD_ARTIFACT_OWNER_READ_API_URL: "http://artifact-read:8082",
-    RD_ARTIFACT_OWNER_READ_API_TOKEN: "read-token",
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+    RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
   }), {
-    baseUrl: "http://artifact-read:8082",
+    baseUrl: "http://dashboard-read:8082",
     token: "read-token",
   });
   assert.deepEqual(artifactDirectoryOwnerTargetV1({
-    RD_ARTIFACT_OWNER_READ_API_URL: "http://artifact-read:8082",
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
   }), {
-    baseUrl: "http://artifact-read:8082",
+    baseUrl: "http://dashboard-read:8082",
     token: undefined,
   });
   assert.deepEqual(artifactDirectoryOwnerTargetV1({
@@ -121,12 +121,12 @@ test("dedicated Artifact read target is atomic and falls back only when entirely
   });
 });
 
-test("gateway uses only the complete dedicated Artifact read target", async () => {
+test("gateway uses only the complete consolidated Dashboard read target", async () => {
   const calls = [];
   const dedicated = await readArtifactDirectoryGatewayV1({
     environment: {
-      RD_ARTIFACT_OWNER_READ_API_URL: "http://artifact-read:8082",
-      RD_ARTIFACT_OWNER_READ_API_TOKEN: "read-token",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
       RD_OWNER_API_URL: "http://owner-write:8080",
       RD_OWNER_API_TOKEN: "write-token",
     },
@@ -137,13 +137,13 @@ test("gateway uses only the complete dedicated Artifact read target", async () =
   });
   assert.equal(dedicated.status, 200);
   assert.deepEqual(calls, [{
-    url: "http://artifact-read:8082/v1/artifact-builds/directory?limit=20",
+    url: "http://dashboard-read:8082/v1/artifact-builds/directory?limit=20",
     authorization: "Bearer read-token",
   }]);
 
   const incomplete = await readArtifactDirectoryGatewayV1({
     environment: {
-      RD_ARTIFACT_OWNER_READ_API_URL: "http://artifact-read:8082",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
       RD_OWNER_API_URL: "http://owner-write:8080",
       RD_OWNER_API_TOKEN: "write-token",
     },

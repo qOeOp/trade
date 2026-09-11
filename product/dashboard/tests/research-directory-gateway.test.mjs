@@ -29,30 +29,30 @@ const ownerReadback = {
   }],
 };
 
-test("dedicated Research read target is atomic and falls back only when entirely absent", () => {
+test("consolidated Dashboard read target is atomic and falls back only when entirely absent", () => {
   assert.deepEqual(researchDirectoryOwnerTargetV1({
-    RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
-    RD_RESEARCH_OWNER_READ_API_TOKEN: "read-token",
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+    RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
-  }), { baseUrl: "http://research-read:8083", token: "read-token" });
+  }), { baseUrl: "http://dashboard-read:8082", token: "read-token" });
   assert.deepEqual(researchDirectoryOwnerTargetV1({
-    RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+    RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
-  }), { baseUrl: "http://research-read:8083", token: undefined });
+  }), { baseUrl: "http://dashboard-read:8082", token: undefined });
   assert.deepEqual(researchDirectoryOwnerTargetV1({
     RD_OWNER_API_URL: "http://owner-write:8080",
     RD_OWNER_API_TOKEN: "write-token",
   }), { baseUrl: "http://owner-write:8080", token: "write-token" });
 });
 
-test("gateway uses only the complete dedicated Research read target", async () => {
+test("gateway uses only the complete consolidated Dashboard read target", async () => {
   const calls = [];
   const result = await readResearchDirectoryGatewayV1({
     environment: {
-      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
-      RD_RESEARCH_OWNER_READ_API_TOKEN: "read-token",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-token",
       RD_OWNER_API_URL: "http://owner-write:8080",
       RD_OWNER_API_TOKEN: "write-token",
     },
@@ -63,13 +63,13 @@ test("gateway uses only the complete dedicated Research read target", async () =
   });
   assert.equal(result.status, 200);
   assert.deepEqual(calls, [{
-    url: "http://research-read:8083/v1/research-goals/directory?limit=20",
+    url: "http://dashboard-read:8082/v1/research-goals/directory?limit=20",
     authorization: "Bearer read-token",
   }]);
 
   const incomplete = await readResearchDirectoryGatewayV1({
     environment: {
-      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read:8082",
       RD_OWNER_API_URL: "http://owner-write:8080",
       RD_OWNER_API_TOKEN: "write-token",
     },

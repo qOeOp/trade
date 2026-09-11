@@ -1,3 +1,5 @@
+import { dashboardReadApiTargetV1 } from "./owner-api-target.ts";
+
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/u;
 const MAX_RESPONSE_BYTES = 512 * 1024;
 const OWNER_KEYS = [
@@ -138,13 +140,7 @@ function unavailable(reason: string): ResearchDirectoryProjectionV1 {
 export function researchDirectoryOwnerTargetV1(
   environment: ResearchDirectoryEnvironmentV1 = process.env,
 ): ResearchDirectoryOwnerTargetV1 {
-  const readBaseUrl = environment.RD_RESEARCH_OWNER_READ_API_URL || undefined;
-  const readToken = environment.RD_RESEARCH_OWNER_READ_API_TOKEN || undefined;
-  if (readBaseUrl || readToken) return { baseUrl: readBaseUrl, token: readToken };
-  return {
-    baseUrl: environment.RD_OWNER_API_URL,
-    token: environment.RD_OWNER_API_TOKEN,
-  };
+  return dashboardReadApiTargetV1(environment);
 }
 
 function ownerEndpoint(baseUrl: string, cursor?: ResearchDirectoryCursorV1): URL | null {

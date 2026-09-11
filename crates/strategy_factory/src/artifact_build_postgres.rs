@@ -80,14 +80,14 @@ pub struct PostgresArtifactBuildOwnerV1 {
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
 }
 
-/// PostgreSQL capability narrowed to verified Artifact directory reads.
+/// PostgreSQL capability narrowed to verified Artifact Dashboard reads.
 ///
 /// This type deliberately owns neither a sandbox nor any Artifact mutation
-/// port. Directory reads retain the canonical `FOR SHARE` custody verifier,
-/// which requires a normal read-committed transaction rather than a PostgreSQL
-/// read-only transaction.
+/// port. Directory and source reads retain the canonical `FOR SHARE` custody
+/// verifier, which requires a normal read-committed transaction rather than a
+/// PostgreSQL read-only transaction.
 #[derive(Clone)]
-pub struct PostgresArtifactDirectoryOwnerV1 {
+pub struct PostgresArtifactReadbackOwnerV1 {
     pool: PgPool,
     clock: Arc<dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync>,
 }
@@ -1489,6 +1489,73 @@ impl ArtifactBuildOwnerPort for PostgresArtifactBuildOwnerV1 {
     }
 }
 
+async fn read_source_from_pool(
+    pool: &PgPool,
+    build_request_identity: &str,
+    attempt_identity: &str,
+) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let Some(custody) = Box::pin(admit_attempt_custody_in_transaction(
+        &mut transaction,
+        build_request_identity,
+    ))
+    .await?
+    else {
+        transaction.commit().await.map_err(storage)?;
+        return Ok(None);
+    };
+
+    if custody.attempt.request.attempt_identity != attempt_identity {
+        return Err(ArtifactBuildError::ConflictingReplay);
+    }
+    let Some(receipt) = custody.attempt.receipt.as_ref() else {
+        return Ok(None);
+    };
+
+    if receipt.disposition != ArtifactBuildDisposition::Success {
+        return Ok(None);
+    }
+    let candidate =
+        custody.attempt.candidate.as_ref().ok_or_else(|| {
+            ArtifactBuildError::Storage("successful candidate missing".to_string())
+        })?;
+    let candidate_digest = custody.attempt.candidate_digest.as_deref().ok_or_else(|| {
+        ArtifactBuildError::Storage("successful candidate digest missing".to_string())
+    })?;
+    let review = custody.artifact_review.as_ref().ok_or_else(|| {
+        ArtifactBuildError::Storage("successful artifact review missing".to_string())
+    })?;
+    let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
+        ArtifactBuildError::Storage("successful artifact identity missing".to_string())
+    })?;
+
+    if review.artifact_identity.artifact_digest != artifact_identity
+        || review.build_receipt.candidate_digest != candidate_digest
+        || review.build_receipt.attempt_identity != attempt_identity
+    {
+        return Err(ArtifactBuildError::Storage(
+            "artifact source custody mismatch".to_string(),
+        ));
+    }
+    let source = crate::artifact_build::render_program_source(candidate, candidate_digest);
+    let source_digest = format!("sha256:{:x}", sha2::Sha256::digest(source.as_bytes()));
+    let readback = ArtifactSourceReadbackV1 {
+        schema_version: 1,
+        build_request_identity: build_request_identity.to_string(),
+        attempt_identity: attempt_identity.to_string(),
+        artifact_identity: artifact_identity.to_string(),
+        observed_at_epoch_ms: receipt.committed_at_epoch_ms,
+        file_name: "strategy.rs".to_string(),
+        language: "rust".to_string(),
+        source,
+        source_digest,
+        wasm_preview_status: ArtifactWasmPreviewStatusV1::NotRun,
+        wasm_preview_reason: "WASM_PREVIEW_NOT_RUN".to_string(),
+    };
+    transaction.commit().await.map_err(storage)?;
+    Ok(Some(readback))
+}
+
 #[async_trait]
 impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
     async fn read_source(
@@ -1496,72 +1563,14 @@ impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
         build_request_identity: &str,
         attempt_identity: &str,
     ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
-        let mut transaction = self.pool.begin().await.map_err(storage)?;
-        let Some(custody) = Box::pin(admit_attempt_custody_in_transaction(
-            &mut transaction,
-            build_request_identity,
-        ))
-        .await?
-        else {
-            transaction.commit().await.map_err(storage)?;
-            return Ok(None);
-        };
-
-        if custody.attempt.request.attempt_identity != attempt_identity {
-            return Err(ArtifactBuildError::ConflictingReplay);
-        }
-        let Some(receipt) = custody.attempt.receipt.as_ref() else {
-            return Ok(None);
-        };
-
-        if receipt.disposition != ArtifactBuildDisposition::Success {
-            return Ok(None);
-        }
-        let candidate = custody.attempt.candidate.as_ref().ok_or_else(|| {
-            ArtifactBuildError::Storage("successful candidate missing".to_string())
-        })?;
-        let candidate_digest = custody.attempt.candidate_digest.as_deref().ok_or_else(|| {
-            ArtifactBuildError::Storage("successful candidate digest missing".to_string())
-        })?;
-        let review = custody.artifact_review.as_ref().ok_or_else(|| {
-            ArtifactBuildError::Storage("successful artifact review missing".to_string())
-        })?;
-        let artifact_identity = receipt.artifact_identity.as_deref().ok_or_else(|| {
-            ArtifactBuildError::Storage("successful artifact identity missing".to_string())
-        })?;
-
-        if review.artifact_identity.artifact_digest != artifact_identity
-            || review.build_receipt.candidate_digest != candidate_digest
-            || review.build_receipt.attempt_identity != attempt_identity
-        {
-            return Err(ArtifactBuildError::Storage(
-                "artifact source custody mismatch".to_string(),
-            ));
-        }
-        let source = crate::artifact_build::render_program_source(candidate, candidate_digest);
-        let source_digest = format!("sha256:{:x}", sha2::Sha256::digest(source.as_bytes()));
-        let readback = ArtifactSourceReadbackV1 {
-            schema_version: 1,
-            build_request_identity: build_request_identity.to_string(),
-            attempt_identity: attempt_identity.to_string(),
-            artifact_identity: artifact_identity.to_string(),
-            observed_at_epoch_ms: receipt.committed_at_epoch_ms,
-            file_name: "strategy.rs".to_string(),
-            language: "rust".to_string(),
-            source,
-            source_digest,
-            wasm_preview_status: ArtifactWasmPreviewStatusV1::NotRun,
-            wasm_preview_reason: "WASM_PREVIEW_NOT_RUN".to_string(),
-        };
-        transaction.commit().await.map_err(storage)?;
-        Ok(Some(readback))
+        read_source_from_pool(&self.pool, build_request_identity, attempt_identity).await
     }
 }
 
 const ARTIFACT_DIRECTORY_MAX_RETURNED: u32 = 20;
 const ARTIFACT_DIRECTORY_MAX_SCANNED: i64 = 60;
 
-impl PostgresArtifactDirectoryOwnerV1 {
+impl PostgresArtifactReadbackOwnerV1 {
     pub async fn connect(database_url: &str) -> Result<Self, ArtifactBuildError> {
         crate::legacy_prepared_attempt_drain::database_endpoint_resource_fingerprint(database_url)?;
         let pool = sqlx::postgres::PgPoolOptions::new()
@@ -1713,7 +1722,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
         after: Option<&ArtifactDirectoryCursorV1>,
         limit: u32,
     ) -> Result<ArtifactDirectoryReadbackV1, ArtifactBuildError> {
-        Box::pin(PostgresArtifactDirectoryOwnerV1::list_from_pool(
+        Box::pin(PostgresArtifactReadbackOwnerV1::list_from_pool(
             &self.pool,
             self.clock.as_ref(),
             after,
@@ -1724,7 +1733,7 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactBuildOwnerV1 {
 }
 
 #[async_trait]
-impl ArtifactDirectoryOwnerPort for PostgresArtifactDirectoryOwnerV1 {
+impl ArtifactDirectoryOwnerPort for PostgresArtifactReadbackOwnerV1 {
     async fn list_artifacts(
         &self,
         after: Option<&ArtifactDirectoryCursorV1>,
@@ -1737,6 +1746,17 @@ impl ArtifactDirectoryOwnerPort for PostgresArtifactDirectoryOwnerV1 {
             limit,
         ))
         .await
+    }
+}
+
+#[async_trait]
+impl ArtifactSourceOwnerPort for PostgresArtifactReadbackOwnerV1 {
+    async fn read_source(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
+        read_source_from_pool(&self.pool, build_request_identity, attempt_identity).await
     }
 }
 
