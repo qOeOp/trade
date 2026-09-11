@@ -21,6 +21,7 @@ export const sourceIntakeOperationV1 = {
   owner_schema: "rd-source-intake-terminal-v1",
   capability: "rd.source_intake.execute",
   effect_set: SOURCE_INTAKE_EFFECT_SET_V1,
+  dependency_operation_ids: [],
   execution_boundary: "DISPOSABLE_LOCAL",
   recovery_identity_fields: ["request_identity"],
   routing_dependency_keys: [PRODUCT_EDGE_SOURCE_INTAKE_ROUTING_KEY_V1],

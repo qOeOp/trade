@@ -52,6 +52,7 @@ export const researchGoalOperationV2 = {
   owner_schema: "sourced-research-goal-v2",
   capability: "rd.research_goal.execute",
   effect_set: RESEARCH_GOAL_EFFECT_SET_V2,
+  dependency_operation_ids: [],
   execution_boundary: "DISPOSABLE_LOCAL",
   recovery_identity_fields: ["request_identity"],
   routing_dependency_keys: [PRODUCT_EDGE_RESEARCH_GOAL_ROUTING_KEY_V2],

@@ -2369,6 +2369,38 @@ every admitted Windmill Web/MCP journey passes through the new Dashboard/registr
 fail-close behavior. Windmill removal is a separate reversible cleanup after parity, cache-loss recovery, and
 artifact custody are proven.
 
+### First-party effect custody admission (authorization B)
+
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`. The first-party Dashboard may implement the two currently consumed
+Product Edge journeys behind `DASHBOARD_DISPOSABLE_EXECUTION`: the ordered Source Intake -> Research Goal V2
+journey and Artifact Build V1 formation. This admission permits source, tests, packaging, and disposable dynamic
+verification. It does not activate a route, change an existing Windmill binding, call a live provider, write a
+shared or production Owner database, or authorize trading. Those runtime effects remain separately gated.
+
+Product Edge remains the sole routing authority. A fresh Dashboard `RUN` is reachable only when the exact
+content-addressed compatibility envelope is current and every operation-specific routing key resolves to the one
+`ACTIVE` history head with dispatcher `TRADE_DASHBOARD`. `WINDMILL`, zero-active, dual/ambiguous, stale, malformed,
+unavailable, or mismatched observations fail closed before an Owner call. Deployment flags and credentials are
+necessary transport configuration, never routing authority. Consequently Windmill and Dashboard cannot both be
+fresh business writers for the same operation identity.
+
+The Dashboard RunStore records the canonical recovery identity, operation manifest, compatibility envelope, and
+the exact routing binding before the first Owner effect. Source Intake must become canonically readable before the
+same ancestry is handed to Research Goal V2. Artifact formation preserves the existing `Check & Run` preflight,
+claim-before-provider and start-before-provider ordering, at-most-once provider custody, and manual reconciliation
+after an ambiguous started invocation. A response-loss or restart path uses only the retained operation and exact
+request/attempt identities: it first resolves Owner custody, may continue only the one Owner-declared unstarted
+claim, never re-evaluates a fresh Windmill/Dashboard choice, and never creates a replacement identity or naked
+retry. Exact-identity `RESOLVE` remains effect-free and does not require a current Dashboard routing binding.
+
+The admitted HTTP surface is limited to `POST /api/rd/source-research`,
+`POST /api/rd/artifacts/formations/preflight`, and `POST /api/rd/artifacts/formations`. Each route accepts one
+exact allowlisted body, rejects unknown fields, and returns the same bounded Owner projection plus an operational
+run reference or an explicit unavailable state. No mutating control is enabled in the browser until disposable
+runtime verification proves these gates. Moving either Product Edge binding to `TRADE_DASHBOARD`, exercising a
+real Owner/provider effect, production cutover, Windmill removal, and publication remain separate explicit
+effects.
+
 ## Unattended implementation sequence
 
 The backend dependency wave is a `TARGET_DRAFT` development-custody constraint and does not authorize Dashboard

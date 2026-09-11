@@ -15,6 +15,7 @@ export type ArtifactBuildExecutionRuntimeV1 = {
   provider_model: string
   dispatcher: "WINDMILL" | "TRADE_DASHBOARD"
   fetcher: Fetcher
+  verified_s1_context?: VerifiedS1ConsumerContextV1
   observe_phase?: (phase: "OWNER_CLAIMED" | "INVOCATION_STARTED") => Promise<void>
 }
 
@@ -24,23 +25,6 @@ export type ArtifactBuildExecutionRequestV1 = {
   attempt_identity: string
   research_request_identity: string
   identity_mode: IdentityMode
-}
-
-export type DashboardArtifactBuildUnavailableV1 = {
-  schema_version: 1
-  resolution: "UNAVAILABLE"
-  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED"
-  effect_boundary_crossed: false
-  build_request_identity: null
-  attempt_identity: null
-  owner_receipt: null
-  research_view: null
-  artifact_review: null
-  artifact_review_actions: null
-  trial_family_resolution: null
-  artifact_trial_family: null
-  next_legal_action: null
-  provider_invocation: null
 }
 
 import {
@@ -390,36 +374,18 @@ function unknown(
   }
 }
 
-function dashboardUnavailable(): DashboardArtifactBuildUnavailableV1 {
-  return {
-    schema_version: 1,
-    resolution: "UNAVAILABLE",
-    unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
-    effect_boundary_crossed: false,
-    build_request_identity: null,
-    attempt_identity: null,
-    owner_receipt: null,
-    research_view: null,
-    artifact_review: null,
-    artifact_review_actions: null,
-    trial_family_resolution: null,
-    artifact_trial_family: null,
-    next_legal_action: null,
-    provider_invocation: null,
-  }
-}
-
 async function ownerPost(
   runtime: ArtifactBuildExecutionRuntimeV1,
   path: string,
   body: unknown,
+  dashboardEffect = false,
 ) {
   const response = await runtime.fetcher(`${runtime.owner_url}${path}`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${runtime.owner_token}`,
       "content-type": "application/json",
-      ...(runtime.dispatcher === "TRADE_DASHBOARD"
+      ...(runtime.dispatcher === "TRADE_DASHBOARD" && dashboardEffect
         ? { "x-trade-effect-dispatcher": "TRADE_DASHBOARD" }
         : {}),
     },
@@ -534,7 +500,7 @@ async function fail(
   return ownerPost(runtime, "/v1/artifact-builds/fail", {
     request: ownerArtifactOperationRequest(request),
     failure_code: failureCode,
-  })
+  }, true)
 }
 
 function validAgentCandidate(value: unknown): value is AgentCandidate {
@@ -689,7 +655,7 @@ async function runOwnerOperation(
     }
     let preparation: Record<string, unknown>
     try {
-      preparation = await ownerPost(runtime, "/v1/artifact-builds/prepare", request)
+      preparation = await ownerPost(runtime, "/v1/artifact-builds/prepare", request, true)
     } catch {
       return finish(unknown(build_request_identity, attempt_identity))
     }
@@ -707,6 +673,7 @@ async function runOwnerOperation(
         runtime,
         "/v1/artifact-builds/claim-provider-invocation",
         request,
+        true,
       )
     } catch {
       return finish(unknown(build_request_identity, attempt_identity))
@@ -747,6 +714,7 @@ async function runOwnerOperation(
         attempt_identity,
         research_request_identity,
       },
+      true,
     )
   } catch {
     try {
@@ -810,7 +778,7 @@ async function runOwnerOperation(
     return finish(await ownerPost(runtime, "/v1/artifact-builds/candidate", {
       request: ownerArtifactOperationRequest(request),
       candidate,
-    }))
+    }, true))
   } catch {
     return finish(unknown(build_request_identity, attempt_identity))
   }
@@ -854,9 +822,6 @@ export async function executeArtifactBuildV1(
     research_request_identity,
     identity_mode,
   } = request
-  if (runtime.dispatcher === "TRADE_DASHBOARD") {
-    return dashboardUnavailable()
-  }
   let effectiveBuildRequestIdentity = build_request_identity
   let effectiveAttemptIdentity = attempt_identity
   if (action === "RUN" && identity_mode === "GENERATE") {
@@ -872,7 +837,15 @@ export async function executeArtifactBuildV1(
     return unknown(build_request_identity, attempt_identity)
   }
   if (!runtime.owner_token) return unknown(effectiveBuildRequestIdentity, effectiveAttemptIdentity)
-  const preflight = await preflightArtifactBuildV1(research_request_identity, runtime)
+  const suppliedContext = runtime.dispatcher === "TRADE_DASHBOARD"
+    && runtime.verified_s1_context?.request_identity === research_request_identity
+    ? runtime.verified_s1_context
+    : null
+  const preflight = runtime.dispatcher === "WINDMILL"
+    ? await preflightArtifactBuildV1(research_request_identity, runtime)
+    : action === "RUN" && identity_mode === "GENERATE" && suppliedContext
+      ? { availability: "available" as const, unavailable_reason: null, context: suppliedContext }
+      : { availability: "available" as const, unavailable_reason: null, context: null }
   const s1Context = preflight.context
   const operation = await runOwnerOperation(
     runtime,

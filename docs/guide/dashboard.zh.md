@@ -2223,6 +2223,36 @@ asset manifest、provenance、compatibility declaration 与 route smoke test。
 Windmill Web/MCP journey 都要通过新 Dashboard/registry，得到相同 Owner receipt 与 fail-close 行为。只有
 parity、cache-loss recovery 与 artifact custody 证明后，才能在独立可逆 cleanup 中移除 Windmill。
 
+### 第一方 effect custody 准入（授权 B）
+
+`IMPLEMENTATION_ADMITTED / NOT_CUT_OVER`。第一方 Dashboard 可以在 `DASHBOARD_DISPOSABLE_EXECUTION`
+边界内实现当前实际使用的两个 Product Edge journey：有序的 Source Intake -> Research Goal V2，以及
+Artifact Build V1 formation。该准入允许源码、测试、打包与 disposable 动态验证；它不激活 routing、不修改
+现有 Windmill binding、不调用真实 provider、不写共享或生产 Owner 数据库，也不授权交易。上述 runtime
+effect 仍需分别通过独立 gate。
+
+Product Edge 继续是唯一 routing authority。新的 Dashboard `RUN` 只有在精确 content-addressed compatibility
+envelope 当前有效，且每个 operation-specific routing key 都解析到唯一 `ACTIVE` history head、dispatcher 为
+`TRADE_DASHBOARD` 时才可达。`WINDMILL`、zero-active、dual/ambiguous、stale、malformed、unavailable 或
+mismatch 都必须在 Owner call 前 fail closed。deployment flag 与 credential 只是必要 transport 配置，不能成为
+routing authority。因此同一 operation identity 不可能同时由 Windmill 和 Dashboard 作为 fresh business writer。
+
+Dashboard RunStore 必须在第一个 Owner effect 前记录 canonical recovery identity、operation manifest、
+compatibility envelope 与精确 routing binding。Source Intake 必须先达到 canonical readable，随后才能把同一
+ancestry 交给 Research Goal V2。Artifact formation 保留既有 `Check & Run` preflight、claim-before-provider、
+start-before-provider、provider at-most-once custody，以及 started invocation 出现歧义后的 manual reconciliation。
+response-loss 或 restart 只能使用 retained operation 与精确 request/attempt identity：先 Resolve Owner custody，
+只允许继续一次 Owner 明确声明但尚未 start 的 claim，不重新选择 Windmill/Dashboard，不创建 replacement
+identity，也不进行 naked retry。精确 identity 的 `RESOLVE` 保持 zero-effect，不要求当前 Dashboard routing
+binding。
+
+已准入 HTTP surface 仅包括 `POST /api/rd/source-research`、
+`POST /api/rd/artifacts/formations/preflight` 与 `POST /api/rd/artifacts/formations`。每个 route 只接受精确
+allowlisted body，拒绝 unknown field，并返回同一个 bounded Owner projection 加 operational run reference，
+或明确 unavailable state。在 disposable runtime 动态证明这些 gate 之前，浏览器不启用 mutation control。
+把任何 Product Edge binding 切到 `TRADE_DASHBOARD`、执行真实 Owner/provider effect、production cutover、
+Windmill removal 与 publication 都仍是独立的显式 effect。
+
 ## 无人值守实现顺序
 
 后台依赖波次是 `TARGET_DRAFT` development-custody 约束，不授权 Dashboard 实现。PR #327 已在独立

@@ -31,7 +31,9 @@ import {
   sourceResearchRecoveryIdentityDigestV1,
   sourceResearchRunOperationV1,
   unavailableSourceResearchRoutingAdmissionV1,
+  validSourceResearchExecutionAdmissionV1,
   validSourceResearchRoutingAdmissionV1,
+  type SourceResearchExecutionAdmissionV1,
   type SourceResearchRoutingAdmissionV1,
 } from "./source-research-run-contract.ts";
 import {
@@ -1175,12 +1177,24 @@ export class PostgresRunStoreV1 {
 
   async assertSourceResearchSchema() {
     await this.assertSchema();
-    const result = await this.#pool.query<{ source_research_bindings: string | null }>(
+    const result = await this.#pool.query<{
+      source_research_bindings: string | null;
+      custody_columns: string | number;
+    }>(
       `SELECT to_regclass(
         'public.dashboard_source_research_run_bindings_v1'
-      )::text AS source_research_bindings`,
+      )::text AS source_research_bindings,
+      (SELECT count(*)
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = 'dashboard_source_research_run_bindings_v1'
+          AND column_name IN (
+            'source_registry_entry_digest', 'source_compatibility_envelope_digest',
+            'research_registry_entry_digest', 'research_compatibility_envelope_digest'
+          )) AS custody_columns`,
     );
-    if (!result.rows[0]?.source_research_bindings) {
+    if (!result.rows[0]?.source_research_bindings
+      || Number(result.rows[0]?.custody_columns) !== 4) {
       throw new Error("RUN_STORE_SCHEMA_UNAVAILABLE");
     }
   }
@@ -1214,6 +1228,10 @@ export class PostgresRunStoreV1 {
       await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
       const result = await client.query<RunRow & {
         requested_action: "RUN" | "RESOLVE";
+        source_registry_entry_digest: string;
+        source_compatibility_envelope_digest: string | null;
+        research_registry_entry_digest: string;
+        research_compatibility_envelope_digest: string | null;
         source_routing_state: "ACTIVE" | "UNAVAILABLE";
         source_routing_dispatcher: "TRADE_DASHBOARD" | "NONE";
         source_routing_binding_identity: string | null;
@@ -1226,6 +1244,8 @@ export class PostgresRunStoreV1 {
         research_routing_generation: string | number | null;
       }>(
         `SELECT r.*, b.requested_action,
+                b.source_registry_entry_digest, b.source_compatibility_envelope_digest,
+                b.research_registry_entry_digest, b.research_compatibility_envelope_digest,
                 b.source_routing_state, b.source_routing_dispatcher,
                 b.source_routing_binding_identity, b.source_routing_binding_digest,
                 b.source_routing_generation,
@@ -1281,6 +1301,18 @@ export class PostgresRunStoreV1 {
       if (!validSourceResearchRoutingAdmissionV1(row.requested_action, routing)) {
         throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
       }
+      const storedAdmission: SourceResearchExecutionAdmissionV1 = {
+        availability: "available",
+        unavailable_reason: null,
+        source_registry_entry_digest: row.source_registry_entry_digest,
+        source_compatibility_envelope_digest: row.source_compatibility_envelope_digest,
+        research_registry_entry_digest: row.research_registry_entry_digest,
+        research_compatibility_envelope_digest: row.research_compatibility_envelope_digest,
+        routing,
+      };
+      if (!validSourceResearchExecutionAdmissionV1(row.requested_action, storedAdmission)) {
+        throw new Error("SOURCE_RESEARCH_RECOVERY_INVALID");
+      }
       return {
         schema_version: 1,
         run: record(row),
@@ -1300,19 +1332,21 @@ export class PostgresRunStoreV1 {
   async beginSourceResearch({
     action,
     recoveryIdentity,
-    routing,
+    admission,
     existingRecoveryOnly = false,
   }: {
     action: "RUN" | "RESOLVE";
     recoveryIdentity: Record<string, string>;
-    routing: SourceResearchRoutingAdmissionV1;
+    admission: SourceResearchExecutionAdmissionV1;
     existingRecoveryOnly?: boolean;
   }): Promise<SourceResearchRunStartV1> {
     const canonical = canonicalSourceResearchRecoveryIdentityV1(recoveryIdentity);
     const recoveryDigest = sourceResearchRecoveryIdentityDigestV1(recoveryIdentity);
-    if (!canonical || !recoveryDigest || !validSourceResearchRoutingAdmissionV1(action, routing)) {
+    if (!canonical || !recoveryDigest
+      || !validSourceResearchExecutionAdmissionV1(action, admission)) {
       throw new Error("SOURCE_RESEARCH_SUBMISSION_INVALID");
     }
+    const routing = admission.routing;
     const client = await this.#pool.connect();
     try {
       await client.query("BEGIN");
@@ -1350,12 +1384,18 @@ export class PostgresRunStoreV1 {
       await client.query(
         `INSERT INTO dashboard_source_research_run_bindings_v1
            (run_identity, schema_version, requested_action, operation_manifest_digest,
+            source_registry_entry_digest, source_compatibility_envelope_digest,
+            research_registry_entry_digest, research_compatibility_envelope_digest,
             source_routing_state, source_routing_dispatcher, source_routing_binding_identity,
             source_routing_binding_digest, source_routing_generation,
             research_routing_state, research_routing_dispatcher, research_routing_binding_identity,
             research_routing_binding_digest, research_routing_generation)
-         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         VALUES ($1, 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
         [runIdentity, action, sourceResearchOperationManifestDigestV1(),
+          admission.source_registry_entry_digest,
+          admission.source_compatibility_envelope_digest,
+          admission.research_registry_entry_digest,
+          admission.research_compatibility_envelope_digest,
           source.state, source.dispatcher, source.binding_identity, source.binding_digest,
           source.generation, research.state, research.dispatcher, research.binding_identity,
           research.binding_digest, research.generation],

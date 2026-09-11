@@ -71,23 +71,6 @@ const request = {
   identity_mode: "EXACT",
 }
 
-const dashboardUnavailable = {
-  schema_version: 1,
-  resolution: "UNAVAILABLE",
-  unavailable_reason: "DASHBOARD_EFFECT_DISPATCH_NOT_ADMITTED",
-  effect_boundary_crossed: false,
-  build_request_identity: null,
-  attempt_identity: null,
-  owner_receipt: null,
-  research_view: null,
-  artifact_review: null,
-  artifact_review_actions: null,
-  trial_family_resolution: null,
-  artifact_trial_family: null,
-  next_legal_action: null,
-  provider_invocation: null,
-}
-
 const unknown = {
   schema_version: 1,
   resolution: "SUBMITTED_OR_UNKNOWN",
@@ -113,21 +96,18 @@ const runtime = (dispatcher, fetcher) => ({
   fetcher,
 })
 
-for (const dashboardRequest of [
-  request,
-  { ...request, action: "RUN", identity_mode: "GENERATE" },
-]) {
-  test(`Dashboard ${dashboardRequest.action} artifact execution fails closed without any fetch`, async () => {
-    let fetchCalls = 0
-    const result = await executeArtifactBuildV1(dashboardRequest, runtime("TRADE_DASHBOARD", async () => {
-      fetchCalls += 1
-      throw new Error("Dashboard must not call Owner or provider")
-    }))
+test("Dashboard same-identity resolve uses no effect-dispatch header", async () => {
+  const calls = []
+  const result = await executeArtifactBuildV1(request, runtime("TRADE_DASHBOARD", async (url, init) => {
+    calls.push({ url: String(url), init })
+    return new Response(JSON.stringify(unknown))
+  }))
 
-    assert.equal(fetchCalls, 0)
-    assert.deepEqual(result, dashboardUnavailable)
-  })
-}
+  assert.equal(result.resolution, "SUBMITTED_OR_UNKNOWN")
+  assert.equal(calls.length, 1)
+  assert.match(calls[0].url, /\/v1\/artifact-builds\/build-1\/attempts\/attempt-1\/resolve$/)
+  assert.equal(calls[0].init.headers["x-trade-effect-dispatcher"], undefined)
+})
 
 test("Windmill RUN accepts the canonical Owner claim wire set and reaches invocation start", async () => {
   const claim = {
