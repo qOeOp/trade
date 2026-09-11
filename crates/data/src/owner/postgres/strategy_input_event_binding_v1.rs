@@ -39,6 +39,71 @@ const RESOLVE_CENSUS_SOURCE_V1: &str = "SELECT event_ordinal,logical_time,event_
 const BINDING_COLUMN_SIGNATURE_V1: &str = "request_identity:bytea:true,request_meaning_digest:bytea:true,request_locator_bytes:bytea:true,request_bytes:bytea:true,request_receipt_bytes:bytea:true,request_receipt_identity:bytea:true,request_seal_digest:bytea:true,replay_start_event_ns:numeric(39,0):true,replay_end_event_ns_exclusive:numeric(39,0):true,selected_event_ordinal:bigint:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,selected_event_identity:bytea:true,selected_trigger_digest:bytea:true,source_digest:bytea:true,corpus_digest:bytea:true,census_digest:bytea:true,event_count:bigint:true,binding_identity:bytea:true,binding_bytes:bytea:true,receipt_identity:bytea:true,receipt_bytes:bytea:true,readback_identity:bytea:true,readback_bytes:bytea:true,custody_digest:bytea:true";
 const CENSUS_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,event_ordinal:bigint:true,logical_time:bigint:true,event_time:bigint:true,owner_sequence:bigint:true,event_identity:bytea:true,trigger_digest:bytea:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,entry_bytes:bytea:true";
 const OUTBOX_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,outbox_identity:bytea:true,payload:bytea:true,custody_digest:bytea:true";
+const VERIFY_TOPOLOGY_V1: &str = r#"
+WITH family AS (
+  SELECT relation.oid,relation.relname
+    FROM pg_catalog.pg_class relation
+    JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+   WHERE namespace.nspname='market_data_private'
+     AND relation.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1')
+)
+SELECT
+  (SELECT pg_catalog.count(*)=12 AND NOT pg_catalog.bool_or(
+      (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES
+        ('strategy_input_event_bindings_v1','p','1'),('strategy_input_event_bindings_v1','u','2'),
+        ('strategy_input_event_bindings_v1','u','17'),('strategy_input_event_bindings_v1','u','19'),
+        ('strategy_input_event_bindings_v1','u','21'),('strategy_input_event_bindings_v1','u','23'),
+        ('strategy_input_event_binding_census_v1','p','1 2'),('strategy_input_event_binding_census_v1','u','1 6'),
+        ('strategy_input_event_binding_census_v1','u','1 7'),('strategy_input_event_binding_census_v1','u','1 8'),
+        ('strategy_input_event_binding_outbox_v1','p','1'),('strategy_input_event_binding_outbox_v1','u','2')
+      )) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u'))
+  AND (SELECT pg_catalog.count(*)=2 AND NOT pg_catalog.bool_or(
+      (source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,
+       pg_catalog.array_to_string(constraint_fact.confkey,' '),constraint_fact.confupdtype::pg_catalog.text,
+       constraint_fact.confdeltype::pg_catalog.text,constraint_fact.confmatchtype::pg_catalog.text) NOT IN (VALUES
+        ('strategy_input_event_binding_census_v1','1','strategy_input_event_bindings_v1','19','a','r','s'),
+        ('strategy_input_event_binding_outbox_v1','1','strategy_input_event_bindings_v1','19','a','r','s')
+      )) FROM pg_catalog.pg_constraint constraint_fact
+          JOIN family source ON source.oid=constraint_fact.conrelid
+          JOIN family target ON target.oid=constraint_fact.confrelid
+         WHERE constraint_fact.contype='f')
+  AND (SELECT pg_catalog.count(*)=37
+         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_bindings_v1')=25
+         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_binding_census_v1')=9
+         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_binding_outbox_v1')=3
+       FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
+       WHERE constraint_fact.contype='c')
+  AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
+       WHERE constraint_fact.contype NOT IN ('p','u','f','c') OR NOT constraint_fact.convalidated
+          OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT constraint_fact.conislocal
+          OR constraint_fact.coninhcount<>0 OR constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f')))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family))
+  AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family))
+  AND (SELECT pg_catalog.count(*)=12 AND NOT pg_catalog.bool_or(
+      (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')) NOT IN (VALUES
+        ('strategy_input_event_bindings_v1',true,'1'),('strategy_input_event_bindings_v1',false,'2'),
+        ('strategy_input_event_bindings_v1',false,'17'),('strategy_input_event_bindings_v1',false,'19'),
+        ('strategy_input_event_bindings_v1',false,'21'),('strategy_input_event_bindings_v1',false,'23'),
+        ('strategy_input_event_binding_census_v1',true,'1 2'),('strategy_input_event_binding_census_v1',false,'1 6'),
+        ('strategy_input_event_binding_census_v1',false,'1 7'),('strategy_input_event_binding_census_v1',false,'1 8'),
+        ('strategy_input_event_binding_outbox_v1',true,'1'),('strategy_input_event_binding_outbox_v1',false,'2')
+      ) OR NOT index_fact.indisunique OR index_fact.indisexclusion OR NOT index_fact.indimmediate
+        OR index_fact.indisclustered OR NOT index_fact.indisvalid OR NOT index_fact.indisready
+        OR NOT index_fact.indislive OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
+        OR index_fact.indnkeyatts<>index_fact.indnatts OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
+        OR index_relation.relkind<>'i' OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
+        OR index_relation.reloptions IS NOT NULL OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'market_data_owner'
+        OR index_method.amname<>'btree' OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid)
+        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
+        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid)
+                    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+                   WHERE key_fact.collation_oid<>attribute.attcollation)
+      ) FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
+          JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+          JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+"#;
 
 pub(super) const STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1: &[&str] = &[
     super::OWNER_SCHEMA_GUARD_V1,
@@ -55,9 +120,9 @@ pub(super) const STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1: &[&str] = &[
 
 /// Exact R&D bytes after the fixed R&D Owner port has authenticated its sealed readback.
 ///
-/// The constructor is deliberately confined to Market Data Owner composition. A downstream caller
-/// cannot promote a locator label or caller-authored request into this evidence.
-pub(in crate::owner) struct AuthenticatedRdReplayRequestV1 {
+/// This module intentionally has no production constructor until a neutral composition crate can
+/// pass the move-only fixed-port readback without reversing the `vibe-data` dependency direction.
+struct AuthenticatedRdReplayRequestV1 {
     request_identity: Box<str>,
     request_meaning_digest: Box<str>,
     request_receipt_identity: Box<str>,
@@ -69,7 +134,8 @@ pub(in crate::owner) struct AuthenticatedRdReplayRequestV1 {
 
 impl AuthenticatedRdReplayRequestV1 {
     #[allow(clippy::too_many_arguments)]
-    pub(in crate::owner) fn from_fixed_owner_readback(
+    #[cfg(test)]
+    fn from_test_readback(
         request_identity: impl Into<Box<str>>,
         request_meaning_digest: impl Into<Box<str>>,
         request_receipt_identity: impl Into<Box<str>>,
@@ -128,7 +194,7 @@ struct PreparedEventV1 {
 }
 
 /// Owner-private closed preparation. The complete event set is consumed from the move-only corpus.
-pub(in crate::owner) struct StrategyInputEventBindingPreparationV1 {
+struct StrategyInputEventBindingPreparationV1 {
     rd: AuthenticatedRdReplayRequestV1,
     replay_start_event_ns: i128,
     replay_end_event_ns_exclusive: i128,
@@ -148,7 +214,7 @@ pub(in crate::owner) struct StrategyInputEventBindingPreparationV1 {
 }
 
 impl StrategyInputEventBindingPreparationV1 {
-    pub(in crate::owner) fn from_owner_corpus(
+    fn from_owner_corpus(
         rd: AuthenticatedRdReplayRequestV1,
         replay_start_event_ns: i128,
         replay_end_event_ns_exclusive: i128,
@@ -342,7 +408,7 @@ impl StrategyInputEventBindingPreparationV1 {
         })
     }
 
-    pub(in crate::owner) fn locator(&self) -> StrategyInputEventBindingLocatorV1 {
+    fn locator(&self) -> StrategyInputEventBindingLocatorV1 {
         StrategyInputEventBindingLocatorV1::from_untrusted(
             self.rd.request_identity.clone(),
             self.rd.request_meaning_digest.clone(),
@@ -364,7 +430,7 @@ pub(super) async fn install(
 }
 
 impl MarketDataOwnerPostgres {
-    pub(in crate::owner) async fn commit_strategy_input_event_binding_v1(
+    async fn commit_strategy_input_event_binding_v1(
         &self,
         prepared: &StrategyInputEventBindingPreparationV1,
     ) -> Result<StrategyInputEventBindingReadbackV1, StrategyInputEventBindingErrorV1> {
@@ -373,7 +439,7 @@ impl MarketDataOwnerPostgres {
     }
 
     #[cfg(test)]
-    pub(super) async fn commit_strategy_input_event_binding_with_fault_v1(
+    async fn commit_strategy_input_event_binding_with_fault_v1(
         &self,
         prepared: &StrategyInputEventBindingPreparationV1,
         rollback_before_commit: bool,
@@ -799,12 +865,19 @@ async fn verify_contract(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), StrategyInputEventBindingErrorV1> {
     let exact: bool = sqlx::query_scalar(
-        "WITH relations AS (SELECT c.oid,c.relname,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,c.relowner FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market_data_private' AND c.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1')), procedures AS (SELECT p.oid,p.proname,p.prosrc,p.provolatile,p.prosecdef,p.proleakproof,p.proconfig,p.proowner FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname IN ('resolve_strategy_input_event_binding_v1','resolve_strategy_input_event_binding_census_v1')) SELECT (SELECT count(*)=3 AND bool_and(relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='market_data_owner')) FROM relations) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid IN (SELECT oid FROM relations) OR i.inhparent IN (SELECT oid FROM relations)) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM relations) AND NOT t.tgisinternal) AND NOT EXISTS(SELECT 1 FROM relations r, LATERAL pg_catalog.aclexplode(COALESCE((SELECT relacl FROM pg_catalog.pg_class WHERE oid=r.oid),pg_catalog.acldefault('r',r.relowner))) a WHERE a.grantee<>r.relowner) AND (SELECT count(*)=2 AND bool_and(provolatile='s' AND prosecdef AND NOT proleakproof AND proconfig=ARRAY['search_path=pg_catalog']::text[] AND proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='market_data_owner')) FROM procedures) AND NOT EXISTS(SELECT 1 FROM procedures p, LATERAL pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=p.oid),pg_catalog.acldefault('f',p.proowner))) a WHERE a.grantee<>p.proowner) AND (SELECT count(*)=25 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_bindings_v1') AND (SELECT count(*)=10 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_binding_census_v1') AND (SELECT count(*)=4 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_binding_outbox_v1')",
+        "WITH relations AS (SELECT c.oid,c.relname,c.relkind,c.relpersistence,c.relrowsecurity,c.relforcerowsecurity,c.relowner FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='market_data_private' AND c.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1')), procedures AS (SELECT p.oid,p.proname,p.prosrc,p.provolatile,p.prosecdef,p.proleakproof,p.proconfig,p.proowner FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='market_data_private' AND p.proname IN ('resolve_strategy_input_event_binding_v1','resolve_strategy_input_event_binding_census_v1')) SELECT (SELECT count(*)=3 AND bool_and(relkind='r' AND relpersistence='p' AND NOT relrowsecurity AND NOT relforcerowsecurity AND relowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='market_data_owner')) FROM relations) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_inherits i WHERE i.inhrelid IN (SELECT oid FROM relations) OR i.inhparent IN (SELECT oid FROM relations)) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_trigger t WHERE t.tgrelid IN (SELECT oid FROM relations) AND NOT t.tgisinternal) AND NOT EXISTS(SELECT 1 FROM relations r, LATERAL pg_catalog.aclexplode(COALESCE((SELECT relacl FROM pg_catalog.pg_class WHERE oid=r.oid),pg_catalog.acldefault('r',r.relowner))) a WHERE a.grantee<>r.relowner) AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid IN (SELECT oid FROM relations) AND attribute.attnum>0 AND NOT attribute.attisdropped AND attribute.attacl IS NOT NULL) AND (SELECT count(*)=2 AND bool_and(provolatile='s' AND prosecdef AND NOT proleakproof AND proconfig=ARRAY['search_path=pg_catalog']::text[] AND proowner=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='market_data_owner')) FROM procedures) AND NOT EXISTS(SELECT 1 FROM procedures p, LATERAL pg_catalog.aclexplode(COALESCE((SELECT proacl FROM pg_catalog.pg_proc WHERE oid=p.oid),pg_catalog.acldefault('f',p.proowner))) a WHERE a.grantee<>p.proowner) AND (SELECT count(*)=25 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_bindings_v1') AND (SELECT count(*)=10 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_binding_census_v1') AND (SELECT count(*)=4 FROM information_schema.columns WHERE table_schema='market_data_private' AND table_name='strategy_input_event_binding_outbox_v1')",
     )
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| StrategyInputEventBindingErrorV1::StoreUnavailable)?;
     if !exact {
+        return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
+    }
+    let topology_is_exact: bool = sqlx::query_scalar(VERIFY_TOPOLOGY_V1)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(store_error)?;
+    if !topology_is_exact {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     for (table, expected) in [
@@ -1061,7 +1134,7 @@ mod tests {
     }
 
     fn rd() -> AuthenticatedRdReplayRequestV1 {
-        AuthenticatedRdReplayRequestV1::from_fixed_owner_readback(
+        AuthenticatedRdReplayRequestV1::from_test_readback(
             "rd-request-1",
             "rd-meaning-1",
             "rd-receipt-1",
@@ -1126,6 +1199,32 @@ mod tests {
     }
 
     #[test]
+    fn request_a_with_valid_event_corpus_b_is_rejected() {
+        let request_a_corpus_a = prepared();
+        let request_a_corpus_b = StrategyInputEventBindingPreparationV1::from_parts(
+            rd(),
+            10,
+            20,
+            1,
+            d(80),
+            d(81),
+            vec![event(3), event(4)],
+        )
+        .unwrap();
+        let stored_a = StrategyInputEventBindingReadbackV1 {
+            locator: request_a_corpus_a.locator(),
+            receipt_identity: request_a_corpus_a.receipt_identity,
+            readback_identity: request_a_corpus_a.readback_identity,
+            projection_receipt_digest: request_a_corpus_a.events[1].projection_receipt_digest,
+            selected_event_identity: request_a_corpus_a.events[1].event_identity,
+            census_digest: request_a_corpus_a.census_digest,
+            event_count: request_a_corpus_a.events.len(),
+            canonical_bytes: request_a_corpus_a.readback_bytes.clone(),
+        };
+        assert!(!readback_matches_prepared(&stored_a, &request_a_corpus_b));
+    }
+
+    #[test]
     fn reordered_duplicate_or_out_of_window_census_fails_closed() {
         assert_eq!(
             validate_event_set(&[event(2), event(1)], 10, 20, 0),
@@ -1171,5 +1270,28 @@ mod tests {
         assert!(schema.contains("SECURITY DEFINER SET search_path=pg_catalog"));
         assert!(schema.contains("REVOKE ALL ON FUNCTION"));
         assert!(!schema.contains("GRANT"));
+        assert!(VERIFY_TOPOLOGY_V1.contains("pg_catalog.pg_constraint"));
+        assert!(VERIFY_TOPOLOGY_V1.contains("pg_catalog.pg_index"));
+        assert!(VERIFY_TOPOLOGY_V1.contains("constraint_fact.confrelid"));
+        assert!(VERIFY_TOPOLOGY_V1.contains("index_fact.indisvalid"));
+        let implementation = include_str!("strategy_input_event_binding_v1.rs");
+        assert!(implementation.contains("attribute.attacl IS NOT NULL"));
+        let forbidden_constructor =
+            ["pub(in crate::owner) fn ", "from_fixed_owner_readback"].concat();
+        assert!(!implementation.contains(&forbidden_constructor));
+    }
+
+    #[test]
+    fn topology_contract_drift_is_not_equivalent() {
+        let changed_fk = VERIFY_TOPOLOGY_V1.replacen("'a','r','s'", "'a','c','s'", 1);
+        let changed_index = VERIFY_TOPOLOGY_V1.replacen(
+            "('strategy_input_event_binding_census_v1',true,'1 2')",
+            "('strategy_input_event_binding_census_v1',true,'2 1')",
+            1,
+        );
+        assert_ne!(changed_fk, VERIFY_TOPOLOGY_V1);
+        assert_ne!(changed_index, VERIFY_TOPOLOGY_V1);
+        assert!(changed_fk.contains("'a','c','s'"));
+        assert!(changed_index.contains("true,'2 1'"));
     }
 }
