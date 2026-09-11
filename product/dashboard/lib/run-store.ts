@@ -48,6 +48,10 @@ import {
   type OperationalCancellationReadbackV1,
   type OperationalCancellationReceiptV1,
 } from "./run-cancellation-contract.ts";
+import {
+  operationAuditIdentityForReceiptV1,
+  type OperationAuditOperationV1,
+} from "./operation-audit-contract.ts";
 
 const IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
@@ -780,6 +784,60 @@ async function appendLog(
      VALUES ($1, $2, $3, $4, $5, '{}'::jsonb)`,
     [runIdentity, next, level, source, eventCode],
   );
+}
+
+async function appendOperationAuditV1(
+  client: PoolClient,
+  value: {
+    observedAt: Date;
+    principalRef: string;
+    operation: OperationAuditOperationV1;
+    actionKind: "update" | "delete";
+    runIdentity: string;
+    receiptIdentity: string;
+    authorizationDigest: string;
+  },
+) {
+  const auditIdentity = operationAuditIdentityForReceiptV1(value.receiptIdentity);
+  const inserted = await client.query<{ audit_identity: string }>(
+    `INSERT INTO dashboard_operation_audit_v1
+       (audit_identity, schema_version, observed_at, principal_ref, operation, action_kind,
+        outcome, target_kind, target_identity, correlation_identity, receipt_identity,
+        authorization_digest)
+     VALUES ($1, 1, $2, $3, $4, $5, 'succeeded', 'operation_run', $6, $6, $7, $8)
+     ON CONFLICT (audit_identity) DO NOTHING
+     RETURNING audit_identity`,
+    [auditIdentity, value.observedAt, value.principalRef, value.operation, value.actionKind,
+      value.runIdentity, value.receiptIdentity, value.authorizationDigest],
+  );
+  if (inserted.rows[0]?.audit_identity === auditIdentity) return;
+  const existing = await client.query<{
+    audit_identity: string;
+    observed_at: Date;
+    principal_ref: string;
+    operation: string;
+    action_kind: string;
+    outcome: string;
+    target_identity: string;
+    correlation_identity: string;
+    receipt_identity: string;
+    authorization_digest: string;
+  }>(
+    `SELECT audit_identity, observed_at, principal_ref, operation, action_kind, outcome,
+            target_identity, correlation_identity, receipt_identity, authorization_digest
+       FROM dashboard_operation_audit_v1
+      WHERE audit_identity = $1`,
+    [auditIdentity],
+  );
+  const row = existing.rows[0];
+  if (!row || row.observed_at.getTime() !== value.observedAt.getTime()
+    || row.principal_ref !== value.principalRef || row.operation !== value.operation
+    || row.action_kind !== value.actionKind || row.outcome !== "succeeded"
+    || row.target_identity !== value.runIdentity || row.correlation_identity !== value.runIdentity
+    || row.receipt_identity !== value.receiptIdentity
+    || row.authorization_digest !== value.authorizationDigest) {
+    throw new Error("OPERATION_AUDIT_CONFLICT");
+  }
 }
 
 async function recoverExpiredClaims(client: PoolClient) {
@@ -2457,6 +2515,15 @@ export class PostgresRunStoreV1 {
       );
       if (existing.rows[0]) {
         const receipt = projectCacheDeletionReceiptV1(existing.rows[0]);
+        await appendOperationAuditV1(client, {
+          observedAt: existing.rows[0].deleted_at,
+          principalRef: receipt.principal_ref,
+          operation: receipt.operation,
+          actionKind: "delete",
+          runIdentity: receipt.run_identity,
+          receiptIdentity: receipt.receipt_identity,
+          authorizationDigest: receipt.authorization_digest,
+        });
         await client.query("COMMIT");
         return receipt;
       }
@@ -2492,6 +2559,15 @@ export class PostgresRunStoreV1 {
           principalRef, authorizationDigest, deletedAt],
       );
       const receipt = projectCacheDeletionReceiptV1(inserted.rows[0]);
+      await appendOperationAuditV1(client, {
+        observedAt: deletedAt,
+        principalRef,
+        operation: receipt.operation,
+        actionKind: "delete",
+        runIdentity,
+        receiptIdentity,
+        authorizationDigest,
+      });
       await client.query("COMMIT");
       return receipt;
     } catch (error) {
@@ -2601,6 +2677,15 @@ export class PostgresRunStoreV1 {
           transitionVersion, principalRef, authorizationDigest, cancelledAt],
       );
       const receipt = projectCancellationReceiptV1(inserted.rows[0]);
+      await appendOperationAuditV1(client, {
+        observedAt: cancelledAt,
+        principalRef,
+        operation: receipt.operation,
+        actionKind: "update",
+        runIdentity,
+        receiptIdentity,
+        authorizationDigest,
+      });
       await client.query("COMMIT");
       return receipt;
     } catch (error) {

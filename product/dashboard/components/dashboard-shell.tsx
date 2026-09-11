@@ -14,6 +14,7 @@ import { OperationsRunDetail } from "./operations-run-detail";
 import { OperationsWorkersPreview } from "./operations-workers-preview";
 import { OperationsSchedulesPreview } from "./operations-schedules-preview";
 import { OperationsServiceLogs } from "./operations-service-logs";
+import { OperationsAudit } from "./operations-audit";
 import { ArtifactDirectory } from "./artifact-directory";
 import { ArtifactSourceWorkspace } from "./artifact-source-workspace";
 import { ResearchDirectory } from "./research-directory";
@@ -138,6 +139,7 @@ export function DashboardShell({
   const operationsWorkers = current === "/operations/workers";
   const operationsSchedules = current === "/operations/schedules";
   const operationsServiceLogs = current === "/operations/service-logs";
+  const operationsAudit = current === "/operations/audit";
   const artifactSourceDetail = current === "/rd/artifacts"
     && Boolean(artifactBuildRequestIdentity && artifactAttemptIdentity);
   const artifactDirectory = current === "/rd/artifacts" && !artifactSourceDetail;
@@ -149,12 +151,12 @@ export function DashboardShell({
   const runtimeFoundation = current === "/runtime" || current.startsWith("/runtime/");
   const portfolioUnavailable = current === "/portfolio" || current.startsWith("/portfolio/");
   const operationsConnected = operationsRuns || operationsRunDetail || operationsWorkers
-    || operationsSchedules || operationsServiceLogs;
+    || operationsSchedules || operationsServiceLogs || operationsAudit;
   const embedsRouteChrome = sourceIntakeReadback || composerReadback || researchDirectory
     || artifactDirectory || artifactSourceDetail;
   const rdPlaceholderRoute = current === "/rd/hypotheses" || current === "/rd/decisions";
   const ownsRouteChrome = embedsRouteChrome || rdPlaceholderRoute;
-  const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || ownsRouteChrome;
+  const suppressShellPageHeader = operationsSchedules || operationsServiceLogs || operationsAudit || ownsRouteChrome;
   const connected = operationsConnected || sourceIntakeReadback || composerReadback
     || exploratoryReplayReadback || researchDirectory || artifactDirectory || artifactSourceDetail
     || marketDataFoundation || runtimeFoundation || portfolioUnavailable;
@@ -205,6 +207,8 @@ export function DashboardShell({
                 ? "IMPLEMENTATION_ADMITTED - BOUND_SCHEDULE_READ_ONLY - NO_SCHEDULE_ACTIONS"
                 : operationsServiceLogs
                 ? "IMPLEMENTATION_ADMITTED - FIRST_PARTY_RUN_STORE_GET_ONLY - NO_ADMIN_OR_EFFECT_ACTIONS"
+                : operationsAudit
+                ? "IMPLEMENTATION_ADMITTED - FIRST_PARTY_CONTROL_PLANE_GET_ONLY - NO_AUDIT_MUTATION_OR_WINDMILL_INFERENCE"
                 : operationsRuns
                 ? "IMPLEMENTATION_ADMITTED - ZERO_EFFECT_DISPATCHER - WINDMILL_EFFECTS_CURRENT"
                 : drawableExact
@@ -218,6 +222,7 @@ export function DashboardShell({
               : operationsWorkers ? <OperationsWorkersPreview initialWorkerIdentity={workerIdentity} />
               : operationsSchedules ? <OperationsSchedulesPreview />
               : operationsServiceLogs ? <OperationsServiceLogs />
+              : operationsAudit ? <OperationsAudit />
               : sourceIntakeReadback ? <SourceIntakeReadbackWorkbench initialRequestIdentity={sourceIntakeRequestIdentity} />
               : composerReadback ? <DevelopComposerReadbackWorkbench initialRequestIdentity={composerRequestIdentity} />
               : exploratoryReplayReadback ? <ExploratoryReplayReadbackWorkbench
