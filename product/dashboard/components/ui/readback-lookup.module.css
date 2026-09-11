@@ -29,26 +29,6 @@
   letter-spacing: .04em;
 }
 
-.control {
-  position: relative;
-  min-width: 0;
-  display: block;
-}
-
-.control > svg {
-  position: absolute;
-  top: 50%;
-  left: 13px;
-  z-index: 1;
-  transform: translateY(-50%);
-  color: var(--text-muted);
-  pointer-events: none;
-}
-
-.field[data-leading="true"] [data-slot="input"] {
-  padding-left: 36px;
-}
-
 .action {
   white-space: nowrap;
 }

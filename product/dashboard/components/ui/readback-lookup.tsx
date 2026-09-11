@@ -39,25 +39,19 @@ export function ReadbackLookupField({
   className,
   label,
   labelHidden = false,
-  leading,
   ...props
 }: LabelHTMLAttributes<HTMLLabelElement> & {
   label: ReactNode;
   labelHidden?: boolean;
-  leading?: ReactNode;
 }) {
   return (
     <label
       {...props}
       className={classes(styles.field, className)}
       data-label-hidden={labelHidden}
-      data-leading={Boolean(leading)}
     >
       <span className={labelHidden ? "sr-only" : styles.label}>{label}</span>
-      <span className={styles.control}>
-        {leading}
-        {children}
-      </span>
+      {children}
     </label>
   );
 }

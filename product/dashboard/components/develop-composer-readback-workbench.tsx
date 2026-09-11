@@ -143,11 +143,12 @@ export function DevelopComposerReadbackWorkbench({
             void read(input);
           }}
         >
-          <ReadbackLookupField label="Request identity" labelHidden leading={<InterfaceIcons.search aria-hidden="true" size={16} />}>
+          <ReadbackLookupField label="Request identity" labelHidden>
             <ReadbackLookupInput
               aria-describedby={validation ? "develop-composer-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
+              icon={<InterfaceIcons.search aria-hidden="true" size={16} />}
               onChange={(event) => {
                 setInput(event.target.value);
                 setValidation(null);

@@ -37,13 +37,16 @@ test("ReadbackLookup owns reusable exact-selector form geometry", async () => {
   assert.doesNotMatch(css, /@media \(max-width: 720px\)/u);
   assert.doesNotMatch(css, /\.input\s*\{/u);
   assert.doesNotMatch(css, /\.action\s*\{[^}]*(?:background|border|font-size|min-height|padding):/u);
-  assert.match(css, /\.control > svg \{[^}]*top: 50%;[^}]*transform: translateY\(-50%\);/u);
+  assert.doesNotMatch(atom, /data-leading|leading\?: ReactNode|styles\.control/u);
+  assert.doesNotMatch(css, /data-leading|\.control|\[data-slot="input"\][^{]*\{[^}]*padding/iu);
   assert.match(input, /variant\?: 'default' \| 'surface'/u);
   assert.match(input, /typography\?: 'default' \| 'mono'/u);
   assert.match(input, /data-variant=\{variant\}/u);
   assert.match(input, /data-typography=\{typography\}/u);
   assert.match(input, /variant === 'surface' && styles\.surface/u);
   assert.match(input, /typography === 'mono' && styles\.mono/u);
+  assert.match(input, /icon && 'pl-8'/u);
+  assert.match(input, /data-slot="input-wrapper" className="relative"/u);
   assert.match(inputCss, /\.surface \{[^}]*background: var\(--surface-panel\);[^}]*font-size: 12px;/u);
   assert.match(inputCss, /\.surface:focus-visible \{[^}]*border-color: var\(--border-strong\);[^}]*box-shadow:/u);
   assert.match(inputCss, /\.mono \{[^}]*font: 10px\/1\.2 var\(--font-mono\);/u);
@@ -58,6 +61,11 @@ test("ReadbackLookup owns reusable exact-selector form geometry", async () => {
     assert.match(source, /<ReadbackLookupAction/u);
     assert.doesNotMatch(source, /<input\b/u);
     assert.doesNotMatch(source, /styles\.(?:lookupRail|inputShell|lookupField|openButton|validation)/u);
+  }
+
+  for (const source of sources.slice(0, 2)) {
+    assert.match(source, /<ReadbackLookupInput[\s\S]*?icon=\{<InterfaceIcons\.search/u);
+    assert.doesNotMatch(source, /<ReadbackLookupField[^>]*\bleading=/u);
   }
 });
 
