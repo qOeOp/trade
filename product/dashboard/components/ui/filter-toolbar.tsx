@@ -8,7 +8,9 @@ import type {
 } from "react";
 import Link from "next/link";
 import { motion, useReducedMotion } from "motion/react";
+import { Button, buttonVariants, type ButtonProps } from "./button";
 import { InterfaceIcons, type DashboardIcon } from "./iconography";
+import { cn } from "../../lib/utils";
 
 export type TableFilterSection = {
   id: string;
@@ -20,6 +22,19 @@ export type TableFilterSection = {
 
 export type FilterControlDensity = "default" | "compact";
 export type FilterActionVariant = "primary" | "secondary" | "ghost" | "warning" | "danger" | "outline";
+
+const buttonVariantsByFilter = {
+  primary: "action",
+  secondary: "outline",
+  ghost: "ghost",
+  warning: "warn",
+  danger: "outlineDestructive",
+  outline: "outline",
+} satisfies Record<FilterActionVariant, NonNullable<ButtonProps["variant"]>>;
+
+const buttonVariantFor = (variant: FilterActionVariant): ButtonProps["variant"] => buttonVariantsByFilter[variant];
+
+const buttonSizeFor = (density: FilterControlDensity): ButtonProps["size"] => density === "compact" ? "sm" : "default";
 
 export function TableFilterMenu({
   label,
@@ -129,8 +144,8 @@ export function FilterButton({
   variant?: FilterActionVariant;
   density?: FilterControlDensity;
 } & ButtonHTMLAttributes<HTMLButtonElement>) {
-  return <button {...props} data-variant={variant} data-density={density}
-    className={["filter-action", className].filter(Boolean).join(" ")}>{children}</button>;
+  return <Button {...props} variant={buttonVariantFor(variant)} size={buttonSizeFor(density)}
+    data-variant={variant} data-density={density} className={cn("filter-action", className)}>{children}</Button>;
 }
 
 export function FilterLink({
@@ -151,8 +166,9 @@ export function FilterLink({
     ...props,
     "data-variant": variant,
     "data-density": density,
-    className: ["filter-action", className].filter(Boolean).join(" "),
+    className: cn(buttonVariants({ variant: buttonVariantFor(variant), size: buttonSizeFor(density) }), "filter-action", className),
     "aria-disabled": disabled || undefined,
+    tabIndex: disabled ? -1 : props.tabIndex,
   };
   const usesClientNavigation = typeof href === "string"
     && href.startsWith("/")

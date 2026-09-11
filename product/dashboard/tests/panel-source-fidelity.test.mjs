@@ -127,8 +127,8 @@ test("operational summaries preserve a legible metric hierarchy across viewports
 });
 
 test("run detail actions, technical disclosure, and state values expose deliberate hierarchy", () => {
-  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="ghost"\][^}]+background: transparent;/u);
-  assert.match(css, /\.panel-frame-actions :is\(button, a\)\[data-action-variant="secondary"\][^}]+var\(--border-default\)/u);
+  assert.match(css, /\.filter-action\[data-variant="ghost"\][^}]+background: transparent;/u);
+  assert.match(css, /\.filter-action:is\(\[data-variant="outline"\], \[data-variant="secondary"\]\)[^}]+var\(--border-default\)/u);
   assert.match(runDetail, /label="owner outcome"[\s\S]+?ownerOutcomeTone\(run\.owner_outcome_state\)/u);
   assert.match(css, /\.panel-info-popover \{[^}]+position: fixed;[^}]+max-height:[^}]+overflow-y: auto;[^}]+background: var\(--surface-elevated\);/u);
   assert.match(css, /\.panel-frame-actions \.panel-info-popover a \{[^}]+border-radius: 0;[^}]+background: transparent;[^}]+text-decoration: underline;/u);
@@ -181,7 +181,7 @@ test("operational surfaces keep implementation language behind information contr
   assert.match(runs, /return `#\$\{tail\.slice\(-8\)\}`/u);
   assert.match(runs, /<CompactStatusGroup label="current view">[\s\S]+?<CompactStatusItem label="loaded runs"/u);
   assert.doesNotMatch(runs, /label="(?:Active|Failed|Result ready|Result pending)"/u);
-  assert.match(logs, /data-action-variant="secondary"[\s\S]+?Auto-refresh/u);
+  assert.match(logs, /<FilterButton density="compact" variant="secondary"[\s\S]+?Auto-refresh/u);
   assert.match(logs, /<PanelFrameInfo><b>Technical reason<\/b><code>/u);
   assert.match(logs, /<PanelFrameInfo><b>Data details<\/b><code/u);
   assert.match(css, /button\.panel-info-trigger \{[^}]+width: 32px;[^}]+flex: 0 0 32px;[^}]+display: grid;[^}]+border-radius: 999px;/u);

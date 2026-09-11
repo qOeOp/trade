@@ -7,6 +7,7 @@ import {
   type Ref,
   useId,
 } from "react";
+import { Button } from "./button";
 import { InterfaceIcons } from "./iconography";
 
 export function PanelFrame({
@@ -137,7 +138,8 @@ export function PanelFrameIconAction({
   className,
   ...props
 }: { children: ReactNode } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
-  return <button {...props} type="button" className={["panel-frame-icon-action", className].filter(Boolean).join(" ")}>{children}</button>;
+  return <Button {...props} type="button" variant="outline" size="icon-sm"
+    className={["panel-frame-icon-action", className].filter(Boolean).join(" ")}>{children}</Button>;
 }
 
 export function PanelFrameInfo({
@@ -151,15 +153,17 @@ export function PanelFrameInfo({
 
   return (
     <>
-      <button
+      <Button
         type="button"
+        variant="outline"
+        size="icon-sm"
         className="panel-info-trigger"
         aria-label={label}
         title={label}
         popoverTarget={popoverId}
       >
         <InterfaceIcons.info aria-hidden="true" size={15} />
-      </button>
+      </Button>
       <div id={popoverId} className="panel-info-popover" popover="auto">
         {children}
       </div>
@@ -187,15 +191,17 @@ export function PanelFrameCloseButton({
   ...props
 }: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "children">) {
   return (
-    <button
+    <Button
       {...props}
       type="button"
+      variant="outline"
+      size="icon-xs"
       aria-label={ariaLabel}
       className={["panel-frame-close-button", className].filter(Boolean).join(" ")}
       data-slot="panel-frame-close-button"
     >
       <InterfaceIcons.close aria-hidden="true" size={12} strokeWidth={2.25} />
-    </button>
+    </Button>
   );
 }
 

@@ -94,14 +94,27 @@ test("Run result reuses shared status and action atoms instead of a page-local e
 });
 
 test("Compact toolbar controls share one density and semantic variant system", async () => {
-  const [toolbar, explorer, logs] = await Promise.all([
+  const [toolbar, panel, explorer, logs, audit, serviceLogs, workers, runs] = await Promise.all([
     source("ui/filter-toolbar.tsx"),
+    source("ui/panel-frame.tsx"),
     source("ui/log-explorer.tsx"),
     source("operations-run-logs.tsx"),
+    source("operations-audit.tsx"),
+    source("operations-service-logs.tsx"),
+    source("operations-workers-preview.tsx"),
+    source("operations-runstore-preview.tsx"),
   ]);
 
   assert.match(toolbar, /export type FilterControlDensity = "default" \| "compact"/u);
   assert.match(toolbar, /export type FilterActionVariant = "primary" \| "secondary" \| "ghost" \| "warning" \| "danger" \| "outline"/u);
+  assert.match(toolbar, /import \{ Button, buttonVariants, type ButtonProps \} from "\.\/button"/u);
+  assert.match(toolbar, /satisfies Record<FilterActionVariant, NonNullable<ButtonProps\["variant"\]>>/u);
+  assert.match(toolbar, /return <Button \{\.\.\.props\} variant=\{buttonVariantFor\(variant\)\} size=\{buttonSizeFor\(density\)\}/u);
+  assert.match(toolbar, /className: cn\(buttonVariants\(\{ variant: buttonVariantFor\(variant\), size: buttonSizeFor\(density\) \}\), "filter-action", className\)/u);
+  assert.match(panel, /import \{ Button \} from "\.\/button"/u);
+  assert.match(panel, /<Button \{\.\.\.props\} type="button" variant="outline" size="icon-sm"/u);
+  assert.match(panel, /<Button[\s\S]*?className="panel-info-trigger"/u);
+  assert.match(panel, /<Button[\s\S]*?className=\{\["panel-frame-close-button"/u);
   assert.match(explorer, /<TableFilterMenu[\s\S]*?density="compact"/u);
   assert.match(explorer, /<FilterSearch[\s\S]*?density="compact"/u);
   assert.doesNotMatch(explorer, /log-explorer-filter-select/u);
@@ -115,8 +128,38 @@ test("Compact toolbar controls share one density and semantic variant system", a
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.log-explorer-controls \{[^}]*justify-content: flex-start;[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
   assert.match(css, /@media \(max-width: 767px\) \{[\s\S]*?\.log-explorer-actions \{[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
   assert.match(css, /@container run-detail-result \(max-width: 520px\) \{[\s\S]*?\.run-result-actions \{[^}]*flex-wrap: wrap;[^}]*overflow: visible;[^}]*\}/u);
-  assert.match(css, /\.panel-frame-actions button:not\(\.filter-action\), \.panel-frame-actions a:not\(\.filter-action\) \{/u);
+  for (const component of [audit, serviceLogs, workers, runs]) {
+    assert.doesNotMatch(component, /data-action-variant=/u);
+    assert.doesNotMatch(component, /<PanelFrameFooterActions>\s*<button/u);
+  }
+  assert.doesNotMatch(css, /\.panel-frame-actions button:not\(\.filter-action\)|\.panel-frame-actions a:not\(\.filter-action\)/u);
+  assert.doesNotMatch(css, /\.panel-frame-footer-actions button(?:\s|\{|:)/u);
+  assert.match(css, /\.panel-frame-actions \.filter-action\[aria-pressed="true"\]/u);
   assert.doesNotMatch(css, /\.log-explorer-filter-select|\.log-explorer-clear-filters/u);
+});
+
+test("Admitted read-only PanelFrame actions consume the shared action atom", async () => {
+  const consumers = await Promise.all([
+    "source-intake-readback-workbench.tsx",
+    "develop-composer-readback-workbench.tsx",
+    "exploratory-replay-readback-workbench.tsx",
+    "research-directory.tsx",
+    "artifact-directory.tsx",
+    "operations-audit.tsx",
+    "operations-run-detail.tsx",
+    "operations-runstore-preview.tsx",
+    "operations-service-logs.tsx",
+    "operations-workers-preview.tsx",
+  ].map(source));
+
+  for (const component of consumers) {
+    assert.match(component, /<FilterButton/u);
+    assert.doesNotMatch(component, /<PanelFrameFooterActions>\s*<button/u);
+  }
+
+  for (const component of consumers.slice(0, 5)) {
+    assert.match(component, /<FilterButton[\s\S]*?variant="secondary"[\s\S]*?>[\s\S]*?Refresh/u);
+  }
 });
 
 test("Foundation card clusters consume the shared inner radius token", async () => {

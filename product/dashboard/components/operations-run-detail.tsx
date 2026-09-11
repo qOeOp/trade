@@ -259,9 +259,9 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
     return (
       <PanelFrame className="run-detail-panel" aria-labelledby="run-detail-title">
         <PanelFrameHeader eyebrow="Exact operational readback" title="Run detail" titleId="run-detail-title" actions={
-          <button type="button" onClick={() => void refresh()} disabled={pending}>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>
+          </FilterButton>
         } />
         <PanelFrameBody>
           <UnavailableState density="compact" icon={<RunIcons.loaded aria-hidden="true" size={17} />}

@@ -13,7 +13,7 @@ import type { HistoricalResearchCandidateV1 } from "../lib/rd-historical-custody
 import { DataTableHeaderLabel, DataTableSurface } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import { DataWorkspaceTable, type DataWorkspaceColumn } from "./ui/data-workspace-table";
-import { FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
+import { FilterButton, FilterSearch, FilterTabs, TableToolbar } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PageStack } from "./ui/page-stack";
 import {
@@ -249,10 +249,10 @@ export function ResearchDirectory() {
               <strong>Read-only Owner data</strong>
               <p>No research payloads, submission controls, or resolution actions are exposed here.</p>
             </OwnerDirectoryInfo>
-            <button type="button" onClick={() => void refresh()} disabled={pending}>
+            <FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
               <InterfaceIcons.refresh aria-hidden="true" size={12} />
               {showPending ? "Reading…" : "Refresh"}
-            </button>
+            </FilterButton>
           </>}
         />
         <PanelFrameBody>
@@ -340,9 +340,9 @@ export function ResearchDirectory() {
               secondary={partial ? "Legacy or unverifiable candidates remain withheld." : "Load an older bounded observation window."}
             />
             {nextCursor ? <PanelFrameFooterActions>
-              <button type="button" onClick={() => void readPage(nextCursor)} disabled={pendingOlder}>
+              <FilterButton density="compact" variant="secondary" type="button" onClick={() => void readPage(nextCursor)} disabled={pendingOlder}>
                 {pendingOlder ? "Reading…" : "Load older"}
-              </button>
+              </FilterButton>
             </PanelFrameFooterActions> : null}
           </PanelFrameFooter>
         ) : null}

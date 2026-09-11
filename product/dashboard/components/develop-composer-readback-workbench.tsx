@@ -10,6 +10,7 @@ import {
 import styles from "./source-intake-readback-workbench.module.css";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
+import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
 import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
@@ -122,13 +123,15 @@ export function DevelopComposerReadbackWorkbench({
         meta="Owner point read · No run, resolve, or edit"
         description="Inspect one exact sealed result without running, resolving, editing, or exposing source bytes."
         actions={(
-          <button
+          <FilterButton
+            density="compact"
+            variant="secondary"
             disabled={!openedIdentity || status === "loading"}
             onClick={() => openedIdentity && void read(openedIdentity)}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
-          </button>
+          </FilterButton>
         )}
       />
       <PanelFrameBody className={styles.body}>

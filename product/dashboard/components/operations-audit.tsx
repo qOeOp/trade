@@ -15,6 +15,7 @@ import {
   type OperationAuditPageSizeV1,
 } from "../lib/operation-audit-contract";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
+import { Button } from "./ui/button";
 import { DataTableHeaderLabel } from "./ui/data-table";
 import { DataWorkspaceEmpty } from "./ui/data-workspace-empty";
 import {
@@ -35,6 +36,7 @@ import {
   DetailSection,
 } from "./ui/detail-inspector";
 import { EvidenceIcons, InterfaceIcons, RunIcons } from "./ui/iconography";
+import { FilterButton } from "./ui/filter-toolbar";
 import { PageStack } from "./ui/page-stack";
 import {
   PanelFrame,
@@ -354,7 +356,7 @@ export function OperationsAudit() {
           title="Audit"
           titleId="operation-audit-title"
           description="Review who changed an operational run and what happened."
-          actions={<><PanelFrameInfo label="View audit scope"><b>Audit scope</b><p>Only verified first-party control-plane actions appear. Windmill redactions and Owner outcomes are not inferred.</p></PanelFrameInfo><button type="button" data-action-variant="secondary" onClick={refresh} disabled={pending}><InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}</button></>}
+          actions={<><PanelFrameInfo label="View audit scope"><b>Audit scope</b><p>Only verified first-party control-plane actions appear. Windmill redactions and Owner outcomes are not inferred.</p></PanelFrameInfo><FilterButton density="compact" variant="secondary" type="button" onClick={refresh} disabled={pending}><InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading" : "Refresh"}</FilterButton></>}
         />
         <PanelFrameBody className="operation-audit-body">
           <CompactStatusBar className="operation-audit-status" aria-label="Audit summary">
@@ -402,15 +404,15 @@ export function OperationsAudit() {
                   setPageSize(next);
                   void load({ cut: { ...filterCut, observed_at: new Date().toISOString() }, requestedPageSize: next });
                 }}>{pageSizes.map((size) => <option key={size}>{size}</option>)}</select></label>
-                <button type="button" aria-label="Previous audit page" disabled={pending || pageIndex === 0} onClick={() => {
+                <Button type="button" variant="outline" size="icon-sm" aria-label="Previous audit page" disabled={pending || pageIndex === 0} onClick={() => {
                   const priorIndex = Math.max(0, pageIndex - 1);
                   setPageIndex(priorIndex);
                   setSelectedIdentity(pages[priorIndex]?.entries[0]?.audit_identity ?? null);
-                }}><InterfaceIcons.previous aria-hidden="true" /></button>
-                <button type="button" aria-label="Next audit page" disabled={pending || (!pages[pageIndex + 1] && !page?.next_cursor)} onClick={() => {
+                }}><InterfaceIcons.previous aria-hidden="true" /></Button>
+                <Button type="button" variant="outline" size="icon-sm" aria-label="Next audit page" disabled={pending || (!pages[pageIndex + 1] && !page?.next_cursor)} onClick={() => {
                   if (pages[pageIndex + 1]) setPageIndex((value) => value + 1);
                   else if (page?.next_cursor) void load({ cut: page.filter_cut, cursor: page.next_cursor, append: true });
-                }}><InterfaceIcons.next aria-hidden="true" /></button>
+                }}><InterfaceIcons.next aria-hidden="true" /></Button>
               </div>
             </div>
             <AuditDetail detail={detail} pending={detailPending} reason={detailReason} />
@@ -422,7 +424,7 @@ export function OperationsAudit() {
             primary={page ? `${page.entries.length} ${page.entries.length === 1 ? "event" : "events"}` : "Audit unavailable"}
             secondary={page ? `${page.completeness} · newest ${page.retention_limit} retained for this view` : "No positive source cut"}
           />
-          {detail?.entry ? <PanelFrameFooterActions><button type="button" data-action-variant="secondary" onClick={() => void copySelected()}><InterfaceIcons.copy aria-hidden="true" size={12} /> Copy audit locator</button></PanelFrameFooterActions> : null}
+          {detail?.entry ? <PanelFrameFooterActions><FilterButton density="compact" variant="secondary" type="button" onClick={() => void copySelected()}><InterfaceIcons.copy aria-hidden="true" size={12} /> Copy audit locator</FilterButton></PanelFrameFooterActions> : null}
         </PanelFrameFooter>
       </PanelFrame>
     </PageStack>
