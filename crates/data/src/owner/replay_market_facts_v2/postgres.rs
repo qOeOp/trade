@@ -232,6 +232,7 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
                  WHERE privilege.grantee<>namespace.nspowner)
             AND (SELECT count(*)=7
                    AND count(*) FILTER (WHERE pg_catalog.pg_get_userbyid(relation.relowner)=current_user)=7
+                   AND count(*) FILTER (WHERE relation.relkind='r' AND relation.relpersistence='p')=7
                    AND count(*) FILTER (WHERE NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)=7
                    AND NOT EXISTS (
                        SELECT 1 FROM pg_catalog.pg_class relation_acl
@@ -290,7 +291,89 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
     .fetch_one(&mut **transaction)
     .await
     .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
-    exact
+    let topology_exact: bool = sqlx::query_scalar(
+        "WITH expected(relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action) AS (VALUES
+            ('replay_market_facts_state_v2','p','singleton','','',' '),
+            ('replay_market_facts_v2','p','facts_identity','','',' '),
+            ('replay_market_facts_v2','u','meaning_identity','','',' '),
+            ('replay_market_facts_v2','u','receipt_identity','','',' '),
+            ('replay_market_facts_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_receipts_v2','p','receipt_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','facts_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','meaning_identity','','',' '),
+            ('replay_market_facts_receipts_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_receipts_v2','f','facts_identity','replay_market_facts_v2','facts_identity','a'),
+            ('replay_market_facts_outbox_v2','p','outbox_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','facts_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','receipt_identity','','',' '),
+            ('replay_market_facts_outbox_v2','u','append_sequence','','',' '),
+            ('replay_market_facts_outbox_v2','f','facts_identity','replay_market_facts_v2','facts_identity','a'),
+            ('replay_market_facts_outbox_v2','f','receipt_identity','replay_market_facts_receipts_v2','receipt_identity','a'),
+            ('replay_composition_bindings_v1','p','binding_identity','','',' '),
+            ('replay_composition_bindings_v1','u','binding_digest','','',' '),
+            ('replay_composition_bindings_v1','u','receipt_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','p','receipt_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','u','binding_identity','','',' '),
+            ('replay_composition_binding_receipts_v1','f','binding_identity','replay_composition_bindings_v1','binding_identity','r'),
+            ('replay_composition_binding_outbox_v1','p','outbox_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','u','binding_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','u','receipt_identity','','',' '),
+            ('replay_composition_binding_outbox_v1','f','binding_identity','replay_composition_bindings_v1','binding_identity','r'),
+            ('replay_composition_binding_outbox_v1','f','receipt_identity','replay_composition_binding_receipts_v1','receipt_identity','r')
+        ), observed AS (
+          SELECT relation.relname::text AS relation_name,
+                 constraint_fact.contype::text AS constraint_kind,
+                 pg_catalog.array_to_string(ARRAY(
+                   SELECT attribute.attname
+                     FROM pg_catalog.unnest(constraint_fact.conkey) WITH ORDINALITY key(attnum,ordinality)
+                     JOIN pg_catalog.pg_attribute attribute
+                       ON attribute.attrelid=constraint_fact.conrelid AND attribute.attnum=key.attnum
+                    ORDER BY key.ordinality),' ') AS key_columns,
+                 COALESCE(foreign_relation.relname,'')::text AS foreign_relation,
+                 COALESCE(pg_catalog.array_to_string(ARRAY(
+                   SELECT attribute.attname
+                     FROM pg_catalog.unnest(constraint_fact.confkey) WITH ORDINALITY key(attnum,ordinality)
+                     JOIN pg_catalog.pg_attribute attribute
+                       ON attribute.attrelid=constraint_fact.confrelid AND attribute.attnum=key.attnum
+                    ORDER BY key.ordinality),' '),'') AS foreign_columns,
+                 CASE WHEN constraint_fact.contype='f' THEN constraint_fact.confdeltype::text ELSE ' ' END AS delete_action,
+                 constraint_fact.condeferrable,constraint_fact.condeferred,constraint_fact.convalidated,
+                 constraint_fact.conislocal,constraint_fact.coninhcount
+            FROM pg_catalog.pg_constraint constraint_fact
+            JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
+            JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+            LEFT JOIN pg_catalog.pg_class foreign_relation ON foreign_relation.oid=constraint_fact.confrelid
+           WHERE namespace.nspname='market_data_private'
+             AND relation.relname IN (
+               'replay_market_facts_state_v2','replay_market_facts_v2',
+               'replay_market_facts_receipts_v2','replay_market_facts_outbox_v2',
+               'replay_composition_bindings_v1','replay_composition_binding_receipts_v1',
+               'replay_composition_binding_outbox_v1')
+             AND constraint_fact.contype IN ('p','u','f')
+        )
+        SELECT (SELECT count(*) FROM observed)=27
+          AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed)
+          AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected)
+          AND NOT EXISTS (SELECT 1 FROM observed WHERE condeferrable OR condeferred OR NOT convalidated OR NOT conislocal OR coninhcount<>0)
+          AND (SELECT count(*)=1
+                 AND bool_and(index_fact.indisunique AND index_fact.indisvalid AND index_fact.indisready
+                              AND NOT index_fact.indisprimary AND NOT index_fact.indisexclusion
+                              AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'
+                              AND pg_catalog.array_to_string(ARRAY(
+                                  SELECT attribute.attname
+                                    FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key(attnum,ordinality)
+                                    JOIN pg_catalog.pg_attribute attribute
+                                      ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key.attnum
+                                   ORDER BY key.ordinality),' ')='composition_binding_identity')
+                 FROM pg_catalog.pg_index index_fact
+                 JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+                WHERE index_relation.relnamespace=pg_catalog.to_regnamespace('market_data_private')
+                  AND index_relation.relname='replay_market_facts_binding_v1')",
+    )
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| ReplayMarketFactsPostgresErrorV2::StoreUnavailable)?;
+    (exact && topology_exact)
         .then_some(())
         .ok_or(ReplayMarketFactsPostgresErrorV2::StoreUnavailable)
 }
@@ -1891,8 +1974,56 @@ mod resolver_contract_tests {
             "procedure.prosrc=ANY(ARRAY[$1,$2])",
             "procedure.prosecdef",
             "procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]",
+            "relation.relkind='r'",
+            "(SELECT count(*) FROM observed)=27",
+            "replay_market_facts_binding_v1",
+            "index_fact.indisunique",
+            "pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'",
         ] {
             assert!(source.contains(required));
+        }
+    }
+
+    #[test]
+    fn resolver_requires_binding_and_revalidates_native_chain_before_return() {
+        let owner = include_str!("../postgres.rs");
+        let ordinary = owner
+            .split("pub(crate) async fn resolve_replay_market_facts_readback_v2")
+            .nth(1)
+            .expect("ordinary replay resolver")
+            .split("pub(crate) async fn resolve_replay_composition_readback_v1")
+            .next()
+            .expect("bounded ordinary replay resolver");
+        assert!(ordinary.contains("Err(ReplayMarketFactsErrorV2::CustodyUnavailable)"));
+        assert!(!ordinary.contains("recover_replay_market_facts_readback_in_transaction_v2"));
+
+        let composition = owner
+            .split("pub(crate) async fn resolve_replay_composition_readback_v1")
+            .nth(1)
+            .expect("bound composition resolver")
+            .split("async fn migrate")
+            .next()
+            .expect("bounded composition resolver");
+        let recover = composition
+            .find("recover_bound_replay_market_facts_readback_in_transaction_v2")
+            .expect("exact binding recovery");
+        let native = composition
+            .find("validate_replay_market_native_dependencies_read_only_v2")
+            .expect("native dependency closure");
+        let commit = composition.find(".commit()").expect("read-only commit");
+        assert!(recover < native && native < commit);
+
+        for required in [
+            "universe_selection_records_v1",
+            "load_strategy_input_joined_cut_custody_v1",
+            "rederive_observation_census_read_only_v1",
+            "resolve_strategy_input_sample_projection_v4",
+            "validate_sample_projection_dependencies_v3",
+            ".ok_or(Error::UniverseSelectionUnavailable)",
+            ".ok_or(Error::JoinedCutUnavailable)",
+            ".ok_or(Error::SampleProjectionUnavailable)",
+        ] {
+            assert!(owner.contains(required));
         }
     }
 

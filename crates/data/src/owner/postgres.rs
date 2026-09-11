@@ -329,29 +329,11 @@ impl MarketDataOwnerPostgres {
 
     pub(crate) async fn resolve_replay_market_facts_readback_v2(
         &self,
-        request: &UntrustedReplayMarketFactsRequestV2,
+        _request: &UntrustedReplayMarketFactsRequestV2,
     ) -> Result<ReplayMarketFactsReadbackV2, ReplayMarketFactsErrorV2> {
-        let mut transaction = self
-            .pool
-            .begin_with("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .await
-            .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
-        super::replay_market_facts_v2::postgres::verify_replay_market_facts_read_contract_v2(
-            &mut transaction,
-        )
-        .await
-        .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
-        let readback = super::replay_market_facts_v2::postgres::recover_replay_market_facts_readback_in_transaction_v2(
-            &mut transaction,
-            request,
-        )
-        .await
-        .map_err(map_replay_market_facts_postgres_error_v2)?;
-        transaction
-            .commit()
-            .await
-            .map_err(|_| ReplayMarketFactsErrorV2::CustodyUnavailable)?;
-        Ok(readback)
+        // Native Replay V2 rows are sealed against a composition binding. This legacy request has
+        // no binding locator, so resolving it could only guess among distinct bound meanings.
+        Err(ReplayMarketFactsErrorV2::CustodyUnavailable)
     }
 
     pub(crate) async fn resolve_replay_composition_readback_v1(
@@ -381,6 +363,9 @@ impl MarketDataOwnerPostgres {
         )
         .await
         .map_err(map_replay_composition_postgres_error_v1)?;
+        validate_replay_market_native_dependencies_read_only_v2(&mut transaction, &readback)
+            .await
+            .map_err(map_replay_composition_postgres_error_v1)?;
         transaction
             .commit()
             .await
@@ -885,6 +870,284 @@ impl MarketDataOwnerPostgres {
             .map_err(|_| SharedTimeEvidenceError::StoreUnavailable)?;
         persist_clock_successor(transaction, prior, next, fault).await
     }
+}
+
+async fn validate_replay_market_native_dependencies_read_only_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+    readback: &ReplayMarketFactsReadbackV2,
+) -> Result<(), super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2> {
+    use super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as Error;
+
+    let dependencies = readback.facts().frontier().dependencies();
+    let [_, _, _, universe, _, joined, sample] = dependencies else {
+        return Err(Error::CorruptRecord);
+    };
+
+    let universe_row = sqlx::query(
+        "SELECT r.request_identity,r.request_meaning_digest,r.selection_identity,r.record_bytes,c.receipt_identity,c.receipt_bytes,o.outbox_identity,o.receipt_bytes AS outbox_receipt_bytes FROM market_data_private.universe_selection_records_v1 AS r JOIN market_data_private.universe_selection_receipts_v1 AS c ON c.request_identity=r.request_identity JOIN market_data_private.universe_selection_outbox_v1 AS o ON o.request_identity=r.request_identity WHERE r.selection_identity=$1",
+    )
+    .bind(universe.identity().as_bytes().as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| Error::StoreUnavailable)?
+    .ok_or(Error::UniverseSelectionUnavailable)?;
+    let universe_record_bytes: Vec<u8> = universe_row
+        .try_get("record_bytes")
+        .map_err(|_| Error::CorruptRecord)?;
+    let universe_receipt_bytes: Vec<u8> = universe_row
+        .try_get("receipt_bytes")
+        .map_err(|_| Error::CorruptRecord)?;
+    let universe_outbox_identity = BindingDigest::from_untrusted_bytes(
+        universe_row
+            .try_get::<Vec<u8>, _>("outbox_identity")
+            .map_err(|_| Error::CorruptRecord)?
+            .try_into()
+            .map_err(|_| Error::CorruptRecord)?,
+    );
+    let universe_readback = super::universe_selection::authority::decode_readback_v1(
+        &universe_record_bytes,
+        &universe_receipt_bytes,
+        universe_outbox_identity,
+    )
+    .map_err(|_| Error::CorruptRecord)?;
+    let indexed_universe = BindingDigest::from_untrusted_bytes(
+        universe_row
+            .try_get::<Vec<u8>, _>("selection_identity")
+            .map_err(|_| Error::CorruptRecord)?
+            .try_into()
+            .map_err(|_| Error::CorruptRecord)?,
+    );
+    let outbox_receipt: Vec<u8> = universe_row
+        .try_get("outbox_receipt_bytes")
+        .map_err(|_| Error::CorruptRecord)?;
+    if universe.identity() != universe.digest()
+        || indexed_universe != universe.identity()
+        || universe_readback.record().identity() != universe.identity()
+        || universe_readback.record().digest() != universe.digest()
+        || universe_readback.record().request_identity().as_bytes()
+            != universe_row
+                .try_get::<Vec<u8>, _>("request_identity")
+                .map_err(|_| Error::CorruptRecord)?
+                .as_slice()
+        || universe_readback
+            .record()
+            .request_meaning_digest()
+            .as_bytes()
+            != universe_row
+                .try_get::<Vec<u8>, _>("request_meaning_digest")
+                .map_err(|_| Error::CorruptRecord)?
+                .as_slice()
+        || universe_readback.receipt().identity().as_bytes()
+            != universe_row
+                .try_get::<Vec<u8>, _>("receipt_identity")
+                .map_err(|_| Error::CorruptRecord)?
+                .as_slice()
+        || outbox_receipt != universe_receipt_bytes
+    {
+        return Err(Error::CorruptRecord);
+    }
+
+    let joined_locator = UntrustedStrategyInputJoinedCutLocatorV1::from_untrusted(
+        joined.identity(),
+        joined.digest(),
+    );
+    let (joined_request, joined_custody, joined_receipt_digest) =
+        observation_census::load_strategy_input_joined_cut_custody_v1(
+            transaction,
+            &joined_locator,
+            observation_census::ObservationCensusReadModeV1::ReadOnly,
+        )
+        .await
+        .map_err(|_| Error::JoinedCutUnavailable)?
+        .ok_or(Error::JoinedCutUnavailable)?;
+    let (census, rederived_joined) =
+        observation_census::rederive_observation_census_read_only_v1(transaction, &joined_request)
+            .await
+            .map_err(|_| Error::JoinedCutUnavailable)?;
+    crate::owner::observation_census::authority::validate_strategy_input_joined_cut_custody_v1(
+        &joined_custody,
+        &joined_request,
+        &census,
+        &joined_locator,
+        joined_receipt_digest,
+    )
+    .map_err(|_| Error::CorruptRecord)?;
+    if rederived_joined.record().identity() != joined.identity()
+        || rederived_joined.record().digest() != joined.digest()
+        || rederived_joined.record().canonical_bytes() != joined_custody.as_ref()
+        || rederived_joined.record().joined_cut_receipt().digest() != joined_receipt_digest
+    {
+        return Err(Error::CorruptRecord);
+    }
+
+    validate_replay_sample_projection_read_only_v4(
+        transaction,
+        *sample.identity().as_bytes(),
+        *sample.digest().as_bytes(),
+        *joined_receipt_digest.as_bytes(),
+    )
+    .await
+}
+
+async fn validate_replay_sample_projection_read_only_v4(
+    transaction: &mut Transaction<'_, Postgres>,
+    sample_identity: [u8; 32],
+    sample_digest: [u8; 32],
+    joined_receipt_digest: [u8; 32],
+) -> Result<(), super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2> {
+    use super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as Error;
+    use crate::owner::sample_projection_v4::{
+        COMPONENT_LEN_V4, HEADER_LEN_V4, ScheduleDependencyV4, StrategyInputSampleProjectionKindV4,
+        V3_HEADER_LEN, decode_v4, schedule_set_digest,
+    };
+
+    if sample_identity != sample_digest {
+        return Err(Error::CorruptRecord);
+    }
+    let row = sqlx::query(
+        "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_v4($1)",
+    )
+    .bind(sample_identity.as_slice())
+    .fetch_optional(&mut **transaction)
+    .await
+    .map_err(|_| Error::StoreUnavailable)?
+    .ok_or(Error::SampleProjectionUnavailable)?;
+    let bytes: Vec<u8> = row
+        .try_get("receipt_bytes")
+        .map_err(|_| Error::CorruptRecord)?;
+    let readback_bytes: Vec<u8> = row
+        .try_get("readback_bytes")
+        .map_err(|_| Error::CorruptRecord)?;
+    let outbox_bytes: Vec<u8> = row
+        .try_get("outbox_payload")
+        .map_err(|_| Error::CorruptRecord)?;
+    let decoded = decode_v4(&bytes, sample_identity).map_err(|_| Error::CorruptRecord)?;
+    let row_digest = |column| -> Result<[u8; 32], Error> {
+        row.try_get::<Vec<u8>, _>(column)
+            .map_err(|_| Error::CorruptRecord)?
+            .try_into()
+            .map_err(|_| Error::CorruptRecord)
+    };
+    if decoded.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
+        || decoded.subject_identity() != joined_receipt_digest
+        || row_digest("receipt_digest")? != sample_identity
+        || row_digest("outbox_identity")? != sample_identity
+        || readback_bytes != bytes
+        || outbox_bytes != bytes
+    {
+        return Err(Error::CorruptRecord);
+    }
+    let dependencies = sqlx::query(
+        "SELECT * FROM market_data_private.resolve_strategy_input_sample_projection_dependencies_v4($1)",
+    )
+    .bind(sample_identity.as_slice())
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|_| Error::StoreUnavailable)?
+    .into_iter()
+    .map(|dependency_row| {
+        let digest = |column| -> Result<[u8; 32], Error> {
+            dependency_row
+                .try_get::<Vec<u8>, _>(column)
+                .map_err(|_| Error::CorruptRecord)?
+                .try_into()
+                .map_err(|_| Error::CorruptRecord)
+        };
+        Ok(ScheduleDependencyV4 {
+            source_projection_digest: digest("source_projection_digest")?,
+            role_identity: digest("role_identity")?,
+            binding_receipt_digest: digest("binding_receipt_digest")?,
+            timeframe_projection_digest: digest("timeframe_projection_digest")?,
+            schedule_readback_identity: digest("schedule_readback_identity")?,
+            schedule_fact_digest: digest("schedule_fact_digest")?,
+            schedule_cut_identity: digest("schedule_cut_identity")?,
+            schedule_cut_digest: digest("schedule_cut_digest")?,
+            schedule_receipt_identity: digest("schedule_receipt_identity")?,
+        })
+    })
+    .collect::<Result<Vec<_>, Error>>()?;
+    if dependencies.len() != decoded.component_count() as usize
+        || schedule_set_digest(&dependencies) != decoded.schedule_dependency_set_digest()
+    {
+        return Err(Error::CorruptRecord);
+    }
+    for (exact_v4, dependency) in decoded.canonical_bytes()[HEADER_LEN_V4..]
+        .chunks_exact(COMPONENT_LEN_V4)
+        .zip(&dependencies)
+    {
+        let stored = load_strategy_input_sample_projection_v3(
+            transaction,
+            dependency.source_projection_digest,
+        )
+        .await
+        .map_err(|_| Error::SampleProjectionUnavailable)?
+        .ok_or(Error::SampleProjectionUnavailable)?;
+        let stored_dependencies = load_sample_projection_schedule_dependencies_v3(
+            transaction,
+            dependency.source_projection_digest,
+        )
+        .await
+        .map_err(|_| Error::SampleProjectionUnavailable)?;
+        validate_sample_projection_dependencies_v3(
+            transaction,
+            &stored.decoded,
+            &stored_dependencies,
+            false,
+        )
+        .await
+        .map_err(|_| Error::CorruptRecord)?;
+        let stored_dependency = stored_dependencies
+            .iter()
+            .find(|stored_dependency| {
+                stored_dependency.role_identity == dependency.role_identity
+                    && stored_dependency.binding_receipt_digest == dependency.binding_receipt_digest
+            })
+            .ok_or(Error::CorruptRecord)?;
+        if stored_dependency.schedule_readback_identity.as_bytes()
+            != &dependency.schedule_readback_identity
+            || stored_dependency.schedule_fact_digest.as_bytes() != &dependency.schedule_fact_digest
+            || stored_dependency.schedule_cut_identity.as_bytes()
+                != &dependency.schedule_cut_identity
+            || stored_dependency.schedule_cut_digest.as_bytes() != &dependency.schedule_cut_digest
+            || stored_dependency.schedule_receipt_identity.as_bytes()
+                != &dependency.schedule_receipt_identity
+        {
+            return Err(Error::CorruptRecord);
+        }
+        let index = stored
+            .decoded
+            .components()
+            .iter()
+            .position(|component| {
+                component.role_identity() == dependency.role_identity
+                    && component.binding_receipt_digest() == dependency.binding_receipt_digest
+                    && component.timeframe_projection_digest()
+                        == dependency.timeframe_projection_digest
+            })
+            .ok_or(Error::CorruptRecord)?;
+        let start = V3_HEADER_LEN + index * COMPONENT_LEN_V4;
+        if stored
+            .decoded
+            .canonical_bytes()
+            .get(start..start + COMPONENT_LEN_V4)
+            != Some(exact_v4)
+        {
+            return Err(Error::CorruptRecord);
+        }
+    }
+    let mut custody = Sha256::new();
+    custody.update(b"market-data.sample-projection-postgres-custody.v4\0");
+    custody.update(sample_identity);
+    custody.update(decoded.schedule_dependency_set_digest());
+    custody.update(&bytes);
+    let custody: [u8; 32] = custody.finalize().into();
+    if row_digest("receipt_custody_digest")? != custody
+        || row_digest("readback_custody_digest")? != custody
+        || row_digest("outbox_custody_digest")? != custody
+    {
+        return Err(Error::CorruptRecord);
+    }
+    Ok(())
 }
 
 fn map_replay_market_facts_postgres_error_v2(
