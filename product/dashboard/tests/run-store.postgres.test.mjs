@@ -126,13 +126,19 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     new URL("../migrations/0008_queued_dependency_cancellation.sql", import.meta.url),
     "utf8",
   );
+  const operationAuditMigration = await readFile(
+    new URL("../migrations/0009_operation_audit_store.sql", import.meta.url),
+    "utf8",
+  );
   await admin.query(migration);
   await admin.query(scheduleMigration);
   await admin.query(effectMigration);
   await admin.query(sourceResearchMigration);
   await admin.query(cacheDeletionMigration);
   await admin.query(cancellationMigration);
-  await admin.query(`TRUNCATE dashboard_operation_run_cancellations_v1,
+  await admin.query(operationAuditMigration);
+  await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
     dashboard_artifact_formation_run_bindings_v1,
@@ -152,6 +158,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(sourceResearchMigration);
   await admin.query(cacheDeletionMigration);
   await admin.query(cancellationMigration);
+  await admin.query(operationAuditMigration);
   const predecessorUpgrade = await admin.query(
     `SELECT column_name, is_nullable
        FROM information_schema.columns
@@ -972,18 +979,25 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     message: "SERVICE_LOG_CUT_INVALID",
   });
   await serviceLogGateway.close();
-  const operationAuditGateway = new PostgresOperationAuditGatewayV1(connectionString);
+  const operationAuditGateway = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
   const operationAuditCut = await operationAuditGateway.read();
   assert.equal(operationAuditCut.availability, "available");
-  assert.ok(operationAuditCut.entries.length > 0);
-  assert.ok(operationAuditCut.entries.length <= operationAuditCut.retention_limit);
-  assert.ok(operationAuditCut.entries.some(({ phase }) => phase === "owner_readback"));
-  assert.ok(operationAuditCut.entries.every((entry) => (
-    entry.correlation_identity && entry.operation_id && entry.trigger_kind
-      && entry.run_kind && entry.run_state && entry.owner_outcome_state
-  )));
-  assert.equal(JSON.stringify(operationAuditCut).includes("recovery_identity"), false);
-  assert.equal(JSON.stringify(operationAuditCut).includes("metadata"), false);
+  assert.equal(operationAuditCut.entries.length, 1);
+  assert.equal(operationAuditCut.entries[0].receipt_identity, cancellationReceipt.receipt_identity);
+  assert.equal(operationAuditCut.entries[0].principal_ref, "local_operator");
+  assert.equal(operationAuditCut.entries[0].operation, "dashboard.dependency.cancel.queued.v1");
+  assert.equal(operationAuditCut.entries[0].action_kind, "update");
+  assert.equal(operationAuditCut.entries[0].outcome, "succeeded");
+  assert.equal(operationAuditCut.entries[0].target_identity, cancellable.run_identity);
+  assert.equal(operationAuditCut.entries[0].correlation_identity, cancellable.run_identity);
+  assert.deepEqual(operationAuditCut.summary, {
+    execute: 0, create_update: 1, delete: 0, succeeded: 1, failed_denied: 0,
+  });
+  const cancellationAuditDetail = await operationAuditGateway.readDetail(operationAuditCut.entries[0].audit_identity);
+  assert.equal(cancellationAuditDetail.entry?.receipt_identity, cancellationReceipt.receipt_identity);
+  assert.deepEqual(cancellationAuditDetail.timeline.map(({ receipt_identity }) => receipt_identity), [
+    cancellationReceipt.receipt_identity,
+  ]);
   assert.equal(JSON.stringify(operationAuditCut).toLowerCase().includes("windmill"), false);
   await operationAuditGateway.close();
   await store.close();
@@ -1065,6 +1079,28 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     "SELECT COUNT(*)::int AS count FROM dashboard_operation_run_logs_v1 WHERE run_identity = $1",
     [research.run_identity],
   )).rows[0].count, 2);
+  const auditAfterDeletion = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
+  const auditCutAfterDeletion = await auditAfterDeletion.read({ pageSize: 20 });
+  assert.equal(auditCutAfterDeletion.entries.length, 2);
+  assert.deepEqual(new Set(auditCutAfterDeletion.entries.map(({ receipt_identity }) => receipt_identity)), new Set([
+    cancellationReceipt.receipt_identity,
+    deletion.receipt_identity,
+  ]));
+  assert.deepEqual(auditCutAfterDeletion.summary, {
+    execute: 0, create_update: 1, delete: 1, succeeded: 2, failed_denied: 0,
+  });
+  const deletionAudit = auditCutAfterDeletion.entries.find(({ receipt_identity }) => receipt_identity === deletion.receipt_identity);
+  assert.ok(deletionAudit);
+  assert.equal((await auditAfterDeletion.readDetail(deletionAudit.audit_identity)).entry?.target_identity, research.run_identity);
+  await auditAfterDeletion.close();
+  await assert.rejects(() => admin.query(
+    "UPDATE dashboard_operation_audit_v1 SET outcome = 'failed' WHERE audit_identity = $1",
+    [deletionAudit.audit_identity],
+  ), (error) => error?.code === "55000");
+  await assert.rejects(() => admin.query(
+    "DELETE FROM dashboard_operation_audit_v1 WHERE audit_identity = $1",
+    [deletionAudit.audit_identity],
+  ), (error) => error?.code === "55000");
   const activeArtifact = await restarted.getRun(artifact.run_identity);
   assert.ok(activeArtifact);
   await assert.rejects(() => restarted.deleteOperationalCache({
@@ -1091,7 +1127,8 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     query: "",
   }), { message: "OPERATIONAL_DATA_EXPIRED" });
   await restarted.close();
-  await admin.query(`TRUNCATE dashboard_operation_run_cancellations_v1,
+  await admin.query(`TRUNCATE dashboard_operation_audit_v1,
+    dashboard_operation_run_cancellations_v1,
     dashboard_operation_run_cache_deletions_v1,
     dashboard_source_research_run_bindings_v1,
     dashboard_artifact_formation_run_bindings_v1,
@@ -1113,6 +1150,7 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     "0006_source_research_run_store.sql",
     "0007_operational_cache_deletion.sql",
     "0008_queued_dependency_cancellation.sql",
+    "0009_operation_audit_store.sql",
   ]) {
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }

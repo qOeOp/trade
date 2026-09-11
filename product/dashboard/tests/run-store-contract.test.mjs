@@ -108,6 +108,10 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
     new URL("../migrations/0008_queued_dependency_cancellation.sql", import.meta.url),
     "utf8",
   );
+  const operationAudit = await readFile(
+    new URL("../migrations/0009_operation_audit_store.sql", import.meta.url),
+    "utf8",
+  );
   assert.match(sql, /dashboard_operation_runs_v1/);
   assert.match(sql, /dashboard_operation_run_logs_v1/);
   assert.match(sql, /dashboard_shadow_workers_v1/);
@@ -139,6 +143,17 @@ test("RunStore migration owns only operational Dashboard tables", async () => {
   assert.match(cancellation, /transition_version = prior_transition_version \+ 1/);
   assert.match(cancellation, /ON DELETE RESTRICT/);
   assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(cancellation), false);
+  assert.match(operationAudit, /dashboard_operation_audit_v1/);
+  assert.match(operationAudit, /dashboard_operation_audit_v1_reject_mutation/);
+  assert.match(operationAudit, /BEFORE UPDATE OR DELETE/);
+  assert.match(operationAudit, /dashboard\.dependency\.cancel\.queued\.v1/);
+  assert.match(operationAudit, /dashboard\.operational_cache\.delete\.v1/);
+  assert.match(operationAudit, /target_identity = correlation_identity/);
+  assert.match(operationAudit, /FROM dashboard_operation_run_cancellations_v1/);
+  assert.match(operationAudit, /FROM dashboard_operation_run_cache_deletions_v1/);
+  assert.match(operationAudit, /DASHBOARD_OPERATION_AUDIT_CANCELLATION_BACKFILL_CONFLICT/);
+  assert.match(operationAudit, /DASHBOARD_OPERATION_AUDIT_DELETION_BACKFILL_CONFLICT/);
+  assert.equal(/windmill|rd_owner|rd_research|rd_artifact/i.test(operationAudit), false);
   assert.equal(/DELETE\s+FROM|DROP\s+TABLE|TRUNCATE/i.test(schedules), false);
   assert.match(sourceResearch, /dashboard_source_research_run_bindings_v1/);
   assert.match(sourceResearch, /source_intake\.research\.submit_or_resolve\.v1/);

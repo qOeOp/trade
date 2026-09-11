@@ -1463,26 +1463,65 @@ Positive producer 是同一 repeatable-read PostgreSQL transaction 中观测的 
 trading effect。Log 不能升级 Owner health、business success、未绑定 run 的 worker readiness、Telemetry availability
 或 replacement readiness。
 
-`/operations/audit` 保持 append-only control-plane 语义：
+#### Operations Audit 精确只读 skeleton
+
+`/operations/audit` 只对本节定义的第一方 append-only control-plane evidence 标记为
+`DRAWABLE_EXACT / IMPLEMENTATION_ADMITTED`。它绝不把 Windmill partitioned table 作为第一方 positive source：
+当前已观察 Windmill row 只暴露 principal、time 与 action kind，operation 和 resource 都是 `redacted`。
+它们可以继续作为外部 migration evidence，但不能伪造 target、outcome 或 Dashboard audit identity。第一批
+准入 producer 严格限定为成功的 `dashboard.dependency.cancel.queued.v1` 与
+`dashboard.operational_cache.delete.v1` transition。每条 audit event 必须与 immutable action receipt 在同一
+serializable PostgreSQL transaction 中插入；audit insert 缺失或被拒绝时整个 action rollback。本切面不推断、
+不写入 Owner、provider、deployment、scheduler、Windmill 或 trading event。
 
 ```text
-H  Operations / Audit                                           [Refresh]
-N  Operations tabs in the fixed order above
-F  [Time range] [Principal] [Operation] [Outcome] [Target/correlation search]
-S  Execute | Create/Update | Delete | Failed/Denied
-P  OperationAuditTable: Time | audit ID | principal | operation | outcome | target | correlation
-Q  Fixed selected-correlation stack, in order:
-   AuditCorrelationCard -> InvocationAdmissionReceipt -> InvocationClaimReceipt -> ProviderInvocationStateCard
-   exact target/correlation, request/run locator, redaction reason, receipt/state stops
-T  Timeline: selected operation events in canonical order; no replay action
-B  Retention / redaction disclosure                 [Copy audit locator]
+H  Operations / Audit · one-line purpose                         [info] [Refresh]
+S  activity: execute | create / update | delete
+   outcome: succeeded | failed / denied
+F  [24h|7d|30d|all] [principal] [operation] [outcome] [target or correlation search]
+P  OperationAuditTable: Time | principal | operation | outcome | target
+Q  Selected event: outcome; operation; principal; target; correlation;
+   receipt; audit identity; authorization cut; observed time
+T  Correlation timeline: Time | operation | outcome | receipt; canonical ascending order
+B  count / completeness / retention                            [Copy audit locator]
 ```
 
-Windmill CE 的 resource detail 被隐藏，因此当前迁移证据显示 `redacted`，不能伪造 target。第一方
-`OperationAuditStore` 以后写入 exact target/correlation；页面仍没有 edit、delete、dismiss 或 replay action。
-移动端的 split page 保持 `H -> N -> F -> S -> P -> Q -> T -> B`；Runs 与 Workers 省略 `P/Q`、保留 full-width
-`T`。Runs 把 `D` 作为 full-screen overlay 打开，filter 收进 route-local drawer；Workers 则使用上方
-精确 skeleton 的 inline filter 与 T/D 上下排列几何。
+`H` 是透明 `PanelFrameHeader`，高度 72-96 px。Title 与简短 product purpose 左对齐；右侧 circular info control
+在 secondary Refresh button 之前。Technical scope、source-cut 与 retention 文案只允许出现在 info popover 或
+`B`，不能成为散落的 page copy。`S` 是一个 compact `CompactStatusBar`，含上述两个 group 与 label；value 是
+integer，数据缺失显示 `-`，只有 available source cut 才能显示零。Body inset 的顺序为 `S`、`F`、`P/Q`。
+
+Viewport `>=1024px` 时，`F` 是单行 40 px control row，顺序严格如上。Range 为
+`24h / 7d / 30d / all`；principal 与 operation option 只能来自当前 available cut；outcome 为
+`all / succeeded / failed / denied / unknown`；normalized search 最多 128 UTF-8 byte，只匹配可显示的 exact
+target/correlation text。`768-1023px` 时 control 不改顺序地换成两行；低于 768 px 时每个 control full width，
+search 仍排最后。全部 filter 都由 server 拥有并替换 observation cut；禁止 client-only filtering 重新解释 page。
+
+Viewport `>=1024px` 时，`P/Q` 使用 `minmax(660px, 1.55fr) minmax(340px, .75fr)` split、12 px gap 与
+420 px minimum height。`P` 使用 `DataWorkspaceTable`、44 px row，column width 为：Time 190、principal 160、
+operation min 260、outcome 120、target min 240。默认按 `(observed_at, audit_identity)` descending；只有 Time
+可排序。点击 row 选择 exact audit identity，并执行 `GET /api/operations/audit/{audit_id}`。`Q` 使用单个
+`DetailInspector`，field order 如上；长 identity 视觉缩短，但 title 与 copy value 保留完整值。`T` 位于同一
+inspector body 的 selected-event facts 下方，在 detail observation cut 最多显示该 exact correlation 的 256 条
+event。`768-1023px` 时 `P` 在 `Q` 之前；低于 768 px 时 `P` 是可横向滚动 table，`Q` 在其下 full-width。
+Selection 不改变 URL，也不提供 mutation。
+
+Pagination 为 server-side，使用绑定 filter 的 opaque cursor 与 `20 / 50 / 100` page size；改变 page size 或
+任一 filter 都回到第一页。Loading 保留六个 44 px table row 与 selected-card footprint。Unfiltered empty 显示
+没有第一方 audit event；filtered empty 显示没有匹配 event。Partial cut 保留已验证 row，并显示 amber
+completeness notice。Store/configuration unavailable 与 permission-denied 保留 `S/F/P/Q/B` geometry，summary
+显示 `-`，machine reason 只放在 info 后。Unknown audit identity 复用相同 `Q` footprint 并显示
+`AUDIT_EVENT_NOT_FOUND`；malformed/cursor-expired input fail closed 且无 row。`B` 显示当前条数、
+`complete|partial_unavailable` 与固定 512-event retention bound；只有选中一个 verified event 时才显示
+secondary Copy audit locator action。页面没有 edit、delete、dismiss、replay、retry、Owner resolution、
+provider claim、download 或 generic Windmill action。
+
+List API 是 `GET /api/operations/audit`；detail API 是
+`GET /api/operations/audit/{audit_id}`。两者都使用 `no-store`，消费 `OperationAuditStore`，echo immutable
+observation cut，并在 malformed row、duplicate audit/receipt identity、invalid correlation ordering、
+filter/cursor mismatch 或 unreadable storage 时 fail closed。Table append-only：runtime `UPDATE` 与 `DELETE`
+都被拒绝。Browser parser 只接受 exact key，并在 positive page render 前重新计算 filter-cut digest。Mobile
+顺序固定为 `H -> S -> F -> P -> Q -> B`。
 
 #### 精确 Run Detail 骨架
 
@@ -1603,9 +1642,9 @@ Route name、`S/P/Q/T` slot assignment 或 PascalCase label 本身都不是可�
 
 | 完整度状态                            | 当前 page 或 surface                                                                                                                                                                                                                                                                                                                                                                                                   | 准入含义                                                                                                                                                                                                                                                         |
 | ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Service Logs `/operations/service-logs`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research `/rd/research` 目录与 Artifacts `/rd/artifacts`；Backtest Replay 请求回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
+| `DRAWABLE_EXACT`                      | Operations Runs `/operations`、Run Detail `/operations/runs/:runId`、Workers `/operations/workers` 与 `/operations/workers/:workerId`、Service Logs `/operations/service-logs`、Audit `/operations/audit`；R&D Intake `/rd` 与 Develop Composer `/rd/composer` 精确回读工作台、Research `/rd/research` 目录与 Artifacts `/rd/artifacts`；Backtest Replay 请求回读 `/backtest`；Market Data `/data` 与 `/data/pit-catalog`；全部四个 Runtime route | 本章固定 route slot、内部 field/column 顺序、尺寸或 responsive transformation、state geometry 与 button 顺序。Fail‑closed route 可以用固定 unavailable/not‑ready value 绘制；该状态不代表其 backend 或 Dashboard consumer available                              |
 | `DETAIL_DRAWABLE_LIST_BLUEPRINT_ONLY` | R&D Intake `/rd` 已准入精确回读工作台之外的 composer 与 authority‑resolution panel；R&D Research `/rd/research` 已准入目录之外的 selected‑request detail                                                                                                                                                                                                                                                               | 具名 content/detail region 已精确，但其外围 route list 仍缺少 summary label、table column、row action、sort、pagination 或 loading‑row geometry 中的一项或多项；更广 surface 不可绘制、不可实现                                                                  |
-| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Audit、Event Rail、Telemetry、Alerts，以及全部四个 Portfolio route                                                                                                                                                                                                                                                                                                             | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
+| `BLUEPRINT_ONLY_NOT_IMPLEMENTABLE`    | Registry 中其他全部完整 route，明确包括 Event Rail、Telemetry 与 Alerts                                                                                                                                                                                                                                                                                                                                                 | Registry 只固定 navigation position、route slot、具名 page‑local composite 与 button intent。无人值守 Agent 不得从 component‑like name 或已排除的 Windmill/native layout 推断缺失的 list behavior、timeline row、responsive table transformation 或内部 geometry |
 
 Route 引用但 reusable component inventory 中缺席的名称只是 page-local composite label，不是隐藏的 reusable
 atom。将一个 blueprint 晋升为 `DRAWABLE_EXACT`，要求本章以双语指定：全部 summary label 与 value state；有序且带
