@@ -455,6 +455,10 @@ async fn main() -> anyhow::Result<()> {
     let app = app
         .with_state(state)
         .merge(source_intake)
+        .merge(exploratory_replay::result_router(
+            owner.clone(),
+            token_digest,
+        ))
         .merge(source_intake_research::router(
             product_edge,
             owner,
@@ -2320,6 +2324,8 @@ mod tests {
 
     use async_trait::async_trait;
     use rstest::rstest;
+    use sqlx::Row;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use vibe_operator_authorization::{
         OperationManifestBindingV1, OperatorAuthorizationIssuanceProposalV1,
         OperatorAuthorizationIssuerPostgresV1, OperatorAuthorizationScopeV1,
@@ -2331,6 +2337,7 @@ mod tests {
     #[cfg(feature = "sealed-source-intake-acceptance")]
     use vibe_strategy_factory::replay_policy_catalog_sealed_acceptance_v2::ensure_replay_policy_catalog_fixture_v2;
     use vibe_strategy_factory::{
+        ExploratoryReplayResultLocatorV2,
         artifact_build::{ARTIFACT_BUILD_SCOPE_V1, ReservedArtifactBuildInvocationV1},
         product_edge::{RESEARCH_SCOPE_V1, RESEARCH_VIEW_SCOPE_V1, ResearchSourceV1},
     };
@@ -3453,6 +3460,192 @@ mod tests {
             product_edge_outbox_before_tampered_retry
         );
         assert_eq!(rd_attempt_after_tampered_retry, tampered_attempt);
+    }
+
+    async fn rd_owned_relation_snapshot(pool: &sqlx::PgPool) -> Vec<(String, serde_json::Value)> {
+        let relations: Vec<String> = sqlx::query_scalar(
+            "SELECT class.relname
+               FROM pg_catalog.pg_class class
+               JOIN pg_catalog.pg_namespace namespace ON namespace.oid=class.relnamespace
+               JOIN pg_catalog.pg_roles owner_role ON owner_role.oid=class.relowner
+              WHERE namespace.nspname='public'
+                AND class.relkind IN ('r','p')
+                AND owner_role.rolname='rd_owner'
+              ORDER BY class.relname",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap();
+        let mut snapshot = Vec::with_capacity(relations.len());
+        for relation in relations {
+            let quoted = relation.replace('"', "\"\"");
+            let rows: serde_json::Value = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT COALESCE(jsonb_agg(row_value ORDER BY row_value::text),'[]'::jsonb)
+                   FROM (SELECT to_jsonb(table_row) AS row_value
+                           FROM public.\"{quoted}\" table_row) relation_snapshot"
+            )))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+            snapshot.push((relation, rows));
+        }
+        snapshot
+    }
+
+    async fn get_exploratory_result(
+        address: std::net::SocketAddr,
+        token: &str,
+        result_identity: &str,
+        request_identity: &str,
+        attempt_identity: &str,
+        extra_query: Option<(&str, &str)>,
+    ) -> (StatusCode, Vec<u8>) {
+        let mut stream = tokio::net::TcpStream::connect(address).await.unwrap();
+        let extra_query = extra_query
+            .map(|(name, value)| format!("&{name}={value}"))
+            .unwrap_or_default();
+        let request = format!(
+            "GET /v2/exploratory-replay-results/{result_identity}?request_identity={request_identity}&attempt_identity={attempt_identity}{extra_query} HTTP/1.1\r\nHost: {address}\r\nAuthorization: Bearer {token}\r\nConnection: close\r\n\r\n"
+        );
+        stream.write_all(request.as_bytes()).await.unwrap();
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).await.unwrap();
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .expect("HTTP response headers")
+            + 4;
+        let status = std::str::from_utf8(&response[..header_end])
+            .unwrap()
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|value| value.parse::<u16>().ok())
+            .and_then(|value| StatusCode::from_u16(value).ok())
+            .expect("HTTP response status");
+        (status, response[header_end..].to_vec())
+    }
+
+    #[tokio::test]
+    #[ignore = "requires the canonical Backtest result commit immediately before this R&D HTTP consumer"]
+    async fn exploratory_replay_result_http_readback_is_exact_locked_and_rd_read_only() {
+        let test_database = CanonicalOwnerPostgresTestDatabaseV1::admit().await.unwrap();
+        let mutation = test_database.mutation();
+        let backtest_pool = mutation.pool(CanonicalOwnerTestRoleV1::BacktestOwner);
+        let aggregate = sqlx::query(
+            "SELECT result.result_identity, result.request_identity, result.attempt_identity,
+                    result.canonical_bytes AS result_bytes,
+                    receipt.canonical_bytes AS receipt_bytes,
+                    outbox.canonical_bytes AS outbox_bytes
+               FROM public.backtest_replay_results_v2 result
+               JOIN public.backtest_replay_result_receipts_v1 receipt
+                 ON receipt.result_identity=result.result_identity
+               JOIN public.backtest_replay_result_outbox_v1 outbox
+                 ON outbox.result_identity=result.result_identity
+              WHERE result.request_identity='request' AND result.attempt_identity='attempt'",
+        )
+        .fetch_one(backtest_pool)
+        .await
+        .expect("canonical Backtest commit fixture must precede the R&D consumer");
+        let result_identity: String = aggregate.try_get("result_identity").unwrap();
+        let request_identity: String = aggregate.try_get("request_identity").unwrap();
+        let attempt_identity: String = aggregate.try_get("attempt_identity").unwrap();
+        let result_bytes: Vec<u8> = aggregate.try_get("result_bytes").unwrap();
+        let receipt_bytes: Vec<u8> = aggregate.try_get("receipt_bytes").unwrap();
+        let outbox_bytes: Vec<u8> = aggregate.try_get("outbox_bytes").unwrap();
+
+        let owner = Arc::new(
+            PostgresResearchGoalOwnerV1::connect(
+                test_database.database_url(CanonicalOwnerTestRoleV1::RdOwner),
+                test_database.database_url(CanonicalOwnerTestRoleV1::QualificationWriter),
+            )
+            .await
+            .unwrap(),
+        );
+        let locked = owner
+            .resolve_exploratory_replay_result_v2(ExploratoryReplayResultLocatorV2 {
+                result_identity: &result_identity,
+                request_identity: &request_identity,
+                attempt_identity: &attempt_identity,
+            })
+            .await
+            .expect("canonical Backtest aggregate must pass locked R&D resolution")
+            .expect("exact result locator must resolve");
+        assert_eq!(locked.result_canonical_bytes(), result_bytes);
+        assert_eq!(locked.receipt_canonical_bytes(), receipt_bytes);
+        assert_eq!(locked.outbox_canonical_bytes(), outbox_bytes);
+
+        let rd_pool = mutation.pool(CanonicalOwnerTestRoleV1::RdOwner);
+        let before = rd_owned_relation_snapshot(rd_pool).await;
+        let token = "rd-exploratory-result-consumer-test";
+        let token_digest: [u8; 32] = Sha256::digest(token.as_bytes()).into();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+
+        let server = tokio::spawn(async move {
+            axum::serve(
+                listener,
+                exploratory_replay::result_router(owner, token_digest),
+            )
+            .await
+        });
+        let (status, body) = get_exploratory_result(
+            address,
+            token,
+            &result_identity,
+            &request_identity,
+            &attempt_identity,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body, result_bytes);
+
+        for (result, request, attempt) in [
+            (
+                "unknown-result",
+                request_identity.as_str(),
+                attempt_identity.as_str(),
+            ),
+            (
+                result_identity.as_str(),
+                "cross-spliced-request",
+                attempt_identity.as_str(),
+            ),
+            (
+                result_identity.as_str(),
+                request_identity.as_str(),
+                "cross-spliced-attempt",
+            ),
+        ] {
+            assert_eq!(
+                get_exploratory_result(address, token, result, request, attempt, None)
+                    .await
+                    .0,
+                StatusCode::NOT_FOUND
+            );
+        }
+        assert_eq!(
+            get_exploratory_result(
+                address,
+                token,
+                &result_identity,
+                &request_identity,
+                &attempt_identity,
+                Some(("result_bytes", "caller-supplied")),
+            )
+            .await
+            .0,
+            StatusCode::BAD_REQUEST
+        );
+
+        server.abort();
+        let _ = server.await;
+        let after = rd_owned_relation_snapshot(rd_pool).await;
+        assert_eq!(
+            after, before,
+            "R&D HTTP result readback must write no R&D fact"
+        );
     }
 
     fn bearer_headers(token: &str) -> HeaderMap {
