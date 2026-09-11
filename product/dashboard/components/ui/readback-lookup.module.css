@@ -16,13 +16,12 @@
 }
 
 .field {
-  position: relative;
   min-width: 0;
   display: grid;
   gap: 6px;
 }
 
-.field > span {
+.label {
   padding-left: 11px;
   color: var(--text-muted);
   font-size: 9px;
@@ -30,44 +29,28 @@
   letter-spacing: .04em;
 }
 
-.field > svg {
+.control {
+  position: relative;
+  min-width: 0;
+  display: block;
+}
+
+.control > svg {
   position: absolute;
-  bottom: 13px;
+  top: 50%;
   left: 13px;
+  z-index: 1;
+  transform: translateY(-50%);
   color: var(--text-muted);
   pointer-events: none;
 }
 
-.input {
-  color: var(--text-primary);
-  background: var(--surface-panel);
-  font-size: 12px;
-  transition: border-color 150ms ease, background 150ms ease, box-shadow 150ms ease;
-}
-
-.field[data-leading="true"] .input {
+.field[data-leading="true"] [data-slot="input"] {
   padding-left: 36px;
 }
 
-.field[data-mono="true"] .input {
+.field[data-mono="true"] [data-slot="input"] {
   font: 10px/1.2 var(--font-mono);
-}
-
-.input::placeholder {
-  color: var(--text-muted);
-}
-
-.input:hover {
-  background: var(--surface-hover);
-}
-
-.input:focus-visible {
-  border-color: var(--border-strong);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--text-muted) 26%, transparent);
-}
-
-.input[aria-invalid="true"] {
-  border-color: var(--status-warning);
 }
 
 .action {
@@ -89,12 +72,5 @@
 
   .action {
     width: 100%;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .input {
-    animation: none;
-    transition: none;
   }
 }

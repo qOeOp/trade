@@ -3,17 +3,29 @@ import { useEffect, useState } from 'react';
 import useEvent from 'react-use-event-hook';
 
 import { cn } from '@/lib/utils';
+import styles from './input.module.css';
 
 // ─── Types ────────────────────────────────────────────────
 
 type InputProps = React.ComponentProps<'input'> & {
   /** Icon rendered inside the input on the left side */
   icon?: React.ReactNode;
+  /** Shared visual treatment for the input surface. */
+  variant?: 'default' | 'surface';
 };
 
 // ─── Input ────────────────────────────────────────────────
 
-function Input({ className, type, icon, ...props }: InputProps) {
+function Input({ className, type, icon, variant = 'default', ...props }: InputProps) {
+  const inputClassName = cn(
+    'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
+    'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
+    'aria-invalid:ring-destructive/20 aria-invalid:border-destructive',
+    variant === 'surface' && styles.surface,
+    icon && 'pl-8',
+    className,
+  );
+
   if (icon) {
     return (
       <div data-slot="input-wrapper" className="relative">
@@ -23,13 +35,8 @@ function Input({ className, type, icon, ...props }: InputProps) {
         <input
           type={type}
           data-slot="input"
-          className={cn(
-            'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
-            'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
-            'aria-invalid:ring-destructive/20 aria-invalid:border-destructive',
-            'pl-8',
-            className,
-          )}
+          data-variant={variant}
+          className={inputClassName}
           {...props}
         />
       </div>
@@ -40,12 +47,8 @@ function Input({ className, type, icon, ...props }: InputProps) {
     <input
       type={type}
       data-slot="input"
-      className={cn(
-        'file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground border-input h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm',
-        'focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]',
-        'aria-invalid:ring-destructive/20 aria-invalid:border-destructive',
-        className,
-      )}
+      data-variant={variant}
+      className={inputClassName}
       {...props}
     />
   );

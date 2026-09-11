@@ -56,15 +56,17 @@ export function ReadbackLookupField({
       data-leading={Boolean(leading)}
       data-mono={mono}
     >
-      <span className={labelHidden ? "sr-only" : undefined}>{label}</span>
-      {leading}
-      {children}
+      <span className={labelHidden ? "sr-only" : styles.label}>{label}</span>
+      <span className={styles.control}>
+        {leading}
+        {children}
+      </span>
     </label>
   );
 }
 
 export function ReadbackLookupInput({ className, ...props }: InputProps) {
-  return <Input {...props} className={classes(styles.input, className)} />;
+  return <Input {...props} className={className} variant="surface" />;
 }
 
 export function ReadbackLookupAction({
