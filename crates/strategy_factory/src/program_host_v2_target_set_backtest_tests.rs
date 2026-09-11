@@ -13,6 +13,8 @@ use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
     engine::BacktestEngine,
 };
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+use vibe_backtest_owner_contracts::ReplayWindowV2;
 use vibe_data::owner::{
     sealed_acceptance::issue_strategy_input_universe_frame, source_binding::BindingDigest,
     strategy_input_binding::StrategyInputUniverseFrameReceipt,
@@ -69,61 +71,19 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
         instrument.margin_init = rust_decimal::Decimal::new(1, 1);
         instrument.margin_maint = rust_decimal::Decimal::new(5, 2);
     }
-    let authority = owner_replay_execution_profile_binding_fixture_v1();
     let (plan, artifact, frame) = fixture().unwrap();
     let admitted = admit_market_data_universe_program_event_v2(&plan, &frame).unwrap();
     let time = admitted.envelope().order_key.logical_time_ns;
-    let instrument_ids = instruments.each_ref().map(Instrument::id);
-    let bar_types = instrument_ids.map(|instrument_id| {
-        BarType::new(
-            instrument_id,
-            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
-            AggregationSource::External,
-        )
-    });
-    let bars = [
-        Bar::new(
-            bar_types[0],
-            Price::from("186.41"),
-            Price::from("188.00"),
-            Price::from("185.00"),
-            Price::from("187.25"),
-            Quantity::from("100"),
-            time.into(),
-            time.into(),
-        ),
-        Bar::new(
-            bar_types[1],
-            Price::from("419.81"),
-            Price::from("425.00"),
-            Price::from("418.00"),
-            Price::from("421.15"),
-            Quantity::from("100.0"),
-            time.into(),
-            time.into(),
-        ),
-    ];
-    let mut data = bars.into_iter().map(Data::Bar).collect::<Vec<_>>();
-    data.extend([
-        Data::Quote(QuoteTick::new(
-            instruments[0].id(),
-            Price::from("187.24"),
-            Price::from("187.25"),
-            Quantity::from("100"),
-            Quantity::from("100"),
-            (time + 1).into(),
-            (time + 1).into(),
-        )),
-        Data::Quote(QuoteTick::new(
-            instruments[1].id(),
-            Price::from("421.14"),
-            Price::from("421.15"),
-            Quantity::from("100.0"),
-            Quantity::from("100.0"),
-            (time + 2).into(),
-            (time + 2).into(),
-        )),
-    ]);
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &plan,
+        &artifact,
+        &frame,
+        ReplayWindowV2 {
+            start_event_ns: time,
+            end_event_ns_exclusive: time + 3,
+        },
+    );
+    let (bar_types, data) = request_execution_schedule(&instruments, time);
     let capability = ReplayTargetSetExecutionBundleV1::new(
         authority,
         plan,
@@ -161,6 +121,107 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
             .request_identity,
         "rd-replay-request-aapl-msft-v2"
     );
+}
+
+#[rstest]
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn self_consistent_plan_artifact_splice_fails_before_execution() {
+    let (request_plan, request_artifact, request_frame) = fixture().unwrap();
+    let request_time = admit_market_data_universe_program_event_v2(&request_plan, &request_frame)
+        .unwrap()
+        .envelope()
+        .order_key
+        .logical_time_ns;
+    let authority = owner_replay_execution_profile_binding_fixture_v1(
+        &request_plan,
+        &request_artifact,
+        &request_frame,
+        ReplayWindowV2 {
+            start_event_ns: request_time,
+            end_event_ns_exclusive: request_time + 3,
+        },
+    );
+    let (foreign_plan, foreign_artifact, foreign_frame) =
+        fixture_with_target_sets(target_set(), Some(second_target_set())).unwrap();
+    let foreign_time = admit_market_data_universe_program_event_v2(&foreign_plan, &foreign_frame)
+        .unwrap()
+        .envelope()
+        .order_key
+        .logical_time_ns;
+    let instruments = instruments();
+    let (bar_types, data) = request_execution_schedule(&instruments, foreign_time);
+
+    assert!(
+        ReplayTargetSetExecutionBundleV1::new(
+            authority,
+            foreign_plan,
+            foreign_artifact,
+            foreign_frame,
+            StrategyId::from("TARGET-SET-PROFILE-EVENT-SPLICE"),
+            "target-set-profile-event-splice".into(),
+            instruments,
+            bar_types,
+            data,
+        )
+        .is_err()
+    );
+}
+
+#[cfg(feature = "sealed-strategy-input-acceptance")]
+fn request_execution_schedule(
+    instruments: &[InstrumentAny; 2],
+    time: u64,
+) -> ([BarType; 2], Vec<Data>) {
+    let bar_types = instruments.each_ref().map(|instrument| {
+        BarType::new(
+            instrument.id(),
+            BarSpecification::new(1, BarAggregation::Day, PriceType::Last),
+            AggregationSource::External,
+        )
+    });
+    let mut data = vec![
+        Data::Bar(Bar::new(
+            bar_types[0],
+            Price::from("186.41"),
+            Price::from("188.00"),
+            Price::from("185.00"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            time.into(),
+            time.into(),
+        )),
+        Data::Bar(Bar::new(
+            bar_types[1],
+            Price::from("419.81"),
+            Price::from("425.00"),
+            Price::from("418.00"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            time.into(),
+            time.into(),
+        )),
+    ];
+    data.extend([
+        Data::Quote(QuoteTick::new(
+            instruments[0].id(),
+            Price::from("187.24"),
+            Price::from("187.25"),
+            Quantity::from("100"),
+            Quantity::from("100"),
+            (time + 1).into(),
+            (time + 1).into(),
+        )),
+        Data::Quote(QuoteTick::new(
+            instruments[1].id(),
+            Price::from("421.14"),
+            Price::from("421.15"),
+            Quantity::from("100.0"),
+            Quantity::from("100.0"),
+            (time + 2).into(),
+            (time + 2).into(),
+        )),
+    ]);
+    (bar_types, data)
 }
 
 #[derive(Serialize)]
@@ -992,7 +1053,7 @@ fn reconciliation_capability(
     .unwrap()
 }
 
-fn fixture() -> anyhow::Result<(
+pub(crate) fn fixture() -> anyhow::Result<(
     StrategyPlanV2,
     StrategyArtifactV2,
     StrategyInputUniverseFrameReceipt,

@@ -7,6 +7,7 @@
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
+use vibe_backtest_owner_contracts::ReplayWindowV2;
 use vibe_data::owner::instrument_economic_terms_v1::{
     InstrumentEconomicAccountApplicabilityV1, InstrumentEconomicTermsReadbackV1,
     InstrumentMarginMeaningV1,
@@ -253,6 +254,13 @@ pub struct OwnerIssuedReplayExecutionProfileBindingV1 {
     economic_configuration_digest: [u8; 32],
     runner_operational_profile_canonical_bytes: Vec<u8>,
     runner_operational_profile_digest: [u8; 32],
+    request_strategy_plan_identity: String,
+    request_strategy_plan_digest: [u8; 32],
+    request_artifact_identity: String,
+    request_artifact_digest: [u8; 32],
+    request_universe_selection_identity: String,
+    request_universe_selection_digest: [u8; 32],
+    request_window: ReplayWindowV2,
     authority_digest: [u8; 32],
     execution_profile_binding: ReplayExecutionProfileBindingV1,
 }
@@ -296,6 +304,34 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
     #[must_use]
     pub const fn runner_operational_profile_digest(&self) -> [u8; 32] {
         self.runner_operational_profile_digest
+    }
+
+    pub(crate) fn request_strategy_plan_identity(&self) -> &str {
+        &self.request_strategy_plan_identity
+    }
+
+    pub(crate) const fn request_strategy_plan_digest(&self) -> [u8; 32] {
+        self.request_strategy_plan_digest
+    }
+
+    pub(crate) fn request_artifact_identity(&self) -> &str {
+        &self.request_artifact_identity
+    }
+
+    pub(crate) const fn request_artifact_digest(&self) -> [u8; 32] {
+        self.request_artifact_digest
+    }
+
+    pub(crate) fn request_universe_selection_identity(&self) -> &str {
+        &self.request_universe_selection_identity
+    }
+
+    pub(crate) const fn request_universe_selection_digest(&self) -> [u8; 32] {
+        self.request_universe_selection_digest
+    }
+
+    pub(crate) const fn request_window(&self) -> &ReplayWindowV2 {
+        &self.request_window
     }
 
     #[must_use]
@@ -343,7 +379,8 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     let locator = request.locator();
     let family_digest = decode_canonical_digest(root.root_digest())?;
     let request_meaning_digest = decode_canonical_digest(request.meaning_digest())?;
-    let request_family = &request.request().as_dto().trial_family;
+    let request_dto = request.request().as_dto();
+    let request_family = &request_dto.trial_family;
     if request_family.identity.as_str() != root.trial_family_identity()
         || request_family.digest.as_str() != root.root_digest()
     {
@@ -386,6 +423,28 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     encode_bytes(&mut hasher, economic.canonical_bytes())?;
     hasher.update(runner.digest());
     encode_bytes(&mut hasher, runner.canonical_bytes())?;
+    let request_strategy_plan_digest =
+        decode_canonical_digest(request_dto.strategy_plan.digest.as_str())?;
+    let request_artifact_digest = decode_canonical_digest(request_dto.artifact.digest.as_str())?;
+    let request_universe_selection_digest =
+        decode_canonical_digest(request_dto.universe_selection.digest.as_str())?;
+    encode_bytes(
+        &mut hasher,
+        request_dto.strategy_plan.identity.as_str().as_bytes(),
+    )?;
+    hasher.update(request_strategy_plan_digest);
+    encode_bytes(
+        &mut hasher,
+        request_dto.artifact.identity.as_str().as_bytes(),
+    )?;
+    hasher.update(request_artifact_digest);
+    encode_bytes(
+        &mut hasher,
+        request_dto.universe_selection.identity.as_str().as_bytes(),
+    )?;
+    hasher.update(request_universe_selection_digest);
+    hasher.update(request_dto.window.start_event_ns.to_be_bytes());
+    hasher.update(request_dto.window.end_event_ns_exclusive.to_be_bytes());
     hasher.update(execution_profile_binding.binding_digest());
     let authority_digest = hasher.finalize().into();
 
@@ -397,6 +456,17 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
         economic_configuration_digest: economic.digest(),
         runner_operational_profile_canonical_bytes: runner.canonical_bytes().to_vec(),
         runner_operational_profile_digest: runner.digest(),
+        request_strategy_plan_identity: request_dto.strategy_plan.identity.as_str().to_owned(),
+        request_strategy_plan_digest,
+        request_artifact_identity: request_dto.artifact.identity.as_str().to_owned(),
+        request_artifact_digest,
+        request_universe_selection_identity: request_dto
+            .universe_selection
+            .identity
+            .as_str()
+            .to_owned(),
+        request_universe_selection_digest,
+        request_window: request_dto.window.clone(),
         authority_digest,
         execution_profile_binding,
     })
@@ -418,8 +488,12 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
 
 /// Genuine fixed Owner-readback fixture for the Backtest consumer seam.
 #[cfg(test)]
-pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
--> OwnerIssuedReplayExecutionProfileBindingV1 {
+pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
+    plan: &crate::strategy_plan_v2::StrategyPlanV2,
+    artifact: &crate::artifact_v2::StrategyArtifactV2,
+    universe_frame: &vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt,
+    window: ReplayWindowV2,
+) -> OwnerIssuedReplayExecutionProfileBindingV1 {
     use crate::{
         exploratory_replay::issue_sealed_exploratory_replay_readback_for_acceptance_v2,
         replay_economic_configuration_v1::economic_fixture,
@@ -432,8 +506,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
     };
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
-        ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, ReplayWindowV2,
-        VersionedIdentityV2,
+        ReplayModelProfilesV2, ReplayRequestDtoV2, ReplayRequestV2, VersionedIdentityV2,
     };
 
     fn opaque(value: &str) -> OpaqueIdentityV2 {
@@ -478,10 +551,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
         runner_operational_profile: versioned("runner-profile-v1"),
         diagnostic_policy: versioned("diagnostic-policy-v1"),
         deterministic_seed: 17,
-        window: ReplayWindowV2 {
-            start_event_ns: 100,
-            end_event_ns_exclusive: 200,
-        },
+        window: window.clone(),
         calendar: versioned("xnas-calendar-v1"),
         session: versioned("xnas-session-v1"),
         time_zone: versioned("america-new-york-v1"),
@@ -535,12 +605,42 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
         ),
         replay_authority: ReplayAuthorityClaimV2::Exploratory,
         strategy_design: content("strategy-design-v2", digest(6)),
-        strategy_plan: content("strategy-plan-v2", digest(7)),
-        artifact: content("strategy-artifact-v2", digest(8)),
+        strategy_plan: content(
+            &format!(
+                "sha256:{}",
+                hex_bytes(plan.canonical_plan_digest().as_bytes())
+            ),
+            CanonicalDigestV2::try_from(format!(
+                "sha256:{}",
+                hex_bytes(plan.canonical_plan_digest().as_bytes())
+            ))
+            .expect("canonical Plan digest"),
+        ),
+        artifact: content(
+            &format!(
+                "rd-strategy-artifact-v2-{}",
+                hex_bytes(artifact.identity().as_bytes())
+            ),
+            CanonicalDigestV2::try_from(format!(
+                "sha256:{}",
+                hex_bytes(artifact.identity().as_bytes())
+            ))
+            .expect("artifact digest"),
+        ),
         resolved_owner_inputs: content("owner-inputs-v2", digest(9)),
         pit_scope: content("pit-scope-v2", digest(10)),
         pit_snapshot: content("pit-snapshot-v2", digest(11)),
-        universe_selection: content("aapl-msft-universe-v1", digest(12)),
+        universe_selection: content(
+            &format!(
+                "blake3:{}",
+                hex_bytes(universe_frame.selection().selection_identity().as_bytes())
+            ),
+            CanonicalDigestV2::try_from(format!(
+                "blake3:{}",
+                hex_bytes(universe_frame.selection().selection_digest().as_bytes())
+            ))
+            .expect("universe selection digest"),
+        ),
         correction_rule: execution_policy.correction_rule.clone(),
         market_semantics: execution_policy.market_semantics.clone(),
         replay_configuration: execution_policy.replay_configuration.clone(),
@@ -554,7 +654,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
         runner_operational_profile: execution_policy.runner_operational_profile.clone(),
         diagnostic_policy: execution_policy.diagnostic_policy.clone(),
         deterministic_seed: execution_policy.deterministic_seed,
-        window: execution_policy.window,
+        window,
         calendar: execution_policy.calendar,
         session: execution_policy.session,
         time_zone: execution_policy.time_zone,
@@ -1030,6 +1130,11 @@ fn decode_canonical_digest(value: &str) -> Result<[u8; 32], ReplayExecutionProfi
     Ok(output)
 }
 
+#[cfg(test)]
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+}
+
 #[cfg_attr(
     not(test),
     expect(
@@ -1093,8 +1198,25 @@ mod tests {
     }
 
     #[rstest]
+    #[cfg(feature = "sealed-strategy-input-acceptance")]
     fn owner_fixture_uses_complete_request_locator_and_exact_profile_bytes() {
-        let binding = owner_replay_execution_profile_binding_fixture_v1();
+        let (plan, artifact, frame) =
+            crate::program_host_v2_target_set_backtest_tests::fixture().unwrap();
+        let frame_time =
+            crate::program_host_v2::admit_market_data_universe_program_event_v2(&plan, &frame)
+                .unwrap()
+                .envelope()
+                .order_key
+                .logical_time_ns;
+        let binding = owner_replay_execution_profile_binding_fixture_v1(
+            &plan,
+            &artifact,
+            &frame,
+            ReplayWindowV2 {
+                start_event_ns: frame_time,
+                end_event_ns_exclusive: frame_time + 3,
+            },
+        );
         let locator = binding.request_locator().clone();
         assert_eq!(locator.request_identity, "rd-replay-request-aapl-msft-v2");
         assert!(!locator.meaning_digest.is_empty());
@@ -1113,6 +1235,18 @@ mod tests {
             }
         );
         assert_eq!(economic.digest(), binding.economic_configuration_digest());
+        assert_eq!(
+            binding.request_strategy_plan_digest(),
+            *plan.canonical_plan_digest().as_bytes()
+        );
+        assert_eq!(
+            binding.request_artifact_digest(),
+            *artifact.identity().as_bytes()
+        );
+        assert_eq!(
+            binding.request_universe_selection_digest(),
+            *frame.selection().selection_digest().as_bytes()
+        );
         assert_eq!(
             ReplayRunnerOperationalProfileV1::parse_canonical(
                 binding.runner_operational_profile_canonical_bytes()

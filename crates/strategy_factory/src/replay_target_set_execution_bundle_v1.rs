@@ -11,7 +11,7 @@ use vibe_data::owner::strategy_input_binding::{
     StrategyInputEventKind, StrategyInputUniverseFrameReceipt,
 };
 use vibe_model::{
-    data::{Bar, BarType, Data, QuoteTick},
+    data::{Bar, BarType, Data, HasTsInit, QuoteTick},
     identifiers::{AccountId, StrategyId},
     instruments::{Instrument, InstrumentAny},
 };
@@ -354,28 +354,10 @@ impl ReplayTargetSetExecutionBundleV1 {
         let trial_family_digest = authority.trial_family_digest();
         let economic_configuration_digest = authority.economic_configuration_digest();
         let runner_operational_profile_digest = authority.runner_operational_profile_digest();
-        let economic = ReplayEconomicConfigurationV1::parse_canonical(
-            authority.economic_configuration_canonical_bytes(),
-        )?;
-        let runner = ReplayRunnerOperationalProfileV1::parse_canonical(
-            authority.runner_operational_profile_canonical_bytes(),
-        )?;
-        anyhow::ensure!(
-            economic.digest() == economic_configuration_digest
-                && runner.digest() == runner_operational_profile_digest,
-            "request execution bundle profile seals mismatch Owner authority"
-        );
-        let binding = authority.into_execution_profile_binding();
-        let execution_profile_binding_digest = binding.binding_digest();
-        let native_profile =
-            materialize_event_replay_execution_profile_v1(binding, &economic, &runner)?;
         anyhow::ensure!(
             !run_id.is_empty(),
             "request execution bundle has no run identity"
         );
-        native_profile.validate_target_set(&instruments)?;
-        native_profile.validate_account_scope()?;
-        native_profile.validate_data(&data)?;
         artifact.validate_for_plan(&plan)?;
         let admitted = admit_market_data_universe_program_event_v2(&plan, &universe_frame)?;
         anyhow::ensure!(
@@ -407,8 +389,60 @@ impl ReplayTargetSetExecutionBundleV1 {
             "request execution bundle has an incomplete Owner universe frame"
         );
         let frame_time = admitted.envelope().order_key.logical_time_ns;
-        let scheduling_data_digest =
-            validate_and_digest_scheduling_data(&data, &instruments, &bar_types, frame_time)?;
+        let plan_digest = *plan.canonical_plan_digest().as_bytes();
+        let artifact_digest = *artifact.identity().as_bytes();
+        let selection_identity = *universe_frame.selection().selection_identity().as_bytes();
+        let selection_digest = *universe_frame.selection().selection_digest().as_bytes();
+        anyhow::ensure!(
+            authority.request_strategy_plan_identity()
+                == canonical_digest_text("sha256", plan_digest)
+                && authority.request_strategy_plan_digest() == plan_digest,
+            "request execution bundle Plan mismatches Owner request authority"
+        );
+        anyhow::ensure!(
+            authority.request_artifact_identity()
+                == format!("rd-strategy-artifact-v2-{}", hex_bytes(&artifact_digest))
+                && authority.request_artifact_digest() == artifact_digest,
+            "request execution bundle Artifact mismatches Owner request authority"
+        );
+        anyhow::ensure!(
+            authority.request_universe_selection_identity()
+                == canonical_digest_text("blake3", selection_identity)
+                && authority.request_universe_selection_digest() == selection_digest,
+            "request execution bundle universe selection mismatches Owner request authority"
+        );
+        let request_window = authority.request_window();
+        anyhow::ensure!(
+            frame_time == request_window.start_event_ns,
+            "request execution bundle frame time mismatches Owner request window"
+        );
+        let scheduling_data_digest = validate_and_digest_scheduling_data(
+            &data,
+            &instruments,
+            &bar_types,
+            frame_time,
+            request_window.start_event_ns,
+            request_window.end_event_ns_exclusive,
+        )?;
+
+        let economic = ReplayEconomicConfigurationV1::parse_canonical(
+            authority.economic_configuration_canonical_bytes(),
+        )?;
+        let runner = ReplayRunnerOperationalProfileV1::parse_canonical(
+            authority.runner_operational_profile_canonical_bytes(),
+        )?;
+        anyhow::ensure!(
+            economic.digest() == economic_configuration_digest
+                && runner.digest() == runner_operational_profile_digest,
+            "request execution bundle profile seals mismatch Owner authority"
+        );
+        let binding = authority.into_execution_profile_binding();
+        let execution_profile_binding_digest = binding.binding_digest();
+        let native_profile =
+            materialize_event_replay_execution_profile_v1(binding, &economic, &runner)?;
+        native_profile.validate_target_set(&instruments)?;
+        native_profile.validate_account_scope()?;
+        native_profile.validate_data(&data)?;
         let account_scope_id = native_profile.account_scope_id();
         let mut census = ReplayTargetSetExecutionCensusV1 {
             request_locator,
@@ -526,6 +560,8 @@ fn validate_and_digest_scheduling_data(
     instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
     bar_types: &[BarType; TARGET_SET_MEMBER_COUNT],
     frame_time: u64,
+    window_start_event_ns: u64,
+    window_end_event_ns_exclusive: u64,
 ) -> anyhow::Result<[u8; 32]> {
     let [
         Data::Bar(first_bar),
@@ -540,18 +576,29 @@ fn validate_and_digest_scheduling_data(
     };
     let bars = [first_bar, second_bar];
     let events = [first_event, second_event];
+    anyhow::ensure!(
+        window_start_event_ns < window_end_event_ns_exclusive
+            && data
+                .iter()
+                .all(|value| value.ts_init().as_u64() >= window_start_event_ns),
+        "request execution bundle scheduling data is outside the Owner request window"
+    );
     for ordinal in 0..TARGET_SET_MEMBER_COUNT {
         let instrument_id = instruments[ordinal].id();
         anyhow::ensure!(
             bars[ordinal].bar_type == bar_types[ordinal]
                 && bars[ordinal].instrument_id() == instrument_id
                 && bars[ordinal].ts_event.as_u64() == frame_time
-                && bars[ordinal].ts_init.as_u64() == frame_time,
+                && bars[ordinal].ts_init.as_u64() == frame_time
+                && bars[ordinal].ts_event.as_u64() >= window_start_event_ns
+                && bars[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive,
             "request execution bundle BAR scheduling order or time mismatches"
         );
         anyhow::ensure!(
             events[ordinal].instrument_id == instrument_id
                 && events[ordinal].ts_event.as_u64() > frame_time
+                && events[ordinal].ts_event.as_u64() >= window_start_event_ns
+                && events[ordinal].ts_event.as_u64() < window_end_event_ns_exclusive
                 && events[ordinal].ts_init.as_u64() >= events[ordinal].ts_event.as_u64()
                 && events[ordinal].bid_size.as_decimal() > rust_decimal::Decimal::ZERO
                 && events[ordinal].ask_size.as_decimal() > rust_decimal::Decimal::ZERO,
@@ -561,6 +608,11 @@ fn validate_and_digest_scheduling_data(
     anyhow::ensure!(
         events[0].ts_event < events[1].ts_event,
         "request execution bundle EVENT order is not canonical"
+    );
+    anyhow::ensure!(
+        data.windows(2)
+            .all(|pair| pair[0].ts_init() <= pair[1].ts_init()),
+        "request execution bundle order changes under Backtest ts_init scheduling"
     );
 
     let mut hasher = Sha256::new();
@@ -573,6 +625,14 @@ fn validate_and_digest_scheduling_data(
         digest_quote(&mut hasher, event)?;
     }
     Ok(hasher.finalize().into())
+}
+
+fn canonical_digest_text(algorithm: &str, digest: [u8; 32]) -> String {
+    format!("{algorithm}:{}", hex_bytes(&digest))
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn digest_bar(hasher: &mut Sha256, bar: &Bar) -> anyhow::Result<()> {
@@ -682,6 +742,8 @@ mod tests {
             &first_instruments,
             &first_bar_types,
             FRAME_TIME,
+            FRAME_TIME,
+            FRAME_TIME + 3,
         )
         .unwrap();
         let second = validate_and_digest_scheduling_data(
@@ -689,6 +751,8 @@ mod tests {
             &second_instruments,
             &second_bar_types,
             FRAME_TIME,
+            FRAME_TIME,
+            FRAME_TIME + 3,
         )
         .unwrap();
         assert_eq!(first, second);
@@ -700,22 +764,43 @@ mod tests {
         let (instruments, bar_types, mut missing) = scheduling_fixture();
         missing.pop();
         assert!(
-            validate_and_digest_scheduling_data(&missing, &instruments, &bar_types, FRAME_TIME)
-                .is_err()
+            validate_and_digest_scheduling_data(
+                &missing,
+                &instruments,
+                &bar_types,
+                FRAME_TIME,
+                FRAME_TIME,
+                FRAME_TIME + 3
+            )
+            .is_err()
         );
 
         let (instruments, bar_types, mut duplicate) = scheduling_fixture();
         duplicate[3] = quote(&instruments[0], FRAME_TIME + 2, "100");
         assert!(
-            validate_and_digest_scheduling_data(&duplicate, &instruments, &bar_types, FRAME_TIME)
-                .is_err()
+            validate_and_digest_scheduling_data(
+                &duplicate,
+                &instruments,
+                &bar_types,
+                FRAME_TIME,
+                FRAME_TIME,
+                FRAME_TIME + 3
+            )
+            .is_err()
         );
 
         let (instruments, bar_types, mut reordered) = scheduling_fixture();
         reordered.swap(2, 3);
         assert!(
-            validate_and_digest_scheduling_data(&reordered, &instruments, &bar_types, FRAME_TIME)
-                .is_err()
+            validate_and_digest_scheduling_data(
+                &reordered,
+                &instruments,
+                &bar_types,
+                FRAME_TIME,
+                FRAME_TIME,
+                FRAME_TIME + 3
+            )
+            .is_err()
         );
 
         let (instruments, bar_types, mut no_liquidity) = scheduling_fixture();
@@ -725,7 +810,37 @@ mod tests {
                 &no_liquidity,
                 &instruments,
                 &bar_types,
-                FRAME_TIME
+                FRAME_TIME,
+                FRAME_TIME,
+                FRAME_TIME + 3
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn engine_ts_init_scheduler_reversal_fails_closed() {
+        let (instruments, bar_types, mut data) = scheduling_fixture();
+        let Data::Quote(first_event) = &data[2] else {
+            panic!("fixture first EVENT")
+        };
+        data[2] = Data::Quote(QuoteTick::new(
+            first_event.instrument_id,
+            first_event.bid_price,
+            first_event.ask_price,
+            first_event.bid_size,
+            first_event.ask_size,
+            (FRAME_TIME + 1).into(),
+            (FRAME_TIME + 10).into(),
+        ));
+        assert!(
+            validate_and_digest_scheduling_data(
+                &data,
+                &instruments,
+                &bar_types,
+                FRAME_TIME,
+                FRAME_TIME,
+                FRAME_TIME + 11
             )
             .is_err()
         );
