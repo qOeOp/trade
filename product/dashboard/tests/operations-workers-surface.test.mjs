@@ -15,10 +15,10 @@ async function source(path) {
 
 test("Workers is a GET-only RunStore projection wired into the exact Operations route", async () => {
   const [shell, listRoute, detailRoute, detailPage] = await Promise.all([
-    source("components/dashboard-shell.tsx"),
+    source("components/dashboard-route-content.tsx"),
     source("app/api/operations/workers/route.ts"),
     source("app/api/operations/workers/[workerIdentity]/route.ts"),
-    source("app/operations/workers/[workerIdentity]/page.tsx"),
+    source("app/(dashboard)/operations/workers/[workerIdentity]/page.tsx"),
   ]);
 
   assert.match(shell, /operationsWorkers \? <OperationsWorkersPreview initialWorkerIdentity=\{workerIdentity\} \/>/);
@@ -52,23 +52,35 @@ test("Workers keeps one compact summary, one dense table, and one exact detail s
   assert.match(workers, /compactRunLabel\(worker\.last_run_identity\)/u);
   assert.doesNotMatch(workers, /<b>\{worker\.worker_identity\}<\/b>|<code title=\{worker\.last_run_identity\}>\{worker\.last_run_identity\}<\/code>/u);
   assert.match(workers, /no unbound-run readiness claim/);
-  assert.match(css, /\.compact-status-bar \{[^}]*width: 100%;[^}]*display: grid;[^}]*gap: 12px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]*container: compact-status \/ inline-size;[^}]*width: 100%;/u);
+  assert.match(css, /\.compact-status-bar-layout \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\);[^}]*align-items: stretch;[^}]*gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
-  assert.match(css, /\.compact-status-group \{[^}]*container: compact-status-group \/ inline-size;[^}]*position: relative;[^}]*padding-top: 14px;/u);
-  assert.match(css, /\.compact-status-group-label \{[^}]*position: absolute;[^}]*min-width: 104px;[^}]*min-height: 20px;[^}]*border-radius: 8px 8px 0 0;[^}]*text-transform: lowercase;/u);
-  assert.match(css, /\.compact-status-group-label::after \{[^}]*radial-gradient\(circle at 100% 0, transparent 11\.25px, var\(--compact-status-shell\) 11\.75px\)/u);
+  assert.match(css, /\.compact-status-group \{[^}]*container: compact-status-group \/ inline-size;[^}]*position: relative;[^}]*padding-top: 20px;/u);
+  assert.match(css, /\.compact-status-group-label \{[^}]*position: absolute;[^}]*min-width: 116px;[^}]*min-height: 24px;[^}]*border-radius: 9px 9px 0 0;[^}]*text-transform: lowercase;/u);
+  assert.match(css, /\.compact-status-group-label::after \{[^}]*radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*box-shadow:/u);
   assert.doesNotMatch(statusBar + css, /compact-status-group-chevron/u);
-  assert.match(css, /\.compact-status-group dl \{[^}]*gap: 1px;[^}]*overflow: hidden;[^}]*border: 1px solid var\(--border-default\);[^}]*border-radius: 0 10px 10px 10px;/u);
-  assert.match(css, /\.compact-status-item \{[^}]*padding: 8px clamp\(16px, 2vw, 32px\);[^}]*justify-content: space-between;[^}]*gap: clamp\(20px, 2vw, 36px\);[^}]*border: 0;[^}]*border-radius: 0;[^}]*box-shadow: none;/u);
+  assert.match(css, /\.compact-status-group dl \{[^}]*padding: 8px;[^}]*gap: 8px;[^}]*border-radius: 0 12px 12px 12px;[^}]*background: var\(--compact-status-shell\);/u);
+  assert.match(css, /\.compact-status-item \{[^}]*padding: 9px clamp\(14px, 1\.8vw, 28px\);[^}]*justify-content: space-between;[^}]*gap: 20px;[^}]*border-radius: 8px;[^}]*background: var\(--surface-card\);/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
   assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background:/u);
   assert.match(statusBar, /type CompactStatusTone = StatusBadgeTone/u);
+  assert.match(statusBar, /new Set\(concreteCounts\)\.size > 1/u);
+  assert.match(statusBar, /columns: isAsymmetric && itemCount <= 2 \? 1 : Math\.min\(itemCount, 2\)/u);
+  assert.match(statusBar, /weight: isAsymmetric \? 1 \+ Math\.log2\(itemCount\) : itemCount/u);
+  assert.match(statusBar, /className="compact-status-bar-layout" data-layout=\{isAsymmetric \? "bento" : undefined\}/u);
+  assert.match(statusBar, /data-bento-columns=\{layout\?\.columns\} data-item-count=\{itemCount\} style=\{groupStyle\}/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group dl \{[^}]*display: grid;[^}]*repeat\(var\(--compact-status-columns\), minmax\(0, 1fr\)\)/u);
+  assert.match(css, /@container compact-status \(min-width: 1320px\)[\s\S]+\.compact-status-bar-layout \{[^}]*display: flex;[^}]*flex-wrap: nowrap;[^}]*\}[\s\S]*\.compact-status-group \{[^}]*min-width: min\(100%, 260px\);[^}]*flex: var\(--compact-status-weight, 1\) 1 0;/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-item \{[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*text-align: left;/u);
   assert.match(css, /\.compact-status-item\[data-tone="protected"\] dd \{ color: var\(--status-protected\); \}/u);
   assert.doesNotMatch(css, /\.compact-status-item \+ \.compact-status-item \{[^}]*border-(?:left|top):/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u);
-  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]*min-height: 50px;[^}]*padding: 5px 10px;[^}]*flex-direction: column;[^}]*justify-content: center;[^}]*gap: 0;[^}]*text-align: center;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]*min-height: 46px;[^}]*padding: 5px 6px;[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*gap: 6px;[^}]*text-align: left;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item dt, \.compact-status-item dd \{ font-size: 12px; \}/u);
+  assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]*min-height: 44px;[^}]*flex-direction: row;[^}]*justify-content: space-between;[^}]*gap: 12px;[^}]*text-align: left;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.match(workers, /<CompactStatusGroup label="fleet">/u);
   assert.match(workers, /<CompactStatusGroup label="workload">/u);
   for (const label of ["available", "expired", "claimed", "active"]) {
@@ -99,7 +111,7 @@ test("Next worker page and API decode the same normalized identity and reject al
   const load = (path) => {
     if (path === "react/jsx-runtime") return require(path);
     if (path.includes("worker-browser-contract")) return workerContract;
-    if (path.includes("dashboard-shell")) return { DashboardShell: () => null };
+    if (path.includes("dashboard-route-content")) return { DashboardRouteContent: () => null };
     if (path === "next/navigation") return { notFound: () => { throw new Error("NOT_FOUND"); } };
     if (path === "next/server") return { NextResponse: { json: (body, init) => Response.json(body, init) } };
     if (path.includes("run-store")) return { configuredRunStoreV1: () => ({
@@ -129,7 +141,7 @@ test("Next worker page and API decode the same normalized identity and reject al
     new Function("require", "exports", result.outputText)(load, exports);
     return exports;
   };
-  const page = await compile("app/operations/workers/[workerIdentity]/page.tsx");
+  const page = await compile("app/(dashboard)/operations/workers/[workerIdentity]/page.tsx");
   const api = await compile("app/api/operations/workers/[workerIdentity]/route.ts");
   for (const identity of [".", "..", "plain-worker", "group:worker/a"]) {
     requestedIdentity = identity;

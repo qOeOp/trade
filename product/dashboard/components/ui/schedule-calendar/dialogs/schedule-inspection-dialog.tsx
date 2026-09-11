@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { calendarGroupPageV1, type ScheduleCalendarGroupV1 } from "../../../../lib/schedule-calendar";
 import { InterfaceIcons } from "../../iconography";
@@ -38,7 +39,7 @@ export function ScheduleInspectionDialog({ inspection, groupIndex, page, onGroup
       </div>
       <ol className={styles.timestampList}>{calendarGroupPageV1(selected, page).map((time) => <li key={time}>
         <time dateTime={time}>{time.replace("T", " ").replace("Z", " UTC")}</time>
-        {selected.run_identity && <a href={`/operations/runs/${encodeURIComponent(selected.run_identity)}`}>Open run</a>}
+        {selected.run_identity && <Link href={`/operations/runs/${encodeURIComponent(selected.run_identity)}`}>Open run</Link>}
       </li>)}</ol>
       <footer className={styles.dialogFooter}>
         <button type="button" disabled={page === 0} onClick={() => onPage(page - 1)}><InterfaceIcons.previous size={14} aria-hidden="true" />Previous</button>

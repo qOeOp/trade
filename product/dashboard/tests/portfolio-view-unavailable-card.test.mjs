@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 
 const componentUrl = new URL("../components/portfolio-view-unavailable-card.tsx", import.meta.url);
-const shellUrl = new URL("../components/dashboard-shell.tsx", import.meta.url);
+const shellUrl = new URL("../components/dashboard-route-content.tsx", import.meta.url);
 const navigationUrl = new URL("../lib/navigation.js", import.meta.url);
 test("Portfolio replaces empty contract rows with three useful source groups", async () => {
   const source = await readFile(componentUrl, "utf8");

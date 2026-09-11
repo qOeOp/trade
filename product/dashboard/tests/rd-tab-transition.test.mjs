@@ -13,7 +13,7 @@ test("module tabs use client navigation and settle their active position before 
 });
 
 test("every R&D top tab owns one stable card-level route header", async () => {
-  const shell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
+  const shell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 
   assert.match(shell, /const rdPlaceholderRoute = current === "\/rd\/hypotheses" \|\| current === "\/rd\/decisions";/u);
   assert.match(shell, /const ownsRouteChrome = embedsRouteChrome \|\| rdPlaceholderRoute;/u);

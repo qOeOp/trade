@@ -11,7 +11,7 @@ const runtimeFoundation = await readFile(new URL("../components/runtime-foundati
 const dataFoundation = await readFile(new URL("../components/market-data-owner-foundation-card.tsx", import.meta.url), "utf8");
 const runDetail = await readFile(new URL("../components/operations-run-detail.tsx", import.meta.url), "utf8");
 const runStorePreview = await readFile(new URL("../components/operations-runstore-preview.tsx", import.meta.url), "utf8");
-const dashboardShell = await readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8");
+const dashboardShell = await readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8");
 const frameChromeModules = await Promise.all([
   "market-data-owner-foundation-card.module.css",
   "ui/market-heatmap.module.css",
@@ -99,16 +99,20 @@ test("operational summaries preserve a legible metric hierarchy across viewports
   for (const label of ["loaded runs", "active", "failed", "result ready", "result pending"]) {
     assert.match(runStorePreview, new RegExp(`<CompactStatusItem label="${label}"`, "u"));
   }
-  assert.match(css, /\.compact-status-bar \{[^}]+display: grid;[^}]+align-items: stretch;[^}]+gap: 12px;/u);
+  assert.match(css, /\.compact-status-bar \{[^}]+container: compact-status \/ inline-size;[^}]+width: 100%;/u);
+  assert.match(css, /\.compact-status-bar-layout \{[^}]+display: grid;[^}]+grid-template-columns: repeat\(auto-fit, minmax\(min\(100%, 420px\), 1fr\)\);[^}]+align-items: stretch;[^}]+gap: 12px;/u);
   assert.doesNotMatch(css, /\.compact-status-bar \{[^}]*(?:border|border-radius|background):/u);
   assert.match(css, /\.compact-status-item dt, \.compact-status-item dd \{ font-size: 13px; line-height: 20px; \}/u);
-  assert.match(css, /\.compact-status-item \{[^}]+border: 0;[^}]+border-radius: 0;[^}]+background: var\(--surface-card\);[^}]+box-shadow: none;/u);
+  assert.match(css, /\.compact-status-item \{[^}]+border: 1px solid color-mix\(in srgb, var\(--text-primary\) 5%, transparent\);[^}]+border-radius: 8px;[^}]+background: var\(--surface-card\);/u);
   assert.match(css, /\.compact-status-item:nth-child\(even\) \{ background: var\(--panel-chrome-bg\); \}/u);
-  assert.match(css, /\.compact-status-group dl \{[^}]+gap: 1px;[^}]+overflow: hidden;[^}]+border: 1px solid var\(--border-default\);[^}]+border-radius: 0 10px 10px 10px;/u);
-  assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 11\.25px, var\(--compact-status-shell\) 11\.75px\)/u);
-  assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;/u);
+  assert.match(css, /\.compact-status-group dl \{[^}]+padding: 8px;[^}]+gap: 8px;[^}]+border-radius: 0 12px 12px 12px;[^}]+background: var\(--compact-status-shell\);/u);
+  assert.match(css, /\.compact-status-group-label::after \{[^}]+radial-gradient\(circle at 100% 0, transparent 13\.25px, var\(--compact-status-shell\) 13\.75px\)/u);
+  assert.match(css, /\.compact-status-group \{[^}]+container: compact-status-group \/ inline-size;[^}]+min-width: 0;[^}]+padding-top: 20px;/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-group\[data-bento-columns="2"\] \.compact-status-item:last-child:nth-child\(odd\) \{ grid-column: 1 \/ -1; \}/u);
+  assert.match(css, /@container compact-status \(min-width: 1320px\)[\s\S]+\.compact-status-bar-layout \{[^}]+display: flex;[^}]+flex-wrap: nowrap;[^}]+\}[\s\S]*\.compact-status-group \{[^}]+min-width: min\(100%, 260px\);[^}]+flex: var\(--compact-status-weight, 1\) 1 0;/u);
+  assert.match(css, /\.compact-status-bar-layout\[data-layout="bento"\] \.compact-status-item \{[^}]+flex-direction: row;[^}]+justify-content: space-between;[^}]+text-align: left;/u);
   assert.match(css, /@container compact-status-group \(max-width: 767px\)[\s\S]+\.compact-status-group dl \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\); \}/u);
-  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: column;[^}]+text-align: center;/u);
+  assert.match(css, /@container compact-status-group \(max-width: 520px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+justify-content: space-between;[^}]+text-align: left;/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-group dl \{ grid-template-columns: minmax\(0, 1fr\); \}/u);
   assert.match(css, /@container compact-status-group \(max-width: 380px\)[\s\S]+\.compact-status-item \{[^}]+flex-direction: row;[^}]+text-align: left;/u);
   assert.doesNotMatch(css, /\.operations-run-summaries\[data-variant="flow"\]|\.insight-summary-flow/u);
@@ -135,10 +139,11 @@ test("run detail actions, technical disclosure, and state values expose delibera
   assert.match(css, /\.panel-info-facts > div \{[^}]+grid-template-columns: 76px minmax\(0, 1fr\);[^}]+border-bottom:/u);
   assert.match(css, /\.panel-info-facts dd code \{[^}]+overflow-wrap: anywhere;[^}]+text-overflow: clip;[^}]+white-space: normal;/u);
   assert.doesNotMatch(css, /\.panel-info-facts dd code \{[^}]+text-overflow: ellipsis;/u);
-  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Copy locator/u);
-  assert.match(runDetail, /data-action-variant="secondary"[\s\S]+?Refresh/u);
-  assert.match(runDetail, /data-action-variant="primary"[\s\S]+Resolve same identity/u);
-  assert.match(runDetail, /<Link data-action-variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
+  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Copy locator/u);
+  assert.match(runDetail, /<FilterButton density="compact" variant="secondary"[\s\S]+?Refresh/u);
+  assert.match(runDetail, /<FilterButton[\s\S]+?density="compact"[\s\S]+?variant="primary"[\s\S]+Resolve same identity/u);
+  assert.match(runDetail, /<FilterLink density="compact" variant="secondary"[^>]+>[\s\S]*?Open Owner view/u);
+  assert.doesNotMatch(runDetail, /data-action-variant=/u);
   assert.match(runDetail, /<PanelFrameInfo label="View run information">[\s\S]+?compactIdentity\(run\.run_identity\)[\s\S]+?<\/PanelFrameInfo>/u);
   assert.doesNotMatch(runDetail, /panel-info-disclosure/u);
   assert.match(dashboardShell, /<details className="authority-disclosure">[\s\S]+?IMPLEMENTATION_ADMITTED[\s\S]+?<\/details>/u);

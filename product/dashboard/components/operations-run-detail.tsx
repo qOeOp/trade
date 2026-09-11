@@ -31,7 +31,7 @@ import {
   DetailNotice,
   DetailSection,
 } from "./ui/detail-inspector";
-import { EmptyState, EvidenceActions, EvidenceField, EvidenceStrip, UnavailableState } from "./ui/evidence-strip";
+import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FilterButton, FilterLink, FilterTabs } from "./ui/filter-toolbar";
 import { InterfaceIcons, ModuleIcons, RunIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameFooter, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
@@ -292,27 +292,28 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
             <code title={run.run_identity}>{compactIdentity(run.run_identity)}</code>
             <p>Owner outcome and operational timing are reported independently.</p>
           </PanelFrameInfo>
-          <button type="button" data-action-variant="secondary" onClick={() => void copyLocator()}>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void copyLocator()}>
             <InterfaceIcons.copy aria-hidden="true" size={12} /> {copied ? "Copied" : "Copy locator"}
-          </button>
-          <button type="button" data-action-variant="secondary" onClick={() => void refresh()} disabled={pending}>
+          </FilterButton>
+          <FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button>
-          {operationalCancellation.state === "pending" ? <a data-action-variant="warning" href="#dependency-cancellation-panel">
+          </FilterButton>
+          {operationalCancellation.state === "pending" ? <FilterLink density="compact" variant="warning" href="#dependency-cancellation-panel">
             <RunIcons.cancelled aria-hidden="true" size={12} /> Cancel queued dependency
-          </a> : null}
-          {run.owner_view.action_label === "Resolve same identity" ? <button
+          </FilterLink> : null}
+          {run.owner_view.action_label === "Resolve same identity" ? <FilterButton
+            density="compact"
+            variant="primary"
             type="button"
-            data-action-variant="primary"
             onClick={() => void resolveOwnerOutcome()}
             disabled={resolvingOwner}
           >
             <InterfaceIcons.autoRefresh aria-hidden="true" size={12} />
             {resolvingOwner ? "Resolving…" : "Resolve same identity"}
-          </button> : null}
-          <Link data-action-variant="secondary" href={run.owner_view.href}>
+          </FilterButton> : null}
+          <FilterLink density="compact" variant="secondary" href={run.owner_view.href}>
             Open Owner view <InterfaceIcons.open aria-hidden="true" size={12} />
-          </Link>
+          </FilterLink>
         </>}
       />
       <PanelFrameBody>
@@ -525,29 +526,36 @@ export function OperationsRunDetail({ runIdentity }: { runIdentity: string }) {
               result.operational_cache.deletion_receipt?.deleted_at ?? null,
             )}. Run tombstone and Owner locator remain available.`
             : `Retention ended ${displayTime(run.retained_until)}. Run tombstone and Owner locator remain available; no deletion receipt is invented.`}
-        </EmptyState> : boundedResult ? <><EvidenceStrip layout="result" aria-label="Bounded run result">
-          <EvidenceField label="Allowlisted operational result"><b>{boundedResult.operational_state}</b>
-            <small>Owner outcome · {boundedResult.owner_outcome_state}</small></EvidenceField>
-          <EvidenceField label="Terminal code"><b>{boundedResult.terminal_code ?? "Not terminal"}</b></EvidenceField>
-          <EvidenceField label="Transition"><b>{boundedResult.transition_version}</b></EvidenceField>
-          <EvidenceField label="Completed"><b>{displayTime(boundedResult.completed_at)}</b></EvidenceField>
-          <EvidenceField label="Retention"><b>{displayTime(boundedResult.retained_until)}</b></EvidenceField>
-          <EvidenceActions>
-            <button type="button" onClick={() => void copyResult()}>
+        </EmptyState> : boundedResult ? <><CompactStatusBar className="run-result-status" aria-label="Bounded run result">
+          <CompactStatusGroup label="result">
+            <CompactStatusItem label="operational result" value={boundedResult.operational_state}
+              tone={executionStateTone(boundedResult.operational_state)} />
+            <CompactStatusItem label="owner outcome" value={boundedResult.owner_outcome_state}
+              tone={ownerOutcomeTone(boundedResult.owner_outcome_state)} />
+            <CompactStatusItem label="terminal code" value={boundedResult.terminal_code ?? "Not terminal"} />
+            <CompactStatusItem label="transition" value={boundedResult.transition_version} />
+          </CompactStatusGroup>
+          <CompactStatusGroup label="timing">
+            <CompactStatusItem label="completed" value={displayTime(boundedResult.completed_at)} />
+            <CompactStatusItem label="retained until" value={displayTime(boundedResult.retained_until)} />
+          </CompactStatusGroup>
+        </CompactStatusBar>
+        <PanelFrameFooter className="run-result-footer" layout="split">
+          <span>{boundedResult.withheld_fields.length} fields withheld · {boundedResult.withheld_fields
+            .map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}</span>
+          <div className="run-result-actions">
+            <FilterButton density="compact" variant="secondary" type="button" onClick={() => void copyResult()}>
               <InterfaceIcons.copy aria-hidden="true" size={12} /> {copiedResult ? "Copied JSON" : "Copy result JSON"}
-            </button>
-            <a href={`/api/operations/runs/${encodeURIComponent(runIdentity)}/result/download/`} download>
+            </FilterButton>
+            <FilterLink density="compact" href={`/api/operations/runs/${encodeURIComponent(runIdentity)}/result/download/`} download>
               <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded result
-            </a>
-            {["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <button
-              type="button" onClick={() => setDeleteOpen((open) => !open)}
-            >
+            </FilterLink>
+            {["succeeded", "failed", "cancelled", "unknown"].includes(run.state) ? <FilterButton
+              density="compact" variant="danger" type="button" onClick={() => setDeleteOpen((open) => !open)}>
               <InterfaceIcons.delete aria-hidden="true" size={12} /> Delete cache
-            </button> : null}
-          </EvidenceActions>
-        </EvidenceStrip>
-        <PanelFrameFooter>{boundedResult.withheld_fields.length} fields withheld · {boundedResult.withheld_fields
-          .map(({ field, reason }) => `${field}: ${reason}`).join(" · ")}</PanelFrameFooter>
+            </FilterButton> : null}
+          </div>
+        </PanelFrameFooter>
         {activeTab === "Logs" ? <OperationsRunLogs runIdentity={runIdentity} refreshVersion={logRefreshVersion} />
           : <OperationsRunAuxiliaryEvidence runIdentity={runIdentity}
               evidenceKind={activeTab === "Metrics" ? "metrics" : activeTab === "Traces" ? "traces" : "assets"} />}</>

@@ -142,11 +142,13 @@ export function OperationsRunLogs({ runIdentity, refreshVersion }: {
     entries={entries} pending={pending} viewportRef={logViewport}
     emptyMessage="No matching operational log entries are retained."
     actions={<>
-      <FilterToggle checked={autoScroll} onChange={(event) => setAutoScroll(event.target.checked)}>Auto-scroll</FilterToggle>
-      <FilterButton type="button" onClick={applyQuery} disabled={pending}>
+      <FilterToggle density="compact" checked={autoScroll}
+        onChange={(event) => setAutoScroll(event.target.checked)}>Auto-scroll</FilterToggle>
+      <FilterButton density="compact" type="button" onClick={applyQuery} disabled={pending}>
         <RunIcons.all aria-hidden="true" size={12} /> Apply
       </FilterButton>
-      <FilterLink href={downloadHref} download disabled={result?.availability !== "available"}>
+      <FilterLink density="compact" variant="secondary" href={downloadHref} download
+        disabled={result?.availability !== "available"}>
         <InterfaceIcons.download aria-hidden="true" size={12} /> Download bounded log
       </FilterLink>
     </>}
@@ -155,7 +157,7 @@ export function OperationsRunLogs({ runIdentity, refreshVersion }: {
       <code>{result?.availability === "available"
         ? `Cut ${displayTime(result.observed_at)} · retained until ${displayTime(result.retained_until ?? result.observed_at)}`
         : result?.unavailable_reason ?? "READING_BOUNDED_LOGS"}</code>
-      {result?.availability === "available" && result.next_cursor ? <FilterButton type="button"
+      {result?.availability === "available" && result.next_cursor ? <FilterButton density="compact" type="button"
         onClick={() => void read(result.next_cursor ?? undefined)} disabled={loadingMore}>
         {loadingMore ? "Loading…" : "Load older events"}
       </FilterButton> : null}

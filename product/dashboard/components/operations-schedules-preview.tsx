@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseScheduleEnvelopeV1, type ScheduleEnvelopeProjectionV1, type ScheduleProjectionV1 } from "../lib/schedule-projection";
 import { filterScheduleRowsV1, type ScheduleCalendarView,
@@ -82,7 +83,7 @@ export function OperationsSchedulesPreview() {
     { id: "cadence", name: "Cadence", selector: (row) => row.cadence_seconds, width: "95px", cell: (row) => cadence(row.cadence_seconds) },
     { id: "next", name: "Next expected trigger", selector: (row) => row.next_due_at, minWidth: "180px", cell: (row) => timestamp(row.next_due_at) },
     { id: "observed", name: "Last observed run", selector: (row) => row.last_due_at ?? "", minWidth: "180px",
-      cell: (row) => row.last_run_identity ? <a href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</a> : "Not observed" },
+      cell: (row) => row.last_run_identity ? <Link href={`/operations/runs/${encodeURIComponent(row.last_run_identity)}`}>{timestamp(row.last_due_at)}</Link> : "Not observed" },
   ], []);
   return <PanelFrame className={styles.page} aria-label="Shadow-read schedules">
     <CalendarHeader date={date} view={view} mode={mode} pending={pending}
@@ -140,7 +141,7 @@ export function OperationsSchedulesPreview() {
                 </DetailFactGrid>
                 <DetailSection label="last observed run">
                   {selected.last_run_identity
-                    ? <a className={styles.runLink} href={`/operations/runs/${encodeURIComponent(selected.last_run_identity)}`}>{timestamp(selected.last_due_at)} · Open run</a>
+                    ? <Link className={styles.runLink} href={`/operations/runs/${encodeURIComponent(selected.last_run_identity)}`}>{timestamp(selected.last_due_at)} · Open run</Link>
                     : <p className="detail-section-copy">No run reference has been observed.</p>}
                 </DetailSection>
               </DetailInspectorBody>

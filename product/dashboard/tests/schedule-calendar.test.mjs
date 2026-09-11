@@ -41,7 +41,7 @@ test("calendar colors resolve from the current shared theme instead of undefined
 test("schedule controls retain the Vibe calendar hierarchy without editable actions", async () => {
   const [component, shell] = await Promise.all([
     readFile(new URL("../components/operations-schedules-preview.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../components/dashboard-shell.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/dashboard-route-content.tsx", import.meta.url), "utf8"),
   ]);
   const sourceFiles = await Promise.all([
     "calendar-header.tsx",

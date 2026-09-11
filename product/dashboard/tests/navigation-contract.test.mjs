@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 import {
   allRoutes,
+  dashboardRouteForPathname,
   exactBlueprints,
   foundationRoutes,
   maturityFor,
@@ -82,6 +83,14 @@ test("Portfolio routes expose only the fixed fail-closed contract blueprint", ()
 test("the run detail route binds to the Runs top tab", () => {
   assert.equal(parentTabFor("/operations/runs/example"), "/operations");
   assert.deepEqual(foundationRoutes, ["/market"]);
+});
+
+test("detail URLs retain the correct persistent Dashboard chrome identity", () => {
+  assert.equal(dashboardRouteForPathname("/operations/runs/run-123/"), "/operations/runs/example");
+  assert.equal(dashboardRouteForPathname("/operations/workers/worker-123/"), "/operations/workers");
+  assert.equal(dashboardRouteForPathname("/rd/artifacts/build-1/attempts/attempt-1/"), "/rd/artifacts");
+  assert.equal(dashboardRouteForPathname("/operations/audit/"), "/operations/audit");
+  assert.equal(dashboardRouteForPathname("/market/"), "/dashboard");
 });
 
 test("Workers list and exact detail share only their admitted read-only navigation", () => {

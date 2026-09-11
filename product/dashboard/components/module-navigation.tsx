@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
+import Link from "next/link";
 import { moduleFor, modules, parentTabFor } from "../lib/navigation.js";
 import { ModuleTabLinks } from "./module-tab-links";
 import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
@@ -9,7 +10,7 @@ import { InterfaceIcons, ModuleIcons } from "./ui/iconography";
 const iconByName = ModuleIcons;
 
 function BrandMark() {
-  return <a className="launcher-brand" href="/login" title="Local operator access" aria-label="Local operator access">VX</a>;
+  return <Link className="launcher-brand" href="/login" title="Local operator access" aria-label="Local operator access">VX</Link>;
 }
 
 function ModuleRail({ current, id, onNavigate }: { current: string; id?: string; onNavigate?: () => void }) {
@@ -19,7 +20,7 @@ function ModuleRail({ current, id, onNavigate }: { current: string; id?: string;
         const Icon = iconByName[module.icon as keyof typeof iconByName];
         const active = moduleFor(current).id === module.id;
         return (
-          <a
+          <Link
             aria-current={active ? "page" : undefined}
             aria-label={module.label}
             className="rail-module-link"
@@ -30,7 +31,7 @@ function ModuleRail({ current, id, onNavigate }: { current: string; id?: string;
             title={module.label}
           >
             <Icon aria-hidden="true" size={18} strokeWidth={1.5} />
-          </a>
+          </Link>
         );
       })}
     </nav>
