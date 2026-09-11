@@ -9,6 +9,7 @@ pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;
 pub mod instrument_master_v2;
+pub mod native_replay_scheduling_v1;
 pub mod observation_census;
 pub mod pit_snapshot;
 pub mod replay_market_facts_v2;

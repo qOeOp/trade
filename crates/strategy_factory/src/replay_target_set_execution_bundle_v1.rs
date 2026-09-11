@@ -8,6 +8,7 @@
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
+use vibe_data::owner::native_replay_scheduling_v1::NativeReplaySchedulingReadbackV1;
 use vibe_data::owner::strategy_input_binding::{
     StrategyInputEventKind, StrategyInputUniverseFrameReceipt,
 };
@@ -179,6 +180,7 @@ pub struct ReplayTargetSetExecutionCensusV1 {
     pub(crate) observation_batch_digest: [u8; 32],
     pub(crate) member_instruments: [String; TARGET_SET_MEMBER_COUNT],
     pub(crate) instrument_terms: [ReplayTargetSetInstrumentCensusV1; TARGET_SET_MEMBER_COUNT],
+    pub(crate) owner_scheduling_receipt_digest: Option<[u8; 32]>,
     pub(crate) scheduling_data_digest: [u8; 32],
     pub(crate) scheduling_data_count: u64,
     pub(crate) bar_count: u64,
@@ -289,6 +291,11 @@ impl ReplayTargetSetExecutionCensusV1 {
     }
 
     #[must_use]
+    pub const fn owner_scheduling_receipt_digest(&self) -> Option<[u8; 32]> {
+        self.owner_scheduling_receipt_digest
+    }
+
+    #[must_use]
     pub const fn scheduling_data_count(&self) -> u64 {
         self.scheduling_data_count
     }
@@ -353,13 +360,27 @@ impl ReplayTargetSetExecutionBundleV1 {
         strategy_id: StrategyId,
         run_id: String,
         public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
-        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
-        data: Vec<Data>,
+        scheduling: NativeReplaySchedulingReadbackV1,
     ) -> anyhow::Result<Self> {
         let instruments = materialize_crypto_perpetual_target_set_v2(
             authority.execution_profile_binding(),
             public_terms,
         )?;
+        let request_window = authority.request_window();
+        let instrument_ids = instruments.each_ref().map(Instrument::id);
+        anyhow::ensure!(
+            scheduling.member_instruments() == instrument_ids
+                && scheduling.frame_time_ns() == request_window.start_event_ns
+                && scheduling.window_end_ns_exclusive() == request_window.end_event_ns_exclusive
+                && *scheduling.observation_batch_digest().as_bytes()
+                    == *universe_frame
+                        .selection()
+                        .observation_batch_digest()
+                        .as_bytes(),
+            "request execution bundle scheduling authority mismatches Owner inputs"
+        );
+        let owner_scheduling_receipt_digest = Some(*scheduling.receipt_digest().as_bytes());
+        let (bar_types, data) = scheduling.into_native_schedule();
         Self::new_with_native_instruments(
             authority,
             plan,
@@ -370,6 +391,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instruments,
             bar_types,
             data,
+            owner_scheduling_receipt_digest,
         )
     }
 
@@ -384,6 +406,7 @@ impl ReplayTargetSetExecutionBundleV1 {
         instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         data: Vec<Data>,
+        owner_scheduling_receipt_digest: Option<[u8; 32]>,
     ) -> anyhow::Result<Self> {
         let request_locator = authority.request_locator().clone();
         let owner_authority_digest = authority.authority_digest();
@@ -509,6 +532,7 @@ impl ReplayTargetSetExecutionBundleV1 {
                 .instrument_terms()
                 .each_ref()
                 .map(ReplayTargetSetInstrumentCensusV1::from),
+            owner_scheduling_receipt_digest,
             scheduling_data_digest,
             scheduling_data_count: u64::try_from(data.len())?,
             bar_count: u64::try_from(TARGET_SET_MEMBER_COUNT)?,
@@ -554,6 +578,7 @@ impl ReplayTargetSetExecutionBundleV1 {
             instruments,
             bar_types,
             data,
+            None,
         )
     }
 }
@@ -584,6 +609,10 @@ fn digest_census(census: &ReplayTargetSetExecutionCensusV1) -> anyhow::Result<[u
         census.observation_batch_digest,
         census.scheduling_data_digest,
     ] {
+        hasher.update(digest);
+    }
+    if let Some(digest) = census.owner_scheduling_receipt_digest {
+        hasher.update(b"OWNER_SCHEDULING_V1\0");
         hasher.update(digest);
     }
     digest_text(&mut hasher, &census.trial_family_identity)?;
