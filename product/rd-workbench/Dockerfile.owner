@@ -13,7 +13,9 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/workspace/target,sharing=locked \
     cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
-      --bin strategy-factory-rd-owner-api --bin strategy-factory-rd-dashboard-read-api --bin replay-policy-catalog-authority-bootstrap --bin replay-policy-catalog-owner-readback \
+      --bin strategy-factory-rd-owner-api --bin replay-policy-catalog-authority-bootstrap --bin replay-policy-catalog-owner-readback \
+    && cargo build --locked --release -p vibe-strategy-factory-rd-owner-api \
+      --features dashboard-composer-readback --bin strategy-factory-rd-dashboard-read-api \
     && cargo build --locked --release -p vibe-product-edge-admin --bin product-edge-authority-bootstrap \
     && cargo build --locked --release -p vibe-product-edge-admin --bin product-edge-recover-expired-manifests \
     && mkdir -p /out \

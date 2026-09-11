@@ -17,6 +17,10 @@ use vibe_strategy_factory::{
         ArtifactSourceOwnerPort,
     },
     artifact_build_postgres::PostgresArtifactReadbackOwnerV1,
+    develop_composer_operation_v2::{
+        DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
+        DevelopComposerReadbackOwnerPortV2,
+    },
     product_edge::{
         ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
     },
@@ -27,6 +31,9 @@ use vibe_strategy_factory::{
     },
 };
 
+#[cfg(feature = "dashboard-composer-readback")]
+use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresDevelopComposerReadbackOwnerV2;
+
 #[derive(Clone)]
 struct ApiState {
     artifact_directory: Arc<dyn ArtifactDirectoryOwnerPort>,
@@ -34,6 +41,7 @@ struct ApiState {
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
     source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
+    composer_readback: Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>>,
     token_digest: [u8; 32],
 }
 
@@ -75,6 +83,7 @@ async fn main() -> anyhow::Result<()> {
             .context("Research Dashboard readback adapter unavailable")?,
     );
     let source_intake_readback = source_intake_readback(&database_url).await;
+    let composer_readback = composer_readback(&database_url).await;
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
         artifact_directory: artifact.clone(),
@@ -82,6 +91,7 @@ async fn main() -> anyhow::Result<()> {
         research_directory: research.clone(),
         research_readback: research,
         source_intake_readback,
+        composer_readback,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -112,7 +122,32 @@ fn router(state: ApiState) -> Router {
             "/v1/source-intakes/{request_identity}/readback",
             get(read_source_intake),
         )
+        .route(
+            "/v2/develop-composer/runs/{request_identity}/readback",
+            get(read_develop_composer),
+        )
         .with_state(state)
+}
+
+#[cfg(feature = "dashboard-composer-readback")]
+async fn composer_readback(
+    owner_database_url: &str,
+) -> Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>> {
+    match PostgresDevelopComposerReadbackOwnerV2::connect(owner_database_url).await {
+        Ok(readback) => Some(Arc::new(readback)),
+        Err(_) => {
+            tracing::warn!("Develop Composer Dashboard readback adapter unavailable");
+            None
+        }
+    }
+}
+
+#[cfg(not(feature = "dashboard-composer-readback"))]
+async fn composer_readback(
+    _owner_database_url: &str,
+) -> Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>> {
+    tracing::warn!("Develop Composer Dashboard readback capability unavailable");
+    None
 }
 
 async fn source_intake_readback(
@@ -356,6 +391,42 @@ fn source_intake_unknown(status: StatusCode, code: &str, request_identity: &str)
     response
 }
 
+async fn read_develop_composer(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if !valid_identity(&request_identity) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let Some(owner) = &state.composer_readback else {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    };
+
+    match owner.read_develop_composer(&request_identity).await {
+        Ok(response) => composer_operation_response(response),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+fn composer_operation_response(response: DevelopComposerOperationResponseV2) -> Response {
+    let status = match response.disposition {
+        DevelopComposerOperationDispositionV2::Success => StatusCode::OK,
+        DevelopComposerOperationDispositionV2::Conflict => StatusCode::CONFLICT,
+        DevelopComposerOperationDispositionV2::Unsupported
+        | DevelopComposerOperationDispositionV2::NeedsResearchRefinement => {
+            StatusCode::UNPROCESSABLE_ENTITY
+        }
+        DevelopComposerOperationDispositionV2::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        DevelopComposerOperationDispositionV2::SubmittedOrUnknown => StatusCode::ACCEPTED,
+    };
+    (status, Json(response)).into_response()
+}
+
 fn valid_identity(value: &str) -> bool {
     (1..=192).contains(&value.len())
         && value.bytes().all(|byte| {
@@ -414,6 +485,10 @@ mod tests {
     use vibe_strategy_factory::{
         artifact_build::{
             ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1, ArtifactSourceReadbackV1,
+        },
+        develop_composer_operation_v2::{
+            DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
+            DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
         },
         product_edge::{
             ResearchDirectoryCompletenessV1, ResearchDirectoryReadbackV1, ResearchGoalOwnerError,
@@ -506,6 +581,31 @@ mod tests {
         readback_calls: AtomicUsize,
     }
 
+    #[derive(Default)]
+    struct RecordingComposer {
+        readback_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl DevelopComposerReadbackOwnerPortV2 for RecordingComposer {
+        async fn read_develop_composer(
+            &self,
+            request_identity: &str,
+        ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerReadbackOwnerErrorV2>
+        {
+            self.readback_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(DevelopComposerOperationResponseV2 {
+                schema_version: 2,
+                request_identity: request_identity.to_owned(),
+                disposition: DevelopComposerOperationDispositionV2::Unavailable,
+                receipt_identity: None,
+                artifact: None,
+                coordinate: Some("operation".to_owned()),
+                reason: Some("terminal is unavailable".to_owned()),
+            })
+        }
+    }
+
     #[async_trait]
     impl SourceIntakeReadbackOwnerPort for RecordingSourceIntake {
         async fn read_source_intake(
@@ -528,6 +628,7 @@ mod tests {
             research_directory: research.clone(),
             research_readback: research,
             source_intake_readback: Some(source_intake),
+            composer_readback: Some(Arc::new(RecordingComposer::default())),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -572,6 +673,17 @@ mod tests {
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
+        let response = read_develop_composer(
+            State(state(
+                Arc::new(RecordingArtifact::default()),
+                Arc::new(RecordingResearch::default()),
+                Arc::new(RecordingSourceIntake::default()),
+            )),
+            Path("composer-request-1".to_owned()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
@@ -709,6 +821,36 @@ mod tests {
         api.source_intake_readback = None;
         let response =
             read_source_intake(State(api), Path("source-request-1".to_string()), headers()).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn valid_composer_readback_dispatches_once_and_preserves_terminal_status() {
+        let composer = Arc::new(RecordingComposer::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.composer_readback = Some(composer.clone());
+        let response =
+            read_develop_composer(State(api), Path("composer-request-1".to_owned()), headers())
+                .await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(composer.readback_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn missing_composer_adapter_fails_closed() {
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.composer_readback = None;
+        let response =
+            read_develop_composer(State(api), Path("composer-request-1".to_owned()), headers())
+                .await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

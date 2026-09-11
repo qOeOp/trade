@@ -35,6 +35,13 @@ use crate::{
 };
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_operation_v2::{
+    DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
+};
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+use crate::develop_composer_postgres_v2::PostgresDevelopComposerReadStoreV2;
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
 use crate::develop_composer_postgres_v2::{
     DevelopComposerAcceptanceWriteBoundaryV2, DevelopComposerSealedReadErrorV2,
     DevelopComposerSealedReadLocatorV2, DevelopComposerSealedReadPortV2,
@@ -1014,6 +1021,77 @@ pub(crate) struct PostgresSourceResearchComposerV2<B> {
     binding_owner: B,
 }
 
+/// Dashboard-facing Composer read adapter. It carries only the R&D read pool and the fixed
+/// fact-Owner resolver required to revalidate existing positive custody.
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+pub struct PostgresDevelopComposerReadbackOwnerV2 {
+    store: PostgresDevelopComposerReadStoreV2,
+    binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+impl PostgresDevelopComposerReadbackOwnerV2 {
+    pub async fn connect(rd_owner_database_url: &str) -> Result<Self, sqlx::Error> {
+        Ok(Self {
+            store: PostgresDevelopComposerReadStoreV2::connect(rd_owner_database_url).await?,
+            binding_owner: SealedSourceResearchComposerBindingOwnerV2,
+        })
+    }
+}
+
+#[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[async_trait::async_trait]
+impl DevelopComposerReadbackOwnerPortV2 for PostgresDevelopComposerReadbackOwnerV2 {
+    async fn read_develop_composer(
+        &self,
+        request_identity: &str,
+    ) -> Result<DevelopComposerOperationResponseV2, DevelopComposerReadbackOwnerErrorV2> {
+        let read_cut_epoch_ms = current_read_cut_epoch_ms();
+        let mut transaction = self
+            .store
+            .begin_read_transaction()
+            .await
+            .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        let record = self
+            .store
+            .load_record_in_transaction(&mut transaction, request_identity)
+            .await
+            .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        let Some(record) = record else {
+            transaction
+                .commit()
+                .await
+                .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+            return Ok(terminal_response_for_identity(
+                request_identity,
+                DevelopComposerTerminalV2::unavailable("operation", "terminal is unavailable"),
+            ));
+        };
+        let locator = DevelopComposerDurableEvidenceLocatorV2::from_record(&record);
+        let locked = Box::pin(lock_resolve_evidence_with_binding(
+            &self.binding_owner,
+            &mut transaction,
+            &locator,
+            read_cut_epoch_ms,
+        ))
+        .await;
+        let response = match locked {
+            Ok(locked) => {
+                crate::develop_composer_operation_v2::resolve_positive_record_v2(&record, locked)
+                    .unwrap_or_else(|terminal| {
+                        terminal_response_for_identity(request_identity, terminal)
+                    })
+            }
+            Err(terminal) => terminal_response_for_identity(request_identity, terminal),
+        };
+        transaction
+            .commit()
+            .await
+            .map_err(|_| DevelopComposerReadbackOwnerErrorV2::Unavailable)?;
+        Ok(response)
+    }
+}
+
 impl<B> PostgresSourceResearchComposerV2<B>
 where
     B: SourceResearchComposerBindingOwnerV2,
@@ -1064,8 +1142,7 @@ where
         builder: &mut impl DevelopComposerA0BuildPortV2,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.run_with_acceptance_control(builder, research_request_locator, None)
-            .await
+        Box::pin(self.run_with_acceptance_control(builder, research_request_locator, None)).await
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1137,7 +1214,7 @@ where
             )
             .await;
         let response = match prepared {
-            Ok(PreparedDevelopComposerRunInTransactionV2::Complete(response)) => Ok(response),
+            Ok(PreparedDevelopComposerRunInTransactionV2::Complete(response)) => Ok(*response),
             Ok(PreparedDevelopComposerRunInTransactionV2::Prepared(prepared)) => {
                 let final_locked = match self
                     .lock_run_evidence(&mut owner_transaction, &request, read_cut_epoch_ms)
@@ -1156,7 +1233,7 @@ where
                             .commit_prepared_run_in_transaction_with_acceptance_boundary(
                                 &mut owner_transaction,
                                 &request,
-                                prepared,
+                                *prepared,
                                 final_locked,
                                 boundary,
                             )
@@ -1167,7 +1244,7 @@ where
                             .commit_prepared_run_in_transaction(
                                 &mut owner_transaction,
                                 &request,
-                                prepared,
+                                *prepared,
                                 final_locked,
                             )
                             .await
@@ -1196,8 +1273,7 @@ where
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.resolve_with_acceptance_tamper(request_identity, None)
-            .await
+        Box::pin(self.resolve_with_acceptance_tamper(request_identity, None)).await
     }
 
     #[cfg(feature = "sealed-source-intake-composer-acceptance")]
@@ -1216,9 +1292,12 @@ where
         };
 
         let mut owner_transaction = self.store.begin_read_transaction().await?;
-        let locked = self
-            .lock_resolve_evidence(&mut owner_transaction, &locator, read_cut_epoch_ms)
-            .await;
+        let locked = Box::pin(self.lock_resolve_evidence(
+            &mut owner_transaction,
+            &locator,
+            read_cut_epoch_ms,
+        ))
+        .await;
         let locked = match (locked, tamper) {
             (Ok(locked), Some(selector)) => {
                 let mut expected = derive_source_research_composer_request_v2(&locked.research)
@@ -1226,13 +1305,13 @@ where
                 tamper_source_research_composer_request_v2(&mut expected, selector)
                     .map_err(composer_terminal_protocol)?;
 
-                if request_digest(&expected) != locator.request_digest {
+                if request_digest(&expected) == locator.request_digest {
+                    Ok(locked)
+                } else {
                     Err(DevelopComposerTerminalV2::unavailable(
                         "acceptance_tamper",
                         "the selected compile-time A2 input no longer matches durable custody",
                     ))
-                } else {
-                    Ok(locked)
                 }
             }
             (locked, _) => locked,
@@ -1295,39 +1374,53 @@ where
         locator: &DevelopComposerDurableEvidenceLocatorV2,
         read_cut_epoch_ms: u64,
     ) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
-        let custodies = admit_all_research_custodies_in_transaction(transaction)
-            .await
-            .map_err(|_| research_unavailable())?;
-        let mut matches = Vec::new();
-
-        for custody in custodies {
-            if durable_research_identities(&custody).is_some_and(|(request, intent)| {
-                request == locator.research_request_identity && intent == locator.intent_identity
-            }) {
-                matches.push(custody);
-            }
-        }
-        let [custody] = matches.try_into().map_err(|_| {
-            DevelopComposerTerminalV2::unavailable(
-                "research_custody",
-                "durable Composer identity does not uniquely match current canonical Research custody",
-            )
-        })?;
-        let request_locator = custody.receipt().request_identity.clone();
-        lock_current_research_artifact_custody_in_transaction(transaction, &custody)
-            .await
-            .map_err(|_| research_unavailable())?;
-        let research = CurrentResearchDevelopCustodyV2::from_verified(
-            &custody,
-            &request_locator,
+        Box::pin(lock_resolve_evidence_with_binding(
+            &self.binding_owner,
+            transaction,
+            locator,
             read_cut_epoch_ms,
-        )?;
-        let bindings = self
-            .binding_owner
-            .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
-            .await?;
-        Ok(DevelopComposerLockedEvidenceV2 { research, bindings })
+        ))
+        .await
     }
+}
+
+async fn lock_resolve_evidence_with_binding(
+    binding_owner: &impl SourceResearchComposerBindingOwnerV2,
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &DevelopComposerDurableEvidenceLocatorV2,
+    read_cut_epoch_ms: u64,
+) -> Result<DevelopComposerLockedEvidenceV2, DevelopComposerTerminalV2> {
+    let custodies = admit_all_research_custodies_in_transaction(transaction)
+        .await
+        .map_err(|_| research_unavailable())?;
+    let mut matches = Vec::new();
+
+    for custody in custodies {
+        if durable_research_identities(&custody).is_some_and(|(request, intent)| {
+            request == locator.research_request_identity && intent == locator.intent_identity
+        }) {
+            matches.push(custody);
+        }
+    }
+    let [custody] = matches.try_into().map_err(|_| {
+        DevelopComposerTerminalV2::unavailable(
+            "research_custody",
+            "durable Composer identity does not uniquely match current canonical Research custody",
+        )
+    })?;
+    let request_locator = custody.receipt().request_identity.clone();
+    lock_current_research_artifact_custody_in_transaction(transaction, &custody)
+        .await
+        .map_err(|_| research_unavailable())?;
+    let research = CurrentResearchDevelopCustodyV2::from_verified(
+        &custody,
+        &request_locator,
+        read_cut_epoch_ms,
+    )?;
+    let bindings = binding_owner
+        .lock_for_resolve(transaction, locator, read_cut_epoch_ms)
+        .await?;
+    Ok(DevelopComposerLockedEvidenceV2 { research, bindings })
 }
 
 /// Fixed A2 assembly: sealed Market Data Owner, sealed A0 builder, and an internally selected
@@ -1362,11 +1455,13 @@ impl DevelopComposerSealedReadPortV2 for SealedPostgresSourceResearchComposerV2 
             .begin_read_transaction()
             .await
             .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
-        let locked = self
-            .inner
-            .lock_resolve_evidence(&mut transaction, &durable, current_read_cut_epoch_ms())
-            .await
-            .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
+        let locked = Box::pin(self.inner.lock_resolve_evidence(
+            &mut transaction,
+            &durable,
+            current_read_cut_epoch_ms(),
+        ))
+        .await
+        .map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable)?;
         let readback = read_accepted_in_transaction(&mut transaction, locator, locked).await?;
         transaction
             .commit()
@@ -1405,12 +1500,11 @@ impl SealedPostgresSourceResearchComposerV2 {
         &self,
         research_request_locator: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.inner
-            .run(
-                &mut SealedSourceResearchComposerA0BuildV2,
-                research_request_locator,
-            )
-            .await
+        Box::pin(self.inner.run(
+            &mut SealedSourceResearchComposerA0BuildV2,
+            research_request_locator,
+        ))
+        .await
     }
 
     pub async fn run_with_acceptance_control(
@@ -1418,20 +1512,19 @@ impl SealedPostgresSourceResearchComposerV2 {
         research_request_locator: &str,
         control: SourceResearchComposerAcceptanceControlV2,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.inner
-            .run_with_acceptance_control(
-                &mut SealedSourceResearchComposerA0BuildV2,
-                research_request_locator,
-                Some(control),
-            )
-            .await
+        Box::pin(self.inner.run_with_acceptance_control(
+            &mut SealedSourceResearchComposerA0BuildV2,
+            research_request_locator,
+            Some(control),
+        ))
+        .await
     }
 
     pub async fn resolve(
         &self,
         request_identity: &str,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.inner.resolve(request_identity).await
+        Box::pin(self.inner.resolve(request_identity)).await
     }
 
     pub async fn resolve_with_acceptance_tamper(
@@ -1439,13 +1532,16 @@ impl SealedPostgresSourceResearchComposerV2 {
         request_identity: &str,
         tamper: SourceResearchComposerAcceptanceTamperV2,
     ) -> Result<DevelopComposerOperationResponseV2, sqlx::Error> {
-        self.inner
-            .resolve_with_acceptance_tamper(request_identity, Some(tamper))
-            .await
+        Box::pin(
+            self.inner
+                .resolve_with_acceptance_tamper(request_identity, Some(tamper)),
+        )
+        .await
     }
 }
 
 #[cfg(feature = "sealed-source-intake-composer-acceptance")]
+#[allow(clippy::needless_pass_by_value)]
 fn composer_terminal_protocol(terminal: DevelopComposerTerminalV2) -> sqlx::Error {
     sqlx::Error::Protocol(format!("{}: {}", terminal.coordinate, terminal.reason))
 }

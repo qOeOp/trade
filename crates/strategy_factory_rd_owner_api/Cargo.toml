@@ -28,6 +28,9 @@ sealed-source-intake-composer-acceptance = [
 sealed-develop-composer-acceptance = [
   "vibe-strategy-factory/sealed-develop-composer-acceptance",
 ]
+dashboard-composer-readback = [
+  "vibe-strategy-factory/sealed-source-intake-composer-acceptance",
+]
 
 [dependencies]
 anyhow = { workspace = true }

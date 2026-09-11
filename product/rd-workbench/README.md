@@ -156,13 +156,14 @@ The sole default browser entry is `http://127.0.0.1:18000`. On a fresh volume, c
 
 The opt-in `dashboard-preview` profile additionally starts the consolidated
 `rd-dashboard-owner-read-api` reader. It exposes only the authenticated Artifact
-directory/source and Research directory/exact-readback GETs plus its health
-check. Its state keeps separate typed domain ports and owns no sandbox or
-mutation port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; Dashboard consumes
-the matching internal URL/token pair and fails closed when either half is
-missing. Starting the default Workbench without the profile does not start this
-reader or change any Windmill route. Source Intake and Composer remain later
-typed-port additions to this same process, not additional containers.
+directory/source, Research directory/exact-readback, Source Intake exact-readback,
+and Develop Composer exact-readback GETs plus its health check. Its state keeps
+separate typed domain ports and owns no sandbox, fact-writer pool, or mutation
+port. Configure `RD_DASHBOARD_OWNER_READ_API_TOKEN`; Dashboard consumes the
+matching internal URL/token pair and fails closed when either half is missing.
+Starting the default Workbench without the profile does not start this reader or
+change any Windmill route. Source Intake and Composer are typed-port additions to
+this same process, not additional containers.
 
 ```bash
 WINDMILL_TOKEN_FILE=/absolute/path/to/private-deployment-token \

@@ -226,16 +226,18 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
-verified Research directory、Research exact readback 与 Source Intake exact readback GET 由统一的
+verified Research directory、Research exact readback、Source Intake exact readback 与 Develop Composer exact readback GET 由统一的
 `strategy-factory-rd-dashboard-read-api` 打包。这个第一方 Dashboard reader 还承载 Artifact directory 与 source
 GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
-`ArtifactDirectoryOwnerPort`、`ArtifactSourceOwnerPort` 与 `SourceIntakeReadbackOwnerPort`，不把业务边界合并
-为一个通用 repository。router 只暴露 `/health` 及这五个已准入 GET。Dashboard 通过必须原子成对配置的
+`ArtifactDirectoryOwnerPort`、`ArtifactSourceOwnerPort`、`SourceIntakeReadbackOwnerPort` 与
+`DevelopComposerReadbackOwnerPortV2`，不把业务边界合并为一个通用 repository。router 只暴露 `/health`
+及这六个已准入 GET。Dashboard 通过必须原子成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
 不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
 mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，
-才能投影 terminal custody；内部配置缺失或不兼容时只禁用这一条 route。后续 Composer 只可通过自己的 typed
-read port 接入同一 reader，不得再增加按域容器；在对应切片完成前，它仍不是已实现能力。
+才能投影 terminal custody；内部配置缺失或不兼容时只禁用这一条 route。Composer 通过自己的 typed read port
+接入同一 reader，不增加按域容器；其 adapter 只持有 `rd_owner` read pool，复用现有 sealed routine 与当前
+Research/Market evidence 校验，不持有 fact-writer pool 或任何 mutation method。
 
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或

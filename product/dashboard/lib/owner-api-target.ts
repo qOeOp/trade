@@ -1,4 +1,5 @@
 import {
+  DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
@@ -47,7 +48,8 @@ export function ownerApiTargetForOperationV1(
   environment: OwnerApiEnvironmentV1 = process.env,
 ): OwnerApiTargetV1 {
   if (operationId === RESEARCH_SHADOW_RESOLVE_OPERATION
-    || operationId === SOURCE_INTAKE_SHADOW_READ_OPERATION) {
+    || operationId === SOURCE_INTAKE_SHADOW_READ_OPERATION
+    || operationId === DEVELOP_COMPOSER_SHADOW_READ_OPERATION) {
     return dashboardReadApiTargetV1(environment);
   }
   const usesReadApi = operationId === RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
