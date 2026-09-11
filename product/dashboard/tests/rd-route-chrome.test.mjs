@@ -56,7 +56,9 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
     assert.ok(surface.includes(`meta="${framedBoundaries[index]}"`), `${framedBoundaries[index]} is missing`);
   });
   assert.match(research, /<OwnerDirectoryInfo>[\s\S]+No research payloads, submission controls, or resolution actions are exposed here\./u);
-  assert.match(researchReadback, /Current verified Owner outcome for this research request\./u);
+  assert.match(researchReadback, /title="Research outcome"/u);
+  assert.match(researchReadback, /<PanelFrameInfoFact label="Request"><code>\{requestIdentity\}<\/code><\/PanelFrameInfoFact>/u);
+  assert.doesNotMatch(researchReadback, /description=/u);
   assert.doesNotMatch(researchReadback, />\s*(Submit|Resolve|Run|Build|Save|Delete)\s*</u);
   assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

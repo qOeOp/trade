@@ -21,10 +21,6 @@ import {
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./research-readback-workspace.module.css";
 
-function displayIdentity(value: string): string {
-  return value.length > 40 ? `${value.slice(0, 24)}…${value.slice(-10)}` : value;
-}
-
 function displayTime(value: string): string {
   return new Date(value).toLocaleString();
 }
@@ -123,9 +119,8 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
     <PanelFrame className={styles.panel} aria-labelledby="research-readback-title">
       <PanelFrameHeader
         eyebrow="Research"
-        title={<span className={styles.title} title={requestIdentity}>{displayIdentity(requestIdentity)}</span>}
+        title="Research outcome"
         titleId="research-readback-title"
-        description="Current verified Owner outcome for this research request."
         actions={<>
           <FilterLink density="compact" variant="ghost" href="/rd/research">
             <InterfaceIcons.previous aria-hidden="true" size={14} /> Back to requests
