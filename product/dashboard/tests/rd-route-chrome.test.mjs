@@ -16,6 +16,7 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
       "sourceIntakeReadback",
       "composerReadback",
       "researchDirectory",
+      "researchReadback",
       "artifactDirectory",
       "artifactSourceDetail",
     ]),
@@ -36,10 +37,11 @@ test("only admitted R&D surfaces embed their route chrome", async () => {
 });
 
 test("each embedded R&D panel owns an exact read-only boundary", async () => {
-  const [source, composer, research, artifact, viewer] = await Promise.all([
+  const [source, composer, research, researchReadback, artifact, viewer] = await Promise.all([
     readFile(new URL("../components/source-intake-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/develop-composer-readback-workbench.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/research-directory.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../components/research-readback-workspace.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/artifact-directory.tsx", import.meta.url), "utf8"),
     readFile(new URL("../components/ui/strategy-code-viewer.tsx", import.meta.url), "utf8"),
   ]);
@@ -54,5 +56,7 @@ test("each embedded R&D panel owns an exact read-only boundary", async () => {
     assert.ok(surface.includes(`meta="${framedBoundaries[index]}"`), `${framedBoundaries[index]} is missing`);
   });
   assert.match(research, /<OwnerDirectoryInfo>[\s\S]+No research payloads, submission controls, or resolution actions are exposed here\./u);
+  assert.match(researchReadback, /Current verified Owner outcome for this research request\./u);
+  assert.doesNotMatch(researchReadback, />\s*(Submit|Resolve|Run|Build|Save|Delete)\s*</u);
   assert.match(artifact, /<OwnerDirectoryInfo>[\s\S]+No build, execution, or binding action is exposed here\./u);
 });

@@ -86,6 +86,7 @@ export function dashboardRouteForPathname(pathname) {
   const current = pathname.length > 1 ? pathname.replace(/\/$/, "") : pathname;
   if (/^\/operations\/runs\/[^/]+$/.test(current)) return "/operations/runs/example";
   if (/^\/operations\/workers\/[^/]+$/.test(current)) return "/operations/workers";
+  if (/^\/rd\/research\/[^/]+$/.test(current)) return "/rd/research";
   if (/^\/rd\/artifacts\/[^/]+\/attempts\/[^/]+$/.test(current)) return "/rd/artifacts";
   if (current === "/market") return "/dashboard";
   return current;

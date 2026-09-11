@@ -1,0 +1,26 @@
+.panel {
+  align-self: start;
+}
+
+.title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.body {
+  padding: var(--panel-content-padding);
+}
+
+.result {
+  min-height: 176px;
+}
+
+.result :global(.empty-state),
+.result :global(.unavailable-state) {
+  min-height: 176px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 72%, transparent);
+  border-radius: var(--panel-inner-radius);
+  background: var(--surface-panel);
+}
