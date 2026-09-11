@@ -246,6 +246,10 @@ if grep -Eq '^[[:space:]]*(DELETE FROM|UPDATE .*SET .*(_json|_digest|committed_a
   exit 1
 fi
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq '"REVOKE ALL ON SCHEMA product_edge_api FROM backtest_owner"' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq '"GRANT USAGE ON SCHEMA product_edge_api TO backtest_owner"' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
 grep -Fq 'canonical_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'request_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'root_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
@@ -257,12 +261,23 @@ grep -Fq 'canonical_envelope_storage_digest TEXT' "$package_dir/postgres-init/10
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text) TO rd_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner, backtest_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_claim_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_source_invocation_started_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_claim_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_source_invocation_started_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'dependency.prosrc=$5' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'pg_catalog.md5(dependency.prosrc)=$6' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq "pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq "dependency_language.lanname='plpgsql'" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+grep -Fq 'pg_catalog.count(DISTINCT role.rolname)=2' "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"
+if grep -Fq "pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2')" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"; then
+  echo "Backtest Replay lock must authenticate its exact resolver dependency" >&2
+  exit 1
+fi
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"

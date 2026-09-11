@@ -128,8 +128,8 @@ GRANT USAGE, CREATE ON SCHEMA public TO product_edge_owner;
 GRANT USAGE ON SCHEMA public TO qualification_writer;
 CREATE SCHEMA IF NOT EXISTS product_edge_api AUTHORIZATION product_edge_owner;
 ALTER SCHEMA product_edge_api OWNER TO product_edge_owner;
-REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner;
-GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner;
+REVOKE ALL ON SCHEMA product_edge_api FROM PUBLIC, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT USAGE ON SCHEMA product_edge_api TO rd_owner, portfolio_owner, backtest_owner;
 CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner;
 ALTER SCHEMA rd_owner_api OWNER TO rd_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC, operator_authorization_writer, qualification_writer;
@@ -585,6 +585,7 @@ CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
+
         DECLARE base jsonb;
         DECLARE sealed record;
         DECLARE research record;
@@ -704,6 +705,15 @@ AS $function$
              OR pg_catalog.convert_from(member.membership_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.membership_receipt_json
              OR pg_catalog.convert_from(sealed.v2_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> sealed.v2_receipt_json
              OR pg_catalog.convert_from(replay_outbox.canonical_payload_bytes,'UTF8')::pg_catalog.jsonb <> replay_outbox.payload_json
+             OR pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>
+                pg_catalog.jsonb_build_object(
+                  'event_identity',replay_outbox.event_identity,
+                  'aggregate_identity',replay_outbox.aggregate_identity,
+                  'event_kind',replay_outbox.event_kind,
+                  'payload_digest',replay_outbox.payload_digest,
+                  'payload_json',replay_outbox.payload_json,
+                  'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms
+                )
           THEN
             RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
           END IF;

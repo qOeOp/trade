@@ -176,9 +176,9 @@ fn native_source_storage(
     native_source_unavailable(error.to_string())
 }
 
-const NATIVE_SOURCE_STORAGE_FUNCTION_V2: &str =
+pub(crate) const NATIVE_SOURCE_STORAGE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_native_replay_source_storage_v2(text,text,text,text)";
-const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "63fe0759c9797da5311132da4f13b839";
+pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2: &str = "45bc491c00b98a0be6b2131c63bfc5d4";
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]

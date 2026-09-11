@@ -35,10 +35,6 @@ use crate::{
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
 const INTERNAL_VERIFY_FUNCTION: &str =
     "rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)";
-const INTERNAL_VERIFY_FUNCTION_V2: &str =
-    "rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)";
-const INTERNAL_VERIFY_FUNCTION_V3: &str =
-    "rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)";
 const LOCK_FUNCTION_V2: &str =
     "rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text)";
 #[expect(
@@ -59,6 +55,80 @@ const LOCK_SOURCE_V2: &str = r#"
         END
         "#;
 const LOCK_SOURCE_V2_MD5: &str = "a8441fed919da5b5c413c6a09d159500";
+const BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2: &str = r#"
+        SELECT wrapper.prosecdef
+             AND wrapper.provolatile='v'
+             AND wrapper.proparallel='u'
+             AND wrapper.proisstrict
+             AND NOT wrapper.proleakproof
+             AND NOT wrapper.proretset
+             AND wrapper.prokind='f'
+             AND wrapper.pronargs=4
+             AND wrapper.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
+             AND wrapper.proconfig=ARRAY['search_path=pg_catalog']::text[]
+             AND wrapper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+             AND wrapper.proargtypes='25 25 25 25'::pg_catalog.oidvector
+             AND pg_catalog.pg_get_userbyid(wrapper.proowner)='rd_owner'
+             AND wrapper_language.lanname='plpgsql'
+             AND wrapper.prosrc=$2
+             AND pg_catalog.md5(wrapper.prosrc)=$3
+             AND pg_catalog.has_schema_privilege('backtest_owner','product_edge_api','USAGE')
+             AND NOT pg_catalog.has_schema_privilege('backtest_owner','product_edge_api','CREATE')
+             AND (SELECT pg_catalog.count(*)=1
+                       AND pg_catalog.bool_and(role.rolname='backtest_owner'
+                         AND acl.privilege_type='EXECUTE'
+                         AND NOT acl.is_grantable
+                         AND acl.grantor=wrapper.proowner)
+                    FROM pg_catalog.aclexplode(
+                           COALESCE(wrapper.proacl,pg_catalog.acldefault('f',wrapper.proowner))
+                         ) acl
+                    LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+                   WHERE acl.grantee<>wrapper.proowner)
+             AND EXISTS (
+               SELECT 1
+                 FROM pg_catalog.pg_proc dependency
+                 JOIN pg_catalog.pg_language dependency_language
+                   ON dependency_language.oid=dependency.prolang
+                WHERE dependency.oid=pg_catalog.to_regprocedure($4)
+                  AND dependency.prosecdef
+                  AND dependency.provolatile='v'
+                  AND dependency.proparallel='u'
+                  AND dependency.proisstrict
+                  AND NOT dependency.proleakproof
+                  AND NOT dependency.proretset
+                  AND dependency.prokind='f'
+                  AND dependency.pronargs=4
+                  AND dependency.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
+                  AND dependency.proconfig=ARRAY['search_path=pg_catalog']::text[]
+                  AND dependency.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
+                  AND dependency.proargtypes='25 25 25 25'::pg_catalog.oidvector
+                  AND pg_catalog.pg_get_userbyid(dependency.proowner)='rd_exploratory_replay_api_owner'
+                  AND dependency_language.lanname='plpgsql'
+                  AND dependency.prosrc=$5
+                  AND pg_catalog.md5(dependency.prosrc)=$6
+                  AND (SELECT pg_catalog.count(*)=2
+                            AND pg_catalog.count(DISTINCT role.rolname)=2
+                            AND pg_catalog.bool_and(
+                              role.rolname IN ('rd_owner','backtest_owner')
+                              AND dependency_acl.privilege_type='EXECUTE'
+                              AND NOT dependency_acl.is_grantable
+                              AND dependency_acl.grantor=dependency.proowner
+                            )
+                         FROM pg_catalog.aclexplode(
+                                COALESCE(
+                                  dependency.proacl,
+                                  pg_catalog.acldefault('f',dependency.proowner)
+                                )
+                              ) dependency_acl
+                         LEFT JOIN pg_catalog.pg_roles role
+                           ON role.oid=dependency_acl.grantee
+                        WHERE dependency_acl.grantee<>dependency.proowner)
+             )
+          FROM pg_catalog.pg_proc wrapper
+          JOIN pg_catalog.pg_language wrapper_language
+            ON wrapper_language.oid=wrapper.prolang
+         WHERE wrapper.oid=pg_catalog.to_regprocedure($1)
+"#;
 #[expect(
     clippy::needless_raw_strings,
     reason = "fixed SQL source is compared byte-for-byte"
@@ -739,6 +809,15 @@ pub(crate) const NATIVE_SOURCE_STORAGE_SOURCE_V2: &str = r#"
              OR pg_catalog.convert_from(member.membership_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> member.membership_receipt_json
              OR pg_catalog.convert_from(sealed.v2_receipt_storage_bytes,'UTF8')::pg_catalog.jsonb <> sealed.v2_receipt_json
              OR pg_catalog.convert_from(replay_outbox.canonical_payload_bytes,'UTF8')::pg_catalog.jsonb <> replay_outbox.payload_json
+             OR pg_catalog.convert_from(replay_outbox.canonical_envelope_bytes,'UTF8')::pg_catalog.jsonb <>
+                pg_catalog.jsonb_build_object(
+                  'event_identity',replay_outbox.event_identity,
+                  'aggregate_identity',replay_outbox.aggregate_identity,
+                  'event_kind',replay_outbox.event_kind,
+                  'payload_digest',replay_outbox.payload_digest,
+                  'payload_json',replay_outbox.payload_json,
+                  'committed_at_epoch_ms',replay_outbox.committed_at_epoch_ms
+                )
           THEN
             RETURN pg_catalog.jsonb_build_object('schema_version',1,'custody_state','CORRUPT_PARTIAL');
           END IF;
@@ -1074,6 +1153,8 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "REVOKE ALL ON TABLE public.rd_sealed_exploratory_replay_requests_v1 FROM PUBLIC",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM backtest_owner",
         "GRANT USAGE ON SCHEMA rd_owner_api TO backtest_owner",
+        "REVOKE ALL ON SCHEMA product_edge_api FROM backtest_owner",
+        "GRANT USAGE ON SCHEMA product_edge_api TO backtest_owner",
         "REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_owner, market_data_reader",
         "GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner",
     ] {
@@ -2445,34 +2526,17 @@ pub async fn lock_for_backtest_v2_in_transaction(
 async fn validate_backtest_binding_v2(
     backtest_pool: &PgPool,
 ) -> Result<(), ExploratoryReplayOwnerError> {
-    let function_ok: bool = sqlx::query_scalar(
-        "SELECT procedure.prosecdef
-             AND procedure.provolatile='v'
-             AND procedure.proparallel='u'
-             AND procedure.proisstrict
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
-             AND language.lanname='plpgsql'
-             AND pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_request_internal_v2') > 0
-             AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE'
-                  AND acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
-             )
-           FROM pg_catalog.pg_proc procedure
-           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
-           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
-          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
-    )
-    .bind(LOCK_FUNCTION_V2)
-    .fetch_optional(backtest_pool)
-    .await
-    .map_err(storage)?
-    .unwrap_or(false);
+    let function_ok: bool = sqlx::query_scalar(BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2)
+        .bind(LOCK_FUNCTION_V2)
+        .bind(LOCK_SOURCE_V2)
+        .bind(LOCK_SOURCE_V2_MD5)
+        .bind(crate::rd_owner_postgres_custody::NATIVE_SOURCE_STORAGE_FUNCTION_V2)
+        .bind(NATIVE_SOURCE_STORAGE_SOURCE_V2)
+        .bind(crate::rd_owner_postgres_custody::NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2)
+        .fetch_optional(backtest_pool)
+        .await
+        .map_err(storage)?
+        .unwrap_or(false);
 
     if !function_ok {
         return Err(ExploratoryReplayOwnerError::Unavailable(
@@ -2635,163 +2699,17 @@ async fn validate_backtest_transaction_binding_v2(
         ));
     }
 
-    let function_ok: bool = sqlx::query_scalar(
-        "SELECT procedure.prosecdef
-             AND procedure.provolatile='v'
-             AND procedure.proparallel='u'
-             AND procedure.proisstrict
-             AND NOT procedure.proleakproof
-             AND NOT procedure.proretset
-             AND procedure.pronargs=4
-             AND procedure.proargnames=ARRAY['requested_request_identity','requested_meaning_digest','requested_receipt_identity','requested_seal_digest']::text[]
-             AND procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]
-             AND procedure.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-             AND procedure.proargtypes='25 25 25 25'::pg_catalog.oidvector
-             AND owner.rolname='rd_owner'
-             AND language.lanname='plpgsql'
-             AND procedure.prosrc=$2
-             AND pg_catalog.md5(procedure.prosrc)=$3
-             AND pg_catalog.has_function_privilege('backtest_owner',procedure.oid,'EXECUTE')
-             AND NOT pg_catalog.has_function_privilege('rd_owner',procedure.oid,'EXECUTE')
-             AND EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner')
-                  AND acl.grantor=owner.oid
-                  AND acl.privilege_type='EXECUTE'
-                  AND NOT acl.is_grantable
-             )
-             AND NOT EXISTS (
-               SELECT 1 FROM pg_catalog.aclexplode(procedure.proacl) acl
-                WHERE acl.privilege_type='EXECUTE'
-                  AND (acl.grantee NOT IN (owner.oid,(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='backtest_owner'))
-                       OR acl.grantor<>owner.oid OR acl.is_grantable)
-             )
-             AND EXISTS (
-               SELECT 1
-                 FROM pg_catalog.pg_proc helper
-                 JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-                 JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($4)
-                  AND NOT helper.prosecdef
-                  AND helper.provolatile='v'
-                  AND helper.proparallel='u'
-                  AND helper.proisstrict
-                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                  AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-                  AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
-                  AND helper.prosrc=$5
-                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
-                  AND helper_language.lanname='plpgsql'
-                  AND EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                       AND helper_acl.grantor=helper_owner.oid
-                       AND helper_acl.privilege_type='EXECUTE'
-                       AND NOT helper_acl.is_grantable
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee NOT IN (
-                              helper_owner.oid,
-                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                            )
-                            OR helper_acl.grantor<>helper_owner.oid
-                            OR helper_acl.is_grantable)
-                  )
-                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-             )
-             AND EXISTS (
-               SELECT 1
-                 FROM pg_catalog.pg_proc helper
-                 JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-                 JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($6)
-                  AND NOT helper.prosecdef
-                  AND helper.provolatile='v'
-                  AND helper.proparallel='u'
-                  AND helper.proisstrict
-                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                  AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-                  AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
-                  AND helper.prosrc=$7
-                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
-                  AND helper_language.lanname='plpgsql'
-                  AND EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                       AND helper_acl.grantor=helper_owner.oid
-                       AND helper_acl.privilege_type='EXECUTE'
-                       AND NOT helper_acl.is_grantable
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee NOT IN (
-                              helper_owner.oid,
-                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                            )
-                            OR helper_acl.grantor<>helper_owner.oid
-                            OR helper_acl.is_grantable)
-                  )
-                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-             )
-             AND EXISTS (
-               SELECT 1
-                 FROM pg_catalog.pg_proc helper
-                 JOIN pg_catalog.pg_roles helper_owner ON helper_owner.oid=helper.proowner
-                 JOIN pg_catalog.pg_language helper_language ON helper_language.oid=helper.prolang
-                WHERE helper.oid=pg_catalog.to_regprocedure($8)
-                  AND NOT helper.prosecdef
-                  AND helper.provolatile='v'
-                  AND helper.proparallel='u'
-                  AND helper.proisstrict
-                  AND helper.proconfig=ARRAY['search_path=pg_catalog']::text[]
-                  AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
-                  AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
-                  AND helper.prosrc=$9
-                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
-                  AND helper_language.lanname='plpgsql'
-                  AND EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                       AND helper_acl.grantor=helper_owner.oid
-                       AND helper_acl.privilege_type='EXECUTE'
-                       AND NOT helper_acl.is_grantable
-                  )
-                  AND NOT EXISTS (
-                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee NOT IN (
-                              helper_owner.oid,
-                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                            )
-                            OR helper_acl.grantor<>helper_owner.oid
-                            OR helper_acl.is_grantable)
-                  )
-                  AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
-                  AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
-             )
-           FROM pg_catalog.pg_proc procedure
-           JOIN pg_catalog.pg_roles owner ON owner.oid=procedure.proowner
-           JOIN pg_catalog.pg_language language ON language.oid=procedure.prolang
-          WHERE procedure.oid=pg_catalog.to_regprocedure($1)",
-    )
-    .bind(LOCK_FUNCTION_V2)
-    .bind(LOCK_SOURCE_V2)
-    .bind(LOCK_SOURCE_V2_MD5)
-    .bind(INTERNAL_VERIFY_FUNCTION)
-    .bind(INTERNAL_VERIFY_SOURCE_V1)
-    .bind(INTERNAL_VERIFY_FUNCTION_V2)
-    .bind(INTERNAL_VERIFY_SOURCE_V2)
-    .bind(INTERNAL_VERIFY_FUNCTION_V3)
-    .bind(INTERNAL_VERIFY_SOURCE_V3)
-    .fetch_optional(&mut **transaction)
-    .await
-    .map_err(storage)?
-    .unwrap_or(false);
+    let function_ok: bool = sqlx::query_scalar(BACKTEST_LOCK_BOUNDARY_AUTH_SQL_V2)
+        .bind(LOCK_FUNCTION_V2)
+        .bind(LOCK_SOURCE_V2)
+        .bind(LOCK_SOURCE_V2_MD5)
+        .bind(crate::rd_owner_postgres_custody::NATIVE_SOURCE_STORAGE_FUNCTION_V2)
+        .bind(NATIVE_SOURCE_STORAGE_SOURCE_V2)
+        .bind(crate::rd_owner_postgres_custody::NATIVE_SOURCE_STORAGE_SOURCE_MD5_V2)
+        .fetch_optional(&mut **transaction)
+        .await
+        .map_err(storage)?
+        .unwrap_or(false);
 
     if !function_ok {
         return Err(ExploratoryReplayOwnerError::Unavailable(
