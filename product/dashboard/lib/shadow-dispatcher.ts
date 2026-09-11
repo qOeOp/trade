@@ -1,19 +1,24 @@
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
+  DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
   EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  LEGACY_RESEARCH_QUARANTINE_READ_OPERATION,
   operationDispatchBindingForIdV1,
   RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   RESEARCH_SHADOW_RESOLVE_OPERATION,
   SOURCE_INTAKE_SHADOW_READ_OPERATION,
+  type RegisteredOperationId,
 } from "./operation-registry.ts";
 import { resolveExploratoryReplayShadowV2 } from "./exploratory-replay-readback-client.ts";
 import {
+  resolveLegacyResearchQuarantineShadowV1,
   resolveArtifactShadowV1,
   resolveResearchShadowV1,
   resolveSourceIntakeShadowV1,
 } from "./rd-shadow-client.ts";
+import { readDevelopComposerGatewayV1 } from "./develop-composer-readback-gateway.ts";
 import { resolveRdFormationCatalogShadowV1 } from "./rd-formation-catalog-client.ts";
 import { resolveHistoricalCustodyShadowV1 } from "./rd-historical-custody-client.ts";
 import { resolveRdIterationTimelineShadowV1 } from "./rd-iteration-timeline-client.ts";
@@ -24,10 +29,25 @@ import type {
   ShadowReadClaimV1,
 } from "./run-store.ts";
 import type { RunTerminalCodeV1 } from "./run-contract.ts";
-import { ownerOutcomeForShadowResultV1 } from "./shadow-run-journal.ts";
+import {
+  ownerOutcomeForDevelopComposerResultV1,
+  ownerOutcomeForShadowResultV1,
+} from "./shadow-run-journal.ts";
 
 type Fetcher = typeof fetch;
 type WorkerEnvironment = Record<string, string | undefined>;
+
+export const shadowDispatchOperationIdsV1 = [
+  RESEARCH_SHADOW_RESOLVE_OPERATION,
+  LEGACY_RESEARCH_QUARANTINE_READ_OPERATION,
+  ARTIFACT_SHADOW_RESOLVE_OPERATION,
+  SOURCE_INTAKE_SHADOW_READ_OPERATION,
+  RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
+  RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
+  RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
+  EXPLORATORY_REPLAY_SHADOW_READ_OPERATION,
+  DEVELOP_COMPOSER_SHADOW_READ_OPERATION,
+] as const satisfies readonly RegisteredOperationId[];
 
 export type ShadowDispatchExecutionV1 = {
   schema_version: 1;
@@ -78,56 +98,12 @@ export async function executeClaimedShadowReadV1({
     };
   }
 
-  const recovery = claim.run.recovery_identity;
-  const owner = ownerApiTargetForOperationV1(claim.run.operation_id, environment);
-  const baseUrl = owner.baseUrl;
-  const token = owner.token;
-  const result = claim.run.operation_id === RESEARCH_SHADOW_RESOLVE_OPERATION
-    ? await resolveResearchShadowV1({
-      requestIdentity: recovery.request_identity,
-      baseUrl,
-      token,
-      fetcher,
-    })
-    : claim.run.operation_id === RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
-      ? await resolveRdFormationCatalogShadowV1({ baseUrl, token, fetcher, now: clock })
-      : claim.run.operation_id === RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION
-        ? await resolveHistoricalCustodyShadowV1({ baseUrl, token, fetcher, now: clock })
-      : claim.run.operation_id === RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION
-        ? await resolveRdIterationTimelineShadowV1({
-          trialFamilyIdentity: recovery.trial_family_identity,
-          baseUrl,
-          token,
-          fetcher,
-          now: clock,
-        })
-      : claim.run.operation_id === SOURCE_INTAKE_SHADOW_READ_OPERATION
-      ? await resolveSourceIntakeShadowV1({
-        requestIdentity: recovery.request_identity,
-        baseUrl,
-        token,
-        fetcher,
-      })
-      : claim.run.operation_id === ARTIFACT_SHADOW_RESOLVE_OPERATION
-        ? await resolveArtifactShadowV1({
-          researchRequestIdentity: recovery.research_request_identity,
-          buildRequestIdentity: recovery.build_request_identity,
-          attemptIdentity: recovery.attempt_identity,
-          baseUrl,
-          token,
-          fetcher,
-        })
-        : claim.run.operation_id === EXPLORATORY_REPLAY_SHADOW_READ_OPERATION
-          ? await resolveExploratoryReplayShadowV2({
-            requestIdentity: recovery.request_identity,
-            meaningDigest: recovery.meaning_digest,
-            baseUrl,
-            token,
-            fetcher,
-          })
-        : null;
-  if (!result) throw new Error("DISPATCH_OPERATION_UNREGISTERED");
-  const outcome = ownerOutcomeForShadowResultV1(result);
+  const outcome = await resolveClaimedOwnerOutcomeV1({
+    claim,
+    environment,
+    fetcher,
+    clock,
+  });
   const run = await store.completeClaimedRead({
     runIdentity: claim.run.run_identity,
     workerIdentity,
@@ -142,4 +118,73 @@ export async function executeClaimedShadowReadV1({
     owner_outcome_state: outcome.state,
     terminal_code: outcome.terminalCode,
   };
+}
+
+async function resolveClaimedOwnerOutcomeV1({
+  claim,
+  environment,
+  fetcher,
+  clock,
+}: {
+  claim: ShadowReadClaimV1;
+  environment: WorkerEnvironment;
+  fetcher: Fetcher;
+  clock: () => number;
+}): Promise<{ state: OperationRunV1["owner_outcome_state"]; terminalCode: RunTerminalCodeV1 }> {
+  const recovery = claim.run.recovery_identity;
+  const owner = ownerApiTargetForOperationV1(claim.run.operation_id, environment);
+  const ownerArguments = { baseUrl: owner.baseUrl, token: owner.token, fetcher };
+  switch (claim.run.operation_id) {
+    case RESEARCH_SHADOW_RESOLVE_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveResearchShadowV1({
+        requestIdentity: recovery.request_identity,
+        ...ownerArguments,
+      }));
+    case LEGACY_RESEARCH_QUARANTINE_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveLegacyResearchQuarantineShadowV1({
+        requestIdentity: recovery.request_identity,
+        ...ownerArguments,
+      }));
+    case ARTIFACT_SHADOW_RESOLVE_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveArtifactShadowV1({
+        researchRequestIdentity: recovery.research_request_identity,
+        buildRequestIdentity: recovery.build_request_identity,
+        attemptIdentity: recovery.attempt_identity,
+        ...ownerArguments,
+      }));
+    case SOURCE_INTAKE_SHADOW_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveSourceIntakeShadowV1({
+        requestIdentity: recovery.request_identity,
+        ...ownerArguments,
+      }));
+    case RD_FORMATION_CATALOG_SHADOW_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveRdFormationCatalogShadowV1({
+        ...ownerArguments,
+        now: clock,
+      }));
+    case RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveHistoricalCustodyShadowV1({
+        ...ownerArguments,
+        now: clock,
+      }));
+    case RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveRdIterationTimelineShadowV1({
+        trialFamilyIdentity: recovery.trial_family_identity,
+        ...ownerArguments,
+        now: clock,
+      }));
+    case EXPLORATORY_REPLAY_SHADOW_READ_OPERATION:
+      return ownerOutcomeForShadowResultV1(await resolveExploratoryReplayShadowV2({
+        requestIdentity: recovery.request_identity,
+        meaningDigest: recovery.meaning_digest,
+        ...ownerArguments,
+      }));
+    case DEVELOP_COMPOSER_SHADOW_READ_OPERATION:
+      return ownerOutcomeForDevelopComposerResultV1(await readDevelopComposerGatewayV1({
+        requestIdentity: recovery.request_identity,
+        environment,
+        fetcher,
+        clock,
+      }));
+  }
 }

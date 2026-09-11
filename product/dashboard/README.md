@@ -22,14 +22,23 @@ terminal-run-only, and preserves the run tombstone and Owner locator.
 
 ## Image and Compose boundary
 
-`product/dashboard/Dockerfile` builds the standalone `trade-dashboard` image. The R&D Workbench Compose file adds
-`dashboard-run-store-migrate` and `dashboard-web` only under the opt-in `dashboard-preview` profile. The migration
-must complete before the read-only web container starts; the host port defaults to `127.0.0.1:3100`.
+`product/dashboard/Dockerfile` builds one standalone `trade-dashboard` image. The R&D Workbench Compose file uses
+that image for `dashboard-run-store-migrate`, `dashboard-web`, `dashboard-shadow-worker`, and
+`dashboard-shadow-scheduler`, all only under the opt-in `dashboard-preview` profile. The migration must complete
+before the read-only web and shadow-runtime containers start; the web host port defaults to
+`127.0.0.1:3100`, while the worker and scheduler expose no host port.
+
+The worker and scheduler are separate least-privilege process roles over the Trade-owned RunStore. The worker can
+claim only zero-effect operations with an explicit dispatcher and current compatibility envelope; the scheduler
+can enqueue only the exact digest-bound schedule set. Missing or invalid RunStore, compatibility, role capability,
+schedule, or Owner configuration keeps the relevant process unhealthy and exits it fail closed. Each runtime uses
+its own identity and token; scheduler configuration does not receive Owner credentials.
 
 The Dashboard image is not bundled into a Windmill image, and enabling its profile does not stop, replace, or add a
 dependency to Windmill server or workers. There is no production deployment or Windmill cutover. Windmill remains
-the current executor for every effect; the Dashboard has no provider execution, business-write, or trading
-authority. Missing PostgreSQL or Owner configuration fails closed as an unavailable projection.
+the current executor for every effect; the Dashboard shadow roles perform typed Owner reads and write only their
+own operational RunStore records. They have no provider execution, business-write, or trading authority.
+Missing PostgreSQL or Owner configuration fails closed as an unavailable projection or an unhealthy runtime role.
 
 ## Local checks
 
