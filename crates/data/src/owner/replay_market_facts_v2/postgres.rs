@@ -2015,11 +2015,57 @@ mod resolver_contract_tests {
         let recover = composition
             .find("recover_bound_replay_market_facts_readback_in_transaction_v2")
             .expect("exact binding recovery");
+        let association = composition
+            .find("validate_replay_composition_readback_association_v1")
+            .expect("binding and replay association validation");
         let native = composition
             .find("validate_replay_market_native_dependencies_read_only_v2")
             .expect("native dependency closure");
         let commit = composition.find(".commit()").expect("read-only commit");
-        assert!(recover < native && native < commit);
+        assert!(recover < association && association < native && native < commit);
+
+        let composition_contract = include_str!("composition.rs");
+        let shared_association = composition_contract
+            .split("fn validate_replay_request_binding_association_v1")
+            .nth(1)
+            .expect("shared request and binding association")
+            .split("pub(crate) fn validate_replay_composition_readback_association_v1")
+            .next()
+            .expect("bounded request and binding association");
+        for required in [
+            "request.binding_locator() != binding.record.locator()",
+            "record.replay_request_identity != replay.pit_locator().request_identity",
+            "record.replay_request_digest != replay.pit_locator().request_digest",
+            "record.pit_snapshot_identity != replay.pit_locator().snapshot_identity",
+            "record.replay_start_event_ns != replay.replay_start_event_ns()",
+            "record.replay_end_event_ns_exclusive != replay.replay_end_event_ns_exclusive()",
+        ] {
+            assert!(shared_association.contains(required));
+        }
+        assert_eq!(
+            composition_contract
+                .matches("validate_replay_request_binding_association_v1(request, binding)?")
+                .count(),
+            2,
+        );
+        let dependency_association = composition_contract
+            .split("fn validate_v2_dependencies")
+            .nth(1)
+            .expect("shared dependency association")
+            .split("fn encode_record")
+            .next()
+            .expect("bounded dependency association");
+        for required in [
+            "ReplayCompositionNativeLocatorKindV1::PitSnapshot",
+            "ReplayCompositionNativeLocatorKindV1::SourceBinding",
+            "ReplayCompositionNativeLocatorKindV1::InstrumentMaster",
+            "ReplayCompositionNativeLocatorKindV1::UniverseSelection",
+            "ReplayMarketDependencyKindV2::ObservationCensusV1",
+            "ReplayMarketDependencyKindV2::StrategyInputJoinedCutV1",
+            "ReplayMarketDependencyKindV2::StrategyInputSampleProjectionV4",
+        ] {
+            assert!(dependency_association.contains(required));
+        }
 
         for required in [
             "universe_selection_records_v1",

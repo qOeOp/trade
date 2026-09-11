@@ -363,6 +363,11 @@ impl MarketDataOwnerPostgres {
         )
         .await
         .map_err(map_replay_composition_postgres_error_v1)?;
+        super::replay_market_facts_v2::composition::validate_replay_composition_readback_association_v1(
+            request,
+            &binding,
+            &readback,
+        )?;
         validate_replay_market_native_dependencies_read_only_v2(&mut transaction, &readback)
             .await
             .map_err(map_replay_composition_postgres_error_v1)?;
