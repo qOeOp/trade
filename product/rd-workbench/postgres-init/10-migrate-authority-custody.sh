@@ -138,12 +138,471 @@ GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_reader;
 
+-- BEGIN INTERNAL_VERIFY_SOURCE_V1
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
+  requested_request_identity text,
+  requested_request_digest text,
+  requested_receipt_identity text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE sealed record;
+        DECLARE locked_outbox record;
+        DECLARE locked_trial_family_outbox record;
+        DECLARE locked_artifact_family_outbox record;
+        DECLARE owner_cut bigint;
+        DECLARE result_availability text := 'AVAILABLE';
+        BEGIN
+          IF pg_catalog.current_setting('transaction_isolation') NOT IN ('read committed','serializable') THEN RETURN NULL; END IF;
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity = requested_request_identity
+             AND (requested_request_digest = '' OR request_digest = requested_request_digest);
+          IF NOT FOUND THEN RETURN NULL; END IF;
+          IF sealed.lifecycle_state = 'REVOKED'
+             AND (requested_request_digest <> '' OR requested_receipt_identity <> '') THEN
+            RETURN pg_catalog.jsonb_build_object('schema_version',1,'availability','STALE');
+          END IF;
+          IF sealed.lifecycle_state = 'REVOKED' THEN
+            result_availability := 'STALE';
+          END IF;
+          IF sealed.lifecycle_state NOT IN ('FROZEN','REVOKED')
+             OR (requested_receipt_identity <> '' AND sealed.receipt_json->>'receipt_identity' <> requested_receipt_identity)
+             OR sealed.frozen_json->>'schema_version' <> '1'
+             OR coalesce(sealed.frozen_json->>'request_schema_version','1') <> sealed.request_schema_version::text
+             OR sealed.frozen_json->>'request_digest' <> sealed.request_digest
+             OR sealed.frozen_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.frozen_json->'proposal'->>'request_identity' <> sealed.request_identity
+             OR sealed.frozen_json->'proposal'->>'build_request_identity' <> sealed.build_request_identity
+             OR sealed.frozen_json->'proposal'->>'attempt_identity' <> sealed.attempt_identity
+             OR sealed.frozen_json->'proposal'->>'intent_identity' <> sealed.intent_identity
+             OR sealed.frozen_json->'proposal'->>'trial_family_identity' <> sealed.trial_family_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_identity' <> sealed.artifact_identity
+             OR sealed.frozen_json->'proposal'->>'build_receipt_identity' <> sealed.build_receipt_identity
+             OR sealed.frozen_json->'proposal'->>'artifact_family_binding_identity' <> sealed.artifact_family_binding_identity
+             OR sealed.frozen_json->'proposal'->>'census_frontier_identity' <> sealed.census_frontier_identity
+             OR sealed.receipt_json->>'schema_version' <> '1'
+             OR sealed.receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.receipt_json->>'request_digest' <> sealed.request_digest
+             OR sealed.receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_trial_family_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.trial_family_identity
+             AND event_kind='TRIAL_FAMILY_FROZEN_V1';
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_artifact_family_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.artifact_identity
+             AND event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1';
+
+          IF NOT EXISTS (
+            SELECT 1 FROM public.rd_research_request_receipts_v1 research
+             WHERE research.intent_json->>'intent_identity'=sealed.intent_identity
+               AND research.intent_json->>'semantic_digest'=sealed.frozen_json->>'intent_semantic_digest'
+               AND research.receipt_json->>'receipt_identity'=sealed.frozen_json->>'research_receipt_identity'
+               AND research.receipt_json->>'disposition'='ACCEPTED'
+               AND research.view_json->>'availability'='AVAILABLE'
+               AND research.view_json->>'phase'='ARTIFACT_AVAILABLE'
+               AND research.view_json->>'attempt_identity'=sealed.attempt_identity
+               AND research.view_json->>'artifact_identity'=sealed.artifact_identity
+               AND research.view_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND research.view_json->>'artifact_review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_trial_families_v1 family
+            JOIN public.rd_trial_family_heads_v1 head USING (trial_family_identity)
+             WHERE family.trial_family_identity=sealed.trial_family_identity
+               AND family.intent_identity=sealed.intent_identity
+               AND family.root_digest=sealed.frozen_json->>'trial_family_root_digest'
+               AND head.frontier_identity=sealed.census_frontier_identity
+               AND head.frontier_digest=sealed.frozen_json->>'census_frontier_digest'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_trial_family_bindings_v1 binding
+             WHERE binding.binding_identity=sealed.artifact_family_binding_identity
+               AND binding.artifact_identity=sealed.artifact_identity
+               AND binding.build_receipt_identity=sealed.build_receipt_identity
+               AND binding.intent_identity=sealed.intent_identity
+               AND binding.trial_family_identity=sealed.trial_family_identity
+               AND binding.binding_digest=sealed.frozen_json->>'artifact_family_binding_digest'
+               AND binding.binding_receipt_json->>'receipt_identity'=sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_artifact_build_attempts_v1 attempt
+             WHERE attempt.build_request_identity=sealed.build_request_identity
+               AND attempt.attempt_identity=sealed.attempt_identity
+               AND attempt.attempt_json->>'state'='TERMINAL'
+               AND attempt.attempt_json->'receipt'->>'disposition'='SUCCESS'
+               AND attempt.attempt_json->'receipt'->>'artifact_identity'=sealed.artifact_identity
+               AND attempt.attempt_json->'receipt'->>'build_receipt_identity'=sealed.build_receipt_identity
+          ) OR NOT EXISTS (
+            SELECT 1 FROM public.rd_strategy_artifacts_v1 artifact
+             WHERE artifact.artifact_digest=sealed.artifact_identity
+               AND artifact.intent_identity=sealed.intent_identity
+               AND artifact.attempt_identity=sealed.attempt_identity
+               AND artifact.build_receipt_json->>'build_receipt_identity'=sealed.build_receipt_identity
+               AND artifact.build_receipt_json->>'wasm_digest'=sealed.frozen_json->'proposal'->>'exact_code_bytes_digest'
+               AND ('sha256:' || pg_catalog.encode(pg_catalog.sha256(artifact.wasm_bytes),'hex'))=sealed.frozen_json->>'exact_code_bytes_sha256_digest'
+               AND artifact.build_receipt_json->>'source_capsule_digest'=sealed.frozen_json->>'source_capsule_digest'
+               AND artifact.build_receipt_json->>'build_recipe_digest'=sealed.frozen_json->>'build_recipe_digest'
+               AND artifact.build_receipt_json->>'dependency_identity'=sealed.frozen_json->>'dependency_identity'
+               AND artifact.artifact_review_json->>'review_identity'=sealed.frozen_json->>'artifact_review_identity'
+          ) OR NOT EXISTS (
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 family_outbox
+              JOIN public.rd_trial_families_v1 family
+                ON family.trial_family_identity=family_outbox.aggregate_identity
+              JOIN public.rd_trial_family_members_v1 member
+                ON member.trial_family_identity=family.trial_family_identity
+               AND member.ordinal=0
+              JOIN public.rd_trial_family_heads_v1 head
+                ON head.trial_family_identity=family.trial_family_identity
+             WHERE family_outbox.aggregate_identity=sealed.trial_family_identity
+               AND family_outbox.event_kind='TRIAL_FAMILY_FROZEN_V1'
+               AND family_outbox.payload_digest=sealed.frozen_json->>'trial_family_outbox_digest'
+               AND family_outbox.event_identity=sealed.frozen_json->>'trial_family_outbox_event_identity'
+               AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
+               AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
+               AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
+               AND family_outbox.payload_json=(
+                 pg_catalog.jsonb_build_object(
+                   'schema_version',1,
+                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                   'intent_identity',sealed.intent_identity,
+                   'trial_family_identity',sealed.trial_family_identity,
+                   'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+                   'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+                   'census_frontier_identity',head.frontier_identity,
+                   'census_frontier_digest',head.frontier_digest
+                 ) || CASE
+                   WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_execution_policy_v2',
+                     family.root_json->'policy'->'replay_execution_policy_v2'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+                 || CASE
+                   WHEN family.root_json->'policy' ? 'replay_policy_catalog_v3'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_policy_catalog_v3',
+                     family.root_json->'policy'->'replay_policy_catalog_v3'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+               )
+          ) OR NOT EXISTS (
+            SELECT 1
+              FROM public.rd_owner_outbox_v1 artifact_outbox
+              JOIN public.rd_artifact_trial_family_bindings_v1 binding
+                ON binding.artifact_identity=artifact_outbox.aggregate_identity
+             WHERE artifact_outbox.aggregate_identity=sealed.artifact_identity
+               AND artifact_outbox.event_kind='ARTIFACT_TRIAL_FAMILY_BOUND_V1'
+               AND artifact_outbox.payload_digest=sealed.frozen_json->>'artifact_family_outbox_digest'
+               AND artifact_outbox.event_identity=sealed.frozen_json->>'artifact_family_outbox_event_identity'
+               AND artifact_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(binding.binding_digest,'sha256:','')
+               AND artifact_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'artifact_family_outbox_committed_at_epoch_ms')::bigint
+               AND artifact_outbox.committed_at_epoch_ms=binding.committed_at_epoch_ms
+               AND artifact_outbox.payload_json=pg_catalog.jsonb_build_object(
+                 'schema_version',1,
+                 'artifact_identity',sealed.artifact_identity,
+                 'build_receipt_identity',sealed.build_receipt_identity,
+                 'trial_family_identity',sealed.trial_family_identity,
+                 'binding_identity',sealed.artifact_family_binding_identity,
+                 'binding_receipt_identity',sealed.frozen_json->>'artifact_family_binding_receipt_identity'
+               )
+          ) THEN RETURN NULL; END IF;
+
+          SELECT event_identity, aggregate_identity, event_kind, payload_digest, payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V1';
+          owner_cut := pg_catalog.floor(extract(epoch FROM pg_catalog.clock_timestamp()) * 1000)::bigint;
+          RETURN pg_catalog.jsonb_build_object(
+            'schema_version',1,
+            'availability',result_availability,
+            'owner_cut_epoch_ms',owner_cut,
+            'frozen',sealed.frozen_json,
+            'receipt',sealed.receipt_json,
+            'outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_outbox.event_identity,
+              'aggregate_identity',locked_outbox.aggregate_identity,
+              'event_kind',locked_outbox.event_kind,
+              'payload_digest',locked_outbox.payload_digest,
+              'payload_json',locked_outbox.payload_json,
+              'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms
+            ),
+            'trial_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_trial_family_outbox.event_identity,
+              'aggregate_identity',locked_trial_family_outbox.aggregate_identity,
+              'event_kind',locked_trial_family_outbox.event_kind,
+              'payload_digest',locked_trial_family_outbox.payload_digest,
+              'payload_json',locked_trial_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_trial_family_outbox.committed_at_epoch_ms
+            ),
+            'artifact_family_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_artifact_family_outbox.event_identity,
+              'aggregate_identity',locked_artifact_family_outbox.aggregate_identity,
+              'event_kind',locked_artifact_family_outbox.event_kind,
+              'payload_digest',locked_artifact_family_outbox.payload_digest,
+              'payload_json',locked_artifact_family_outbox.payload_json,
+              'committed_at_epoch_ms',locked_artifact_family_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V1
+-- BEGIN INTERNAL_VERIFY_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE locked_v2_outbox record;
+        BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+             AND v2_seal_digest=requested_seal_digest
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
+
+          IF sealed.v2_canonical_request_bytes IS NULL
+             OR sealed.v2_meaning_digest IS NULL
+             OR sealed.v2_seal_digest IS NULL
+             OR sealed.v2_receipt_json IS NULL
+             OR sealed.v2_receipt_json->>'schema_version' <> '2'
+             OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+             OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+             OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR sealed.v2_receipt_json ? 'execution_profile_seal'
+             OR sealed.frozen_json ? 'execution_profile_seal'
+          THEN RETURN NULL; END IF;
+
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
+            requested_request_identity,
+            sealed.request_digest,
+            sealed.receipt_json->>'receipt_identity'
+          );
+          IF base IS NULL
+             OR base->>'availability' NOT IN ('AVAILABLE','STALE')
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_v2_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+               'schema_version',2,
+               'request_identity',sealed.request_identity,
+               'meaning_digest',sealed.v2_meaning_digest,
+               'seal_digest',sealed.v2_seal_digest,
+               'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+               'lineage_request_digest',sealed.request_digest,
+               'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+             )
+             OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+          THEN RETURN NULL; END IF;
+
+          RETURN base || pg_catalog.jsonb_build_object(
+            'schema_version',2,
+            'v2_canonical_request_base64',pg_catalog.replace(
+              pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+              pg_catalog.chr(10),
+              ''
+            ),
+            'v2_meaning_digest',sealed.v2_meaning_digest,
+            'v2_seal_digest',sealed.v2_seal_digest,
+            'v2_receipt',sealed.v2_receipt_json,
+            'v2_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_v2_outbox.event_identity,
+              'aggregate_identity',locked_v2_outbox.aggregate_identity,
+              'event_kind',locked_v2_outbox.event_kind,
+              'payload_digest',locked_v2_outbox.payload_digest,
+              'payload_json',locked_v2_outbox.payload_json,
+              'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V2
+-- BEGIN INTERNAL_VERIFY_SOURCE_V3
+CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE base jsonb;
+        DECLARE sealed record;
+        DECLARE locked_v2_outbox record;
+        BEGIN
+          PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+            pg_catalog.hashtextextended(requested_request_identity,0)
+          );
+          SELECT * INTO STRICT sealed
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+             AND v2_seal_digest=requested_seal_digest
+             AND v2_receipt_json->>'receipt_identity'=requested_receipt_identity;
+
+          IF sealed.v2_canonical_request_bytes IS NULL
+             OR sealed.v2_meaning_digest IS NULL
+             OR sealed.v2_seal_digest IS NULL
+             OR sealed.v2_receipt_json IS NULL
+             OR sealed.v2_receipt_json->>'schema_version' <> '3'
+             OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
+             OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
+             OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
+             OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR NOT sealed.v2_receipt_json ? 'execution_profile_seal'
+             OR NOT sealed.frozen_json ? 'execution_profile_seal'
+             OR sealed.v2_receipt_json->'execution_profile_seal' <> sealed.frozen_json->'execution_profile_seal'
+          THEN RETURN NULL; END IF;
+
+          base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
+            requested_request_identity,
+            sealed.request_digest,
+            sealed.receipt_json->>'receipt_identity'
+          );
+          IF base IS NULL
+             OR base->>'availability' NOT IN ('AVAILABLE','STALE')
+          THEN RETURN NULL; END IF;
+
+          SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,
+                 committed_at_epoch_ms
+            INTO STRICT locked_v2_outbox
+           FROM public.rd_owner_outbox_v1
+           WHERE aggregate_identity=sealed.request_identity
+             AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
+
+          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
+               'schema_version',3,
+               'request_identity',sealed.request_identity,
+               'meaning_digest',sealed.v2_meaning_digest,
+               'seal_digest',sealed.v2_seal_digest,
+               'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
+               'lineage_request_digest',sealed.request_digest,
+               'execution_profile_seal',sealed.v2_receipt_json->'execution_profile_seal',
+               'committed_at_epoch_ms',sealed.committed_at_epoch_ms
+             )
+             OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
+          THEN RETURN NULL; END IF;
+
+          RETURN base || pg_catalog.jsonb_build_object(
+            'schema_version',3,
+            'v2_canonical_request_base64',pg_catalog.replace(
+              pg_catalog.encode(sealed.v2_canonical_request_bytes,'base64'),
+              pg_catalog.chr(10),
+              ''
+            ),
+            'v2_meaning_digest',sealed.v2_meaning_digest,
+            'v2_seal_digest',sealed.v2_seal_digest,
+            'v2_receipt',sealed.v2_receipt_json,
+            'v2_outbox',pg_catalog.jsonb_build_object(
+              'event_identity',locked_v2_outbox.event_identity,
+              'aggregate_identity',locked_v2_outbox.aggregate_identity,
+              'event_kind',locked_v2_outbox.event_kind,
+              'payload_digest',locked_v2_outbox.payload_digest,
+              'payload_json',locked_v2_outbox.payload_json,
+              'committed_at_epoch_ms',locked_v2_outbox.committed_at_epoch_ms
+            )
+          );
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+$function$;
+-- END INTERNAL_VERIFY_SOURCE_V3
+-- BEGIN SELECTOR_RESOLVER_SOURCE_V2
+CREATE OR REPLACE FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(
+  requested_request_identity text,
+  requested_meaning_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY INVOKER
+SET search_path = pg_catalog
+AS $function$
+        DECLARE stored_receipt_identity text;
+        DECLARE stored_seal_digest text;
+        DECLARE stored_schema_version text;
+        BEGIN
+          SELECT v2_receipt_json->>'receipt_identity',v2_seal_digest,v2_receipt_json->>'schema_version'
+            INTO STRICT stored_receipt_identity,stored_seal_digest,stored_schema_version
+            FROM public.rd_sealed_exploratory_replay_requests_v1
+           WHERE request_identity=requested_request_identity
+             AND request_schema_version=2
+             AND frozen_json->>'request_schema_version'='2'
+             AND v2_meaning_digest=requested_meaning_digest
+           FOR SHARE;
+          IF stored_receipt_identity IS NULL OR stored_seal_digest IS NULL THEN RETURN NULL; END IF;
+          IF stored_schema_version='2' THEN
+            RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(
+              requested_request_identity,requested_meaning_digest,
+              stored_receipt_identity,stored_seal_digest
+            );
+          ELSIF stored_schema_version='3' THEN
+            RETURN rd_owner_api.verify_exploratory_replay_request_internal_v3(
+              requested_request_identity,requested_meaning_digest,
+              stored_receipt_identity,stored_seal_digest
+            );
+          END IF;
+          RETURN NULL;
+        EXCEPTION WHEN no_data_found OR too_many_rows THEN RETURN NULL;
+        END
+        $function$;
+-- END SELECTOR_RESOLVER_SOURCE_V2
+-- BEGIN MARKET_DATA_LOCK_SOURCE_V1
+CREATE OR REPLACE FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(
+  requested_request_identity text,
+  requested_meaning_digest text,
+  requested_receipt_identity text,
+  requested_seal_digest text
+)
+RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog
+AS $function$DECLARE result jsonb; BEGIN IF session_user <> 'market_data_owner' OR current_user <> 'rd_exploratory_replay_api_owner' OR pg_catalog.current_setting('transaction_isolation') <> 'serializable' THEN RETURN NULL; END IF; result := rd_owner_api.verify_exploratory_replay_request_internal_v3(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); IF result IS NOT NULL THEN RETURN result; END IF; RETURN rd_owner_api.verify_exploratory_replay_request_internal_v2(requested_request_identity,requested_meaning_digest,requested_receipt_identity,requested_seal_digest); END$function$;
+-- END MARKET_DATA_LOCK_SOURCE_V1
+
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
+ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
-GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner;
 GRANT SELECT ON TABLE

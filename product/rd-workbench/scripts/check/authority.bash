@@ -185,6 +185,21 @@ grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE 
 grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+for verifier_version in 1 2 3; do
+  test "$(grep -Fc -- "-- BEGIN INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+  test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
+done
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq -- '-- BEGIN SELECTOR_RESOLVER_SOURCE_V2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'RETURN rd_owner_api.verify_exploratory_replay_request_internal_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'result := rd_owner_api.verify_exploratory_replay_request_internal_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Fq "verify_exploratory_replay_request_internal_v2(\$1,\$2,'','')" "$package_dir/../../crates/strategy_factory/src/exploratory_replay/postgres.rs"; then
+  echo 'Replay selector must not bypass exact receipt and seal equality' >&2
+  exit 1
+fi
 grep -Fq 'ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 replay_api_relation_acl=$(sed -n '/^GRANT SELECT ON TABLE$/,/^FROM market_data_owner, market_data_reader;$/p' "$package_dir/postgres-init/10-migrate-authority-custody.sh")
