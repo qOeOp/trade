@@ -348,7 +348,10 @@ SELECT
      WHERE attribute.attrelid IN (SELECT oid FROM family)
        AND attribute.attnum>0 AND attribute.attisdropped
   )
-  AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+  AND (SELECT pg_catalog.count(*)=6
+        AND pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,
+             pg_catalog.array_to_string(constraint_fact.conkey,' ')))=6
+        AND NOT pg_catalog.bool_or(
         (family.relname,constraint_fact.contype::pg_catalog.text,
          pg_catalog.array_to_string(constraint_fact.conkey,' '))
         NOT IN (VALUES
@@ -378,7 +381,10 @@ SELECT
     SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
      WHERE constraint_fact.confrelid IN (SELECT oid FROM family)
   )
-  AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+  AND (SELECT pg_catalog.count(*)=6
+        AND pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,
+             pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')))=6
+        AND NOT pg_catalog.bool_or(
         (family.relname,index_fact.indisprimary,
          pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
         NOT IN (VALUES
@@ -1159,6 +1165,19 @@ mod tests {
             assert!(
                 NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(required),
                 "missing native evidence index guard {required}"
+            );
+        }
+    }
+
+    #[rstest]
+    fn native_evidence_topology_requires_each_uniqueness_shape_once() {
+        for required in [
+            "pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,",
+            "pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,",
+        ] {
+            assert!(
+                NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(required),
+                "missing exact uniqueness-shape census {required}"
             );
         }
     }

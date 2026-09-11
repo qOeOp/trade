@@ -993,7 +993,9 @@ BEGIN
        FROM family JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
        JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND attribute.attisdropped)
-    AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(DISTINCT (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' ')))=6
+          AND NOT pg_catalog.bool_or(
           (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' '))
           NOT IN (VALUES
             ('backtest_native_replay_source_blobs_v2','p','1'),
@@ -1008,7 +1010,9 @@ BEGIN
        WHERE constraint_fact.contype IN ('p','u'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
-    AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(DISTINCT (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')))=6
+          AND NOT pg_catalog.bool_or(
           (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
           NOT IN (VALUES
             ('backtest_native_replay_source_blobs_v2',true,'1'),
