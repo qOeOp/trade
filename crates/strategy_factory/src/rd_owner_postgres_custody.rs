@@ -31,6 +31,23 @@ pub async fn resolve_native_replay_rd_sources_v2_in_transaction(
     crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
     crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
 > {
+    let resolved = resolve_native_replay_rd_cut_v2_in_transaction(transaction, locator).await?;
+    Ok(resolved.sources)
+}
+
+pub(crate) struct ResolvedNativeReplayRdCutV2 {
+    pub(crate) replay: crate::exploratory_replay::SealedExploratoryReplayReadbackV2,
+    pub(crate) sources: crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
+    pub(crate) research: VerifiedResearchCustodyV1,
+}
+
+pub(crate) async fn resolve_native_replay_rd_cut_v2_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    ResolvedNativeReplayRdCutV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
     let source_storage = resolve_native_source_storage_boundary(transaction, locator).await?;
     if source_storage.schema_version != 1 {
         return Err(native_source_unavailable(
@@ -156,12 +173,17 @@ pub async fn resolve_native_replay_rd_sources_v2_in_transaction(
         replay_receipt,
         replay_outbox,
     };
-    crate::native_replay_rd_sources_v2::issue_native_replay_rd_sources_v2(
+    let sources = crate::native_replay_rd_sources_v2::issue_native_replay_rd_sources_v2(
         &replay,
         &replay_admission,
         &research,
         stored,
-    )
+    )?;
+    Ok(ResolvedNativeReplayRdCutV2 {
+        replay,
+        sources,
+        research,
+    })
 }
 
 fn native_source_unavailable(
