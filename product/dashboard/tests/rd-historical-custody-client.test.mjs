@@ -102,6 +102,38 @@ test("authenticated GET accepts only the exact bounded Owner wire", async () => 
   ), null);
 });
 
+test("transport admits bounded Owner clock skew but rejects an observation outside the read window", async () => {
+  const withinWindow = await resolveHistoricalCustodyShadowV1({
+    baseUrl: "http://owner.test",
+    token: "opaque-test-token",
+    now: (() => {
+      const times = [10_000, 10_020];
+      return () => times.shift() ?? 10_020;
+    })(),
+    fetcher: async () => new Response(JSON.stringify(ownerReadback({
+      observed_at_epoch_ms: 9_990,
+      research: [{ ...ownerReadback().research[0], committed_at_epoch_ms: 9_980 }],
+      artifact_attempts: [{ ...ownerReadback().artifact_attempts[0], prepared_at_epoch_ms: 9_980 }],
+      bindings: [{ ...ownerReadback().bindings[0], committed_at_epoch_ms: 9_980 }],
+    }))),
+  });
+  assert.equal(withinWindow.status, 200);
+
+  const outsideWindow = await resolveHistoricalCustodyShadowV1({
+    baseUrl: "http://owner.test",
+    token: "opaque-test-token",
+    now: (() => {
+      const times = [10_000, 10_020];
+      return () => times.shift() ?? 10_020;
+    })(),
+    fetcher: async () => new Response(JSON.stringify(ownerReadback({
+      observed_at_epoch_ms: 1_999,
+    }))),
+  });
+  assert.equal(outsideWindow.status, 502);
+  assert.equal(outsideWindow.envelope.availability, "unavailable");
+});
+
 test("browser envelope accepts only the exact journal-bound projection", () => {
   const projection = parseHistoricalCustodyOwnerV1(
     ownerReadback({ observed_at_epoch_ms: 9_500 }),
