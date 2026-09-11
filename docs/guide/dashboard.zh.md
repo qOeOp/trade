@@ -226,13 +226,14 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
-verified Research directory、Research exact readback、Source Intake exact readback、Develop Composer exact readback 与
-Exploratory Replay V2 exact point-read GET 由统一的
+verified Research directory、Research exact readback、Artifact exact readback、Source Intake exact readback、
+Develop Composer exact readback 与 Exploratory Replay V2 exact point-read GET 由统一的
 `strategy-factory-rd-dashboard-read-api` 打包。这个第一方 Dashboard reader 还承载 Artifact directory 与 source
 GET，但其 state 仍按域分别持有 typed `ResearchDirectoryOwnerPort`、`ResearchReadbackOwnerPortV1`、
-`ArtifactDirectoryOwnerPort`、`ArtifactSourceOwnerPort`、`SourceIntakeReadbackOwnerPort` 与
+`ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1`、`ArtifactSourceOwnerPort`、
+`SourceIntakeReadbackOwnerPort` 与
 `DevelopComposerReadbackOwnerPortV2`、`ExploratoryReplayReadbackOwnerPortV2`，不把业务边界合并为一个通用
-repository。router 只暴露 `/health` 及这七个已准入 GET。Dashboard 通过必须原子成对配置的
+repository。router 只暴露 `/health` 及这八个已准入 GET。Dashboard 通过必须原子成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须 fail closed，
 不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露 submit、resolve、sandbox 或
 mutation port。Source Intake adapter 还必须绑定只读 Product Edge admission port 与现有 request-proof digest，
@@ -293,9 +294,12 @@ custody time 及唯一 state `POINT_READ_REQUIRED`。count 只是 custody index 
 valid binding 数量；不得推断 Artifact outcome、binding validity、current authority，也不暴露 raw receipt、
 payload 或 storage 字段。
 
-verified directory 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api` 打包；Artifact state
-只持有 typed `ArtifactDirectoryOwnerPort` 与 `ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation
-port。PostgreSQL adapter 保持普通 read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
+verified directory、精确 readback 与精确 source GET 由上述统一的 `strategy-factory-rd-dashboard-read-api`
+打包；Artifact state 只持有 typed `ArtifactDirectoryOwnerPort`、`ArtifactReadbackOwnerPortV1` 与
+`ArtifactSourceOwnerPort`，不持有 sandbox 或任何 Artifact mutation port。精确 readback GET 复用 verified
+attempt custody 投影当前结果，但绝不调用 `ArtifactBuildOwnerPort::resolve`；它不能终态化过期 attempt、提交
+Building candidate、drain legacy custody、调用 provider 或写入业务状态。PostgreSQL adapter 保持普通
+read-committed locking reader，因为 canonical verifier 需要 `FOR SHARE`；若
 改成 read-only transaction，PostgreSQL 会直接拒绝 verifier 本身。Dashboard 通过同一个必须成对配置的
 `RD_DASHBOARD_OWNER_READ_API_URL` 与 `RD_DASHBOARD_OWNER_READ_API_TOKEN` 绑定；只配置其中一项时必须 fail closed，
 绝不能借用 write API 的另一半 credential。
@@ -305,6 +309,11 @@ port。PostgreSQL adapter 保持普通 read-committed locking reader，因为 ca
 或 resolve attempt，不 build source，不运行 sandbox/Wasm module，不调用 provider，不 mutate Windmill，不写
 business state，也不授权交易。关联 source viewer 的 `WASM_PREVIEW_NOT_RUN` 保持不变，直到另一个真实
 Owner-backed preview contract 被单独准入。
+
+认证 GET `/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` 只作为无 effect 的
+`artifact_build.shadow_resolve.v1` operational read 的精确 Owner-outcome 来源而获准。RunStore 记录 replacement
+read 前，它保留既有严格 Research dependency 与 Artifact result verification。它不准入下方更广泛的 Artifact
+detail outcome、action、review、binding、replay 或 security panel。
 
 本章是 Trade 自有 Dashboard 的滚动实现与分阶段准入合同，定义产品外壳、信息架构、可复用 UI 系统，
 以及当前有证据支持的 Windmill 最小替代能力假设。用户已显式准入严格受本章精确合同约束的 Dashboard
@@ -1706,8 +1715,9 @@ deployment 仍未验证；`ArtifactRequestAdmissionPanel` 在 bounded server pro
 固定 unavailable；actual provider execution 仍为 `NOT_ADMITTED`。该规则只解析 status，不改变 registry 中
 固定的 panel、button 或 state geometry。
 
-当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与 `/rd/artifacts` 都是有界
-只读 surface；在实现层面，它们覆盖下方更宽泛的未来 Intake、Research 与 Artifacts registry 行。五者都没有
+当前准入的 `/rd`、`/rd/composer`、`/rd/research`、`/rd/research/:requestIdentity` 与 `/rd/artifacts` route，
+以及 Artifact operational exact-readback，都是有界只读 surface；在实现层面，它们覆盖下方更宽泛的未来
+Intake、Research 与 Artifacts registry 行。五个 route 都没有
 summary strip 或分栏 detail pane，唯一 `P` surface 分别是 `SourceIntakeReadbackWorkbench`、
 `DevelopComposerReadbackWorkbench`、`ResearchDirectory`、`ResearchReadbackWorkspace` 与
 `ArtifactDirectory`。Intake 本切片没有 directory、editable composer 或正向

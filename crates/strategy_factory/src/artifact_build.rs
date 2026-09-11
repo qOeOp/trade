@@ -858,6 +858,15 @@ pub trait ArtifactSourceOwnerPort: Send + Sync {
 }
 
 #[async_trait]
+pub trait ArtifactReadbackOwnerPortV1: Send + Sync {
+    async fn read_artifact(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<ArtifactBuildResultV1, ArtifactBuildError>;
+}
+
+#[async_trait]
 pub trait ArtifactDirectoryOwnerPort: Send + Sync {
     async fn list_artifacts(
         &self,

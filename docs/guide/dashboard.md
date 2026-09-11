@@ -265,13 +265,14 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
-The verified Research directory, Research exact-readback, Source Intake exact-readback, Develop Composer exact-readback,
-and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
+The verified Research directory, Research exact-readback, Artifact exact-readback, Source Intake exact-readback,
+Develop Composer exact-readback, and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
 source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
-`ArtifactDirectoryOwnerPort`, `ArtifactSourceOwnerPort`, `SourceIntakeReadbackOwnerPort`, and
+`ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, `ArtifactSourceOwnerPort`,
+`SourceIntakeReadbackOwnerPort`, and
 `DevelopComposerReadbackOwnerPortV2` and `ExploratoryReplayReadbackOwnerPortV2` capabilities rather than collapsing
-domain boundaries into a generic repository. Its router exposes only `/health` and those seven
+domain boundaries into a generic repository. Its router exposes only `/health` and those eight
 admitted GETs. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
@@ -341,9 +342,12 @@ Owner cut as Research. It exposes at most 200 attempt and 200 TrialFamily-bindin
 and only `POINT_READ_REQUIRED`. Counts are custody-index counts, never verified Artifact or valid-binding counts.
 No Artifact outcome, binding validity, current authority, raw receipt, payload, or storage field is inferred.
 
-The verified-directory and exact-source GETs are packaged in the consolidated
+The verified-directory, exact-readback, and exact-source GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api` described above. Its Artifact state holds only the typed
-`ArtifactDirectoryOwnerPort` and `ArtifactSourceOwnerPort`, never a sandbox or an Artifact mutation port. The
+`ArtifactDirectoryOwnerPort`, `ArtifactReadbackOwnerPortV1`, and `ArtifactSourceOwnerPort`, never a sandbox or an
+Artifact mutation port. The exact readback GET reuses verified attempt custody to project the current result but never
+calls `ArtifactBuildOwnerPort::resolve`; it cannot terminalize an expired attempt, submit a Building candidate, drain
+legacy custody, invoke a provider, or otherwise write business state. The
 PostgreSQL adapter remains a normal read-committed locking reader because the canonical verifier requires
 `FOR SHARE`; changing it to a read-only transaction would reject the verifier itself. Dashboard binds these
 endpoints through the same atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
@@ -355,6 +359,12 @@ exact verified Artifact are the only actions. This
 directory does not submit or resolve an attempt, build source, run a sandbox/Wasm module, invoke a provider, mutate
 Windmill, write business state, or authorize trading. `WASM_PREVIEW_NOT_RUN` in the linked source viewer remains
 unchanged until a separate real Owner-backed preview contract is admitted.
+
+The authenticated GET
+`/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback` is admitted only as the exact
+Owner-outcome source for the effect-free `artifact_build.shadow_resolve.v1` operational read. It preserves the
+existing strict Research dependency and Artifact result verification before RunStore records a replacement read.
+It does not admit the broader Artifact detail outcome, action, review, binding, replay, or security panels below.
 
 This chapter is the living implementation and phased-admission contract for the Trade-owned Dashboard. It defines
 the product shell, information architecture, reusable UI system, and the current evidence-backed hypothesis for the
@@ -1838,7 +1848,7 @@ custody, and actual provider execution remains `NOT_ADMITTED`. This rule resolve
 the fixed panel, button, or state geometry in the registry.
 
 The currently admitted `/rd`, `/rd/composer`, `/rd/research`, `/rd/research/:requestIdentity`, and
-`/rd/artifacts` routes are bounded read-only surfaces and
+`/rd/artifacts` routes and the Artifact operational exact-readback are bounded read-only surfaces and
 supersede the broader future Intake, Research, and Artifacts registry rows below for implementation. None has a
 summary strip or split detail pane. Their only `P` surfaces are `SourceIntakeReadbackWorkbench`,
 `DevelopComposerReadbackWorkbench`, `ResearchDirectory`, `ResearchReadbackWorkspace`, and `ArtifactDirectory`.

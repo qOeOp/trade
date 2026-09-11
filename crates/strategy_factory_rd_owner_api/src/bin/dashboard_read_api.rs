@@ -15,7 +15,7 @@ use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
     artifact_build::{
         ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
-        ArtifactSourceOwnerPort,
+        ArtifactReadbackOwnerPortV1, ArtifactSourceOwnerPort,
     },
     artifact_build_postgres::PostgresArtifactReadbackOwnerV1,
     develop_composer_operation_v2::{
@@ -44,6 +44,7 @@ use vibe_strategy_factory::source_research_composer_postgres_v2::PostgresDevelop
 #[derive(Clone)]
 struct ApiState {
     artifact_directory: Arc<dyn ArtifactDirectoryOwnerPort>,
+    artifact_readback: Arc<dyn ArtifactReadbackOwnerPortV1>,
     artifact_source: Arc<dyn ArtifactSourceOwnerPort>,
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
@@ -128,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
         artifact_directory: artifact.clone(),
+        artifact_readback: artifact.clone(),
         artifact_source: artifact,
         research_directory: research.clone(),
         research_readback: research,
@@ -154,6 +156,10 @@ fn router(state: ApiState) -> Router {
         .route(
             "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/source",
             get(read_artifact_source),
+        )
+        .route(
+            "/v1/artifact-builds/{build_request_identity}/attempts/{attempt_identity}/readback",
+            get(read_artifact),
         )
         .route("/v1/research-goals/directory", get(read_research_directory))
         .route(
@@ -292,6 +298,31 @@ async fn read_artifact_source(
     {
         Ok(Some(readback)) => (StatusCode::OK, Json(readback)).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+async fn read_artifact(
+    State(state): State<ApiState>,
+    Path((build_request_identity, attempt_identity)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if !valid_identity(&build_request_identity) || !valid_identity(&attempt_identity) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    match state
+        .artifact_readback
+        .read_artifact(&build_request_identity, &attempt_identity)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(ArtifactBuildError::ConflictingReplay) => StatusCode::CONFLICT.into_response(),
+        Err(ArtifactBuildError::Candidate(_)) => StatusCode::BAD_REQUEST.into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
 }
@@ -565,7 +596,8 @@ mod tests {
     use axum::http::{HeaderValue, header::AUTHORIZATION};
     use vibe_strategy_factory::{
         artifact_build::{
-            ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1, ArtifactSourceReadbackV1,
+            ArtifactBuildResultV1, ArtifactDirectoryCompletenessV1, ArtifactDirectoryReadbackV1,
+            ArtifactSourceReadbackV1,
         },
         develop_composer_operation_v2::{
             DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
@@ -589,6 +621,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingArtifact {
         directory_calls: AtomicUsize,
+        readback_calls: AtomicUsize,
         source_calls: AtomicUsize,
         request: Mutex<Option<(Option<ArtifactDirectoryCursorV1>, u32)>>,
     }
@@ -622,6 +655,21 @@ mod tests {
         ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
             self.source_calls.fetch_add(1, Ordering::SeqCst);
             Ok(None)
+        }
+    }
+
+    #[async_trait]
+    impl ArtifactReadbackOwnerPortV1 for RecordingArtifact {
+        async fn read_artifact(
+            &self,
+            build_request_identity: &str,
+            attempt_identity: &str,
+        ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+            self.readback_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ArtifactBuildResultV1::submitted_or_unknown(
+                build_request_identity,
+                attempt_identity,
+            ))
         }
     }
 
@@ -727,6 +775,7 @@ mod tests {
     ) -> ApiState {
         ApiState {
             artifact_directory: artifact.clone(),
+            artifact_readback: artifact.clone(),
             artifact_source: artifact,
             research_directory: research.clone(),
             research_readback: research,
@@ -767,6 +816,13 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let response = read_artifact(
+            State(api.clone()),
+            Path(("build-1".to_owned(), "attempt-1".to_owned())),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let response = read_source_intake(
             State(api),
             Path("source-request-test".to_string()),
@@ -775,6 +831,7 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(artifact.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
         let response = read_develop_composer(
@@ -851,6 +908,13 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = read_artifact(
+            State(api.clone()),
+            Path(("invalid identity".to_owned(), "attempt-1".to_owned())),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let response = read_research_directory(
             State(api.clone()),
             Query(ResearchDirectoryQueryV1 {
@@ -888,6 +952,7 @@ mod tests {
             read_source_intake(State(api), Path("bad identity".to_string()), headers()).await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(artifact.readback_calls.load(Ordering::SeqCst), 0);
         assert_eq!(artifact.source_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.directory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
@@ -908,6 +973,23 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(artifact.source_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn valid_artifact_readback_dispatches_once_and_preserves_unknown() {
+        let artifact = Arc::new(RecordingArtifact::default());
+        let response = read_artifact(
+            State(state(
+                artifact.clone(),
+                Arc::new(RecordingResearch::default()),
+                Arc::new(RecordingSourceIntake::default()),
+            )),
+            Path(("build-1".to_owned(), "attempt-1".to_owned())),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(artifact.readback_calls.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

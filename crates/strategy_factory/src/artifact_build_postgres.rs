@@ -17,7 +17,7 @@ use crate::{
         ArtifactBuildPreparationV1, ArtifactBuildReceiptV1, ArtifactBuildRequestV1,
         ArtifactBuildResolution, ArtifactBuildResultV1, ArtifactBuildSandboxPort,
         ArtifactDirectoryCompletenessV1, ArtifactDirectoryCursorV1, ArtifactDirectoryItemV1,
-        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1,
+        ArtifactDirectoryOwnerPort, ArtifactDirectoryReadbackV1, ArtifactReadbackOwnerPortV1,
         ArtifactRequestIdentityPreflightV1, ArtifactSourceOwnerPort, ArtifactSourceReadbackV1,
         ArtifactWasmPreviewStatusV1, LegacyPreparedAttemptDrainReadbackV1,
         ReservedArtifactBuildInvocationV1, StoredArtifactBuildInvocationSnapshotV1,
@@ -1556,6 +1556,31 @@ async fn read_source_from_pool(
     Ok(Some(readback))
 }
 
+async fn read_artifact_from_pool(
+    pool: &PgPool,
+    clock: &(dyn Fn() -> Result<u64, ArtifactBuildError> + Send + Sync),
+    build_request_identity: &str,
+    attempt_identity: &str,
+) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+    let read_cut_epoch_ms = clock()?;
+    let mut transaction = pool.begin().await.map_err(storage)?;
+    let custody = Box::pin(admit_attempt_custody_in_transaction(
+        &mut transaction,
+        build_request_identity,
+    ))
+    .await?;
+    transaction.commit().await.map_err(storage)?;
+
+    let Some(custody) = custody else {
+        return Ok(unknown_result(build_request_identity, attempt_identity));
+    };
+
+    if custody.attempt.request.attempt_identity != attempt_identity {
+        return Err(ArtifactBuildError::ConflictingReplay);
+    }
+    result_from_verified(custody, read_cut_epoch_ms)
+}
+
 #[async_trait]
 impl ArtifactSourceOwnerPort for PostgresArtifactBuildOwnerV1 {
     async fn read_source(
@@ -1757,6 +1782,23 @@ impl ArtifactSourceOwnerPort for PostgresArtifactReadbackOwnerV1 {
         attempt_identity: &str,
     ) -> Result<Option<ArtifactSourceReadbackV1>, ArtifactBuildError> {
         read_source_from_pool(&self.pool, build_request_identity, attempt_identity).await
+    }
+}
+
+#[async_trait]
+impl ArtifactReadbackOwnerPortV1 for PostgresArtifactReadbackOwnerV1 {
+    async fn read_artifact(
+        &self,
+        build_request_identity: &str,
+        attempt_identity: &str,
+    ) -> Result<ArtifactBuildResultV1, ArtifactBuildError> {
+        read_artifact_from_pool(
+            &self.pool,
+            self.clock.as_ref(),
+            build_request_identity,
+            attempt_identity,
+        )
+        .await
     }
 }
 
