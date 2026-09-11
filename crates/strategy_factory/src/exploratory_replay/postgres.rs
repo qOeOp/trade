@@ -1468,17 +1468,17 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
     .map_err(storage)?;
 
     for statement in [
-        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_owner",
+        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) OWNER TO rd_exploratory_replay_api_owner",
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v1(text,text,text) TO backtest_owner",
-        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
+        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) TO rd_owner",
-        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_owner",
-        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
+        "ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner",
+        "REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner",
         "ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, backtest_owner, market_data_owner, market_data_reader",
@@ -1486,7 +1486,7 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
         "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) OWNER TO rd_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner, market_data_owner, market_data_reader",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_v2(text,text,text,text) TO backtest_owner",
-        "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_owner",
+        "ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner",
         "REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, product_edge_owner, operator_authorization_owner, operator_authorization_writer, qualification_owner, qualification_writer, rd_owner, backtest_owner, market_data_owner",
         "GRANT EXECUTE ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) TO market_data_owner",
     ] {
@@ -2465,11 +2465,11 @@ async fn validate_backtest_transaction_binding_v2(
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
                   AND helper.prosrc=$5
-                  AND helper_owner.rolname='rd_owner'
+                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                   AND helper_language.lanname='plpgsql'
                   AND EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=helper_owner.oid
+                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
                        AND helper_acl.grantor=helper_owner.oid
                        AND helper_acl.privilege_type='EXECUTE'
                        AND NOT helper_acl.is_grantable
@@ -2477,7 +2477,10 @@ async fn validate_backtest_transaction_binding_v2(
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee<>helper_owner.oid
+                       AND (helper_acl.grantee NOT IN (
+                              helper_owner.oid,
+                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                            )
                             OR helper_acl.grantor<>helper_owner.oid
                             OR helper_acl.is_grantable)
                   )
@@ -2498,11 +2501,11 @@ async fn validate_backtest_transaction_binding_v2(
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
                   AND helper.prosrc=$7
-                  AND helper_owner.rolname='rd_owner'
+                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                   AND helper_language.lanname='plpgsql'
                   AND EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=helper_owner.oid
+                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
                        AND helper_acl.grantor=helper_owner.oid
                        AND helper_acl.privilege_type='EXECUTE'
                        AND NOT helper_acl.is_grantable
@@ -2510,7 +2513,10 @@ async fn validate_backtest_transaction_binding_v2(
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee<>helper_owner.oid
+                       AND (helper_acl.grantee NOT IN (
+                              helper_owner.oid,
+                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                            )
                             OR helper_acl.grantor<>helper_owner.oid
                             OR helper_acl.is_grantable)
                   )
@@ -2531,11 +2537,11 @@ async fn validate_backtest_transaction_binding_v2(
                   AND helper.prorettype='pg_catalog.jsonb'::pg_catalog.regtype
                   AND helper.proargtypes='25 25 25 25'::pg_catalog.oidvector
                   AND helper.prosrc=$9
-                  AND helper_owner.rolname='rd_owner'
+                  AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                   AND helper_language.lanname='plpgsql'
                   AND EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
-                     WHERE helper_acl.grantee=helper_owner.oid
+                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
                        AND helper_acl.grantor=helper_owner.oid
                        AND helper_acl.privilege_type='EXECUTE'
                        AND NOT helper_acl.is_grantable
@@ -2543,7 +2549,10 @@ async fn validate_backtest_transaction_binding_v2(
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND (helper_acl.grantee<>helper_owner.oid
+                       AND (helper_acl.grantee NOT IN (
+                              helper_owner.oid,
+                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                            )
                             OR helper_acl.grantor<>helper_owner.oid
                             OR helper_acl.is_grantable)
                   )
@@ -2683,15 +2692,24 @@ async fn validate_backtest_binding(
                   AND helper.proargtypes='25 25 25'::pg_catalog.oidvector
                   AND helper_owner.rolname='rd_exploratory_replay_api_owner'
                   AND helper_language.lanname='plpgsql'
+                  AND EXISTS (
+                    SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
+                     WHERE helper_acl.grantee=(SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                       AND helper_acl.grantor=helper_owner.oid
+                       AND helper_acl.privilege_type='EXECUTE'
+                       AND NOT helper_acl.is_grantable
+                  )
                   AND pg_catalog.has_function_privilege('rd_owner',helper.oid,'EXECUTE')
                   AND NOT pg_catalog.has_function_privilege('backtest_owner',helper.oid,'EXECUTE')
                   AND NOT EXISTS (
                     SELECT 1 FROM pg_catalog.aclexplode(helper.proacl) helper_acl
                      WHERE helper_acl.privilege_type='EXECUTE'
-                       AND helper_acl.grantee NOT IN (
-                         helper_owner.oid,
-                         (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
-                       )
+                       AND (helper_acl.grantee NOT IN (
+                              helper_owner.oid,
+                              (SELECT oid FROM pg_catalog.pg_roles WHERE rolname='rd_owner')
+                            )
+                            OR helper_acl.grantor<>helper_owner.oid
+                            OR helper_acl.is_grantable)
                   )
              )
            FROM pg_catalog.pg_proc procedure

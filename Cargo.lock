@@ -11117,6 +11117,7 @@ dependencies = [
  "sqlx",
  "thiserror 2.0.19",
  "vibe-backtest-owner-contracts",
+ "vibe-core",
  "vibe-product-edge",
 ]
 

@@ -14,6 +14,13 @@ use thiserror::Error;
 use vibe_backtest_owner_contracts::{ReplayNamespaceV2, ReplayRequestDtoV2, ReplayRequestV2};
 use vibe_product_edge::ProductEdgeAdmissionLocatorV1;
 
+use self::replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3};
+
+pub mod replay_economic_configuration_v1;
+pub mod replay_execution_policy_v2;
+pub mod replay_policy_catalog_v2;
+pub mod replay_runner_operational_profile_v1;
+
 const RD_RESOLVE_FUNCTION_V2: &str =
     "rd_owner_api.resolve_exploratory_replay_request_v2(text,text)";
 const RD_RESOLVE_FUNCTION_SOURCE_SHA256_V2: &str =
@@ -322,18 +329,6 @@ struct StoredOutboxV1 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ReplayPolicyCatalogBindingV2 {
-    catalog_record_id: String,
-    catalog_version: u64,
-    policy_grammar_parser_id: String,
-    policy_grammar_parser_digest: [u8; 32],
-    policy_canonical_bytes: Vec<u8>,
-    policy_digest: [u8; 32],
-    catalog_record_digest: [u8; 32],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct FamilyFrozenOutboxV1 {
     schema_version: u32,
     research_receipt_identity: String,
@@ -347,26 +342,6 @@ struct FamilyFrozenOutboxV1 {
     replay_execution_policy_v2: Option<ReplayPolicyCatalogBindingV2>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_policy_catalog_v3: Option<ReplayPolicyCatalogBindingV3>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ReplayExecutionProfileSealsV1 {
-    economic_configuration_canonical_bytes: Vec<u8>,
-    economic_configuration_digest: [u8; 32],
-    runner_operational_profile_canonical_bytes: Vec<u8>,
-    runner_operational_profile_digest: [u8; 32],
-    catalog_record_digest: [u8; 32],
-    binding_digest: [u8; 32],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ReplayPolicyCatalogBindingV3 {
-    schema_version: u16,
-    replay_policy_v2: ReplayPolicyCatalogBindingV2,
-    execution_profiles_v1: ReplayExecutionProfileSealsV1,
-    binding_digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -839,7 +814,7 @@ fn decode_owner_envelope(
         return Ok(unavailable(selector));
     };
     let envelope: LockedEnvelopeV2 = exact(&value)?;
-    if envelope.schema_version != 2
+    if !matches!(envelope.schema_version, 2 | 3)
         || envelope.availability == ExploratoryReplayAvailabilityV2::Unavailable
     {
         return Ok(unavailable(selector));
@@ -888,11 +863,12 @@ fn decode_owner_envelope(
         return Ok(unavailable(selector));
     }
     let (expected_seal, receipt_digest) = match (
+        envelope.schema_version,
         receipt.schema_version,
         frozen.execution_profile_seal.as_ref(),
         receipt.execution_profile_seal.as_ref(),
     ) {
-        (2, None, None) => {
+        (2, 2, None, None) => {
             let seal = canonical_digest(
                 "rd.exploratory-replay-request-seal.v2",
                 &(
@@ -916,7 +892,7 @@ fn decode_owner_envelope(
             )?;
             (seal, receipt)
         }
-        (3, Some(frozen_profile), Some(receipt_profile))
+        (3, 3, Some(frozen_profile), Some(receipt_profile))
             if frozen_profile == receipt_profile
                 && validate_execution_profile_seal(
                     frozen_profile,
@@ -1273,33 +1249,9 @@ fn validate_execution_profile_seal(
     let Some(trial_family_digest) = decode_digest(trial_family_digest) else {
         return false;
     };
-    let profiles = &catalog_v3.execution_profiles_v1;
-    let Some(economic_length) =
-        u32::try_from(profiles.economic_configuration_canonical_bytes.len()).ok()
-    else {
+    let Ok((economic, runner)) = catalog_v3.verify() else {
         return false;
     };
-    let Some(runner_length) =
-        u32::try_from(profiles.runner_operational_profile_canonical_bytes.len()).ok()
-    else {
-        return false;
-    };
-    let mut profile_digest = Sha256::new();
-    profile_digest.update(b"rd.replay-execution-profile-catalog-seals.v1\0");
-    profile_digest.update(profiles.catalog_record_digest);
-    profile_digest.update(profiles.economic_configuration_digest);
-    profile_digest.update(economic_length.to_le_bytes());
-    profile_digest.update(&profiles.economic_configuration_canonical_bytes);
-    profile_digest.update(profiles.runner_operational_profile_digest);
-    profile_digest.update(runner_length.to_le_bytes());
-    profile_digest.update(&profiles.runner_operational_profile_canonical_bytes);
-    let expected_profile_digest: [u8; 32] = profile_digest.finalize().into();
-
-    let mut catalog_digest = Sha256::new();
-    catalog_digest.update(b"rd.replay-policy-catalog-binding.v3\0");
-    catalog_digest.update(catalog_v3.replay_policy_v2.catalog_record_digest);
-    catalog_digest.update(profiles.binding_digest);
-    let expected_catalog_digest: [u8; 32] = catalog_digest.finalize().into();
 
     let request = &seal.request;
     let mut family_digest = Sha256::new();
@@ -1338,14 +1290,10 @@ fn validate_execution_profile_seal(
         && request.trial_family_digest == trial_family_digest
         && request.economic_configuration_digest != [0; 32]
         && request.runner_operational_profile_digest != [0; 32]
-        && request.economic_configuration_digest == profiles.economic_configuration_digest
-        && request.runner_operational_profile_digest == profiles.runner_operational_profile_digest
-        && profiles.catalog_record_digest == catalog_v3.replay_policy_v2.catalog_record_digest
-        && profiles.binding_digest == expected_profile_digest
-        && catalog_v3.schema_version == 3
-        && replay_policy_v2 == Some(&catalog_v3.replay_policy_v2)
-        && catalog_v3.binding_digest == expected_catalog_digest
-        && seal.catalog_v3_binding_digest == catalog_v3.binding_digest
+        && request.economic_configuration_digest == economic.digest()
+        && request.runner_operational_profile_digest == runner.digest()
+        && replay_policy_v2 == Some(catalog_v3.replay_policy_v2())
+        && seal.catalog_v3_binding_digest == catalog_v3.binding_digest()
         && seal.family_profile_binding_digest == expected_family_digest
         && seal.request_profile_binding_digest == expected_request_digest
 }
@@ -1474,6 +1422,11 @@ fn storage(error: impl Display) -> ExploratoryReplayCustodyError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{
+        replay_economic_configuration_v1::{ReplayEconomicConfigurationV1, economic_fixture},
+        replay_execution_policy_v2::ReplayExecutionPolicyV2,
+        replay_runner_operational_profile_v1::{ReplayRunnerOperationalProfileV1, runner_fixture},
+    };
     use rstest::rstest;
     use vibe_backtest_owner_contracts::{
         CanonicalDigestV2, ContentIdentityV2, OpaqueIdentityV2, ReplayAuthorityClaimV2,
@@ -1518,14 +1471,32 @@ mod tests {
     }
 
     fn replay_policy_binding() -> ReplayPolicyCatalogBindingV2 {
-        ReplayPolicyCatalogBindingV2 {
-            catalog_record_id: "replay-policy-v2".into(),
-            catalog_version: 7,
-            policy_grammar_parser_id: "replay-policy-parser-v2".into(),
-            policy_grammar_parser_digest: [1; 32],
-            policy_canonical_bytes: br#"{"schema_version":2}"#.to_vec(),
-            policy_digest: [2; 32],
-            catalog_record_digest: [3; 32],
+        ReplayPolicyCatalogBindingV2::from_policy("replay-policy-v2", 7, &replay_policy())
+            .expect("valid replay policy binding")
+    }
+
+    fn replay_policy() -> ReplayExecutionPolicyV2 {
+        ReplayExecutionPolicyV2 {
+            runtime_kernel: versioned("runtime-v2", "1"),
+            simulator: versioned("simulator-v2", "1"),
+            cost: versioned("cost-v2", "1"),
+            slippage: versioned("slippage-v2", "1"),
+            capacity: versioned("capacity-v2", "1"),
+            runner_operational_profile: versioned("backtest-v2", "1"),
+            diagnostic_policy: versioned("diagnostic-v2", "1"),
+            deterministic_seed: 42,
+            window: ReplayWindowV2 {
+                start_event_ns: 1,
+                end_event_ns_exclusive: 2,
+            },
+            calendar: versioned("calendar-v2", "1"),
+            session: versioned("session-v2", "1"),
+            time_zone: versioned("UTC", "1"),
+            correction_rule: versioned("correction-v2", "1"),
+            market_semantics: versioned("market-v2", "1"),
+            replay_configuration: content("configuration-v2", &sha('1')),
+            corporate_action_cut: content("corporate-actions-v2", &sha('2')),
+            historical_membership_cut: content("membership-v2", &sha('3')),
         }
     }
 
@@ -1820,42 +1791,12 @@ mod tests {
     ) -> LockedEnvelopeV2 {
         let mut envelope = valid_market_data_envelope(availability);
         let replay_policy_v2 = replay_policy_binding();
-        let mut profiles = ReplayExecutionProfileSealsV1 {
-            economic_configuration_canonical_bytes: br#"{"economic":1}"#.to_vec(),
-            economic_configuration_digest: [21; 32],
-            runner_operational_profile_canonical_bytes: br#"{"runner":1}"#.to_vec(),
-            runner_operational_profile_digest: [22; 32],
-            catalog_record_digest: replay_policy_v2.catalog_record_digest,
-            binding_digest: [0; 32],
-        };
-        let mut profiles_digest = Sha256::new();
-        profiles_digest.update(b"rd.replay-execution-profile-catalog-seals.v1\0");
-        profiles_digest.update(profiles.catalog_record_digest);
-        profiles_digest.update(profiles.economic_configuration_digest);
-        profiles_digest.update(
-            u32::try_from(profiles.economic_configuration_canonical_bytes.len())
-                .unwrap()
-                .to_le_bytes(),
-        );
-        profiles_digest.update(&profiles.economic_configuration_canonical_bytes);
-        profiles_digest.update(profiles.runner_operational_profile_digest);
-        profiles_digest.update(
-            u32::try_from(profiles.runner_operational_profile_canonical_bytes.len())
-                .unwrap()
-                .to_le_bytes(),
-        );
-        profiles_digest.update(&profiles.runner_operational_profile_canonical_bytes);
-        profiles.binding_digest = profiles_digest.finalize().into();
-        let mut catalog_digest = Sha256::new();
-        catalog_digest.update(b"rd.replay-policy-catalog-binding.v3\0");
-        catalog_digest.update(replay_policy_v2.catalog_record_digest);
-        catalog_digest.update(profiles.binding_digest);
-        let catalog_v3 = ReplayPolicyCatalogBindingV3 {
-            schema_version: 3,
-            replay_policy_v2: replay_policy_v2.clone(),
-            execution_profiles_v1: profiles.clone(),
-            binding_digest: catalog_digest.finalize().into(),
-        };
+        let economic = ReplayEconomicConfigurationV1::seal(economic_fixture()).unwrap();
+        let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).unwrap();
+        let catalog_v3 =
+            ReplayPolicyCatalogBindingV3::issue(replay_policy_v2.clone(), &economic, &runner)
+                .unwrap();
+        let profiles = catalog_v3.execution_profiles_v1();
 
         let meaning_digest = envelope.v2_meaning_digest.clone().unwrap();
         let request_binding = ReplayExecutionProfileRequestBindingV1 {
@@ -1864,8 +1805,8 @@ mod tests {
             request_meaning_digest: decode_digest(&meaning_digest).unwrap(),
             trial_family_identity: "trial-v2".into(),
             trial_family_digest: decode_digest(&sha('b')).unwrap(),
-            economic_configuration_digest: profiles.economic_configuration_digest,
-            runner_operational_profile_digest: profiles.runner_operational_profile_digest,
+            economic_configuration_digest: profiles.economic_configuration_digest(),
+            runner_operational_profile_digest: profiles.runner_operational_profile_digest(),
         };
         let mut family_profile_digest = Sha256::new();
         family_profile_digest.update(b"rd.replay-family-execution-profile-seal.v1\0");
@@ -1878,7 +1819,7 @@ mod tests {
         family_profile_digest.update(request_binding.trial_family_digest);
         family_profile_digest.update(request_binding.economic_configuration_digest);
         family_profile_digest.update(request_binding.runner_operational_profile_digest);
-        family_profile_digest.update(catalog_v3.binding_digest);
+        family_profile_digest.update(catalog_v3.binding_digest());
         let family_profile_binding_digest = family_profile_digest.finalize().into();
         let mut request_profile_digest = Sha256::new();
         request_profile_digest.update(b"rd.replay-request-execution-profile-seal.v1\0");
@@ -1901,7 +1842,7 @@ mod tests {
         let profile_seal = ReplayExecutionProfileRequestSealV1 {
             schema_version: 1,
             request: request_binding.clone(),
-            catalog_v3_binding_digest: catalog_v3.binding_digest,
+            catalog_v3_binding_digest: catalog_v3.binding_digest(),
             family_profile_binding_digest,
             request_profile_binding_digest: request_profile_digest.finalize().into(),
         };
@@ -2015,6 +1956,7 @@ mod tests {
             payload_json: payload_v3,
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         });
+        envelope.schema_version = 3;
         envelope
     }
 
@@ -2099,6 +2041,73 @@ mod tests {
             ExploratoryReplayAvailabilityV2::Available
         );
         assert!(accepted.readback().is_some());
+
+        let mut schema2_top_level = envelope.clone();
+        schema2_top_level.schema_version = 2;
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(schema2_top_level).unwrap()),
+        )
+        .expect("mixed top-level and schema 3 receipt is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_receipt = envelope.clone();
+        let mut receipt: StoredReceiptV2 =
+            exact(mixed_receipt.v2_receipt.as_ref().unwrap()).unwrap();
+        receipt.schema_version = 2;
+        mixed_receipt.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_receipt).unwrap()),
+        )
+        .expect("mixed top-level and receipt versions are a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_outbox = envelope.clone();
+        mixed_outbox
+            .v2_outbox
+            .as_mut()
+            .unwrap()
+            .payload_json
+            .schema_version = 2;
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_outbox).unwrap()),
+        )
+        .expect("mixed schema 3 receipt and schema 2 outbox is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
+
+        let mut mixed_profile = envelope.clone();
+        let mut receipt: StoredReceiptV2 =
+            exact(mixed_profile.v2_receipt.as_ref().unwrap()).unwrap();
+        receipt
+            .execution_profile_seal
+            .as_mut()
+            .unwrap()
+            .schema_version = 2;
+        mixed_profile.v2_receipt = Some(serde_json::to_value(receipt).unwrap());
+        let rejected = decode_market_data_envelope(
+            &locator,
+            Some(serde_json::to_value(mixed_profile).unwrap()),
+        )
+        .expect("mixed profile seal version is a closed read");
+        assert_eq!(
+            rejected.availability(),
+            ExploratoryReplayAvailabilityV2::Unavailable
+        );
+        assert!(rejected.readback().is_none());
 
         let mut partial = serde_json::to_value(&envelope).unwrap();
         partial["v2_receipt"]

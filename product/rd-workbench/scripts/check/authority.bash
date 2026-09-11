@@ -191,6 +191,11 @@ for verifier_version in 1 2 3; do
   test "$(grep -Fc -- "-- END INTERNAL_VERIFY_SOURCE_V$verifier_version" "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 1
 done
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'DO $replay_internal_verifier_acl$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*)=1" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "role.rolname='rd_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.pg_get_userbyid(acl.grantor)='rd_exploratory_replay_api_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "R&D exploratory Replay internal verifier owner/ACL mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq -- '-- BEGIN SELECTOR_RESOLVER_SOURCE_V2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"

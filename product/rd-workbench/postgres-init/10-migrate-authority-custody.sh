@@ -597,10 +597,36 @@ ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,t
 ALTER FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
 ALTER FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) OWNER TO rd_owner;
 ALTER FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) OWNER TO rd_exploratory_replay_api_owner;
-REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
-REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
-REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
+REVOKE ALL ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) FROM PUBLIC, rd_fact_writer, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner;
 GRANT EXECUTE ON FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text), rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text) TO rd_owner;
+DO $replay_internal_verifier_acl$
+DECLARE verifier regprocedure;
+BEGIN
+  FOREACH verifier IN ARRAY ARRAY[
+    'rd_owner_api.verify_exploratory_replay_request_internal_v1(text,text,text)'::regprocedure,
+    'rd_owner_api.verify_exploratory_replay_request_internal_v2(text,text,text,text)'::regprocedure,
+    'rd_owner_api.verify_exploratory_replay_request_internal_v3(text,text,text,text)'::regprocedure
+  ] LOOP
+    IF NOT COALESCE((
+      SELECT pg_catalog.pg_get_userbyid(procedure.proowner)='rd_exploratory_replay_api_owner'
+        AND (SELECT pg_catalog.count(*)=1
+               AND pg_catalog.bool_and(role.rolname='rd_owner'
+                 AND acl.privilege_type='EXECUTE'
+                 AND NOT acl.is_grantable
+                 AND pg_catalog.pg_get_userbyid(acl.grantor)='rd_exploratory_replay_api_owner')
+               FROM pg_catalog.aclexplode(COALESCE(procedure.proacl,pg_catalog.acldefault('f',procedure.proowner))) acl
+               LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+              WHERE acl.grantee<>procedure.proowner)
+        FROM pg_catalog.pg_proc procedure
+       WHERE procedure.oid=verifier
+    ),false) THEN
+      RAISE EXCEPTION 'R&D exploratory Replay internal verifier owner/ACL mismatch: %', verifier;
+    END IF;
+  END LOOP;
+END
+$replay_internal_verifier_acl$;
 REVOKE ALL ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) FROM PUBLIC, market_data_owner, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
 GRANT EXECUTE ON FUNCTION rd_owner_api.resolve_exploratory_replay_request_v2(text,text) TO rd_owner;
 REVOKE ALL ON FUNCTION rd_owner_api.lock_exploratory_replay_request_for_market_data_v1(text,text,text,text) FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, backtest_owner, product_edge_owner, qualification_writer, operator_authorization_writer;
