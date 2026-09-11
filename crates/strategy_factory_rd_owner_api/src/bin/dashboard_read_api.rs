@@ -11,6 +11,7 @@ use axum::{
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
+use vibe_backtest_owner_contracts::{CanonicalDigestV2, OpaqueIdentityV2};
 use vibe_strategy_factory::{
     artifact_build::{
         ArtifactBuildError, ArtifactDirectoryCursorV1, ArtifactDirectoryOwnerPort,
@@ -21,10 +22,16 @@ use vibe_strategy_factory::{
         DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
         DevelopComposerReadbackOwnerPortV2,
     },
+    exploratory_replay::{
+        ExploratoryReplayOwnerError, ExploratoryReplayReadResultV2,
+        ExploratoryReplayRecoverySelectorV2, ExploratoryReplaySealedReadPortV2,
+    },
     product_edge::{
         ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
     },
-    product_edge_postgres::PostgresResearchReadbackOwnerV1,
+    product_edge_postgres::{
+        PostgresExploratoryReplayReadbackOwnerV2, PostgresResearchReadbackOwnerV1,
+    },
     source_intake::{
         PostgresSourceIntakeReadbackOwnerV1, SourceIntakeOwnerErrorV1,
         SourceIntakeReadbackOwnerPort,
@@ -42,7 +49,29 @@ struct ApiState {
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
     source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
     composer_readback: Option<Arc<dyn DevelopComposerReadbackOwnerPortV2>>,
+    exploratory_replay_readback: Arc<dyn ExploratoryReplayReadbackOwnerPortV2>,
     token_digest: [u8; 32],
+}
+
+#[async_trait::async_trait]
+trait ExploratoryReplayReadbackOwnerPortV2: Send + Sync {
+    async fn read_exploratory_replay(
+        &self,
+        selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError>;
+}
+
+#[async_trait::async_trait]
+impl ExploratoryReplayReadbackOwnerPortV2 for PostgresExploratoryReplayReadbackOwnerV2 {
+    async fn read_exploratory_replay(
+        &self,
+        selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        ExploratoryReplaySealedReadPortV2::resolve_sealed_exploratory_replay_request_v2(
+            self, selector,
+        )
+        .await
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +88,13 @@ struct ResearchDirectoryQueryV1 {
     limit: Option<u32>,
     after_committed_at_epoch_ms: Option<u64>,
     after_request_identity: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExploratoryReplayReadbackQueryV2 {
+    request_identity: String,
+    meaning_digest: String,
 }
 
 #[tokio::main]
@@ -82,6 +118,11 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("Research Dashboard readback adapter unavailable")?,
     );
+    let exploratory_replay = Arc::new(
+        PostgresExploratoryReplayReadbackOwnerV2::connect(&database_url)
+            .await
+            .context("Exploratory Replay Dashboard readback adapter unavailable")?,
+    );
     let source_intake_readback = source_intake_readback(&database_url).await;
     let composer_readback = composer_readback(&database_url).await;
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
@@ -92,6 +133,7 @@ async fn main() -> anyhow::Result<()> {
         research_readback: research,
         source_intake_readback,
         composer_readback,
+        exploratory_replay_readback: exploratory_replay,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -125,6 +167,10 @@ fn router(state: ApiState) -> Router {
         .route(
             "/v2/develop-composer/runs/{request_identity}/readback",
             get(read_develop_composer),
+        )
+        .route(
+            "/v2/exploratory-replay-requests/readback",
+            get(read_exploratory_replay),
         )
         .with_state(state)
 }
@@ -427,6 +473,41 @@ fn composer_operation_response(response: DevelopComposerOperationResponseV2) -> 
     (status, Json(response)).into_response()
 }
 
+async fn read_exploratory_replay(
+    State(state): State<ApiState>,
+    Query(query): Query<ExploratoryReplayReadbackQueryV2>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if OpaqueIdentityV2::try_from(query.request_identity.clone()).is_err()
+        || CanonicalDigestV2::try_from(query.meaning_digest.clone()).is_err()
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    let selector = ExploratoryReplayRecoverySelectorV2 {
+        request_identity: query.request_identity,
+        meaning_digest: query.meaning_digest,
+    };
+
+    match state
+        .exploratory_replay_readback
+        .read_exploratory_replay(&selector)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(ExploratoryReplayOwnerError::ConflictingReplay) => StatusCode::CONFLICT.into_response(),
+        Err(ExploratoryReplayOwnerError::InvalidProposal(_)) => {
+            StatusCode::BAD_REQUEST.into_response()
+        }
+        Err(ExploratoryReplayOwnerError::Unavailable(_)) => {
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        }
+    }
+}
+
 fn valid_identity(value: &str) -> bool {
     (1..=192).contains(&value.len())
         && value.bytes().all(|byte| {
@@ -489,6 +570,10 @@ mod tests {
         develop_composer_operation_v2::{
             DevelopComposerOperationDispositionV2, DevelopComposerOperationResponseV2,
             DevelopComposerReadbackOwnerErrorV2, DevelopComposerReadbackOwnerPortV2,
+        },
+        exploratory_replay::{
+            ExploratoryReplayOwnerError, ExploratoryReplayReadResultV2,
+            ExploratoryReplayRecoverySelectorV2,
         },
         product_edge::{
             ResearchDirectoryCompletenessV1, ResearchDirectoryReadbackV1, ResearchGoalOwnerError,
@@ -586,6 +671,24 @@ mod tests {
         readback_calls: AtomicUsize,
     }
 
+    #[derive(Default)]
+    struct RecordingReplay {
+        readback_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl ExploratoryReplayReadbackOwnerPortV2 for RecordingReplay {
+        async fn read_exploratory_replay(
+            &self,
+            _selector: &ExploratoryReplayRecoverySelectorV2,
+        ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+            self.readback_calls.fetch_add(1, Ordering::SeqCst);
+            Err(ExploratoryReplayOwnerError::Unavailable(
+                "test stop".to_owned(),
+            ))
+        }
+    }
+
     #[async_trait]
     impl DevelopComposerReadbackOwnerPortV2 for RecordingComposer {
         async fn read_develop_composer(
@@ -629,6 +732,7 @@ mod tests {
             research_readback: research,
             source_intake_readback: Some(source_intake),
             composer_readback: Some(Arc::new(RecordingComposer::default())),
+            exploratory_replay_readback: Arc::new(RecordingReplay::default()),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -684,6 +788,24 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let replay = Arc::new(RecordingReplay::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.exploratory_replay_readback = replay.clone();
+        let response = read_exploratory_replay(
+            State(api),
+            Query(ExploratoryReplayReadbackQueryV2 {
+                request_identity: "replay-request-1".to_owned(),
+                meaning_digest: format!("sha256:{}", "a".repeat(64)),
+            }),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(replay.readback_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -852,5 +974,40 @@ mod tests {
             read_develop_composer(State(api), Path("composer-request-1".to_owned()), headers())
                 .await;
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn replay_readback_validates_selector_and_dispatches_once() {
+        let replay = Arc::new(RecordingReplay::default());
+        let mut api = state(
+            Arc::new(RecordingArtifact::default()),
+            Arc::new(RecordingResearch::default()),
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.exploratory_replay_readback = replay.clone();
+
+        let invalid = read_exploratory_replay(
+            State(api.clone()),
+            Query(ExploratoryReplayReadbackQueryV2 {
+                request_identity: " replay-request-1".to_owned(),
+                meaning_digest: format!("sha256:{}", "a".repeat(64)),
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(replay.readback_calls.load(Ordering::SeqCst), 0);
+
+        let unavailable = read_exploratory_replay(
+            State(api),
+            Query(ExploratoryReplayReadbackQueryV2 {
+                request_identity: "replay-request-1".to_owned(),
+                meaning_digest: format!("sha256:{}", "a".repeat(64)),
+            }),
+            headers(),
+        )
+        .await;
+        assert_eq!(unavailable.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(replay.readback_calls.load(Ordering::SeqCst), 1);
     }
 }

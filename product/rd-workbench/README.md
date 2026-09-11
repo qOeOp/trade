@@ -234,4 +234,10 @@ documented TARGET/SEALED_ACCEPTANCE work. Complex-strategy production readiness,
 ATR/RSI behavior, joined or multi-timeframe data, Backtest, Paper, Live,
 deployment, and trading effects are NOT_ADMITTED by this script or MCP scope.
 
+The optional Dashboard preview packages the admitted Replay V2 exact point-read in the
+existing `strategy-factory-rd-dashboard-read-api`. It delegates only to the sealed
+Replay read port through an `rd_owner` read pool; it does not add a service, identify
+or submit a request, resolve custody, execute a replay, expose results, or alter the
+Windmill transport.
+
 Legacy V1 receipts, Intents, and Artifacts are not backfilled; direct family resolution returns `TRIAL_FAMILY_UNAVAILABLE_LEGACY`. This slice creates and resolves Owner-sealed Exploratory Replay V2 requests; it does not implement Backtest, Selection, Candidate, Qualification, Scanner, Runtime, Portfolio, Recovery, capital, Risk, Execution, orders, or real trading. The candidate is not `PRODUCT_CURRENT` until its exact-head dynamic default-Web evidence and repository gates pass and the PR is merged and accepted.

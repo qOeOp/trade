@@ -132,6 +132,43 @@ test("gateway performs one authenticated Owner point read and filters sealed cus
   ]) assert.doesNotMatch(browserBytes, new RegExp(withheld, "u"));
 });
 
+test("gateway prefers the dedicated Dashboard read target and fails closed on partial configuration", async () => {
+  const calls = [];
+  const result = await readExploratoryReplayReadbackGatewayV1({
+    requestIdentity: "replay-request-1",
+    meaningDigest,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read-api:8082",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-secret",
+      RD_OWNER_API_URL: "http://write-owner-api:8080",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), init });
+      return new Response(stringifyLosslessJson(ownerReadback()), { status: 200 });
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /^http:\/\/dashboard-read-api:8082\//u);
+  assert.deepEqual(calls[0].init.headers, { authorization: "Bearer read-secret" });
+
+  let partialCalls = 0;
+  const partial = await readExploratoryReplayReadbackGatewayV1({
+    requestIdentity: "replay-request-1",
+    meaningDigest,
+    environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://dashboard-read-api:8082",
+      RD_OWNER_API_URL: "http://write-owner-api:8080",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async () => { partialCalls += 1; throw new Error("must not fetch"); },
+  });
+  assert.equal(partial.status, 503);
+  assert.equal(partial.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
+  assert.equal(partialCalls, 0);
+});
+
 test("gateway carries dot-segment identities losslessly in the query selector", async () => {
   for (const requestIdentity of [".", ".."]) {
     const calls = [];

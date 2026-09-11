@@ -23,6 +23,7 @@ use crate::exploratory_replay::{
     ExploratoryReplayRecoverySelectorV2, ExploratoryReplayRequestLocatorV1,
     ExploratoryReplayRequestLocatorV2, ExploratoryReplayRequestProposalV1,
     ExploratoryReplayRequestProposalV2, ExploratoryReplaySealedReadPortV2,
+    sealed_read_port::RdOwned,
 };
 use crate::product_edge::{
     FrozenResearchGoalIntent, IndependenceBasisReadbackV1, IndependenceBasisReceiptV1,
@@ -71,6 +72,27 @@ pub struct PostgresResearchGoalOwnerV1 {
 #[derive(Clone)]
 pub struct PostgresResearchReadbackOwnerV1 {
     pool: PgPool,
+}
+
+#[derive(Clone)]
+pub struct PostgresExploratoryReplayReadbackOwnerV2 {
+    pool: PgPool,
+}
+
+impl PostgresExploratoryReplayReadbackOwnerV2 {
+    /// Binds the sealed Replay V2 point-read capability without exposing a
+    /// mutation method or a writer composition root.
+    pub async fn connect(database_url: &str) -> Result<Self, ExploratoryReplayOwnerError> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(database_url)
+            .await
+            .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
+        require_rd_owner_api_schema(&pool)
+            .await
+            .map_err(|e| ExploratoryReplayOwnerError::Unavailable(e.to_string()))?;
+        Ok(Self { pool })
+    }
 }
 
 impl PostgresResearchReadbackOwnerV1 {
@@ -156,10 +178,22 @@ impl Debug for PostgresResearchGoalOwnerV1 {
     }
 }
 
-impl crate::exploratory_replay::sealed_read_port::RdOwned for PostgresResearchGoalOwnerV1 {}
+impl RdOwned for PostgresResearchGoalOwnerV1 {}
 
 #[async_trait]
 impl ExploratoryReplaySealedReadPortV2 for PostgresResearchGoalOwnerV1 {
+    async fn resolve_sealed_exploratory_replay_request_v2(
+        &self,
+        selector: &ExploratoryReplayRecoverySelectorV2,
+    ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+        crate::exploratory_replay::postgres::resolve_for_rd_v2(&self.pool, selector).await
+    }
+}
+
+impl RdOwned for PostgresExploratoryReplayReadbackOwnerV2 {}
+
+#[async_trait]
+impl ExploratoryReplaySealedReadPortV2 for PostgresExploratoryReplayReadbackOwnerV2 {
     async fn resolve_sealed_exploratory_replay_request_v2(
         &self,
         selector: &ExploratoryReplayRecoverySelectorV2,

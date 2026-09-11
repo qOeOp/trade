@@ -265,12 +265,13 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
-The verified Research directory, Research exact-readback, Source Intake exact-readback, and Develop Composer exact-readback GETs are packaged in the consolidated
+The verified Research directory, Research exact-readback, Source Intake exact-readback, Develop Composer exact-readback,
+and Exploratory Replay V2 exact point-read GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
 source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
 `ArtifactDirectoryOwnerPort`, `ArtifactSourceOwnerPort`, `SourceIntakeReadbackOwnerPort`, and
-`DevelopComposerReadbackOwnerPortV2` capabilities rather than collapsing domain boundaries into a generic
-repository. Its router exposes only `/health` and those six
+`DevelopComposerReadbackOwnerPortV2` and `ExploratoryReplayReadbackOwnerPortV2` capabilities rather than collapsing
+domain boundaries into a generic repository. Its router exposes only `/health` and those seven
 admitted GETs. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
@@ -280,6 +281,9 @@ digest before projecting terminal custody; missing or incompatible internal conf
 Composer joins this same process through its own typed read port and adds no per-domain container. Its adapter owns
 only an `rd_owner` read pool, reuses the existing sealed routine and current Research/Market evidence verification,
 and carries no fact-writer pool or mutation method.
+Replay delegates through an independent Dashboard typed point-read port to the existing sealed Replay V2 read port.
+Its adapter owns only the same `rd_owner` read pool, never assembles the legacy write-Owner composition root, and
+exposes no identify, submit, resolve, run, or result operation.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
