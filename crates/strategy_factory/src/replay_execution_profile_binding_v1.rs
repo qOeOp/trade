@@ -942,45 +942,6 @@ pub(crate) fn instrument_terms_provenance_fixture_v1(
     ]
 }
 
-#[cfg(all(test, feature = "sealed-strategy-input-acceptance"))]
-pub(crate) fn instrument_terms_provenance_target_set_fixture_v1(
-    economic: &ReplayEconomicConfigurationV1,
-    second: InstrumentEconomicTermsBindingV1,
-    account_scope_identity: &str,
-    valid_from_ns: i128,
-    valid_until_ns_exclusive: i128,
-) -> [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT] {
-    let first = &economic.input().instrument_terms;
-    [
-        instrument_terms_provenance_for_fixture(
-            economic,
-            first.instrument_identity.clone(),
-            first.instrument_fact_digest,
-            first.instrument_receipt_digest,
-            first.maker_fee,
-            first.taker_fee,
-            first.initial_margin,
-            first.maintenance_margin,
-            account_scope_identity,
-            valid_from_ns,
-            valid_until_ns_exclusive,
-        ),
-        instrument_terms_provenance_for_fixture(
-            economic,
-            second.instrument_identity,
-            second.instrument_fact_digest,
-            second.instrument_receipt_digest,
-            second.maker_fee,
-            second.taker_fee,
-            second.initial_margin,
-            second.maintenance_margin,
-            account_scope_identity,
-            valid_from_ns,
-            valid_until_ns_exclusive,
-        ),
-    ]
-}
-
 #[cfg(test)]
 fn instrument_terms_provenance_for_fixture(
     economic: &ReplayEconomicConfigurationV1,
