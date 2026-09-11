@@ -17,8 +17,10 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   const result = await readResearchReadbackGatewayV1({
     requestIdentity: accepted.request_identity,
     environment: {
+      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083/",
+      RD_RESEARCH_OWNER_READ_API_TOKEN: "secret",
       RD_OWNER_API_URL: "http://rd-owner-api:8080/",
-      RD_OWNER_API_TOKEN: "secret",
+      RD_OWNER_API_TOKEN: "write-secret",
     },
     fetcher: async (url, init) => {
       calls.push({ url: String(url), init });
@@ -42,6 +44,22 @@ test("exact Research Owner readback becomes a bounded browser projection", async
   assert.equal(calls[0].init.cache, "no-store");
   assert.equal(calls[0].init.body, undefined);
   assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
+});
+
+test("partial dedicated Research target fails closed without borrowing write credentials", async () => {
+  let calls = 0;
+  const result = await readResearchReadbackGatewayV1({
+    requestIdentity: accepted.request_identity,
+    environment: {
+      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083/",
+      RD_OWNER_API_URL: "http://rd-owner-api:8080/",
+      RD_OWNER_API_TOKEN: "write-secret",
+    },
+    fetcher: async () => { calls += 1; throw new Error("must not dispatch"); },
+  });
+  assert.equal(calls, 0);
+  assert.equal(result.status, 503);
+  assert.equal(result.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
 });
 
 test("verified unknown stays available without inventing an outcome", async () => {

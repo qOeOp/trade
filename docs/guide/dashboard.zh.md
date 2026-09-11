@@ -226,10 +226,12 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
-verified Research directory GET 由独立的 `strategy-factory-rd-research-read-api` 打包。其 router 只暴露
-`/health` 与 `/v1/research-goals/directory`，state 只持有 typed `ResearchDirectoryOwnerPort`。Dashboard 通过必须
+verified Research directory 与 exact readback GET 由独立的 `strategy-factory-rd-research-read-api` 打包。其
+router 只暴露 `/health`、`/v1/research-goals/directory` 与
+`/v2/research-goals/{request_identity}/readback`，state 只持有 typed `ResearchDirectoryOwnerPort` 和
+`ResearchReadbackOwnerPortV1`。Dashboard 通过必须
 原子成对配置的 `RD_RESEARCH_OWNER_READ_API_URL` 与 `RD_RESEARCH_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须
-fail closed，不能借用 write API credential。adapter 复用 canonical 的逐 candidate locking verifier，不暴露
+fail closed，不能借用 write API credential。adapter 复用 canonical locking verifier，不暴露
 submit 或 resolve port。
 
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted

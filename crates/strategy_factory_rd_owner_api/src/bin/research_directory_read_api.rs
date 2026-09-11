@@ -2,7 +2,7 @@ use std::{env, sync::Arc};
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
@@ -11,13 +11,16 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use tokio::net::TcpListener;
 use vibe_strategy_factory::{
-    product_edge::{ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort},
+    product_edge::{
+        ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
+    },
     product_edge_postgres::PostgresResearchReadbackOwnerV1,
 };
 
 #[derive(Clone)]
 struct ApiState {
-    owner: Arc<dyn ResearchDirectoryOwnerPort>,
+    directory_owner: Arc<dyn ResearchDirectoryOwnerPort>,
+    readback_owner: Arc<dyn ResearchReadbackOwnerPortV1>,
     token_digest: [u8; 32],
 }
 
@@ -46,7 +49,8 @@ async fn main() -> anyhow::Result<()> {
     );
     let token = required_env("RD_RESEARCH_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
-        owner,
+        directory_owner: owner.clone(),
+        readback_owner: owner,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -61,6 +65,10 @@ fn router(state: ApiState) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
+        .route(
+            "/v2/research-goals/{request_identity}/readback",
+            get(read_research_v2),
+        )
         .with_state(state)
 }
 
@@ -100,8 +108,35 @@ async fn read_research_directory(
     };
 
     match state
-        .owner
+        .directory_owner
         .list_research(after.as_ref(), query.limit.unwrap_or(20))
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
+async fn read_research_v2(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if !(1..=192).contains(&request_identity.len())
+        || !request_identity.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.' | b'/')
+        })
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    match state
+        .readback_owner
+        .read_research_v2(&request_identity)
         .await
     {
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
@@ -142,6 +177,7 @@ mod tests {
     };
     use vibe_strategy_factory::product_edge::{
         ResearchDirectoryCompletenessV1, ResearchDirectoryReadbackV1, ResearchGoalOwnerError,
+        ResearchGoalOwnerResultV2,
     };
 
     #[derive(Default)]
@@ -170,9 +206,21 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl ResearchReadbackOwnerPortV1 for RecordingOwner {
+        async fn read_research_v2(
+            &self,
+            _request_identity: &str,
+        ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Err(ResearchGoalOwnerError::Storage("test stop".into()))
+        }
+    }
+
     fn state(owner: Arc<RecordingOwner>) -> ApiState {
         ApiState {
-            owner,
+            directory_owner: owner.clone(),
+            readback_owner: owner,
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -237,6 +285,19 @@ mod tests {
                 after_committed_at_epoch_ms: Some(42),
                 after_request_identity: None,
             }),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(owner.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn invalid_exact_identity_fails_before_owner_dispatch() {
+        let owner = Arc::new(RecordingOwner::default());
+        let response = read_research_v2(
+            State(state(owner.clone())),
+            Path("invalid identity".to_string()),
             headers(),
         )
         .await;

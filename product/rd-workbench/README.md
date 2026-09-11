@@ -156,8 +156,9 @@ The sole default browser entry is `http://127.0.0.1:18000`. On a fresh volume, c
 
 The opt-in `dashboard-preview` profile additionally starts the dedicated
 `rd-artifact-owner-read-api` and `rd-research-owner-read-api` readers. Each
-process exposes only its authenticated verified-directory GET and health check;
-neither owns a mutation port. Configure their separate
+process exposes only its authenticated read-only GETs and health check; the
+Research reader owns both directory and exact readback, and neither process
+owns a mutation port. Configure their separate
 `RD_ARTIFACT_OWNER_READ_API_TOKEN` and `RD_RESEARCH_OWNER_READ_API_TOKEN` values.
 Dashboard consumes each matching internal URL/token pair and fails closed when
 either half is missing. Starting the default Workbench without the profile does
