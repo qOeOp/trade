@@ -39,6 +39,150 @@ const RESOLVE_CENSUS_SOURCE_V1: &str = "SELECT event_ordinal,logical_time,event_
 const BINDING_COLUMN_SIGNATURE_V1: &str = "request_identity:bytea:true,request_meaning_digest:bytea:true,request_locator_bytes:bytea:true,request_bytes:bytea:true,request_receipt_bytes:bytea:true,request_receipt_identity:bytea:true,request_seal_digest:bytea:true,replay_start_event_ns:numeric(39,0):true,replay_end_event_ns_exclusive:numeric(39,0):true,selected_event_ordinal:bigint:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,selected_event_identity:bytea:true,selected_trigger_digest:bytea:true,source_digest:bytea:true,corpus_digest:bytea:true,census_digest:bytea:true,event_count:bigint:true,binding_identity:bytea:true,binding_bytes:bytea:true,receipt_identity:bytea:true,receipt_bytes:bytea:true,readback_identity:bytea:true,readback_bytes:bytea:true,custody_digest:bytea:true";
 const CENSUS_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,event_ordinal:bigint:true,logical_time:bigint:true,event_time:bigint:true,owner_sequence:bigint:true,event_identity:bytea:true,trigger_digest:bytea:true,projection_receipt_digest:bytea:true,projection_receipt_bytes:bytea:true,entry_bytes:bytea:true";
 const OUTBOX_COLUMN_SIGNATURE_V1: &str = "binding_identity:bytea:true,outbox_identity:bytea:true,payload:bytea:true,custody_digest:bytea:true";
+const EXPECTED_CHECKS_V1: &[(&str, &str)] = &[
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_identity)>0)AND(octet_length(request_identity)<=4096))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_meaning_digest)>0)AND(octet_length(request_meaning_digest)<=4096))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_locator_bytes)>0)AND(octet_length(request_locator_bytes)<=16384))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_bytes)>0)AND(octet_length(request_bytes)<=4194304))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_receipt_bytes)>0)AND(octet_length(request_receipt_bytes)<=4194304))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_receipt_identity)>0)AND(octet_length(request_receipt_identity)<=4096))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((octet_length(request_seal_digest)>0)AND(octet_length(request_seal_digest)<=4096))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(selected_event_ordinal>=0)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(projection_receipt_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(projection_receipt_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(selected_event_identity)=16)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(selected_trigger_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(source_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(corpus_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(census_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "((event_count>=2)AND(event_count<=1000000))",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(binding_identity)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(binding_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(receipt_identity)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(receipt_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(readback_identity)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(readback_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(octet_length(custody_digest)=32)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(replay_start_event_ns<replay_end_event_ns_exclusive)",
+    ),
+    (
+        "strategy_input_event_bindings_v1",
+        "(selected_event_ordinal<event_count)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(event_ordinal>=0)",
+    ),
+    ("strategy_input_event_binding_census_v1", "(logical_time>0)"),
+    ("strategy_input_event_binding_census_v1", "(event_time>=0)"),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(owner_sequence>0)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(octet_length(event_identity)=16)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(octet_length(trigger_digest)=32)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(octet_length(projection_receipt_digest)=32)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(octet_length(projection_receipt_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_binding_census_v1",
+        "(octet_length(entry_bytes)>0)",
+    ),
+    (
+        "strategy_input_event_binding_outbox_v1",
+        "(octet_length(outbox_identity)=32)",
+    ),
+    (
+        "strategy_input_event_binding_outbox_v1",
+        "(octet_length(payload)>0)",
+    ),
+    (
+        "strategy_input_event_binding_outbox_v1",
+        "(octet_length(custody_digest)=32)",
+    ),
+];
 const VERIFY_TOPOLOGY_V1: &str = r#"
 WITH family AS (
   SELECT relation.oid,relation.relname
@@ -46,33 +190,60 @@ WITH family AS (
     JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
    WHERE namespace.nspname='market_data_private'
      AND relation.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1')
-)
-SELECT
-  (SELECT pg_catalog.count(*)=12 AND NOT pg_catalog.bool_or(
-      (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' ')) NOT IN (VALUES
+), expected_pu(relname,contype,keys) AS (VALUES
         ('strategy_input_event_bindings_v1','p','1'),('strategy_input_event_bindings_v1','u','2'),
         ('strategy_input_event_bindings_v1','u','17'),('strategy_input_event_bindings_v1','u','19'),
         ('strategy_input_event_bindings_v1','u','21'),('strategy_input_event_bindings_v1','u','23'),
         ('strategy_input_event_binding_census_v1','p','1 2'),('strategy_input_event_binding_census_v1','u','1 6'),
         ('strategy_input_event_binding_census_v1','u','1 7'),('strategy_input_event_binding_census_v1','u','1 8'),
         ('strategy_input_event_binding_outbox_v1','p','1'),('strategy_input_event_binding_outbox_v1','u','2')
-      )) FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid WHERE constraint_fact.contype IN ('p','u'))
-  AND (SELECT pg_catalog.count(*)=2 AND NOT pg_catalog.bool_or(
-      (source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,
-       pg_catalog.array_to_string(constraint_fact.confkey,' '),constraint_fact.confupdtype::pg_catalog.text,
-       constraint_fact.confdeltype::pg_catalog.text,constraint_fact.confmatchtype::pg_catalog.text) NOT IN (VALUES
+), actual_pu(relname,contype,keys) AS (
+  SELECT family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' ')
+    FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
+   WHERE constraint_fact.contype IN ('p','u')
+), expected_fk(source_rel,source_keys,target_rel,target_keys,on_update,on_delete,match_type) AS (VALUES
         ('strategy_input_event_binding_census_v1','1','strategy_input_event_bindings_v1','19','a','r','s'),
         ('strategy_input_event_binding_outbox_v1','1','strategy_input_event_bindings_v1','19','a','r','s')
-      )) FROM pg_catalog.pg_constraint constraint_fact
-          JOIN family source ON source.oid=constraint_fact.conrelid
-          JOIN family target ON target.oid=constraint_fact.confrelid
-         WHERE constraint_fact.contype='f')
-  AND (SELECT pg_catalog.count(*)=37
-         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_bindings_v1')=25
-         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_binding_census_v1')=9
-         AND pg_catalog.count(*) FILTER (WHERE family.relname='strategy_input_event_binding_outbox_v1')=3
-       FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
-       WHERE constraint_fact.contype='c')
+), actual_fk(source_rel,source_keys,target_rel,target_keys,on_update,on_delete,match_type) AS (
+  SELECT source.relname,pg_catalog.array_to_string(constraint_fact.conkey,' '),target.relname,
+         pg_catalog.array_to_string(constraint_fact.confkey,' '),constraint_fact.confupdtype::pg_catalog.text,
+         constraint_fact.confdeltype::pg_catalog.text,constraint_fact.confmatchtype::pg_catalog.text
+    FROM pg_catalog.pg_constraint constraint_fact
+    JOIN family source ON source.oid=constraint_fact.conrelid
+    JOIN family target ON target.oid=constraint_fact.confrelid
+   WHERE constraint_fact.contype='f'
+), expected_indexes(relname,is_primary,keys,options_are_exact) AS (VALUES
+        ('strategy_input_event_bindings_v1',true,'1',true),('strategy_input_event_bindings_v1',false,'2',true),
+        ('strategy_input_event_bindings_v1',false,'17',true),('strategy_input_event_bindings_v1',false,'19',true),
+        ('strategy_input_event_bindings_v1',false,'21',true),('strategy_input_event_bindings_v1',false,'23',true),
+        ('strategy_input_event_binding_census_v1',true,'1 2',true),('strategy_input_event_binding_census_v1',false,'1 6',true),
+        ('strategy_input_event_binding_census_v1',false,'1 7',true),('strategy_input_event_binding_census_v1',false,'1 8',true),
+        ('strategy_input_event_binding_outbox_v1',true,'1',true),('strategy_input_event_binding_outbox_v1',false,'2',true)
+), actual_indexes(relname,is_primary,keys,options_are_exact) AS (
+  SELECT family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' '),
+      index_fact.indisunique AND NOT index_fact.indisexclusion AND index_fact.indimmediate
+        AND NOT index_fact.indisclustered AND index_fact.indisvalid AND index_fact.indisready
+        AND index_fact.indislive AND NOT index_fact.indisreplident AND NOT index_fact.indnullsnotdistinct
+        AND index_fact.indnkeyatts=index_fact.indnatts AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL
+        AND index_relation.relkind='i' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0
+        AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner)='market_data_owner'
+        AND index_method.amname='btree' AND EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid)
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+        AND NOT EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid)
+                         JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+                        WHERE key_fact.collation_oid<>attribute.attcollation)
+    FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
+    JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+    JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam
+)
+SELECT
+  NOT EXISTS (SELECT 1 FROM (SELECT * FROM expected_pu EXCEPT ALL SELECT * FROM actual_pu) missing_pu)
+  AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM actual_pu EXCEPT ALL SELECT * FROM expected_pu) unexpected_pu)
+  AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM expected_fk EXCEPT ALL SELECT * FROM actual_fk) missing_fk)
+  AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM actual_fk EXCEPT ALL SELECT * FROM expected_fk) unexpected_fk)
+  AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM expected_indexes EXCEPT ALL SELECT * FROM actual_indexes) missing_index)
+  AND NOT EXISTS (SELECT 1 FROM (SELECT * FROM actual_indexes EXCEPT ALL SELECT * FROM expected_indexes) unexpected_index)
   AND NOT EXISTS (
       SELECT 1 FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
        WHERE constraint_fact.contype NOT IN ('p','u','f','c') OR NOT constraint_fact.convalidated
@@ -80,29 +251,6 @@ SELECT
           OR constraint_fact.coninhcount<>0 OR constraint_fact.connoinherit<>(constraint_fact.contype IN ('p','u','f')))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint inbound WHERE inbound.confrelid IN (SELECT oid FROM family) AND inbound.conrelid NOT IN (SELECT oid FROM family))
   AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint outbound WHERE outbound.conrelid IN (SELECT oid FROM family) AND outbound.contype='f' AND outbound.confrelid NOT IN (SELECT oid FROM family))
-  AND (SELECT pg_catalog.count(*)=12 AND NOT pg_catalog.bool_or(
-      (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' ')) NOT IN (VALUES
-        ('strategy_input_event_bindings_v1',true,'1'),('strategy_input_event_bindings_v1',false,'2'),
-        ('strategy_input_event_bindings_v1',false,'17'),('strategy_input_event_bindings_v1',false,'19'),
-        ('strategy_input_event_bindings_v1',false,'21'),('strategy_input_event_bindings_v1',false,'23'),
-        ('strategy_input_event_binding_census_v1',true,'1 2'),('strategy_input_event_binding_census_v1',false,'1 6'),
-        ('strategy_input_event_binding_census_v1',false,'1 7'),('strategy_input_event_binding_census_v1',false,'1 8'),
-        ('strategy_input_event_binding_outbox_v1',true,'1'),('strategy_input_event_binding_outbox_v1',false,'2')
-      ) OR NOT index_fact.indisunique OR index_fact.indisexclusion OR NOT index_fact.indimmediate
-        OR index_fact.indisclustered OR NOT index_fact.indisvalid OR NOT index_fact.indisready
-        OR NOT index_fact.indislive OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
-        OR index_fact.indnkeyatts<>index_fact.indnatts OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
-        OR index_relation.relkind<>'i' OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
-        OR index_relation.reloptions IS NOT NULL OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'market_data_owner'
-        OR index_method.amname<>'btree' OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid)
-        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
-        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
-        OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid)
-                    JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
-                   WHERE key_fact.collation_oid<>attribute.attcollation)
-      ) FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
-          JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
-          JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
 "#;
 
 pub(super) const STRATEGY_INPUT_EVENT_BINDING_SCHEMA_V1: &[&str] = &[
@@ -880,6 +1028,25 @@ async fn verify_contract(
     if !topology_is_exact {
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
+    let check_rows = sqlx::query(
+        "SELECT relation.relname::TEXT AS table_name,pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid,false) AS predicate FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='market_data_private' AND relation.relname IN ('strategy_input_event_bindings_v1','strategy_input_event_binding_census_v1','strategy_input_event_binding_outbox_v1') AND constraint_fact.contype='c'",
+    )
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(store_error)?;
+    let checks = check_rows
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get::<String, _>("table_name")
+                    .map_err(store_error)?,
+                row.try_get::<String, _>("predicate").map_err(store_error)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, StrategyInputEventBindingErrorV1>>()?;
+    if !check_predicates_are_exact(&checks) {
+        return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
+    }
     for (table, expected) in [
         (
             "strategy_input_event_bindings_v1",
@@ -915,6 +1082,27 @@ async fn verify_contract(
         return Err(StrategyInputEventBindingErrorV1::StoreUnavailable);
     }
     Ok(())
+}
+
+fn check_predicates_are_exact(actual: &[(String, String)]) -> bool {
+    let mut actual = actual
+        .iter()
+        .map(|(table, predicate)| (table.as_str(), normalize_check_predicate(predicate)))
+        .collect::<Vec<_>>();
+    let mut expected = EXPECTED_CHECKS_V1
+        .iter()
+        .map(|(table, predicate)| (*table, normalize_check_predicate(predicate)))
+        .collect::<Vec<_>>();
+    actual.sort_unstable();
+    expected.sort_unstable();
+    actual == expected
+}
+
+fn normalize_check_predicate(predicate: &str) -> String {
+    predicate
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect()
 }
 
 fn validate_event_set(
@@ -1283,15 +1471,40 @@ mod tests {
 
     #[test]
     fn topology_contract_drift_is_not_equivalent() {
-        let changed_fk = VERIFY_TOPOLOGY_V1.replacen("'a','r','s'", "'a','c','s'", 1);
-        let changed_index = VERIFY_TOPOLOGY_V1.replacen(
-            "('strategy_input_event_binding_census_v1',true,'1 2')",
-            "('strategy_input_event_binding_census_v1',true,'2 1')",
-            1,
-        );
-        assert_ne!(changed_fk, VERIFY_TOPOLOGY_V1);
-        assert_ne!(changed_index, VERIFY_TOPOLOGY_V1);
-        assert!(changed_fk.contains("'a','c','s'"));
-        assert!(changed_index.contains("true,'2 1'"));
+        assert_eq!(VERIFY_TOPOLOGY_V1.matches("EXCEPT ALL").count(), 6);
+        for relation in ["expected_pu", "expected_fk", "expected_indexes"] {
+            assert!(VERIFY_TOPOLOGY_V1.contains(&format!(
+                "SELECT * FROM {relation} EXCEPT ALL SELECT * FROM actual"
+            )));
+        }
+
+        let expected_fk = ["census->binding", "outbox->binding"];
+        let duplicate_fk = ["census->binding", "census->binding"];
+        let expected_indexes = ["binding-pk", "census-pk", "outbox-pk"];
+        let duplicate_indexes = ["binding-pk", "binding-pk", "outbox-pk"];
+        assert!(!exact_multiset_for_test(&expected_fk, &duplicate_fk));
+        assert!(!exact_multiset_for_test(
+            &expected_indexes,
+            &duplicate_indexes
+        ));
+
+        let mut weakened_checks = EXPECTED_CHECKS_V1
+            .iter()
+            .map(|(table, predicate)| ((*table).to_owned(), (*predicate).to_owned()))
+            .collect::<Vec<_>>();
+        let event_count = weakened_checks
+            .iter_mut()
+            .find(|(_, predicate)| predicate.contains("event_count>=2"))
+            .unwrap();
+        event_count.1 = "(event_count>=0)".to_owned();
+        assert!(!check_predicates_are_exact(&weakened_checks));
+    }
+
+    fn exact_multiset_for_test<T: Ord + Clone>(expected: &[T], actual: &[T]) -> bool {
+        let mut expected = expected.to_vec();
+        let mut actual = actual.to_vec();
+        expected.sort_unstable();
+        actual.sort_unstable();
+        expected == actual
     }
 }
