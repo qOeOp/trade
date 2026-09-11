@@ -585,7 +585,6 @@ CREATE OR REPLACE FUNCTION rd_owner_api.resolve_native_replay_source_storage_v2(
 RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog
 AS $function$
-
         DECLARE base jsonb;
         DECLARE sealed record;
         DECLARE research record;
