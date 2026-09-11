@@ -330,6 +330,12 @@ pub struct ReplayTargetSetExecutionBundleV1 {
 }
 
 impl ReplayTargetSetExecutionBundleV1 {
+    /// Returns the exact four-field R&D request locator embedded in this move-only capability.
+    #[must_use]
+    pub const fn request_locator(&self) -> &ExploratoryReplayRequestLocatorV2 {
+        self.census.request_locator()
+    }
+
     /// Consumes one Owner-issued dual-profile authority and admits an exact complete execution.
     ///
     /// # Errors

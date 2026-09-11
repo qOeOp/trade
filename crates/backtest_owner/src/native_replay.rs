@@ -24,8 +24,8 @@ use crate::{
     OwnerResultDraftV2, ReplayConsumptionObservationV2, ReplayOwnerErrorV2, ReplayTerminalV2,
     SealedReplayResultV2, commit_owner_result,
     postgres::{
-        PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
-        PostgresReplayResultOwnerV2,
+        PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2,
+        ReplayResultCommitRecoveryV2, ReplayResultReadbackV2,
     },
     requested_component_meanings,
 };
@@ -86,6 +86,61 @@ pub struct NativeReplaySemanticTraceEvidenceV2 {
     instance_identity: OpaqueIdentityV2,
 }
 
+/// Sealed canonical semantic-trace bytes derived from one actual native EVENT run.
+///
+/// This value is move-only and has no public constructor or deserializer. The final Owner must
+/// persist these exact bytes under `locator` in the same re-lock boundary as the Result aggregate.
+pub struct SealedNativeReplaySemanticTraceV2 {
+    locator: ComponentObservationLocatorV2,
+    canonical_bytes: Vec<u8>,
+    canonical_bytes_digest: CanonicalDigestV2,
+}
+
+impl SealedNativeReplaySemanticTraceV2 {
+    #[must_use]
+    pub fn locator(&self) -> &ComponentObservationLocatorV2 {
+        &self.locator
+    }
+
+    #[must_use]
+    pub fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+
+    #[must_use]
+    pub fn canonical_bytes_digest(&self) -> &CanonicalDigestV2 {
+        &self.canonical_bytes_digest
+    }
+}
+
+/// Owner readback of semantic-trace bytes persisted with an acknowledged Result commit.
+///
+/// Construction remains crate-private so only the sealed preparation Owner can attest persistence.
+pub struct NativeReplaySemanticTraceReadbackV2 {
+    locator: ComponentObservationLocatorV2,
+    canonical_bytes: Vec<u8>,
+    canonical_bytes_digest: CanonicalDigestV2,
+}
+
+impl NativeReplaySemanticTraceReadbackV2 {
+    pub(crate) fn from_owner_readback(
+        locator: ComponentObservationLocatorV2,
+        canonical_bytes: Vec<u8>,
+        canonical_bytes_digest: CanonicalDigestV2,
+    ) -> Self {
+        Self {
+            locator,
+            canonical_bytes,
+            canonical_bytes_digest,
+        }
+    }
+}
+
+struct FinalizedNativeReplaySemanticTraceV2 {
+    observation: ConsumedComponentObservationV2,
+    sealed: SealedNativeReplaySemanticTraceV2,
+}
+
 impl NativeReplaySemanticTraceEvidenceV2 {
     pub(crate) fn from_owner_materialization(
         observation_reference: OpaqueIdentityV2,
@@ -109,7 +164,7 @@ impl NativeReplaySemanticTraceEvidenceV2 {
         request_meaning_digest: &CanonicalDigestV2,
         attempt_identity: &OpaqueIdentityV2,
         execution: &ProgramHostSimEventReadbackV1,
-    ) -> Result<ConsumedComponentObservationV2, NativeReplayRunErrorV2> {
+    ) -> Result<FinalizedNativeReplaySemanticTraceV2, NativeReplayRunErrorV2> {
         let census = execution.consumption_census();
         if census.execution_profile_binding_digest() != self.execution_profile_binding_digest
             || census.native_materialization_digest() != self.native_materialization_digest
@@ -142,15 +197,23 @@ impl NativeReplaySemanticTraceEvidenceV2 {
             reference: self.observation_reference,
             digest: digest.clone(),
         };
-        Ok(ConsumedComponentObservationV2::from_owner_evidence(
+        let observation = ConsumedComponentObservationV2::from_owner_evidence(
             request_identity.clone(),
             request_meaning_digest.clone(),
             attempt_identity.clone(),
             ObservationComponentV2::SemanticTrace,
-            locator,
+            locator.clone(),
             meaning_identity,
-            digest,
-        ))
+            digest.clone(),
+        );
+        Ok(FinalizedNativeReplaySemanticTraceV2 {
+            observation,
+            sealed: SealedNativeReplaySemanticTraceV2 {
+                locator,
+                canonical_bytes: bytes,
+                canonical_bytes_digest: digest,
+            },
+        })
     }
 }
 
@@ -194,8 +257,9 @@ impl NativeReplayPreparationV2 {
 ///
 /// The future production implementation must own the R&D database capability and resolve all
 /// family, Instrument Owner, Plan, Artifact, universe, and scheduling facts itself. The final method
-/// must re-lock the same request and relevant revocation/drift facts inside the Backtest Result
-/// commit boundary; it may not reconstruct or persist a result independently.
+/// must re-lock the same request and relevant revocation/drift facts, atomically persist the supplied
+/// semantic-trace bytes with the Backtest Result, and return both readbacks from that boundary. It
+/// may not reconstruct or replace either artifact independently.
 pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + Send + Sync {
     fn prepare_exploratory_replay_v2<'a>(
         &'a self,
@@ -208,16 +272,29 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
         result_owner: &'a PostgresReplayResultOwnerV2,
         locator: &'a ExploratoryReplayRequestLocatorV2,
         result: &'a SealedReplayResultV2,
+        semantic_trace: &'a SealedNativeReplaySemanticTraceV2,
     ) -> Pin<
         Box<
             dyn Future<
                     Output = Result<
-                        PostgresReplayResultCommitDispositionV2,
+                        NativeReplayCommitDispositionV2,
                         PostgresReplayResultOwnerErrorV2,
                     >,
                 > + 'a,
         >,
     >;
+}
+
+/// Acknowledged native Replay commit with exact semantic-trace persistence evidence.
+#[must_use = "the caller must distinguish an acknowledged commit from SubmittedOrUnknown"]
+pub enum NativeReplayCommitDispositionV2 {
+    /// Both the Result aggregate and byte-identical semantic trace were committed and read back.
+    Committed {
+        result: Box<ReplayResultReadbackV2>,
+        semantic_trace: NativeReplaySemanticTraceReadbackV2,
+    },
+    /// The atomic submission was made, but its outcome was not acknowledged.
+    SubmittedOrUnknown(ReplayResultCommitRecoveryV2),
 }
 
 /// Fail-closed outcomes from the Backtest-owned native Replay V2 coordinator.
@@ -251,7 +328,7 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
     result_owner: &PostgresReplayResultOwnerV2,
     locator: &ExploratoryReplayRequestLocatorV2,
     attempt_identity: OpaqueIdentityV2,
-) -> Result<PostgresReplayResultCommitDispositionV2, NativeReplayRunErrorV2> {
+) -> Result<NativeReplayCommitDispositionV2, NativeReplayRunErrorV2> {
     let prepared = preparation_owner
         .prepare_exploratory_replay_v2(locator, &attempt_identity)
         .await?;
@@ -272,17 +349,22 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
         &attempt_identity,
         component_evidence,
     )?;
+    validate_execution_request_locator(execution.request_locator(), locator)?;
 
     let execution_readback = run_program_host_sim_event_consumer_v1(execution)
         .map_err(|error| NativeReplayRunErrorV2::NativeExecution(error.to_string()))?;
+    validate_execution_request_locator(
+        execution_readback.consumption_census().request_locator(),
+        locator,
+    )?;
     let semantic_trace = semantic_trace_evidence.finalize(
         request.request().request_identity(),
         &request_meaning_digest,
         &attempt_identity,
         &execution_readback,
     )?;
-    let decisive_evidence = semantic_trace.locator().clone();
-    observations.push(semantic_trace);
+    let decisive_evidence = semantic_trace.observation.locator().clone();
+    observations.push(semantic_trace.observation);
     let result = commit_owner_result(
         request.request(),
         OwnerResultDraftV2 {
@@ -298,10 +380,45 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
             )],
         },
     )?;
-    preparation_owner
-        .relock_and_commit_exploratory_replay_v2(result_owner, locator, &result)
+    let disposition = preparation_owner
+        .relock_and_commit_exploratory_replay_v2(
+            result_owner,
+            locator,
+            &result,
+            &semantic_trace.sealed,
+        )
         .await
-        .map_err(NativeReplayRunErrorV2::from)
+        .map_err(NativeReplayRunErrorV2::from)?;
+    validate_committed_semantic_trace(disposition, &semantic_trace.sealed)
+}
+
+fn validate_committed_semantic_trace(
+    disposition: NativeReplayCommitDispositionV2,
+    expected: &SealedNativeReplaySemanticTraceV2,
+) -> Result<NativeReplayCommitDispositionV2, NativeReplayRunErrorV2> {
+    match &disposition {
+        NativeReplayCommitDispositionV2::Committed { semantic_trace, .. } => {
+            validate_semantic_trace_readback(semantic_trace, expected)?;
+        }
+        NativeReplayCommitDispositionV2::SubmittedOrUnknown(_) => {}
+    }
+    Ok(disposition)
+}
+
+fn validate_semantic_trace_readback(
+    actual: &NativeReplaySemanticTraceReadbackV2,
+    expected: &SealedNativeReplaySemanticTraceV2,
+) -> Result<(), NativeReplayRunErrorV2> {
+    let recomputed = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, &actual.canonical_bytes)?;
+    if actual.locator != expected.locator
+        || actual.canonical_bytes != expected.canonical_bytes
+        || actual.canonical_bytes_digest != expected.canonical_bytes_digest
+        || recomputed != expected.canonical_bytes_digest
+        || actual.locator.digest != actual.canonical_bytes_digest
+    {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(())
 }
 
 fn validate_request_readback(
@@ -319,6 +436,16 @@ fn validate_request_readback(
         || request.receipt_identity() != locator.receipt_identity
         || request.seal_digest() != locator.seal_digest
     {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(())
+}
+
+fn validate_execution_request_locator(
+    actual: &ExploratoryReplayRequestLocatorV2,
+    expected: &ExploratoryReplayRequestLocatorV2,
+) -> Result<(), NativeReplayRunErrorV2> {
+    if actual != expected {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
     Ok(())
@@ -398,5 +525,63 @@ mod tests {
         assert_eq!(first, repeated);
         assert_ne!(first, changed);
         assert_ne!(first, semantic);
+    }
+
+    #[test]
+    fn cross_request_execution_locator_is_rejected() {
+        let request_a = request_locator("request-a", "receipt-a", 'a');
+        let mut request_b = request_a.clone();
+        request_b.receipt_identity = "receipt-b".to_owned();
+
+        assert!(validate_execution_request_locator(&request_a, &request_a).is_ok());
+        assert!(matches!(
+            validate_execution_request_locator(&request_b, &request_a),
+            Err(NativeReplayRunErrorV2::IncompleteReconciliation)
+        ));
+    }
+
+    #[test]
+    fn committed_semantic_trace_requires_byte_identical_owner_readback() {
+        let bytes = b"actual EVENT semantic trace".to_vec();
+        let digest = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, &bytes).unwrap();
+        let locator = ComponentObservationLocatorV2 {
+            component: ObservationComponentV2::SemanticTrace,
+            reference: OpaqueIdentityV2::try_from("trace-reference".to_owned()).unwrap(),
+            digest: digest.clone(),
+        };
+        let expected = SealedNativeReplaySemanticTraceV2 {
+            locator: locator.clone(),
+            canonical_bytes: bytes.clone(),
+            canonical_bytes_digest: digest.clone(),
+        };
+        let exact = NativeReplaySemanticTraceReadbackV2::from_owner_readback(
+            locator.clone(),
+            bytes,
+            digest.clone(),
+        );
+        assert!(validate_semantic_trace_readback(&exact, &expected).is_ok());
+
+        let substituted = NativeReplaySemanticTraceReadbackV2::from_owner_readback(
+            locator,
+            b"substituted semantic trace".to_vec(),
+            digest,
+        );
+        assert!(matches!(
+            validate_semantic_trace_readback(&substituted, &expected),
+            Err(NativeReplayRunErrorV2::IncompleteReconciliation)
+        ));
+    }
+
+    fn request_locator(
+        request: &str,
+        receipt: &str,
+        digest_byte: char,
+    ) -> ExploratoryReplayRequestLocatorV2 {
+        ExploratoryReplayRequestLocatorV2 {
+            request_identity: request.to_owned(),
+            meaning_digest: format!("blake3:{}", digest_byte.to_string().repeat(64)),
+            receipt_identity: receipt.to_owned(),
+            seal_digest: format!("blake3:{}", digest_byte.to_string().repeat(64)),
+        }
     }
 }
