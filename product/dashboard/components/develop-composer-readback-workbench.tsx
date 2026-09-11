@@ -13,7 +13,7 @@ import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/
 import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
-import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge, type StatusBadgeTone } from "./ui/status-badge";
 
 const REQUEST_IDENTITY = /^[A-Za-z0-9._:/-]{1,192}$/;
@@ -143,11 +143,12 @@ export function DevelopComposerReadbackWorkbench({
             void read(input);
           }}
         >
-          <ReadbackLookupField label="Request identity" labelHidden leading={<InterfaceIcons.search aria-hidden="true" size={16} />}>
-            <input
+          <ReadbackLookupField label="Request identity" labelHidden>
+            <ReadbackLookupInput
               aria-describedby={validation ? "develop-composer-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
+              icon={<InterfaceIcons.search aria-hidden="true" size={16} />}
               onChange={(event) => {
                 setInput(event.target.value);
                 setValidation(null);

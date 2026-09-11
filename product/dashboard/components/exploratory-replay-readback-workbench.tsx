@@ -16,7 +16,7 @@ import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
-import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./exploratory-replay-readback-workbench.module.css";
 
@@ -155,8 +155,8 @@ export function ExploratoryReplayReadbackWorkbench({
             void read(requestInput, meaningInput);
           }}
         >
-          <ReadbackLookupField label="Request identity" mono>
-            <input
+          <ReadbackLookupField label="Request identity">
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
@@ -166,11 +166,12 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="request identity"
               spellCheck={false}
+              typography="mono"
               value={requestInput}
             />
           </ReadbackLookupField>
-          <ReadbackLookupField label="Meaning digest" mono>
-            <input
+          <ReadbackLookupField label="Meaning digest">
+            <ReadbackLookupInput
               aria-describedby={validation ? "exploratory-replay-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
@@ -180,6 +181,7 @@ export function ExploratoryReplayReadbackWorkbench({
               }}
               placeholder="blake3:…"
               spellCheck={false}
+              typography="mono"
               value={meaningInput}
             />
           </ReadbackLookupField>

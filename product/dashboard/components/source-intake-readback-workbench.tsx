@@ -16,7 +16,7 @@ import {
   PanelFrameBody,
   PanelFrameHeader,
 } from "./ui/panel-frame";
-import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField } from "./ui/readback-lookup";
+import { ReadbackLookup, ReadbackLookupAction, ReadbackLookupField, ReadbackLookupInput } from "./ui/readback-lookup";
 import { StatusBadge } from "./ui/status-badge";
 import styles from "./source-intake-readback-workbench.module.css";
 
@@ -126,11 +126,12 @@ export function SourceIntakeReadbackWorkbench({
             void read(input);
           }}
         >
-          <ReadbackLookupField label="Request identity" labelHidden leading={<InterfaceIcons.search aria-hidden="true" size={16} />}>
-            <input
+          <ReadbackLookupField label="Request identity" labelHidden>
+            <ReadbackLookupInput
               aria-describedby={validation ? "source-intake-validation" : undefined}
               aria-invalid={Boolean(validation)}
               autoComplete="off"
+              icon={<InterfaceIcons.search aria-hidden="true" size={16} />}
               onChange={(event) => {
                 setInput(event.target.value);
                 setValidation(null);
