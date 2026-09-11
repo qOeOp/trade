@@ -1104,6 +1104,8 @@ CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalo
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_record_id TEXT NOT NULL UNIQUE REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, advanced_by TEXT NOT NULL, advanced_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 (catalog_record_id TEXT PRIMARY KEY REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE, revoked_by TEXT NOT NULL, revoked_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v2 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, predecessor_record_id TEXT, predecessor_head_record_id TEXT, result_record_id TEXT, content_identity TEXT NOT NULL, audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 (catalog_record_id TEXT PRIMARY KEY REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL UNIQUE CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615), catalog_record_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(catalog_record_digest) = 32), economic_configuration_canonical_bytes BYTEA NOT NULL, economic_configuration_digest BYTEA NOT NULL CHECK (octet_length(economic_configuration_digest) = 32), runner_operational_profile_canonical_bytes BYTEA NOT NULL, runner_operational_profile_digest BYTEA NOT NULL CHECK (octet_length(runner_operational_profile_digest) = 32), execution_profiles_binding_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(execution_profiles_binding_digest) = 32), catalog_binding_v3_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(catalog_binding_v3_digest) = 32), created_by TEXT NOT NULL, created_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 (command_identity TEXT PRIMARY KEY, administrator_identity TEXT NOT NULL, authentication_fact_digest TEXT NOT NULL, command_kind TEXT NOT NULL, catalog_record_id TEXT NOT NULL REFERENCES replay_policy_catalog_private.rd_replay_policy_catalog_records_v2(catalog_record_id), catalog_version NUMERIC(20,0) NOT NULL CHECK (catalog_version > 0 AND catalog_version <= 18446744073709551615), catalog_binding_v3_digest BYTEA NOT NULL CHECK (octet_length(catalog_binding_v3_digest) = 32), audit_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_designs_v2 (design_identity BYTEA PRIMARY KEY, canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_plans_v2 (plan_digest BYTEA PRIMARY KEY, design_identity BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_designs_v2(design_identity), canonical_bytes BYTEA NOT NULL);
 CREATE TABLE IF NOT EXISTS composer_private.rd_develop_artifacts_v2 (artifact_identity BYTEA PRIMARY KEY, plan_digest BYTEA NOT NULL UNIQUE REFERENCES composer_private.rd_develop_plans_v2(plan_digest), package_bytes BYTEA NOT NULL);
@@ -1185,7 +1187,7 @@ CREATE TABLE IF NOT EXISTS composer_private.rd_develop_outbox_v2 (request_identi
 DO $private_table_owners$
 DECLARE relation_name text;
 BEGIN
-  FOREACH relation_name IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.%I OWNER TO replay_policy_catalog_owner', relation_name); END LOOP;
+  FOREACH relation_name IN ARRAY ARRAY['rd_replay_policy_catalog_records_v2','rd_replay_policy_catalog_head_v2','rd_replay_policy_catalog_revocations_v2','rd_replay_policy_catalog_audit_v2','rd_replay_policy_catalog_execution_profiles_v3','rd_replay_policy_catalog_audit_v3'] LOOP EXECUTE pg_catalog.format('ALTER TABLE replay_policy_catalog_private.%I OWNER TO replay_policy_catalog_owner', relation_name); END LOOP;
   FOREACH relation_name IN ARRAY ARRAY['rd_develop_designs_v2','rd_develop_plans_v2','rd_develop_artifacts_v2','rd_develop_artifact_modules_v2','rd_develop_build_receipts_v2','rd_develop_artifact_build_receipt_uses_v2','rd_develop_build_receipts_v3','rd_develop_artifact_build_receipt_uses_v3','rd_develop_composer_receipts_v2','rd_develop_host_receipts_v2','rd_develop_operations_v2','rd_develop_strategy_design_role_set_attestations_v1','rd_develop_strategy_design_native_joins_v1','rd_develop_outbox_v2'] LOOP EXECUTE pg_catalog.format('ALTER TABLE composer_private.%I OWNER TO composer_owner', relation_name); END LOOP;
 END
 $private_table_owners$;
@@ -1235,7 +1237,7 @@ BEGIN
     SELECT 1 FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
     WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='S'
   ) THEN RAISE EXCEPTION 'Catalog/Composer sequence manifest mismatch'; END IF;
-  SELECT count(*)=18 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+  SELECT count(*)=20 AND bool_and(relation.relpersistence='p') INTO exact FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
   WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND relation.relkind='r';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer relation ACL family mismatch'; END IF;
   IF EXISTS (
@@ -1369,6 +1371,136 @@ $catalog_apply$;
 ALTER FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) OWNER TO replay_policy_catalog_owner;
 REVOKE ALL ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3()
+RETURNS TABLE (execution_profile_count bigint, audit_count bigint)
+LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_census_v3$
+BEGIN
+  LOCK TABLE replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3,
+    replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 IN SHARE ROW EXCLUSIVE MODE;
+  RETURN QUERY SELECT
+    (SELECT pg_catalog.count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3),
+    (SELECT pg_catalog.count(*) FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3);
+END
+$catalog_census_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v3() TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(p_record_id text)
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean, v3_catalog_record_digest bytea, economic_configuration_canonical_bytes bytea, economic_configuration_digest bytea, runner_operational_profile_canonical_bytes bytea, runner_operational_profile_digest bytea, execution_profiles_binding_digest bytea, catalog_binding_v3_digest bytea, v3_created_by text, v3_created_at_epoch_ms bigint, v3_create_audit_json jsonb)
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_read_v3$
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
+    record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
+    revocation.catalog_record_id IS NOT NULL, profile.catalog_record_digest,
+    profile.economic_configuration_canonical_bytes, profile.economic_configuration_digest,
+    profile.runner_operational_profile_canonical_bytes, profile.runner_operational_profile_digest,
+    profile.execution_profiles_binding_digest, profile.catalog_binding_v3_digest,
+    profile.created_by, profile.created_at_epoch_ms, issuance.audit_json
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+    ON profile.catalog_record_id=record.catalog_record_id AND profile.catalog_version=record.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 issuance
+    ON issuance.catalog_record_id=record.catalog_record_id AND issuance.catalog_version=record.catalog_version
+      AND issuance.command_kind='CREATE' AND issuance.catalog_binding_v3_digest=profile.catalog_binding_v3_digest
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head ON head.singleton
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 revocation ON revocation.catalog_record_id=record.catalog_record_id
+  WHERE record.catalog_record_id=p_record_id
+  FOR UPDATE OF record, profile, issuance
+$catalog_read_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text) TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()
+RETURNS TABLE (catalog_record_id text, catalog_version numeric, owner_identity text, predecessor_record_id text, policy_grammar_parser_id text, policy_grammar_parser_digest bytea, policy_canonical_bytes bytea, policy_digest bytea, catalog_record_digest bytea, created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint, revoked boolean, v3_catalog_record_digest bytea, economic_configuration_canonical_bytes bytea, economic_configuration_digest bytea, runner_operational_profile_canonical_bytes bytea, runner_operational_profile_digest bytea, execution_profiles_binding_digest bytea, catalog_binding_v3_digest bytea, v3_created_by text, v3_created_at_epoch_ms bigint, v3_create_audit_json jsonb)
+LANGUAGE sql VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_current_v3$
+  SELECT record.catalog_record_id, record.catalog_version, record.owner_identity, record.predecessor_record_id,
+    record.policy_grammar_parser_id, record.policy_grammar_parser_digest, record.policy_canonical_bytes,
+    record.policy_digest, record.catalog_record_digest, record.created_by, record.created_at_epoch_ms,
+    head.catalog_record_id, head.catalog_version, head.advanced_by, head.advanced_at_epoch_ms,
+    revocation.catalog_record_id IS NOT NULL, profile.catalog_record_digest,
+    profile.economic_configuration_canonical_bytes, profile.economic_configuration_digest,
+    profile.runner_operational_profile_canonical_bytes, profile.runner_operational_profile_digest,
+    profile.execution_profiles_binding_digest, profile.catalog_binding_v3_digest,
+    profile.created_by, profile.created_at_epoch_ms, issuance.audit_json
+  FROM replay_policy_catalog_private.rd_replay_policy_catalog_head_v2 head
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+    ON record.catalog_record_id=head.catalog_record_id AND record.catalog_version=head.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+    ON profile.catalog_record_id=record.catalog_record_id AND profile.catalog_version=record.catalog_version
+  JOIN replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 issuance
+    ON issuance.catalog_record_id=record.catalog_record_id AND issuance.catalog_version=record.catalog_version
+      AND issuance.command_kind='CREATE' AND issuance.catalog_binding_v3_digest=profile.catalog_binding_v3_digest
+  LEFT JOIN replay_policy_catalog_private.rd_replay_policy_catalog_revocations_v2 revocation ON revocation.catalog_record_id=record.catalog_record_id
+  WHERE head.singleton FOR UPDATE OF head, record, profile, issuance
+$catalog_current_v3$;
+ALTER FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3() TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(p_command_identity text)
+RETURNS TABLE (audit_json jsonb)
+LANGUAGE sql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER SET search_path = pg_catalog, pg_temp AS $catalog_audit_read_v3$
+  SELECT audit.audit_json FROM replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 audit
+  WHERE audit.command_identity=p_command_identity
+$catalog_audit_read_v3$;
+ALTER FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text) TO rd_owner, replay_policy_catalog_admin_writer;
+
+CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(
+  p_action text, p_command_identity text, p_administrator_identity text, p_authentication_digest text,
+  p_record_id text, p_version numeric, p_record_digest bytea,
+  p_economic_bytes bytea, p_economic_digest bytea, p_runner_bytes bytea, p_runner_digest bytea,
+  p_profiles_binding_digest bytea, p_catalog_binding_v3_digest bytea, p_audit jsonb, p_epoch_ms bigint
+) RETURNS boolean LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $catalog_apply_v3$
+BEGIN
+  IF SESSION_USER<>'replay_policy_catalog_admin_writer' THEN RAISE EXCEPTION 'Replay Policy Catalog admin writer required' USING ERRCODE='42501'; END IF;
+  PERFORM pg_catalog.pg_advisory_xact_lock(7246450332882419842);
+  IF NOT EXISTS (
+    SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_records_v2 record
+    WHERE record.catalog_record_id=p_record_id AND record.catalog_version=p_version
+      AND record.catalog_record_digest=p_record_digest
+  ) OR p_audit->>'command_identity' IS DISTINCT FROM p_command_identity
+    OR p_audit->>'administrator_identity' IS DISTINCT FROM p_administrator_identity
+    OR p_audit->>'authentication_fact_digest' IS DISTINCT FROM p_authentication_digest
+    OR p_audit->>'command_kind' IS DISTINCT FROM p_action
+    OR p_audit->>'catalog_record_id' IS DISTINCT FROM p_record_id
+  THEN RETURN false; END IF;
+  IF p_action='CREATE' THEN
+    IF EXISTS (SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile WHERE profile.catalog_record_id=p_record_id OR profile.catalog_version=p_version)
+    THEN RETURN false; END IF;
+    INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 VALUES (
+      p_record_id,p_version,p_record_digest,p_economic_bytes,p_economic_digest,p_runner_bytes,p_runner_digest,
+      p_profiles_binding_digest,p_catalog_binding_v3_digest,p_administrator_identity,p_epoch_ms
+    );
+  ELSIF p_action='ADVANCE' THEN
+    IF NOT EXISTS (
+      SELECT 1 FROM replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3 profile
+      WHERE profile.catalog_record_id=p_record_id AND profile.catalog_version=p_version
+        AND profile.catalog_record_digest=p_record_digest
+        AND profile.economic_configuration_canonical_bytes=p_economic_bytes
+        AND profile.economic_configuration_digest=p_economic_digest
+        AND profile.runner_operational_profile_canonical_bytes=p_runner_bytes
+        AND profile.runner_operational_profile_digest=p_runner_digest
+        AND profile.execution_profiles_binding_digest=p_profiles_binding_digest
+        AND profile.catalog_binding_v3_digest=p_catalog_binding_v3_digest
+    ) THEN RETURN false; END IF;
+  ELSE RETURN false; END IF;
+  INSERT INTO replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3 VALUES (
+    p_command_identity,p_administrator_identity,p_authentication_digest,p_action,p_record_id,p_version,
+    p_catalog_binding_v3_digest,p_audit,p_epoch_ms
+  );
+  RETURN true;
+END
+$catalog_apply_v3$;
+ALTER FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) OWNER TO replay_policy_catalog_owner;
+REVOKE ALL ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) FROM PUBLIC, rd_owner, rd_fact_writer, replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 
 DROP FUNCTION IF EXISTS composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea);
 CREATE OR REPLACE FUNCTION composer_owner_api.commit_develop_composer_v2(
@@ -1904,8 +2036,8 @@ BEGIN
   LOOP EXECUTE pg_catalog.format('REVOKE ALL ON FUNCTION %s FROM %I',grant_fact.signature,grant_fact.rolname); END LOOP;
 END
 $catalog_composer_function_acl_cutover$;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
-GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint) TO replay_policy_catalog_admin_writer;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), composer_owner_api.lock_accepted_develop_composer_v2(text), composer_owner_api.lock_develop_composer_commit_cut_v2(text) TO rd_owner;
+GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_census_v2(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v2(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint), replay_policy_catalog_api.lock_replay_policy_catalog_census_v3(), replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text), replay_policy_catalog_api.lock_current_replay_policy_catalog_v3(), replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text), replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint) TO replay_policy_catalog_admin_writer;
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea), composer_owner_api.commit_develop_composer_v3(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,integer[]) TO rd_fact_writer, rd_owner;
 \if :composer_acceptance
 GRANT EXECUTE ON FUNCTION composer_owner_api.commit_develop_composer_acceptance_v2(text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea[],bytea[],bytea[],bytea[],bytea[],bytea,bytea,bytea,bytea,bytea,integer,bytea,text,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea,bytea) TO rd_owner;
@@ -1958,20 +2090,25 @@ BEGIN
     AND NOT pg_catalog.has_schema_privilege('rd_fact_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('replay_policy_catalog_admin_writer','replay_policy_catalog_api','USAGE')
     AND pg_catalog.has_schema_privilege('rd_fact_writer','composer_owner_api','USAGE')
-    AND (SELECT count(*)=4 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
+    AND (SELECT count(*)=6 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='replay_policy_catalog_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r')
     AND (SELECT count(*)=14 AND bool_and(relation.relpersistence='p' AND pg_catalog.pg_get_userbyid(relation.relowner)='composer_owner') AND NOT bool_or(pg_catalog.has_table_privilege('rd_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('rd_fact_writer',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_reader',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) AND NOT bool_or(pg_catalog.has_table_privilege('market_data_owner',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')) FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r')
-    AND (SELECT count(*)=30 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND (SELECT count(*)=50 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND (SELECT count(*)=54 FROM pg_catalog.pg_attribute attribute JOIN pg_catalog.pg_class relation ON relation.oid=attribute.attrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='composer_private' AND relation.relkind='r' AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_class object JOIN pg_catalog.pg_namespace namespace ON namespace.oid=object.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND object.relkind NOT IN ('r','i'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact JOIN pg_catalog.pg_class relation ON relation.oid=trigger_fact.tgrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy JOIN pg_catalog.pg_class relation ON relation.oid=policy.polrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite JOIN pg_catalog.pg_class relation ON relation.oid=rewrite.ev_class JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname='replay_policy_catalog_private')
-    AND (SELECT count(*)=5 AND bool_and(procedure.oid IN (
+    AND (SELECT count(*)=10 AND bool_and(procedure.oid IN (
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(text)'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()'),
       pg_catalog.to_regprocedure('replay_policy_catalog_api.read_replay_policy_catalog_audit_v2(text)'),
-      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)')
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(text,text,text,text,text,numeric,text,text,bytea,bytea,bytea,bytea,text,text,jsonb,bigint)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_census_v3()'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(text)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.read_replay_policy_catalog_audit_v3(text)'),
+      pg_catalog.to_regprocedure('replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(text,text,text,text,text,numeric,bytea,bytea,bytea,bytea,bytea,bytea,bytea,jsonb,bigint)')
     )) FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api')
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_proc procedure JOIN pg_catalog.pg_namespace namespace ON namespace.oid=procedure.pronamespace WHERE namespace.nspname='replay_policy_catalog_api' AND pg_catalog.has_function_privilege('market_data_reader',procedure.oid,'EXECUTE'))
     AND (SELECT count(*)=1 AND bool_and(
@@ -2045,6 +2182,7 @@ BEGIN
     ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','predecessor_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','u','catalog_record_digest'),
     ('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','p','singleton'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','u','catalog_version'),
     ('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v2','p','command_identity'),
+    ('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','p','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_version'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_record_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','execution_profiles_binding_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','u','catalog_binding_v3_digest'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v3','p','command_identity'),
     ('composer_private','rd_develop_designs_v2','p','design_identity'),('composer_private','rd_develop_plans_v2','p','plan_digest'),('composer_private','rd_develop_plans_v2','u','design_identity'),('composer_private','rd_develop_artifacts_v2','p','artifact_identity'),('composer_private','rd_develop_artifacts_v2','u','plan_digest'),
     ('composer_private','rd_develop_artifact_modules_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_build_receipts_v2','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v2','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v2','u','capsule_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','p','artifact_identity,ordinal'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','u','artifact_identity,receipt_identity'),
     ('composer_private','rd_develop_build_receipts_v3','p','receipt_identity'),('composer_private','rd_develop_build_receipts_v3','u','build_attempt_identity'),('composer_private','rd_develop_build_receipts_v3','u','capsule_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','p','artifact_identity,ordinal'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','u','artifact_identity,receipt_identity'),
@@ -2060,7 +2198,7 @@ BEGIN
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer primary or unique manifest mismatch'; END IF;
 
   WITH expected(source_schema,source_table,source_keys,target_schema,target_table,target_keys) AS (VALUES
-    ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','predecessor_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),
+    ('replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','predecessor_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_head_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_revocations_v2','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_execution_profiles_v3','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),('replay_policy_catalog_private','rd_replay_policy_catalog_audit_v3','catalog_record_id','replay_policy_catalog_private','rd_replay_policy_catalog_records_v2','catalog_record_id'),
     ('composer_private','rd_develop_plans_v2','design_identity','composer_private','rd_develop_designs_v2','design_identity'),('composer_private','rd_develop_artifacts_v2','plan_digest','composer_private','rd_develop_plans_v2','plan_digest'),('composer_private','rd_develop_artifact_modules_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v2','receipt_identity','composer_private','rd_develop_build_receipts_v2','receipt_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_artifact_build_receipt_uses_v3','receipt_identity','composer_private','rd_develop_build_receipts_v3','receipt_identity'),('composer_private','rd_develop_composer_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_host_receipts_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_operations_v2','artifact_identity','composer_private','rd_develop_artifacts_v2','artifact_identity'),('composer_private','rd_develop_strategy_design_role_set_attestations_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_strategy_design_native_joins_v1','request_identity','composer_private','rd_develop_operations_v2','request_identity'),('composer_private','rd_develop_outbox_v2','request_identity','composer_private','rd_develop_operations_v2','request_identity')
   ), actual AS (
     SELECT source_namespace.nspname,source_relation.relname,string_agg(source_attribute.attname,',' ORDER BY key_fact.ordinality),target_namespace.nspname,target_relation.relname,string_agg(target_attribute.attname,',' ORDER BY key_fact.ordinality)
@@ -2070,11 +2208,11 @@ BEGIN
   ) SELECT NOT EXISTS((SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL (SELECT * FROM actual EXCEPT SELECT * FROM expected)) INTO exact;
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer foreign-key dependency manifest mismatch'; END IF;
 
-  SELECT count(*)=5 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))'))
+  SELECT count(*)=13 AND bool_and(pg_catalog.pg_get_expr(constraint_fact.conbin,constraint_fact.conrelid) IN ('singleton','(octet_length(policy_grammar_parser_digest) = 32)','(octet_length(policy_digest) = 32)','(octet_length(catalog_record_digest) = 32)','(octet_length(economic_configuration_digest) = 32)','(octet_length(runner_operational_profile_digest) = 32)','(octet_length(execution_profiles_binding_digest) = 32)','(octet_length(catalog_binding_v3_digest) = 32)','((catalog_version > (0)::numeric) AND (catalog_version <= ''18446744073709551615''::numeric))'))
   INTO exact FROM pg_catalog.pg_constraint constraint_fact JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private') AND constraint_fact.contype='c';
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer CHECK manifest mismatch'; END IF;
 
-  SELECT count(*)=43 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
+  SELECT count(*)=49 AND bool_and(index_fact.indisvalid AND index_fact.indisready AND index_fact.indislive AND index_fact.indisunique AND NOT index_fact.indnullsnotdistinct AND index_fact.indexprs IS NULL AND index_fact.indpred IS NULL AND index_method.amname='btree' AND index_relation.relpersistence='p' AND index_relation.reltablespace=0 AND index_relation.reloptions IS NULL AND pg_catalog.pg_get_userbyid(index_relation.relowner) IN ('replay_policy_catalog_owner','composer_owner') AND EXISTS(SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0) AND NOT EXISTS(SELECT 1 FROM unnest(index_fact.indkey::smallint[],index_fact.indcollation::oid[]) key_fact(attnum,collation_oid) JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum WHERE key_fact.collation_oid<>attribute.attcollation))
   INTO exact FROM pg_catalog.pg_index index_fact JOIN pg_catalog.pg_class relation ON relation.oid=index_fact.indrelid JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam WHERE namespace.nspname IN ('replay_policy_catalog_private','composer_private');
   IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Catalog/Composer index manifest mismatch'; END IF;
   IF EXISTS (

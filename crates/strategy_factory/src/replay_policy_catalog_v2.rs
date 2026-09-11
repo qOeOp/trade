@@ -40,7 +40,7 @@ pub struct ReplayPolicyCatalogBindingV2 {
 /// unavailable for execution-profile authority.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ReplayExecutionProfileSealsV1 {
+pub struct ReplayExecutionProfileSealsV1 {
     economic_configuration_canonical_bytes: Vec<u8>,
     economic_configuration_digest: [u8; 32],
     runner_operational_profile_canonical_bytes: Vec<u8>,
@@ -50,48 +50,28 @@ pub(crate) struct ReplayExecutionProfileSealsV1 {
 }
 
 impl ReplayExecutionProfileSealsV1 {
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) fn economic_configuration_canonical_bytes(&self) -> &[u8] {
+    pub fn economic_configuration_canonical_bytes(&self) -> &[u8] {
         &self.economic_configuration_canonical_bytes
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) const fn economic_configuration_digest(&self) -> [u8; 32] {
+    pub const fn economic_configuration_digest(&self) -> [u8; 32] {
         self.economic_configuration_digest
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) fn runner_operational_profile_canonical_bytes(&self) -> &[u8] {
+    pub fn runner_operational_profile_canonical_bytes(&self) -> &[u8] {
         &self.runner_operational_profile_canonical_bytes
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) const fn runner_operational_profile_digest(&self) -> [u8; 32] {
+    pub const fn runner_operational_profile_digest(&self) -> [u8; 32] {
         self.runner_operational_profile_digest
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) const fn binding_digest(&self) -> [u8; 32] {
+    pub const fn binding_digest(&self) -> [u8; 32] {
         self.binding_digest
     }
 
@@ -139,7 +119,7 @@ impl ReplayExecutionProfileSealsV1 {
 /// cannot be decoded as a V2 binding.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ReplayPolicyCatalogBindingV3 {
+pub struct ReplayPolicyCatalogBindingV3 {
     schema_version: u16,
     replay_policy_v2: ReplayPolicyCatalogBindingV2,
     execution_profiles_v1: ReplayExecutionProfileSealsV1,
@@ -148,21 +128,17 @@ pub(crate) struct ReplayPolicyCatalogBindingV3 {
 
 impl ReplayPolicyCatalogBindingV3 {
     #[must_use]
-    pub(crate) fn replay_policy_v2(&self) -> &ReplayPolicyCatalogBindingV2 {
+    pub fn replay_policy_v2(&self) -> &ReplayPolicyCatalogBindingV2 {
         &self.replay_policy_v2
     }
 
     #[must_use]
-    pub(crate) fn execution_profiles_v1(&self) -> &ReplayExecutionProfileSealsV1 {
+    pub fn execution_profiles_v1(&self) -> &ReplayExecutionProfileSealsV1 {
         &self.execution_profiles_v1
     }
 
-    #[expect(
-        dead_code,
-        reason = "read by the additive Catalog V3 PostgreSQL custody slice"
-    )]
     #[must_use]
-    pub(crate) const fn binding_digest(&self) -> [u8; 32] {
+    pub const fn binding_digest(&self) -> [u8; 32] {
         self.binding_digest
     }
 
@@ -194,6 +170,32 @@ impl ReplayPolicyCatalogBindingV3 {
             execution_profiles_v1,
             binding_digest,
         })
+    }
+
+    pub(crate) fn from_stored_parts(
+        replay_policy_v2: ReplayPolicyCatalogBindingV2,
+        economic_configuration_canonical_bytes: Vec<u8>,
+        economic_configuration_digest: [u8; 32],
+        runner_operational_profile_canonical_bytes: Vec<u8>,
+        runner_operational_profile_digest: [u8; 32],
+        execution_profiles_binding_digest: [u8; 32],
+        binding_digest: [u8; 32],
+    ) -> Result<Self, ReplayPolicyCatalogErrorV2> {
+        let value = Self {
+            schema_version: 3,
+            execution_profiles_v1: ReplayExecutionProfileSealsV1 {
+                economic_configuration_canonical_bytes,
+                economic_configuration_digest,
+                runner_operational_profile_canonical_bytes,
+                runner_operational_profile_digest,
+                catalog_record_digest: *replay_policy_v2.catalog_record_digest(),
+                binding_digest: execution_profiles_binding_digest,
+            },
+            replay_policy_v2,
+            binding_digest,
+        };
+        value.verify()?;
+        Ok(value)
     }
 
     pub(crate) fn verify(

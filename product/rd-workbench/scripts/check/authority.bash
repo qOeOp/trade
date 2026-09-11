@@ -133,8 +133,8 @@ grep -Fq 'ALTER TABLE public.%I SET SCHEMA composer_private' "$package_dir/postg
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v2()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v2(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
-test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 2
+test "$(grep -Fc 'owner_identity text, predecessor_record_id text, policy_grammar_parser_id text' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
+test "$(grep -Fc 'created_by text, created_at_epoch_ms bigint, head_record_id text, head_version numeric, advanced_by text, advanced_at_epoch_ms bigint' "$package_dir/postgres-init/10-migrate-authority-custody.sh")" -eq 4
 composer_migration="$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -A5 -F 'authority-custody-migrate:' "$package_dir/docker-compose.source-research-composer-sealed-acceptance.yml" |
   grep -Fq 'SEALED_SOURCE_RESEARCH_COMPOSER_ACCEPTANCE: "1"'
@@ -169,7 +169,17 @@ grep -Fq "DO \$catalog_composer_relation_acl_readback\$" "$package_dir/postgres-
 grep -Fq "REVOKE ALL (%I) ON TABLE %I.%I FROM %I" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer column ACL manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "Catalog/Composer sequence manifest mismatch" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq "count(*)=18 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "count(*)=20 AND bool_and(relation.relpersistence='p')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_execution_profiles_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS replay_policy_catalog_private.rd_replay_policy_catalog_audit_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_current_replay_policy_catalog_v3()' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE OR REPLACE FUNCTION replay_policy_catalog_api.lock_replay_policy_catalog_record_v3(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT EXECUTE ON FUNCTION replay_policy_catalog_api.apply_replay_policy_catalog_command_v3' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Eq 'GRANT EXECUTE ON FUNCTION replay_policy_catalog_api\.apply_replay_policy_catalog_command_v3.* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo 'Catalog V3 apply must remain unavailable to rd_owner' >&2
+  exit 1
+fi
 grep -Fq "index_relation.relpersistence='p'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_owner LOGIN INHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "ALTER ROLE rd_exploratory_replay_api_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
