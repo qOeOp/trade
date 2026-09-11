@@ -265,16 +265,19 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
-The verified Research directory and exact-readback GETs are packaged in the consolidated
+The verified Research directory, Research exact-readback, and Source Intake exact-readback GETs are packaged in the consolidated
 `strategy-factory-rd-dashboard-read-api`. This first-party Dashboard reader also serves the Artifact directory and
 source GETs, while its state retains separate typed `ResearchDirectoryOwnerPort`, `ResearchReadbackOwnerPortV1`,
-`ArtifactDirectoryOwnerPort`, and `ArtifactSourceOwnerPort` capabilities rather than collapsing domain boundaries
-into a generic repository. Its router exposes only `/health` and those four admitted GETs. Dashboard binds them
+`ArtifactDirectoryOwnerPort`, `ArtifactSourceOwnerPort`, and `SourceIntakeReadbackOwnerPort` capabilities rather
+than collapsing domain boundaries into a generic repository. Its router exposes only `/health` and those five
+admitted GETs. Dashboard binds them
 through the atomically configured `RD_DASHBOARD_OWNER_READ_API_URL` and
 `RD_DASHBOARD_OWNER_READ_API_TOKEN` pair. A partial pair fails closed and never borrows the write API's credential.
 The adapters reuse the canonical locking verifiers and expose no submit, resolve, sandbox, or mutation port.
-Subsequent Source Intake and Composer slices may join this same process only through their own typed read ports;
-they must not add per-domain containers, and remain unimplemented until those slices close.
+The Source Intake adapter additionally binds a read-only Product Edge admission port and the existing request-proof
+digest before projecting terminal custody; missing or incompatible internal configuration disables only this route.
+The subsequent Composer slice may join this same process only through its own typed read port; it must not add a
+per-domain container and remains unimplemented until that slice closes.
 
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no

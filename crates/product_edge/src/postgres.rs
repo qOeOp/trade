@@ -1208,6 +1208,53 @@ impl ProductEdgePostgresAdmissionReadPortV1 {
     }
 }
 
+#[derive(Clone)]
+/// Read-only point capability for one historical Product Edge admission.
+///
+/// Unlike [`ProductEdgePostgresAdmissionReadPortV1`], this capability does not
+/// follow the admission event stream. It therefore verifies the exact
+/// downstream custody only when the requested admission exists and exposes no
+/// stream cursor or Product Edge mutation API.
+pub struct ProductEdgePostgresAdmissionPointReadPortV1 {
+    pool: PgPool,
+}
+
+impl ProductEdgePostgresAdmissionPointReadPortV1 {
+    pub async fn connect(database_url: &str) -> Result<Self, ProductEdgeError> {
+        let pool = PgPool::connect(database_url).await.map_err(storage)?;
+        Ok(Self { pool })
+    }
+
+    pub async fn resolve_admission(
+        &self,
+        request_identity: &str,
+        request_proof_digest: &str,
+    ) -> Result<Option<ProductEdgeAdmissionReadbackV1>, ProductEdgeError> {
+        let mut transaction = begin_read_committed(&self.pool).await?;
+        let Some(hinted) = hint_admission(&mut transaction, request_identity).await? else {
+            transaction.rollback().await.map_err(storage)?;
+            return Ok(None);
+        };
+        let locator = ProductEdgeAdmissionLocatorV1 {
+            request_identity: request_identity.to_string(),
+            admission_identity: hinted.admission_identity,
+            admission_digest: hinted.admission_digest,
+        };
+        let result = resolve_admission_for_downstream_in_transaction(
+            &mut transaction,
+            &locator,
+            DownstreamAdmissionModeV1::Historical,
+        )
+        .await?;
+
+        if result.request().request_proof_digest != request_proof_digest {
+            return Err(ProductEdgeError::Unavailable);
+        }
+        transaction.commit().await.map_err(storage)?;
+        Ok(Some(result))
+    }
+}
+
 async fn verify_expired_manifest_recovery_schema(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), ProductEdgeError> {

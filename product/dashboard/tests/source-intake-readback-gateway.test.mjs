@@ -78,8 +78,10 @@ test("gateway performs one authenticated point read and filters Owner custody", 
   const result = await readSourceIntakeReadbackGatewayV1({
     requestIdentity: "source-request-1",
     environment: {
+      RD_DASHBOARD_OWNER_READ_API_URL: "http://rd-dashboard-owner-read-api:8082/",
+      RD_DASHBOARD_OWNER_READ_API_TOKEN: "read-secret",
       RD_OWNER_API_URL: "http://rd-owner-api:8080/",
-      RD_OWNER_API_TOKEN: "secret",
+      RD_OWNER_API_TOKEN: "write-secret",
     },
     fetcher: async (url, init) => {
       calls.push({ url: String(url), init });
@@ -89,10 +91,10 @@ test("gateway performs one authenticated point read and filters Owner custody", 
 
   assert.equal(result.status, 200);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, "http://rd-owner-api:8080/v1/source-intakes/source-request-1/readback");
+  assert.equal(calls[0].url, "http://rd-dashboard-owner-read-api:8082/v1/source-intakes/source-request-1/readback");
   assert.equal(calls[0].init.method, "GET");
   assert.equal(calls[0].init.cache, "no-store");
-  assert.deepEqual(calls[0].init.headers, { authorization: "Bearer secret" });
+  assert.deepEqual(calls[0].init.headers, { authorization: "Bearer read-secret" });
   assert.equal(calls[0].init.body, undefined);
   assert.equal(result.projection.state, "terminal");
   assert.deepEqual(result.projection.terminal, {

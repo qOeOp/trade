@@ -64,6 +64,8 @@ test("Artifact and Research reads share one GET-only Dashboard Compose service",
   assert.match(dashboardRead, /strategy-factory-rd-dashboard-read-api/);
   assert.match(dashboardRead, /RD_DASHBOARD_OWNER_READ_DATABASE_URL:/);
   assert.match(dashboardRead, /RD_DASHBOARD_OWNER_READ_API_TOKEN:/);
+  assert.match(dashboardRead, /RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL:/);
+  assert.match(dashboardRead, /RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF:/);
   assert.match(
     dashboardRead,
     /authority-custody-migrate:\n\s+condition: service_completed_successfully/,

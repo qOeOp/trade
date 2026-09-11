@@ -21,6 +21,10 @@ use vibe_strategy_factory::{
         ResearchDirectoryCursorV1, ResearchDirectoryOwnerPort, ResearchReadbackOwnerPortV1,
     },
     product_edge_postgres::PostgresResearchReadbackOwnerV1,
+    source_intake::{
+        PostgresSourceIntakeReadbackOwnerV1, SourceIntakeOwnerErrorV1,
+        SourceIntakeReadbackOwnerPort,
+    },
 };
 
 #[derive(Clone)]
@@ -29,6 +33,7 @@ struct ApiState {
     artifact_source: Arc<dyn ArtifactSourceOwnerPort>,
     research_directory: Arc<dyn ResearchDirectoryOwnerPort>,
     research_readback: Arc<dyn ResearchReadbackOwnerPortV1>,
+    source_intake_readback: Option<Arc<dyn SourceIntakeReadbackOwnerPort>>,
     token_digest: [u8; 32],
 }
 
@@ -69,12 +74,14 @@ async fn main() -> anyhow::Result<()> {
             .await
             .context("Research Dashboard readback adapter unavailable")?,
     );
+    let source_intake_readback = source_intake_readback(&database_url).await;
     let token = required_env("RD_DASHBOARD_OWNER_READ_API_TOKEN")?;
     let state = ApiState {
         artifact_directory: artifact.clone(),
         artifact_source: artifact,
         research_directory: research.clone(),
         research_readback: research,
+        source_intake_readback,
         token_digest: Sha256::digest(token.as_bytes()).into(),
     };
     let address =
@@ -101,7 +108,44 @@ fn router(state: ApiState) -> Router {
             "/v2/research-goals/{request_identity}/readback",
             get(read_research_v2),
         )
+        .route(
+            "/v1/source-intakes/{request_identity}/readback",
+            get(read_source_intake),
+        )
         .with_state(state)
+}
+
+async fn source_intake_readback(
+    owner_database_url: &str,
+) -> Option<Arc<dyn SourceIntakeReadbackOwnerPort>> {
+    let product_edge_database_url =
+        env::var("RD_DASHBOARD_SOURCE_INTAKE_PRODUCT_EDGE_DATABASE_URL")
+            .ok()
+            .filter(|value| !value.is_empty());
+    let request_proof = env::var("RD_DASHBOARD_SOURCE_INTAKE_REQUEST_PROOF")
+        .ok()
+        .filter(|value| !value.is_empty());
+    let (Some(product_edge_database_url), Some(request_proof)) =
+        (product_edge_database_url, request_proof)
+    else {
+        tracing::warn!("Source Intake Dashboard readback configuration unavailable");
+        return None;
+    };
+    let request_proof_digest = format!("sha256:{}", hex_digest(&Sha256::digest(request_proof)));
+
+    match PostgresSourceIntakeReadbackOwnerV1::connect(
+        owner_database_url,
+        &product_edge_database_url,
+        request_proof_digest,
+    )
+    .await
+    {
+        Ok(readback) => Some(Arc::new(readback)),
+        Err(_) => {
+            tracing::warn!("Source Intake Dashboard readback adapter unavailable");
+            None
+        }
+    }
 }
 
 async fn health() -> StatusCode {
@@ -116,6 +160,7 @@ async fn read_artifact_directory(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if query.limit.is_some_and(|limit| !(1..=20).contains(&limit)) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -154,6 +199,7 @@ async fn read_artifact_source(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if !valid_identity(&build_request_identity) || !valid_identity(&attempt_identity) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -177,6 +223,7 @@ async fn read_research_directory(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if query.limit.is_some_and(|limit| !(1..=20).contains(&limit)) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -214,6 +261,7 @@ async fn read_research_v2(
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
     }
+
     if !valid_identity(&request_identity) {
         return StatusCode::BAD_REQUEST.into_response();
     }
@@ -226,6 +274,86 @@ async fn read_research_v2(
         Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
         Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
     }
+}
+
+#[derive(Debug, serde::Serialize)]
+struct SourceIntakeUnknownV1<'a> {
+    request_identity: &'a str,
+    resolution: &'static str,
+    next_legal_action: &'static str,
+}
+
+async fn read_source_intake(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return source_intake_unknown(
+            StatusCode::FORBIDDEN,
+            "UNAUTHORIZED_PRODUCT_EDGE",
+            &request_identity,
+        );
+    }
+
+    if !valid_identity(&request_identity) {
+        return source_intake_unknown(
+            StatusCode::BAD_REQUEST,
+            "MALFORMED_TYPED_REQUEST",
+            &request_identity,
+        );
+    }
+    let Some(owner) = &state.source_intake_readback else {
+        return source_intake_unknown(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OWNER_OUTCOME_UNKNOWN",
+            &request_identity,
+        );
+    };
+
+    match owner.read_source_intake(&request_identity).await {
+        Ok(Some(terminal)) => (StatusCode::OK, Json(terminal)).into_response(),
+        Ok(None)
+        | Err(
+            SourceIntakeOwnerErrorV1::PolicyUnavailable | SourceIntakeOwnerErrorV1::ResponseLost,
+        ) => source_intake_unknown(
+            StatusCode::ACCEPTED,
+            "OWNER_OUTCOME_UNKNOWN",
+            &request_identity,
+        ),
+        Err(SourceIntakeOwnerErrorV1::Conflict) => source_intake_unknown(
+            StatusCode::CONFLICT,
+            "CONFLICTING_SEMANTICS_FOR_REQUEST_IDENTITY",
+            &request_identity,
+        ),
+        Err(SourceIntakeOwnerErrorV1::Invalid) => source_intake_unknown(
+            StatusCode::BAD_REQUEST,
+            "MALFORMED_TYPED_REQUEST",
+            &request_identity,
+        ),
+        Err(SourceIntakeOwnerErrorV1::Unavailable) => source_intake_unknown(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "OWNER_OUTCOME_UNKNOWN",
+            &request_identity,
+        ),
+    }
+}
+
+fn source_intake_unknown(status: StatusCode, code: &str, request_identity: &str) -> Response {
+    let mut response = (
+        status,
+        Json(SourceIntakeUnknownV1 {
+            request_identity,
+            resolution: "SUBMITTED_OR_UNKNOWN",
+            next_legal_action: "RESOLVE_SAME_REQUEST",
+        }),
+    )
+        .into_response();
+
+    if let Ok(value) = code.parse() {
+        response.headers_mut().insert("x-rd-rejection-code", value);
+    }
+    response
 }
 
 fn valid_identity(value: &str) -> bool {
@@ -264,6 +392,16 @@ fn required_env(name: &str) -> anyhow::Result<String> {
     env::var(name).map_err(|_| anyhow::anyhow!("required environment variable {name} is missing"))
 }
 
+fn hex_digest(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(char::from(HEX[usize::from(byte >> 4)]));
+        output.push(char::from(HEX[usize::from(byte & 0x0f)]));
+    }
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::{
@@ -280,6 +418,9 @@ mod tests {
         product_edge::{
             ResearchDirectoryCompletenessV1, ResearchDirectoryReadbackV1, ResearchGoalOwnerError,
             ResearchGoalOwnerResultV2,
+        },
+        source_intake::{
+            SourceIntakeOwnerErrorV1, SourceIntakeReadbackOwnerPort, SourceIntakeTerminalAtomV1,
         },
     };
 
@@ -360,12 +501,33 @@ mod tests {
         }
     }
 
-    fn state(artifact: Arc<RecordingArtifact>, research: Arc<RecordingResearch>) -> ApiState {
+    #[derive(Default)]
+    struct RecordingSourceIntake {
+        readback_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl SourceIntakeReadbackOwnerPort for RecordingSourceIntake {
+        async fn read_source_intake(
+            &self,
+            _request_identity: &str,
+        ) -> Result<Option<SourceIntakeTerminalAtomV1>, SourceIntakeOwnerErrorV1> {
+            self.readback_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(None)
+        }
+    }
+
+    fn state(
+        artifact: Arc<RecordingArtifact>,
+        research: Arc<RecordingResearch>,
+        source_intake: Arc<RecordingSourceIntake>,
+    ) -> ApiState {
         ApiState {
             artifact_directory: artifact.clone(),
             artifact_source: artifact,
             research_directory: research.clone(),
             research_readback: research,
+            source_intake_readback: Some(source_intake),
             token_digest: Sha256::digest(b"test-token").into(),
         }
     }
@@ -380,7 +542,8 @@ mod tests {
     async fn unauthorized_request_makes_zero_owner_calls() {
         let artifact = Arc::new(RecordingArtifact::default());
         let research = Arc::new(RecordingResearch::default());
-        let api = state(artifact.clone(), research.clone());
+        let source_intake = Arc::new(RecordingSourceIntake::default());
+        let api = state(artifact.clone(), research.clone(), source_intake.clone());
         let response = read_artifact_directory(
             State(api.clone()),
             Query(ArtifactDirectoryQueryV1 {
@@ -393,14 +556,22 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         let response = read_research_v2(
-            State(api),
+            State(api.clone()),
             Path("research-request-v2-test".to_string()),
+            HeaderMap::new(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let response = read_source_intake(
+            State(api),
+            Path("source-request-test".to_string()),
             HeaderMap::new(),
         )
         .await;
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.readback_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -410,6 +581,7 @@ mod tests {
             State(state(
                 artifact.clone(),
                 Arc::new(RecordingResearch::default()),
+                Arc::new(RecordingSourceIntake::default()),
             )),
             Query(ArtifactDirectoryQueryV1 {
                 limit: Some(7),
@@ -436,7 +608,8 @@ mod tests {
     async fn invalid_requests_fail_before_owner_dispatch() {
         let artifact = Arc::new(RecordingArtifact::default());
         let research = Arc::new(RecordingResearch::default());
-        let api = state(artifact.clone(), research.clone());
+        let source_intake = Arc::new(RecordingSourceIntake::default());
+        let api = state(artifact.clone(), research.clone(), source_intake.clone());
         let response = read_artifact_source(
             State(api.clone()),
             Path(("invalid identity".to_string(), "attempt-1".to_string())),
@@ -467,7 +640,7 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         let response = read_research_directory(
-            State(api),
+            State(api.clone()),
             Query(ResearchDirectoryQueryV1 {
                 limit: Some(20),
                 after_committed_at_epoch_ms: Some(42),
@@ -477,9 +650,13 @@ mod tests {
         )
         .await;
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response =
+            read_source_intake(State(api), Path("bad identity".to_string()), headers()).await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert_eq!(artifact.directory_calls.load(Ordering::SeqCst), 0);
         assert_eq!(artifact.source_calls.load(Ordering::SeqCst), 0);
         assert_eq!(research.directory_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -489,6 +666,7 @@ mod tests {
             State(state(
                 artifact.clone(),
                 Arc::new(RecordingResearch::default()),
+                Arc::new(RecordingSourceIntake::default()),
             )),
             Path(("build-1".to_string(), "attempt-1".to_string())),
             headers(),
@@ -496,5 +674,41 @@ mod tests {
         .await;
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         assert_eq!(artifact.source_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn valid_source_intake_readback_dispatches_once_and_preserves_unknown() {
+        let source_intake = Arc::new(RecordingSourceIntake::default());
+        let response = read_source_intake(
+            State(state(
+                Arc::new(RecordingArtifact::default()),
+                Arc::new(RecordingResearch::default()),
+                source_intake.clone(),
+            )),
+            Path("source-request-1".to_string()),
+            headers(),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(
+            response.headers().get("x-rd-rejection-code"),
+            Some(&HeaderValue::from_static("OWNER_OUTCOME_UNKNOWN")),
+        );
+        assert_eq!(source_intake.readback_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn missing_source_intake_adapter_fails_closed() {
+        let artifact = Arc::new(RecordingArtifact::default());
+        let research = Arc::new(RecordingResearch::default());
+        let mut api = state(
+            artifact,
+            research,
+            Arc::new(RecordingSourceIntake::default()),
+        );
+        api.source_intake_readback = None;
+        let response =
+            read_source_intake(State(api), Path("source-request-1".to_string()), headers()).await;
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

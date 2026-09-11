@@ -3,6 +3,7 @@ import {
   RD_HISTORICAL_CUSTODY_SHADOW_READ_OPERATION,
   RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
   RESEARCH_SHADOW_RESOLVE_OPERATION,
+  SOURCE_INTAKE_SHADOW_READ_OPERATION,
   type RegisteredOperationId,
 } from "./operation-registry.ts";
 
@@ -45,7 +46,8 @@ export function ownerApiTargetForOperationV1(
   operationId: RegisteredOperationId,
   environment: OwnerApiEnvironmentV1 = process.env,
 ): OwnerApiTargetV1 {
-  if (operationId === RESEARCH_SHADOW_RESOLVE_OPERATION) {
+  if (operationId === RESEARCH_SHADOW_RESOLVE_OPERATION
+    || operationId === SOURCE_INTAKE_SHADOW_READ_OPERATION) {
     return dashboardReadApiTargetV1(environment);
   }
   const usesReadApi = operationId === RD_FORMATION_CATALOG_SHADOW_READ_OPERATION
