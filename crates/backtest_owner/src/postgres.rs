@@ -8,6 +8,10 @@ use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayResultDtoV2;
 use vibe_backtest_result_custody::validate_backtest_result_writer_topology_v2;
+use vibe_strategy_factory::{
+    exploratory_replay::postgres::lock_for_backtest_v2_in_transaction,
+    exploratory_replay::{ExploratoryReplayAvailabilityV1, ExploratoryReplayRequestLocatorV2},
+};
 
 use crate::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayTerminalV2, SealedReplayResultV2,
@@ -140,6 +144,8 @@ pub enum PostgresReplayResultOwnerErrorV2 {
     CustodyUnavailable,
     #[error("only sealed exploratory terminal Replay V2 results are admitted")]
     ResultNotAdmitted,
+    #[error("the sealed R&D Replay V2 request is unavailable or does not equal the result")]
+    RequestNotAdmitted,
     #[error("the Replay V2 identity or attempt is already bound to different bytes")]
     ConflictingResult,
     #[error("Backtest Replay V2 persistence is unavailable")]
@@ -203,103 +209,73 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
         validate_sealed_result(result, &result_dto)?;
 
+        let transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        persist_prepared_result(transaction, result_dto, result_bytes).await
+    }
+
+    /// Commits a terminal result while holding the exact R&D-owned Replay V2 request lock.
+    ///
+    /// Request verification and Result/receipt/outbox writes share one PostgreSQL transaction. A
+    /// stale, revoked, mismatched, cross-database, or authority-drifted request therefore creates
+    /// no Backtest row.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error before any write unless the R&D request readback exactly matches the sealed
+    /// result's request identity and meaning digest.
+    pub async fn commit_request_bound_exploratory_replay_result_v2(
+        &self,
+        rd_pool: &PgPool,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        result: &SealedReplayResultV2,
+    ) -> Result<PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
+        let result_bytes = result
+            .to_canonical_bytes()
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        let result_dto = ReplayResultDtoV2::from_canonical_bytes(&result_bytes)
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        validate_sealed_result(result, &result_dto)?;
+        if locator.request_identity != result_dto.request_identity.as_str()
+            || locator.meaning_digest != result_dto.request_meaning_digest.as_str()
+        {
+            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
+        }
+
         let mut transaction = self
             .pool
             .begin()
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         validate_transaction_principal(&mut transaction).await?;
-        validate_backtest_result_writer_topology_v2(&mut transaction)
+        let locked = lock_for_backtest_v2_in_transaction(rd_pool, &mut transaction, locator)
             .await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
-        lock_attempt(&mut transaction, &result_dto).await?;
-
-        let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
-        if let Some(readback) = existing {
-            return finish_existing(transaction, readback, &result_dto, &result_bytes).await;
+        if locked.projection().availability != ExploratoryReplayAvailabilityV1::Available {
+            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
         }
-
-        let result_storage_digest = storage_digest(RESULT_STORAGE_DOMAIN, &result_bytes);
-        let inserted = sqlx::query(
-            "INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING",
-        )
-        .bind(result_dto.result_identity.as_str())
-        .bind(result_dto.result_digest.as_str())
-        .bind(result_dto.request_identity.as_str())
-        .bind(result_dto.request_meaning_digest.as_str())
-        .bind(result_dto.attempt_identity.as_str())
-        .bind(terminal_text(result_dto.terminal))
-        .bind(&result_bytes)
-        .bind(&result_storage_digest)
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-
-        if inserted.rows_affected() == 0 {
-            let existing = read_matching_aggregate(&mut transaction, &result_dto)
-                .await?
-                .ok_or(PostgresReplayResultOwnerErrorV2::ConflictingResult)?;
-            return finish_existing(transaction, existing, &result_dto, &result_bytes).await;
+        let request = locked
+            .readback()
+            .ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+        let locked_meaning = request
+            .request()
+            .meaning_digest()
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+        if request.request_identity() != result_dto.request_identity.as_str()
+            || request.meaning_digest() != result_dto.request_meaning_digest.as_str()
+            || locked_meaning != result_dto.request_meaning_digest
+            || request.canonical_request_bytes()
+                != request
+                    .request()
+                    .to_canonical_bytes()
+                    .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?
+        {
+            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
         }
-
-        let committed_at_epoch_ms: i64 = sqlx::query_scalar(
-            "SELECT (EXTRACT(EPOCH FROM pg_catalog.transaction_timestamp())*1000)::bigint",
-        )
-        .fetch_one(&mut *transaction)
-        .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-        let committed_at_epoch_ms = u64::try_from(committed_at_epoch_ms)
-            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-        let (receipt, receipt_bytes, outbox, outbox_bytes) =
-            build_custody_wires(&result_dto, committed_at_epoch_ms)?;
-
-        sqlx::query(
-            "INSERT INTO public.backtest_replay_result_receipts_v1(result_identity,receipt_identity,receipt_digest,request_identity,request_meaning_digest,result_digest,namespace,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,'EXPLORATORY',$7,$8,$9,$10)",
-        )
-        .bind(result_dto.result_identity.as_str())
-        .bind(receipt.receipt_identity.as_str())
-        .bind(receipt.receipt_digest.as_str())
-        .bind(result_dto.request_identity.as_str())
-        .bind(result_dto.request_meaning_digest.as_str())
-        .bind(result_dto.result_digest.as_str())
-        .bind(receipt.outbox_event_identity.as_str())
-        .bind(i64::try_from(committed_at_epoch_ms).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
-        .bind(&receipt_bytes)
-        .bind(storage_digest(RECEIPT_STORAGE_DOMAIN, &receipt_bytes))
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-
-        sqlx::query(
-            "INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,'EXPLORATORY',$8,$9,$10,$11)",
-        )
-        .bind(result_dto.result_identity.as_str())
-        .bind(outbox.event_identity.as_str())
-        .bind(outbox.event_digest.as_str())
-        .bind(receipt.receipt_identity.as_str())
-        .bind(result_dto.request_identity.as_str())
-        .bind(result_dto.request_meaning_digest.as_str())
-        .bind(result_dto.result_digest.as_str())
-        .bind(outbox.payload_digest.as_str())
-        .bind(i64::try_from(committed_at_epoch_ms).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
-        .bind(&outbox_bytes)
-        .bind(storage_digest(OUTBOX_STORAGE_DOMAIN, &outbox_bytes))
-        .execute(&mut *transaction)
-        .await
-        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
-
-        let readback = read_matching_aggregate(&mut transaction, &result_dto)
-            .await?
-            .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
-        if readback.result != result_dto || readback.result_canonical_bytes != result_bytes {
-            return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
-        }
-        validate_transaction_principal(&mut transaction).await?;
-        Ok(commit_disposition(
-            transaction.commit().await.is_ok(),
-            readback,
-            &result_dto,
-        ))
+        persist_prepared_result(transaction, result_dto, result_bytes).await
     }
 
     /// Resolves an existing aggregate through the exact Backtest Owner session only.
@@ -370,6 +346,105 @@ impl PostgresReplayResultOwnerV2 {
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         Ok(readback)
     }
+}
+
+async fn persist_prepared_result(
+    mut transaction: Transaction<'_, Postgres>,
+    result_dto: ReplayResultDtoV2,
+    result_bytes: Vec<u8>,
+) -> Result<PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
+    validate_transaction_principal(&mut transaction).await?;
+    validate_backtest_result_writer_topology_v2(&mut transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    lock_attempt(&mut transaction, &result_dto).await?;
+
+    let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
+    if let Some(readback) = existing {
+        return finish_existing(transaction, readback, &result_dto, &result_bytes).await;
+    }
+
+    let result_storage_digest = storage_digest(RESULT_STORAGE_DOMAIN, &result_bytes);
+    let inserted = sqlx::query(
+            "INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING",
+        )
+        .bind(result_dto.result_identity.as_str())
+        .bind(result_dto.result_digest.as_str())
+        .bind(result_dto.request_identity.as_str())
+        .bind(result_dto.request_meaning_digest.as_str())
+        .bind(result_dto.attempt_identity.as_str())
+        .bind(terminal_text(result_dto.terminal))
+        .bind(&result_bytes)
+        .bind(&result_storage_digest)
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
+    if inserted.rows_affected() == 0 {
+        let existing = read_matching_aggregate(&mut transaction, &result_dto)
+            .await?
+            .ok_or(PostgresReplayResultOwnerErrorV2::ConflictingResult)?;
+        return finish_existing(transaction, existing, &result_dto, &result_bytes).await;
+    }
+
+    let committed_at_epoch_ms: i64 = sqlx::query_scalar(
+        "SELECT (EXTRACT(EPOCH FROM pg_catalog.transaction_timestamp())*1000)::bigint",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let committed_at_epoch_ms = u64::try_from(committed_at_epoch_ms)
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let (receipt, receipt_bytes, outbox, outbox_bytes) =
+        build_custody_wires(&result_dto, committed_at_epoch_ms)?;
+
+    sqlx::query(
+            "INSERT INTO public.backtest_replay_result_receipts_v1(result_identity,receipt_identity,receipt_digest,request_identity,request_meaning_digest,result_digest,namespace,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,'EXPLORATORY',$7,$8,$9,$10)",
+        )
+        .bind(result_dto.result_identity.as_str())
+        .bind(receipt.receipt_identity.as_str())
+        .bind(receipt.receipt_digest.as_str())
+        .bind(result_dto.request_identity.as_str())
+        .bind(result_dto.request_meaning_digest.as_str())
+        .bind(result_dto.result_digest.as_str())
+        .bind(receipt.outbox_event_identity.as_str())
+        .bind(i64::try_from(committed_at_epoch_ms).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+        .bind(&receipt_bytes)
+        .bind(storage_digest(RECEIPT_STORAGE_DOMAIN, &receipt_bytes))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
+    sqlx::query(
+            "INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,'EXPLORATORY',$8,$9,$10,$11)",
+        )
+        .bind(result_dto.result_identity.as_str())
+        .bind(outbox.event_identity.as_str())
+        .bind(outbox.event_digest.as_str())
+        .bind(receipt.receipt_identity.as_str())
+        .bind(result_dto.request_identity.as_str())
+        .bind(result_dto.request_meaning_digest.as_str())
+        .bind(result_dto.result_digest.as_str())
+        .bind(outbox.payload_digest.as_str())
+        .bind(i64::try_from(committed_at_epoch_ms).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+        .bind(&outbox_bytes)
+        .bind(storage_digest(OUTBOX_STORAGE_DOMAIN, &outbox_bytes))
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
+    let readback = read_matching_aggregate(&mut transaction, &result_dto)
+        .await?
+        .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+    if readback.result != result_dto || readback.result_canonical_bytes != result_bytes {
+        return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+    }
+    validate_transaction_principal(&mut transaction).await?;
+    Ok(commit_disposition(
+        transaction.commit().await.is_ok(),
+        readback,
+        &result_dto,
+    ))
 }
 
 fn commit_disposition(
