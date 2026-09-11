@@ -23,7 +23,7 @@ import {
 } from "./ui/detail-inspector";
 import { CompactStatusBar, CompactStatusGroup, CompactStatusItem } from "./ui/compact-status-bar";
 import { LoadingState, UnavailableState } from "./ui/evidence-strip";
-import { FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
+import { FilterButton, FilterSearch, TableFilterMenu, TableToolbar } from "./ui/filter-toolbar";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader, PanelFrameInfo } from "./ui/panel-frame";
 import { PageStack } from "./ui/page-stack";
 import { SplitBento } from "./ui/split-bento";
@@ -246,9 +246,9 @@ export function OperationsWorkersPreview({ initialWorkerIdentity = null }: { ini
           title="Workers"
           titleId="operations-workers-title"
           description="Monitor availability, workload, and recent activity."
-          actions={<><PanelFrameInfo><b>Data scope</b><p>Worker leases, claims, and capabilities come from one verified operational snapshot.</p></PanelFrameInfo><button type="button" onClick={() => void refresh()} disabled={pending}>
+          actions={<><PanelFrameInfo><b>Data scope</b><p>Worker leases, claims, and capabilities come from one verified operational snapshot.</p></PanelFrameInfo><FilterButton density="compact" variant="secondary" type="button" onClick={() => void refresh()} disabled={pending}>
             <InterfaceIcons.refresh aria-hidden="true" size={12} /> {pending ? "Reading…" : "Refresh"}
-          </button></>}
+          </FilterButton></>}
         />
         <PanelFrameBody>
           <CompactStatusBar className="operations-workers-status" aria-label="Worker summary">

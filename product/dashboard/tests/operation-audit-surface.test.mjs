@@ -14,7 +14,7 @@ test("Operations Audit composes shared card, status, table and detail atoms", ()
     "CompactStatusBar", "CompactStatusGroup", "CompactStatusItem",
     "DataWorkspaceTable", "DataWorkspaceEmpty", "DetailInspector", "DetailCluster",
   ]) assert.match(audit, new RegExp(`<${atom}(?:<|[\\s>])`));
-  assert.match(audit, /actions=\{<><PanelFrameInfo[\s\S]*data-action-variant="secondary"/u);
+  assert.match(audit, /actions=\{<><PanelFrameInfo[\s\S]*<FilterButton density="compact" variant="secondary"/u);
   assert.match(audit, /label="activity"[\s\S]*label="execute"[\s\S]*label="create \/ update"[\s\S]*label="delete"/u);
   assert.match(audit, /label="outcome"[\s\S]*label="succeeded"[\s\S]*label="failed \/ denied"/u);
   assert.match(audit, /\(page\?\.operations \?\? \[\]\)\.map/u);

@@ -305,9 +305,9 @@ export function OperationsRunStorePreview() {
             <PanelFrameFooterSummary primary={`${visibleRuns.length} ${visibleRuns.length === 1 ? "run" : "runs"} shown`} />
             {pageError ? <PanelFrameFooterMeta>Older runs are temporarily unavailable.</PanelFrameFooterMeta> : null}
             {result.next_cursor ? <PanelFrameFooterActions>
-              <button type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
+              <FilterButton density="compact" variant="secondary" type="button" disabled={loadingOlder} onClick={() => void load(result.next_cursor!)}>
                 {loadingOlder ? "Reading older…" : "Load older"}
-              </button>
+              </FilterButton>
             </PanelFrameFooterActions> : null}
           </PanelFrameFooter> : null}
           </DataTableSurface>

@@ -12,6 +12,7 @@ import {
 } from "../lib/exploratory-replay-identity";
 import { EmptyState, UnavailableState } from "./ui/evidence-strip";
 import { FactGroup, FactGroupGrid, FactGroupSkeletonGrid, FactItem } from "./ui/fact-group";
+import { FilterButton } from "./ui/filter-toolbar";
 import { EvidenceIcons, InterfaceIcons } from "./ui/iconography";
 import { InlineNotice } from "./ui/inline-notice";
 import { PanelFrame, PanelFrameBody, PanelFrameHeader } from "./ui/panel-frame";
@@ -132,14 +133,16 @@ export function ExploratoryReplayReadbackWorkbench({
         titleId="exploratory-replay-title"
         description="Inspect one sealed Owner request without composing, running, resolving, or inferring a result."
         actions={(
-          <button
+          <FilterButton
+            density="compact"
+            variant="secondary"
             disabled={!openedSelector || status === "loading"}
             onClick={() => openedSelector
               && void read(openedSelector.requestIdentity, openedSelector.meaningDigest)}
             type="button"
           >
             <InterfaceIcons.refresh aria-hidden="true" size={14} /> Refresh
-          </button>
+          </FilterButton>
         )}
       />
       <PanelFrameBody className={styles.body}>
