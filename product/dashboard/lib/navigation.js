@@ -39,8 +39,8 @@ export const modules = [
   { id: "data", label: "Data", href: "/data", purpose: "Sources, PIT catalog, quality, freshness", icon: "database", tabs: [
     { label: "Sources", href: "/data" }, { label: "PIT Catalog", href: "/data/pit-catalog" }, { label: "Quality", href: "/data/quality" }, { label: "Freshness", href: "/data/freshness" },
   ] },
-  { id: "operations", label: "Operations", href: "/operations", purpose: "Runs, workers, logs, audit, telemetry, alerts", icon: "terminal", tabs: [
-    { label: "Runs", href: "/operations" }, { label: "Legacy Jobs", href: "/operations/legacy-jobs" }, { label: "Legacy Scripts", href: "/operations/legacy-scripts" }, { label: "Legacy Apps", href: "/operations/legacy-apps" }, { label: "Legacy Workers", href: "/operations/legacy-workers" }, { label: "Workers", href: "/operations/workers" }, { label: "Schedules", href: "/operations/schedules" }, { label: "Service Logs", href: "/operations/service-logs" }, { label: "Audit", href: "/operations/audit" }, { label: "Event Rail", href: "/operations/event-rail" }, { label: "Telemetry", href: "/operations/telemetry" }, { label: "Alerts", href: "/operations/alerts" },
+  { id: "operations", label: "Operations", href: "/operations", purpose: "Runs, workers, schedules, logs, audit, telemetry, alerts", icon: "terminal", tabs: [
+    { label: "Runs", href: "/operations" }, { label: "Workers", href: "/operations/workers" }, { label: "Schedules", href: "/operations/schedules" }, { label: "Service Logs", href: "/operations/service-logs" }, { label: "Audit", href: "/operations/audit" }, { label: "Event Rail", href: "/operations/event-rail" }, { label: "Telemetry", href: "/operations/telemetry" }, { label: "Alerts", href: "/operations/alerts" },
   ] },
   { id: "settings", label: "Settings", href: "/settings", purpose: "Opaque references, agents, notifications, access", icon: "settings", tabs: [
     { label: "Data Sources", href: "/settings" }, { label: "Agents", href: "/settings/agents" }, { label: "Notifications", href: "/settings/notifications" }, { label: "Access", href: "/settings/access" },
