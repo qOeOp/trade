@@ -22,6 +22,96 @@ pub async fn resolve_exploratory_replay_result_for_rd_in_transaction(
     vibe_backtest_result_custody::resolve_exploratory_replay_result_v2(transaction, locator).await
 }
 
+/// Resolves the exact R&D-produced Native Replay source records under one read-only transaction.
+pub async fn resolve_native_replay_rd_sources_v2_in_transaction(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    locator: &crate::exploratory_replay::ExploratoryReplayRequestLocatorV2,
+) -> Result<
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let replay_result =
+        crate::exploratory_replay::postgres::resolve_for_rd_v2_in_transaction(transaction, locator)
+            .await
+            .map_err(|error| {
+                crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                    error.to_string(),
+                )
+            })?;
+    let replay = replay_result.readback().ok_or_else(|| {
+        crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+            "sealed Replay request unavailable".into(),
+        )
+    })?;
+    let intent_identity = replay
+        .request()
+        .as_dto()
+        .frozen_research_intent
+        .identity
+        .as_str();
+    let research_request_rows = sqlx::query(
+        "SELECT request_identity FROM rd_research_request_receipts_v1 WHERE intent_json->>'intent_identity' = $1 FOR SHARE",
+    )
+    .bind(intent_identity)
+    .fetch_all(&mut **transaction)
+    .await
+    .map_err(|error| {
+        crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+            error.to_string(),
+        )
+    })?;
+    if research_request_rows.len() != 1 {
+        return Err(
+            crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                "Research intent custody is not unique".into(),
+            ),
+        );
+    }
+    let research_request_identity: String = research_request_rows[0]
+        .try_get("request_identity")
+        .map_err(|error| {
+            crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                error.to_string(),
+            )
+        })?;
+    let research =
+        admit_research_v2_custody_read_only_in_transaction(transaction, &research_request_identity)
+            .await
+            .map_err(|error| {
+                crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                    error.to_string(),
+                )
+            })?
+            .ok_or_else(|| {
+                crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                    "Research custody unavailable".into(),
+                )
+            })?;
+    if !research.authority_available_at(replay.owner_cut_epoch_ms()) {
+        return Err(
+            crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+                "Research custody is unavailable at the Replay Owner cut".into(),
+            ),
+        );
+    }
+    let replay_admission = resolve_admission_for_downstream_in_transaction(
+        transaction,
+        replay.product_edge_admission(),
+        DownstreamAdmissionModeV1::Historical,
+    )
+    .await
+    .map_err(|error| {
+        crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(
+            error.to_string(),
+        )
+    })?;
+    crate::native_replay_rd_sources_v2::issue_native_replay_rd_sources_v2(
+        replay,
+        &replay_admission,
+        &research,
+    )
+}
+
 use crate::{
     product_edge::{
         FrozenResearchGoalIntent, FrozenResearchGoalIntentV1, FrozenResearchGoalIntentV2,

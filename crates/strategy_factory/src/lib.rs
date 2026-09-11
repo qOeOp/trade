@@ -72,6 +72,7 @@ mod formation_adapters;
 mod holdout;
 pub mod intent;
 mod legacy_prepared_attempt_drain;
+pub mod native_replay_rd_sources_v2;
 #[allow(
     dead_code,
     reason = "prepared Native Replay awaits native Instrument Master and complete Owner readbacks"
@@ -124,9 +125,14 @@ mod rd_bounded_feature_program_v1;
 pub mod rd_historical_custody;
 pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
+pub use native_replay_rd_sources_v2::{
+    NativeReplayRdSourceKindV2, NativeReplayRdSourceRecordV2, NativeReplayRdSourcesErrorV2,
+    NativeReplayRdSourcesV2,
+};
 pub use rd_owner_postgres_custody::{
     BacktestResultCustodyErrorV2, ExploratoryReplayResultLocatorV2,
     LockedExploratoryReplayResultV2, resolve_exploratory_replay_result_for_rd_in_transaction,
+    resolve_native_replay_rd_sources_v2_in_transaction,
 };
 pub mod receipt;
 pub mod replay_economic_configuration_v1;

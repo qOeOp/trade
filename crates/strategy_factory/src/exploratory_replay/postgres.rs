@@ -2102,6 +2102,25 @@ pub(crate) async fn resolve_for_rd_v2(
     )
 }
 
+pub(crate) async fn resolve_for_rd_v2_in_transaction(
+    transaction: &mut Transaction<'_, Postgres>,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
+    let value: Option<serde_json::Value> =
+        sqlx::query_scalar("SELECT rd_owner_api.resolve_exploratory_replay_request_v2($1,$2)")
+            .bind(&locator.request_identity)
+            .bind(&locator.meaning_digest)
+            .fetch_one(&mut **transaction)
+            .await
+            .map_err(storage)?;
+    decode_v2_read_result(
+        &locator.request_identity,
+        &locator.meaning_digest,
+        Some(locator),
+        value,
+    )
+}
+
 fn decode_v2_read_result(
     expected_request_identity: &str,
     expected_meaning_digest: &str,
@@ -2144,6 +2163,12 @@ fn decode_v2_read_result(
         return Ok(unavailable_result_v2(expected_request_identity));
     };
     let Ok(receipt) = decode_exact::<StoredReceiptV2>(&receipt_json) else {
+        return Ok(unavailable_result_v2(expected_request_identity));
+    };
+    let Ok(canonical_receipt_bytes) = serde_json::to_vec(&receipt_json) else {
+        return Ok(unavailable_result_v2(expected_request_identity));
+    };
+    let Ok(canonical_outbox_bytes) = serde_json::to_vec(&outbox) else {
         return Ok(unavailable_result_v2(expected_request_identity));
     };
     let dto: ReplayRequestDtoV2 = match serde_json::from_slice(&canonical_request_bytes) {
@@ -2192,9 +2217,12 @@ fn decode_v2_read_result(
         readback: Some(SealedExploratoryReplayReadbackV2 {
             request,
             canonical_request_bytes,
+            product_edge_admission: validated.frozen.proposal.admission.clone(),
             meaning_digest,
             execution_profile_seal: receipt.execution_profile_seal.clone(),
             receipt: into_receipt_v2(receipt),
+            canonical_receipt_bytes,
+            canonical_outbox_bytes,
             owner_cut_epoch_ms: validated.owner_cut_epoch_ms,
         }),
     })
@@ -3106,7 +3134,7 @@ fn verify_replay_admission_for_commit(
     Ok(())
 }
 
-fn same_product_edge_authority(
+pub(crate) fn same_product_edge_authority(
     left: &ProductEdgeAdmissionReadbackV1,
     right: &ProductEdgeAdmissionReadbackV1,
 ) -> bool {

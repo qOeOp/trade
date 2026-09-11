@@ -599,6 +599,10 @@ impl TrialFamilyRootReceiptV1 {
         &self.intent_identity
     }
 
+    pub fn root_digest(&self) -> &str {
+        &self.root_digest
+    }
+
     pub fn replay_execution_policy_v2(&self) -> Option<&crate::ReplayPolicyCatalogBindingV2> {
         self.replay_execution_policy_v2.as_ref()
     }
