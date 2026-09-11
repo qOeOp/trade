@@ -7,7 +7,10 @@ use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::ReplayResultDtoV2;
-use vibe_backtest_result_custody::validate_backtest_result_writer_topology_v2;
+use vibe_backtest_result_custody::{
+    validate_backtest_native_replay_evidence_writer_topology_v2,
+    validate_backtest_result_writer_topology_v2,
+};
 use vibe_strategy_factory::{
     exploratory_replay::postgres::lock_for_backtest_v2_in_transaction,
     exploratory_replay::{ExploratoryReplayAvailabilityV1, ExploratoryReplayRequestLocatorV2},
@@ -15,6 +18,14 @@ use vibe_strategy_factory::{
 
 use crate::{
     CanonicalDigestV2, OpaqueIdentityV2, ReplayNamespaceV2, ReplayTerminalV2, SealedReplayResultV2,
+    native_replay::{
+        NativeReplayCommitDispositionV2, NativeReplaySemanticTraceReadbackV2,
+        SealedNativeReplaySemanticTraceV2,
+    },
+    native_replay_evidence_custody::{
+        NativeReplayEvidenceBatchReadbackV2, NativeReplayEvidenceEnvelopeReadbackV2,
+        SealedNativeReplayEvidenceBatchV2,
+    },
 };
 
 const RESULT_STORAGE_DOMAIN: &str = "vibe.backtest.replay-result-storage.v2";
@@ -25,6 +36,7 @@ const OUTBOX_PAYLOAD_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-payload.
 const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const ATTEMPT_LOCK_DOMAIN: &str = "vibe.backtest.replay-result-attempt-lock.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
+const EVIDENCE_SOURCE_STORAGE_DOMAIN: &str = "vibe.backtest.native-replay-producer-source.v2";
 
 const READ_AGGREGATE: &str = "
 SELECT result.result_identity,result.result_digest,result.request_identity,
@@ -78,6 +90,73 @@ pub struct ReplayResultCommitRecoveryV2 {
     result_identity: OpaqueIdentityV2,
     request_identity: OpaqueIdentityV2,
     attempt_identity: OpaqueIdentityV2,
+}
+
+/// Recovery capability bound to every byte in one submitted native Replay aggregate.
+pub struct NativeReplayAggregateCommitRecoveryV2 {
+    result_identity: OpaqueIdentityV2,
+    request_identity: OpaqueIdentityV2,
+    attempt_identity: OpaqueIdentityV2,
+    envelopes: Vec<ExpectedEvidenceEnvelopeV2>,
+    trace_locator: crate::ComponentObservationLocatorV2,
+    trace_bytes: Vec<u8>,
+    trace_digest: CanonicalDigestV2,
+}
+
+struct ExpectedEvidenceEnvelopeV2 {
+    request_locator: ExploratoryReplayRequestLocatorV2,
+    attempt_identity: OpaqueIdentityV2,
+    component: crate::ObservationComponentV2,
+    locator: crate::ComponentObservationLocatorV2,
+    producer_namespace: OpaqueIdentityV2,
+    producer_reference: OpaqueIdentityV2,
+    canonical_bytes: Vec<u8>,
+    producer_bytes: Vec<u8>,
+    producer_bytes_digest: CanonicalDigestV2,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+}
+
+impl NativeReplayAggregateCommitRecoveryV2 {
+    fn for_submission(
+        result: &ReplayResultDtoV2,
+        batch: &SealedNativeReplayEvidenceBatchV2,
+        trace: &SealedNativeReplaySemanticTraceV2,
+    ) -> Self {
+        Self {
+            result_identity: result.result_identity.clone(),
+            request_identity: result.request_identity.clone(),
+            attempt_identity: result.attempt_identity.clone(),
+            envelopes: batch
+                .envelopes()
+                .iter()
+                .map(|value| ExpectedEvidenceEnvelopeV2 {
+                    request_locator: value.request_locator().clone(),
+                    attempt_identity: value.attempt_identity().clone(),
+                    component: value.component(),
+                    locator: value.envelope_locator().clone(),
+                    producer_namespace: value.producer_namespace().clone(),
+                    producer_reference: value.producer_reference().clone(),
+                    canonical_bytes: value.canonical_bytes().to_vec(),
+                    producer_bytes: value.producer_bytes().to_vec(),
+                    producer_bytes_digest: value.producer_bytes_digest().clone(),
+                    observed_meaning_identity: value.observed_meaning_identity().clone(),
+                    observed_meaning_digest: value.observed_meaning_digest().clone(),
+                })
+                .collect(),
+            trace_locator: trace.locator().clone(),
+            trace_bytes: trace.canonical_bytes().to_vec(),
+            trace_digest: trace.canonical_bytes_digest().clone(),
+        }
+    }
+
+    /// Resolves only when Result, all 28 envelopes/source bytes, and trace are present and exact.
+    pub async fn resolve(
+        &self,
+        owner: &PostgresReplayResultOwnerV2,
+    ) -> Result<Option<NativeReplayCommitDispositionV2>, PostgresReplayResultOwnerErrorV2> {
+        owner.resolve_exact_native_replay_aggregate_v2(self).await
+    }
 }
 
 impl ReplayResultCommitRecoveryV2 {
@@ -244,7 +323,6 @@ impl PostgresReplayResultOwnerV2 {
         {
             return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
         }
-
         let mut transaction = self
             .pool
             .begin()
@@ -276,6 +354,112 @@ impl PostgresReplayResultOwnerV2 {
             return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
         }
         persist_prepared_result(transaction, result_dto, result_bytes).await
+    }
+
+    /// Atomically commits a terminal Result with all 28 observation envelopes and semantic trace.
+    pub async fn commit_request_bound_native_replay_evidence_v2(
+        &self,
+        rd_pool: &PgPool,
+        locator: &ExploratoryReplayRequestLocatorV2,
+        result: &SealedReplayResultV2,
+        batch: &SealedNativeReplayEvidenceBatchV2,
+        trace: &SealedNativeReplaySemanticTraceV2,
+    ) -> Result<NativeReplayCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
+        let result_bytes = result
+            .to_canonical_bytes()
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        let result_dto = ReplayResultDtoV2::from_canonical_bytes(&result_bytes)
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        validate_sealed_result(result, &result_dto)?;
+        if locator.request_identity != result_dto.request_identity.as_str()
+            || locator.meaning_digest != result_dto.request_meaning_digest.as_str()
+            || batch.request_locator() != locator
+            || batch.attempt_identity() != &result_dto.attempt_identity
+            || batch.envelopes().len() != 28
+        {
+            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
+        }
+        batch
+            .validate()
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::ResultNotAdmitted)?;
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        validate_transaction_principal(&mut transaction).await?;
+        let locked = lock_for_backtest_v2_in_transaction(rd_pool, &mut transaction, locator)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        let request = locked
+            .readback()
+            .filter(|_| {
+                locked.projection().availability == ExploratoryReplayAvailabilityV1::Available
+            })
+            .ok_or(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+        let locked_meaning = request
+            .request()
+            .meaning_digest()
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?;
+        if request.locator() != *locator
+            || request.request_identity() != result_dto.request_identity.as_str()
+            || request.meaning_digest() != result_dto.request_meaning_digest.as_str()
+            || locked_meaning != result_dto.request_meaning_digest
+            || request.canonical_request_bytes()
+                != request
+                    .request()
+                    .to_canonical_bytes()
+                    .map_err(|_| PostgresReplayResultOwnerErrorV2::RequestNotAdmitted)?
+        {
+            return Err(PostgresReplayResultOwnerErrorV2::RequestNotAdmitted);
+        }
+        persist_native_replay_aggregate(transaction, result_dto, result_bytes, batch, trace).await
+    }
+
+    async fn resolve_exact_native_replay_aggregate_v2(
+        &self,
+        recovery: &NativeReplayAggregateCommitRecoveryV2,
+    ) -> Result<Option<NativeReplayCommitDispositionV2>, PostgresReplayResultOwnerErrorV2> {
+        let Some(result) = self
+            .resolve_exact_result_v2(
+                &recovery.result_identity,
+                &recovery.request_identity,
+                &recovery.attempt_identity,
+            )
+            .await?
+        else {
+            return Ok(None);
+        };
+        let mut transaction = self
+            .pool
+            .begin()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        validate_transaction_principal(&mut transaction).await?;
+        validate_backtest_result_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+        let (batch, trace) = read_expected_evidence(
+            &mut transaction,
+            &recovery.result_identity,
+            &recovery.envelopes,
+            &recovery.trace_locator,
+            &recovery.trace_bytes,
+            &recovery.trace_digest,
+        )
+        .await?;
+        transaction
+            .commit()
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        Ok(Some(NativeReplayCommitDispositionV2::Committed {
+            result: Box::new(result),
+            evidence_batch: batch,
+            semantic_trace: trace,
+        }))
     }
 
     /// Resolves an existing aggregate through the exact Backtest Owner session only.
@@ -445,6 +629,263 @@ async fn persist_prepared_result(
         readback,
         &result_dto,
     ))
+}
+
+async fn persist_native_replay_aggregate(
+    mut transaction: Transaction<'_, Postgres>,
+    result_dto: ReplayResultDtoV2,
+    result_bytes: Vec<u8>,
+    batch: &SealedNativeReplayEvidenceBatchV2,
+    trace: &SealedNativeReplaySemanticTraceV2,
+) -> Result<NativeReplayCommitDispositionV2, PostgresReplayResultOwnerErrorV2> {
+    validate_transaction_principal(&mut transaction).await?;
+    validate_backtest_result_writer_topology_v2(&mut transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    validate_backtest_native_replay_evidence_writer_topology_v2(&mut transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::CustodyUnavailable)?;
+    lock_attempt(&mut transaction, &result_dto).await?;
+    let expected = expected_evidence(batch);
+    let existing = read_matching_aggregate(&mut transaction, &result_dto).await?;
+    if let Some(readback) = existing {
+        if readback.result != result_dto || readback.result_canonical_bytes != result_bytes {
+            return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+        }
+        let (evidence_batch, semantic_trace) = read_expected_evidence(
+            &mut transaction,
+            &result_dto.result_identity,
+            &expected,
+            trace.locator(),
+            trace.canonical_bytes(),
+            trace.canonical_bytes_digest(),
+        )
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::ConflictingResult)?;
+        validate_transaction_principal(&mut transaction).await?;
+        return if transaction.commit().await.is_ok() {
+            Ok(NativeReplayCommitDispositionV2::Committed {
+                result: Box::new(readback),
+                evidence_batch,
+                semantic_trace,
+            })
+        } else {
+            Ok(NativeReplayCommitDispositionV2::SubmittedOrUnknown(
+                NativeReplayAggregateCommitRecoveryV2::for_submission(&result_dto, batch, trace),
+            ))
+        };
+    }
+    let inserted = sqlx::query("INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING")
+            .bind(result_dto.result_identity.as_str()).bind(result_dto.result_digest.as_str())
+            .bind(result_dto.request_identity.as_str()).bind(result_dto.request_meaning_digest.as_str())
+            .bind(result_dto.attempt_identity.as_str()).bind(terminal_text(result_dto.terminal))
+            .bind(&result_bytes).bind(storage_digest(RESULT_STORAGE_DOMAIN, &result_bytes))
+            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    if inserted.rows_affected() != 1 {
+        return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+    }
+    let epoch: i64 = sqlx::query_scalar(
+        "SELECT (EXTRACT(EPOCH FROM pg_catalog.transaction_timestamp())*1000)::bigint",
+    )
+    .fetch_one(&mut *transaction)
+    .await
+    .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let epoch =
+        u64::try_from(epoch).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let (receipt, receipt_bytes, outbox, outbox_bytes) = build_custody_wires(&result_dto, epoch)?;
+    sqlx::query("INSERT INTO public.backtest_replay_result_receipts_v1(result_identity,receipt_identity,receipt_digest,request_identity,request_meaning_digest,result_digest,namespace,outbox_event_identity,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,'EXPLORATORY',$7,$8,$9,$10)")
+            .bind(result_dto.result_identity.as_str()).bind(receipt.receipt_identity.as_str()).bind(receipt.receipt_digest.as_str())
+            .bind(result_dto.request_identity.as_str()).bind(result_dto.request_meaning_digest.as_str()).bind(result_dto.result_digest.as_str())
+            .bind(receipt.outbox_event_identity.as_str()).bind(i64::try_from(epoch).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+            .bind(&receipt_bytes).bind(storage_digest(RECEIPT_STORAGE_DOMAIN, &receipt_bytes))
+            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    sqlx::query("INSERT INTO public.backtest_replay_result_outbox_v1(result_identity,event_identity,event_digest,receipt_identity,request_identity,request_meaning_digest,result_digest,namespace,payload_digest,committed_at_epoch_ms,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,'EXPLORATORY',$8,$9,$10,$11)")
+            .bind(result_dto.result_identity.as_str()).bind(outbox.event_identity.as_str()).bind(outbox.event_digest.as_str())
+            .bind(receipt.receipt_identity.as_str()).bind(result_dto.request_identity.as_str()).bind(result_dto.request_meaning_digest.as_str())
+            .bind(result_dto.result_digest.as_str()).bind(outbox.payload_digest.as_str()).bind(i64::try_from(epoch).map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?)
+            .bind(&outbox_bytes).bind(storage_digest(OUTBOX_STORAGE_DOMAIN, &outbox_bytes))
+            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let result = read_matching_aggregate(&mut transaction, &result_dto)
+        .await?
+        .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+
+    for envelope in batch.envelopes() {
+        let source_inserted = sqlx::query("INSERT INTO public.backtest_native_replay_source_blobs_v2(source_digest,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3) ON CONFLICT DO NOTHING")
+            .bind(envelope.producer_bytes_digest().as_str()).bind(envelope.producer_bytes())
+            .bind(storage_digest(EVIDENCE_SOURCE_STORAGE_DOMAIN, envelope.producer_bytes()))
+            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        if source_inserted.rows_affected() == 0 {
+            let row = sqlx::query("SELECT canonical_bytes,canonical_bytes_blake3 FROM public.backtest_native_replay_source_blobs_v2 WHERE source_digest=$1 FOR SHARE")
+                .bind(envelope.producer_bytes_digest().as_str()).fetch_one(&mut *transaction).await
+                .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+            if row.try_get::<Vec<u8>, _>("canonical_bytes").ok().as_deref()
+                != Some(envelope.producer_bytes())
+                || row
+                    .try_get::<String, _>("canonical_bytes_blake3")
+                    .ok()
+                    .as_deref()
+                    != Some(
+                        storage_digest(EVIDENCE_SOURCE_STORAGE_DOMAIN, envelope.producer_bytes())
+                            .as_str(),
+                    )
+            {
+                return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+            }
+        }
+        let component = component_text(envelope.component())?;
+        sqlx::query("INSERT INTO public.backtest_native_replay_observations_v2(result_identity,component,request_identity,request_meaning_digest,request_receipt_identity,request_seal_digest,attempt_identity,envelope_reference,envelope_digest,producer_namespace,producer_reference,source_digest,observed_meaning_identity,observed_meaning_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING")
+            .bind(result_dto.result_identity.as_str()).bind(&component).bind(&batch.request_locator().request_identity)
+            .bind(&batch.request_locator().meaning_digest).bind(&batch.request_locator().receipt_identity).bind(&batch.request_locator().seal_digest)
+            .bind(batch.attempt_identity().as_str()).bind(envelope.envelope_locator().reference.as_str()).bind(envelope.envelope_locator().digest.as_str())
+            .bind(envelope.producer_namespace().as_str()).bind(envelope.producer_reference().as_str()).bind(envelope.producer_bytes_digest().as_str())
+            .bind(envelope.observed_meaning_identity().as_str()).bind(envelope.observed_meaning_digest().as_str()).bind(envelope.canonical_bytes())
+            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    }
+    sqlx::query("INSERT INTO public.backtest_native_replay_semantic_traces_v2(result_identity,locator_reference,locator_digest,canonical_bytes) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
+        .bind(result_dto.result_identity.as_str()).bind(trace.locator().reference.as_str()).bind(trace.canonical_bytes_digest().as_str()).bind(trace.canonical_bytes())
+        .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+
+    let expected = expected_evidence(batch);
+    let (evidence_batch, semantic_trace) = read_expected_evidence(
+        &mut transaction,
+        &result_dto.result_identity,
+        &expected,
+        trace.locator(),
+        trace.canonical_bytes(),
+        trace.canonical_bytes_digest(),
+    )
+    .await?;
+    validate_transaction_principal(&mut transaction).await?;
+    let committed = transaction.commit().await.is_ok();
+    if committed {
+        Ok(NativeReplayCommitDispositionV2::Committed {
+            result: Box::new(result),
+            evidence_batch,
+            semantic_trace,
+        })
+    } else {
+        Ok(NativeReplayCommitDispositionV2::SubmittedOrUnknown(
+            NativeReplayAggregateCommitRecoveryV2::for_submission(&result_dto, batch, trace),
+        ))
+    }
+}
+
+fn expected_evidence(batch: &SealedNativeReplayEvidenceBatchV2) -> Vec<ExpectedEvidenceEnvelopeV2> {
+    batch
+        .envelopes()
+        .iter()
+        .map(|value| ExpectedEvidenceEnvelopeV2 {
+            request_locator: value.request_locator().clone(),
+            attempt_identity: value.attempt_identity().clone(),
+            component: value.component(),
+            locator: value.envelope_locator().clone(),
+            producer_namespace: value.producer_namespace().clone(),
+            producer_reference: value.producer_reference().clone(),
+            canonical_bytes: value.canonical_bytes().to_vec(),
+            producer_bytes: value.producer_bytes().to_vec(),
+            producer_bytes_digest: value.producer_bytes_digest().clone(),
+            observed_meaning_identity: value.observed_meaning_identity().clone(),
+            observed_meaning_digest: value.observed_meaning_digest().clone(),
+        })
+        .collect()
+}
+
+async fn read_expected_evidence(
+    transaction: &mut Transaction<'_, Postgres>,
+    result_identity: &OpaqueIdentityV2,
+    expected: &[ExpectedEvidenceEnvelopeV2],
+    trace_locator: &crate::ComponentObservationLocatorV2,
+    trace_bytes: &[u8],
+    trace_digest: &CanonicalDigestV2,
+) -> Result<
+    (
+        NativeReplayEvidenceBatchReadbackV2,
+        NativeReplaySemanticTraceReadbackV2,
+    ),
+    PostgresReplayResultOwnerErrorV2,
+> {
+    if expected.len() != 28 {
+        return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+    }
+    let count: i64 = sqlx::query_scalar(
+        "SELECT pg_catalog.count(*) FROM public.backtest_native_replay_observations_v2 WHERE result_identity=$1",
+    )
+    .bind(result_identity.as_str())
+    .fetch_one(&mut **transaction)
+    .await
+    .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    if count != 28 {
+        return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+    }
+    let mut values = Vec::with_capacity(28);
+    for item in expected {
+        let component = component_text(item.component)?;
+        let row = sqlx::query("SELECT observation.request_identity,observation.request_meaning_digest,observation.request_receipt_identity,observation.request_seal_digest,observation.attempt_identity,observation.envelope_reference,observation.envelope_digest,observation.producer_namespace,observation.producer_reference,observation.source_digest,observation.observed_meaning_identity,observation.observed_meaning_digest,observation.canonical_bytes,source.canonical_bytes AS source_bytes,source.canonical_bytes_blake3 FROM public.backtest_native_replay_observations_v2 observation JOIN public.backtest_native_replay_source_blobs_v2 source ON source.source_digest=observation.source_digest WHERE observation.result_identity=$1 AND observation.component=$2 FOR SHARE OF observation,source")
+            .bind(result_identity.as_str()).bind(component).fetch_optional(&mut **transaction).await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?
+            .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+        let canonical: Vec<u8> = required(&row, "canonical_bytes")?;
+        let source: Vec<u8> = required(&row, "source_bytes")?;
+        if canonical != item.canonical_bytes
+            || source != item.producer_bytes
+            || required::<String>(&row, "request_identity")?
+                != item.request_locator.request_identity.as_str()
+            || required::<String>(&row, "request_meaning_digest")?
+                != item.request_locator.meaning_digest.as_str()
+            || required::<String>(&row, "request_receipt_identity")?
+                != item.request_locator.receipt_identity.as_str()
+            || required::<String>(&row, "request_seal_digest")?
+                != item.request_locator.seal_digest.as_str()
+            || required::<String>(&row, "attempt_identity")? != item.attempt_identity.as_str()
+            || required::<String>(&row, "envelope_reference")? != item.locator.reference.as_str()
+            || required::<String>(&row, "envelope_digest")? != item.locator.digest.as_str()
+            || required::<String>(&row, "producer_namespace")? != item.producer_namespace.as_str()
+            || required::<String>(&row, "producer_reference")? != item.producer_reference.as_str()
+            || required::<String>(&row, "source_digest")? != item.producer_bytes_digest.as_str()
+            || required::<String>(&row, "observed_meaning_identity")?
+                != item.observed_meaning_identity.as_str()
+            || required::<String>(&row, "observed_meaning_digest")?
+                != item.observed_meaning_digest.as_str()
+            || required::<String>(&row, "canonical_bytes_blake3")?
+                != storage_digest(EVIDENCE_SOURCE_STORAGE_DOMAIN, &source)
+        {
+            return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+        }
+        values.push(NativeReplayEvidenceEnvelopeReadbackV2::from_owner_readback(
+            item.component,
+            item.locator.clone(),
+            canonical,
+            source,
+            item.producer_bytes_digest.clone(),
+        ));
+    }
+    let trace_row = sqlx::query("SELECT locator_reference,locator_digest,canonical_bytes FROM public.backtest_native_replay_semantic_traces_v2 WHERE result_identity=$1 FOR SHARE")
+        .bind(result_identity.as_str()).fetch_optional(&mut **transaction).await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?
+        .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
+    let actual_trace: Vec<u8> = required(&trace_row, "canonical_bytes")?;
+    if actual_trace != trace_bytes
+        || required::<String>(&trace_row, "locator_reference")? != trace_locator.reference.as_str()
+        || required::<String>(&trace_row, "locator_digest")? != trace_digest.as_str()
+    {
+        return Err(PostgresReplayResultOwnerErrorV2::CorruptReadback);
+    }
+    Ok((
+        NativeReplayEvidenceBatchReadbackV2::from_owner_readback(values),
+        NativeReplaySemanticTraceReadbackV2::from_owner_readback(
+            trace_locator.clone(),
+            actual_trace,
+            trace_digest.clone(),
+        ),
+    ))
+}
+
+fn component_text(
+    value: crate::ObservationComponentV2,
+) -> Result<String, PostgresReplayResultOwnerErrorV2> {
+    serde_json::to_string(&value)
+        .map(|value| value.trim_matches('"').to_owned())
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
 }
 
 fn commit_disposition(

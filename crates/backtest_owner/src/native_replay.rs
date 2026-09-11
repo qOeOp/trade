@@ -23,9 +23,13 @@ use crate::{
     DiagnosticCategoryV2, DiagnosticEvidenceV2, ObservationComponentV2, OpaqueIdentityV2,
     OwnerResultDraftV2, ReplayConsumptionObservationV2, ReplayOwnerErrorV2, ReplayTerminalV2,
     SealedReplayResultV2, commit_owner_result,
+    native_replay_evidence_custody::{
+        NativeReplayEvidenceBatchReadbackV2, NativeReplayEvidenceDraftV2,
+        SealedNativeReplayEvidenceBatchV2,
+    },
     postgres::{
-        PostgresReplayResultOwnerErrorV2, PostgresReplayResultOwnerV2,
-        ReplayResultCommitRecoveryV2, ReplayResultReadbackV2,
+        NativeReplayAggregateCommitRecoveryV2, PostgresReplayResultOwnerErrorV2,
+        PostgresReplayResultOwnerV2, ReplayResultReadbackV2,
     },
     requested_component_meanings,
 };
@@ -46,6 +50,7 @@ pub struct NativeReplayComponentEvidenceV2 {
     request_meaning_digest: CanonicalDigestV2,
     attempt_identity: OpaqueIdentityV2,
     component: ObservationComponentV2,
+    producer_namespace: OpaqueIdentityV2,
     locator: ComponentObservationLocatorV2,
     canonical_observation_bytes: Vec<u8>,
     observed_meaning_identity: OpaqueIdentityV2,
@@ -59,6 +64,7 @@ impl NativeReplayComponentEvidenceV2 {
         request_meaning_digest: CanonicalDigestV2,
         attempt_identity: OpaqueIdentityV2,
         component: ObservationComponentV2,
+        producer_namespace: OpaqueIdentityV2,
         locator: ComponentObservationLocatorV2,
         canonical_observation_bytes: Vec<u8>,
         observed_meaning_identity: OpaqueIdentityV2,
@@ -69,6 +75,7 @@ impl NativeReplayComponentEvidenceV2 {
             request_meaning_digest,
             attempt_identity,
             component,
+            producer_namespace,
             locator,
             canonical_observation_bytes,
             observed_meaning_identity,
@@ -272,6 +279,7 @@ pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + S
         result_owner: &'a PostgresReplayResultOwnerV2,
         locator: &'a ExploratoryReplayRequestLocatorV2,
         result: &'a SealedReplayResultV2,
+        evidence_batch: &'a SealedNativeReplayEvidenceBatchV2,
         semantic_trace: &'a SealedNativeReplaySemanticTraceV2,
     ) -> Pin<
         Box<
@@ -291,10 +299,11 @@ pub enum NativeReplayCommitDispositionV2 {
     /// Both the Result aggregate and byte-identical semantic trace were committed and read back.
     Committed {
         result: Box<ReplayResultReadbackV2>,
+        evidence_batch: NativeReplayEvidenceBatchReadbackV2,
         semantic_trace: NativeReplaySemanticTraceReadbackV2,
     },
     /// The atomic submission was made, but its outcome was not acknowledged.
-    SubmittedOrUnknown(ReplayResultCommitRecoveryV2),
+    SubmittedOrUnknown(NativeReplayAggregateCommitRecoveryV2),
 }
 
 /// Fail-closed outcomes from the Backtest-owned native Replay V2 coordinator.
@@ -343,7 +352,7 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
         .request()
         .meaning_digest()
         .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
-    let mut observations = validate_component_evidence(
+    let component_evidence = validate_component_evidence_inputs(
         request.request(),
         &request_meaning_digest,
         &attempt_identity,
@@ -356,6 +365,14 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
     validate_execution_request_locator(
         execution_readback.consumption_census().request_locator(),
         locator,
+    )?;
+    let (mut observations, evidence_batch) = seal_component_evidence_after_event(
+        &execution_readback,
+        locator,
+        request.request(),
+        &request_meaning_digest,
+        &attempt_identity,
+        component_evidence,
     )?;
     let semantic_trace = semantic_trace_evidence.finalize(
         request.request().request_identity(),
@@ -385,29 +402,58 @@ pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Size
             result_owner,
             locator,
             &result,
+            &evidence_batch,
             &semantic_trace.sealed,
         )
         .await
         .map_err(NativeReplayRunErrorV2::from)?;
-    validate_committed_readbacks(disposition, &result, &semantic_trace.sealed)
+    validate_committed_readbacks(
+        disposition,
+        &result,
+        &evidence_batch,
+        &semantic_trace.sealed,
+    )
 }
 
 fn validate_committed_readbacks(
     disposition: NativeReplayCommitDispositionV2,
     expected_result: &SealedReplayResultV2,
+    expected_evidence_batch: &SealedNativeReplayEvidenceBatchV2,
     expected_semantic_trace: &SealedNativeReplaySemanticTraceV2,
 ) -> Result<NativeReplayCommitDispositionV2, NativeReplayRunErrorV2> {
     match &disposition {
         NativeReplayCommitDispositionV2::Committed {
             result,
+            evidence_batch,
             semantic_trace,
         } => {
             validate_result_readback(result, expected_result)?;
+            validate_evidence_batch_readback(evidence_batch, expected_evidence_batch)?;
             validate_semantic_trace_readback(semantic_trace, expected_semantic_trace)?;
         }
         NativeReplayCommitDispositionV2::SubmittedOrUnknown(_) => {}
     }
     Ok(disposition)
+}
+
+fn validate_evidence_batch_readback(
+    actual: &NativeReplayEvidenceBatchReadbackV2,
+    expected: &SealedNativeReplayEvidenceBatchV2,
+) -> Result<(), NativeReplayRunErrorV2> {
+    if actual.envelopes().len() != expected.envelopes().len() {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    for (actual, expected) in actual.envelopes().iter().zip(expected.envelopes()) {
+        if actual.component() != expected.component()
+            || actual.envelope_locator() != expected.envelope_locator()
+            || actual.canonical_bytes() != expected.canonical_bytes()
+            || actual.producer_bytes() != expected.producer_bytes()
+            || actual.producer_bytes_digest() != expected.producer_bytes_digest()
+        {
+            return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+        }
+    }
+    Ok(())
 }
 
 fn validate_result_readback(
@@ -482,19 +528,18 @@ fn validate_execution_request_locator(
     Ok(())
 }
 
-fn validate_component_evidence(
+fn validate_component_evidence_inputs(
     request: &crate::ReplayRequestV2,
     request_meaning_digest: &CanonicalDigestV2,
     attempt_identity: &OpaqueIdentityV2,
     evidence: Vec<NativeReplayComponentEvidenceV2>,
-) -> Result<Vec<ConsumedComponentObservationV2>, NativeReplayRunErrorV2> {
+) -> Result<Vec<NativeReplayComponentEvidenceV2>, NativeReplayRunErrorV2> {
     if evidence.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
     let requested = requested_component_meanings(request)?;
     let mut seen = BTreeSet::new();
-    let mut observations = Vec::with_capacity(evidence.len() + 1);
-    for item in evidence {
+    for item in &evidence {
         let Some(expected) = requested.get(&item.component) else {
             return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
         };
@@ -514,20 +559,71 @@ fn validate_component_evidence(
         {
             return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
         }
-        observations.push(ConsumedComponentObservationV2::from_owner_evidence(
-            item.request_identity,
-            item.request_meaning_digest,
-            item.attempt_identity,
-            item.component,
-            item.locator,
-            item.observed_meaning_identity,
-            item.observed_meaning_digest,
-        ));
     }
     if seen.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
         return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
     }
-    Ok(observations)
+    Ok(evidence)
+}
+
+/// The only bridge which can turn prepared producer inputs into a custody batch.
+/// It is crate-private and requires the successful EVENT readback from this invocation.
+fn seal_component_evidence_after_event(
+    execution: &ProgramHostSimEventReadbackV1,
+    request_locator: &ExploratoryReplayRequestLocatorV2,
+    request: &crate::ReplayRequestV2,
+    request_meaning_digest: &CanonicalDigestV2,
+    attempt_identity: &OpaqueIdentityV2,
+    evidence: Vec<NativeReplayComponentEvidenceV2>,
+) -> Result<
+    (
+        Vec<ConsumedComponentObservationV2>,
+        SealedNativeReplayEvidenceBatchV2,
+    ),
+    NativeReplayRunErrorV2,
+> {
+    validate_execution_request_locator(
+        execution.consumption_census().request_locator(),
+        request_locator,
+    )?;
+    if execution.actual_fills().is_empty() {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    let drafts = evidence
+        .into_iter()
+        .map(|item| NativeReplayEvidenceDraftV2 {
+            request_locator: request_locator.clone(),
+            attempt_identity: item.attempt_identity,
+            component: item.component,
+            producer_namespace: item.producer_namespace,
+            producer_reference: item.locator.reference,
+            producer_bytes: item.canonical_observation_bytes,
+            observed_meaning_identity: item.observed_meaning_identity,
+            observed_meaning_digest: item.observed_meaning_digest,
+        })
+        .collect();
+    let batch = SealedNativeReplayEvidenceBatchV2::seal(
+        request_locator.clone(),
+        attempt_identity.clone(),
+        drafts,
+    )
+    .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    let observations = batch
+        .envelopes()
+        .iter()
+        .map(|item| {
+            ConsumedComponentObservationV2::from_owner_evidence(
+                request.request_identity().clone(),
+                request_meaning_digest.clone(),
+                attempt_identity.clone(),
+                item.component(),
+                item.envelope_locator().clone(),
+                item.observed_meaning_identity().clone(),
+                item.observed_meaning_digest().clone(),
+            )
+        })
+        .collect();
+    Ok((observations, batch))
 }
 
 fn digest_bytes(domain: &[u8], bytes: &[u8]) -> Result<CanonicalDigestV2, NativeReplayRunErrorV2> {

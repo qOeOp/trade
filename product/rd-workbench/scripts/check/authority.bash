@@ -279,6 +279,16 @@ if grep -Fq "pg_catalog.strpos(procedure.prosrc,'verify_exploratory_replay_reque
   exit 1
 fi
 grep -Fq 'CREATE SCHEMA IF NOT EXISTS rd_owner_api AUTHORIZATION rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_source_blobs_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_observations_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'CREATE TABLE IF NOT EXISTS public.backtest_native_replay_semantic_traces_v2' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'PRIMARY KEY (result_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'UNIQUE (request_identity, attempt_identity, component)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+if grep -Eq 'GRANT (SELECT|INSERT|UPDATE|DELETE|TRUNCATE).*backtest_native_replay_.* TO rd_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"; then
+  echo 'R&D Owner must not receive raw Backtest native evidence table access' >&2
+  exit 1
+fi
 grep -Fq 'GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_acquisition_binding_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"
 grep -Fq 'CREATE OR REPLACE FUNCTION rd_owner_api.lock_source_invocation_reservation_v1(' "$package_dir/../../crates/strategy_factory/src/source_intake/postgres.rs"

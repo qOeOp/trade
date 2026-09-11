@@ -896,11 +896,47 @@ CREATE TABLE IF NOT EXISTS public.backtest_replay_result_outbox_v1 (
   canonical_bytes bytea NOT NULL,
   canonical_bytes_blake3 text NOT NULL
 );
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_source_blobs_v2 (
+  source_digest text PRIMARY KEY,
+  canonical_bytes bytea NOT NULL,
+  canonical_bytes_blake3 text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_observations_v2 (
+  result_identity text NOT NULL,
+  component text NOT NULL,
+  request_identity text NOT NULL,
+  request_meaning_digest text NOT NULL,
+  request_receipt_identity text NOT NULL,
+  request_seal_digest text NOT NULL,
+  attempt_identity text NOT NULL,
+  envelope_reference text NOT NULL,
+  envelope_digest text NOT NULL,
+  producer_namespace text NOT NULL,
+  producer_reference text NOT NULL,
+  source_digest text NOT NULL,
+  observed_meaning_identity text NOT NULL,
+  observed_meaning_digest text NOT NULL,
+  canonical_bytes bytea NOT NULL,
+  PRIMARY KEY (result_identity, component),
+  UNIQUE (envelope_reference),
+  UNIQUE (request_identity, attempt_identity, component)
+);
+CREATE TABLE IF NOT EXISTS public.backtest_native_replay_semantic_traces_v2 (
+  result_identity text PRIMARY KEY,
+  locator_reference text NOT NULL UNIQUE,
+  locator_digest text NOT NULL,
+  canonical_bytes bytea NOT NULL
+);
 ALTER TABLE public.backtest_replay_results_v2 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_replay_result_receipts_v1 OWNER TO backtest_custodian;
 ALTER TABLE public.backtest_replay_result_outbox_v1 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_source_blobs_v2 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_observations_v2 OWNER TO backtest_custodian;
+ALTER TABLE public.backtest_native_replay_semantic_traces_v2 OWNER TO backtest_custodian;
 REVOKE ALL ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest_replay_result_receipts_v1, public.backtest_replay_result_outbox_v1 TO backtest_owner;
+REVOKE ALL ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
+GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;
 
 DO $remove_misplaced_authority_lock$
 DECLARE misplaced oid := pg_catalog.to_regprocedure('backtest_owner_api.lock_authority_catalogs_v1()');

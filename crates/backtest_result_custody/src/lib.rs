@@ -357,6 +357,33 @@ pub async fn validate_backtest_result_writer_topology_v2(
     Ok(())
 }
 
+/// Validates the additive append-only native Replay evidence tables.
+pub async fn validate_backtest_native_replay_evidence_writer_topology_v2(
+    transaction: &mut Transaction<'_, Postgres>,
+) -> Result<(), BacktestResultCustodyErrorV2> {
+    acquire_topology_fence(transaction).await?;
+    sqlx::query("LOCK TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 IN ROW EXCLUSIVE MODE")
+        .execute(&mut **transaction).await.map_err(|e| storage(&e))?;
+    let exact: bool = sqlx::query_scalar("SELECT
+      (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(relation.relkind='r' AND relation.relpersistence='p' AND access_method.amname='heap' AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian' AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity)
+         FROM pg_catalog.pg_class relation JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam
+        WHERE namespace.nspname='public' AND relation.relname IN ('backtest_native_replay_source_blobs_v2','backtest_native_replay_observations_v2','backtest_native_replay_semantic_traces_v2'))
+      AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_source_blobs_v2','SELECT,INSERT')
+      AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_observations_v2','SELECT,INSERT')
+      AND pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_semantic_traces_v2','SELECT,INSERT')
+      AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_source_blobs_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_observations_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT pg_catalog.has_table_privilege('backtest_owner','public.backtest_native_replay_semantic_traces_v2','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_source_blobs_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_observations_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+      AND NOT pg_catalog.has_table_privilege('rd_owner','public.backtest_native_replay_semantic_traces_v2','SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")
+        .fetch_one(&mut **transaction).await.map_err(|e| storage(&e))?;
+    if !exact {
+        return Err(BacktestResultCustodyErrorV2::Unavailable);
+    }
+    Ok(())
+}
+
 async fn acquire_topology_fence(
     transaction: &mut Transaction<'_, Postgres>,
 ) -> Result<(), BacktestResultCustodyErrorV2> {

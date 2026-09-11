@@ -23,6 +23,7 @@ mod sealed {
 }
 
 pub mod native_replay;
+pub mod native_replay_evidence_custody;
 pub mod postgres;
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
