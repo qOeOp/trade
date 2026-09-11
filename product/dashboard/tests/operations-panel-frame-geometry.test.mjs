@@ -133,6 +133,7 @@ test("Compact toolbar controls share one density and semantic variant system", a
     assert.doesNotMatch(component, /<PanelFrameFooterActions>\s*<button/u);
   }
   assert.doesNotMatch(css, /\.panel-frame-actions button:not\(\.filter-action\)|\.panel-frame-actions a:not\(\.filter-action\)/u);
+  assert.doesNotMatch(css, /\.panel-frame-footer-actions button(?:\s|\{|:)/u);
   assert.match(css, /\.panel-frame-actions \.filter-action\[aria-pressed="true"\]/u);
   assert.doesNotMatch(css, /\.log-explorer-filter-select|\.log-explorer-clear-filters/u);
 });
