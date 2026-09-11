@@ -10,6 +10,9 @@ use std::{
     fmt::Debug,
 };
 
+#[cfg(feature = "isolated-event-replay-acceptance")]
+use async_trait::async_trait;
+
 use sha2::{Digest, Sha256};
 
 use super::{
@@ -529,9 +532,15 @@ impl StrategyInputEventBindingLocatorV1 {
 #[derive(Debug, Eq, PartialEq)]
 pub(in crate::owner) struct StrategyInputEventBindingReadbackV1 {
     pub(in crate::owner) locator: StrategyInputEventBindingLocatorV1,
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) strategy_design_identity: BindingDigest,
     pub(in crate::owner) receipt_identity: BindingDigest,
     pub(in crate::owner) readback_identity: BindingDigest,
     pub(in crate::owner) projection_receipt_digest: BindingDigest,
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) selected_lifecycle: StrategyInputSampleEventOrderKeyV1,
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) selected_trigger_digest: BindingDigest,
     pub(in crate::owner) selected_event_identity: [u8; 16],
     pub(in crate::owner) census_digest: BindingDigest,
     pub(in crate::owner) event_count: usize,
@@ -550,6 +559,12 @@ impl StrategyInputEventBindingReadbackV1 {
     }
 
     #[must_use]
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    #[must_use]
     pub(in crate::owner) const fn readback_identity(&self) -> BindingDigest {
         self.readback_identity
     }
@@ -557,6 +572,18 @@ impl StrategyInputEventBindingReadbackV1 {
     #[must_use]
     pub(in crate::owner) const fn projection_receipt_digest(&self) -> BindingDigest {
         self.projection_receipt_digest
+    }
+
+    #[must_use]
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) const fn selected_lifecycle(&self) -> StrategyInputSampleEventOrderKeyV1 {
+        self.selected_lifecycle
+    }
+
+    #[must_use]
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(in crate::owner) const fn selected_trigger_digest(&self) -> BindingDigest {
+        self.selected_trigger_digest
     }
 
     #[must_use]
@@ -577,6 +604,320 @@ impl StrategyInputEventBindingReadbackV1 {
     #[must_use]
     pub(in crate::owner) fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
+    }
+}
+
+/// One canonically ordered fixed-i128 input resolved from native Market Data custody.
+///
+/// Every field is copied from an already verified V2 projection and its exact native sample
+/// readback. The value carries no locator or operation that can select another sample.
+#[cfg(feature = "isolated-event-replay-acceptance")]
+#[derive(Debug, Eq, PartialEq)]
+pub struct StrategyInputSampleEventValueV1 {
+    pub(in crate::owner) role_identity: [u8; 32],
+    pub(in crate::owner) binding_receipt_digest: [u8; 32],
+    pub(in crate::owner) value_bytes: [u8; 16],
+    pub(in crate::owner) value_scale: u8,
+    pub(in crate::owner) sample_identity: [u8; 32],
+    pub(in crate::owner) sample_receipt_digest: [u8; 32],
+    pub(in crate::owner) sample_fact_digest: [u8; 32],
+    pub(in crate::owner) canonical_row_digest: [u8; 32],
+    pub(in crate::owner) snapshot_identity: [u8; 32],
+    pub(in crate::owner) snapshot_fact_digest: [u8; 32],
+    pub(in crate::owner) observation_batch_digest: [u8; 32],
+    pub(in crate::owner) timeframe_identity: [u8; 32],
+    pub(in crate::owner) value_trigger_digest: BindingDigest,
+    pub(in crate::owner) owner_event_identity: [u8; 16],
+    pub(in crate::owner) logical_time: u64,
+    pub(in crate::owner) event_time: u64,
+    pub(in crate::owner) owner_sequence: u64,
+    pub(in crate::owner) source_binding_lineage_root: [u8; 32],
+    pub(in crate::owner) source_binding_lineage_version: u64,
+    pub(in crate::owner) market_semantics_identity: [u8; 32],
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+impl StrategyInputSampleEventValueV1 {
+    #[must_use]
+    pub const fn role_identity(&self) -> [u8; 32] {
+        self.role_identity
+    }
+
+    #[must_use]
+    pub const fn binding_receipt_digest(&self) -> [u8; 32] {
+        self.binding_receipt_digest
+    }
+
+    #[must_use]
+    pub const fn value_bytes(&self) -> &[u8; 16] {
+        &self.value_bytes
+    }
+
+    #[must_use]
+    pub const fn value_scale(&self) -> u8 {
+        self.value_scale
+    }
+
+    #[must_use]
+    pub const fn sample_identity(&self) -> [u8; 32] {
+        self.sample_identity
+    }
+
+    #[must_use]
+    pub const fn sample_receipt_digest(&self) -> [u8; 32] {
+        self.sample_receipt_digest
+    }
+
+    #[must_use]
+    pub const fn sample_fact_digest(&self) -> [u8; 32] {
+        self.sample_fact_digest
+    }
+
+    #[must_use]
+    pub const fn canonical_row_digest(&self) -> [u8; 32] {
+        self.canonical_row_digest
+    }
+
+    #[must_use]
+    pub const fn snapshot_identity(&self) -> [u8; 32] {
+        self.snapshot_identity
+    }
+
+    #[must_use]
+    pub const fn snapshot_fact_digest(&self) -> [u8; 32] {
+        self.snapshot_fact_digest
+    }
+
+    #[must_use]
+    pub const fn observation_batch_digest(&self) -> [u8; 32] {
+        self.observation_batch_digest
+    }
+
+    #[must_use]
+    pub const fn timeframe_identity(&self) -> [u8; 32] {
+        self.timeframe_identity
+    }
+
+    #[must_use]
+    pub const fn value_trigger_digest(&self) -> BindingDigest {
+        self.value_trigger_digest
+    }
+
+    #[must_use]
+    pub const fn owner_event_identity(&self) -> [u8; 16] {
+        self.owner_event_identity
+    }
+
+    #[must_use]
+    pub const fn logical_time(&self) -> u64 {
+        self.logical_time
+    }
+
+    #[must_use]
+    pub const fn event_time(&self) -> u64 {
+        self.event_time
+    }
+
+    #[must_use]
+    pub const fn owner_sequence(&self) -> u64 {
+        self.owner_sequence
+    }
+
+    #[must_use]
+    pub const fn source_binding_lineage_root(&self) -> [u8; 32] {
+        self.source_binding_lineage_root
+    }
+
+    #[must_use]
+    pub const fn source_binding_lineage_version(&self) -> u64 {
+        self.source_binding_lineage_version
+    }
+
+    #[must_use]
+    pub const fn market_semantics_identity(&self) -> [u8; 32] {
+        self.market_semantics_identity
+    }
+}
+
+/// Exact native order key for the EVENT selected by a durable R&D-request binding.
+#[cfg(feature = "isolated-event-replay-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct StrategyInputSampleEventOrderKeyV1 {
+    pub(in crate::owner) logical_time: u64,
+    pub(in crate::owner) event_time: u64,
+    pub(in crate::owner) owner_sequence: u64,
+    pub(in crate::owner) event_identity: [u8; 16],
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+impl StrategyInputSampleEventOrderKeyV1 {
+    #[must_use]
+    pub const fn logical_time(&self) -> u64 {
+        self.logical_time
+    }
+
+    #[must_use]
+    pub const fn event_time(&self) -> u64 {
+        self.event_time
+    }
+
+    #[must_use]
+    pub const fn owner_sequence(&self) -> u64 {
+        self.owner_sequence
+    }
+
+    #[must_use]
+    pub const fn event_identity(&self) -> [u8; 16] {
+        self.event_identity
+    }
+}
+
+/// Sealed readback for the one EVENT selected by a durable R&D-request binding.
+///
+/// This value has no public constructor, implements neither `Clone` nor `Deserialize`, and exposes
+/// no raw request, projection, store, credential, or admission evidence.
+#[cfg(feature = "isolated-event-replay-acceptance")]
+#[derive(Debug, Eq, PartialEq)]
+pub struct StrategyInputSampleEventReadbackV1 {
+    pub(in crate::owner) request_identity: Box<str>,
+    pub(in crate::owner) request_meaning_digest: Box<str>,
+    pub(in crate::owner) lifecycle: StrategyInputSampleEventOrderKeyV1,
+    pub(in crate::owner) strategy_design_identity: BindingDigest,
+    pub(in crate::owner) binding_identity: BindingDigest,
+    pub(in crate::owner) binding_receipt_identity: BindingDigest,
+    pub(in crate::owner) binding_readback_identity: BindingDigest,
+    pub(in crate::owner) census_digest: BindingDigest,
+    pub(in crate::owner) event_count: usize,
+    pub(in crate::owner) projection_receipt_digest: BindingDigest,
+    pub(in crate::owner) projection_subject_identity: [u8; 32],
+    pub(in crate::owner) values: Box<[StrategyInputSampleEventValueV1]>,
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+impl StrategyInputSampleEventReadbackV1 {
+    #[must_use]
+    pub fn request_identity(&self) -> &str {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn request_meaning_digest(&self) -> &str {
+        &self.request_meaning_digest
+    }
+
+    #[must_use]
+    pub const fn lifecycle(&self) -> StrategyInputSampleEventOrderKeyV1 {
+        self.lifecycle
+    }
+
+    #[must_use]
+    pub const fn strategy_design_identity(&self) -> BindingDigest {
+        self.strategy_design_identity
+    }
+
+    #[must_use]
+    pub const fn binding_identity(&self) -> BindingDigest {
+        self.binding_identity
+    }
+
+    #[must_use]
+    pub const fn binding_receipt_identity(&self) -> BindingDigest {
+        self.binding_receipt_identity
+    }
+
+    #[must_use]
+    pub const fn binding_readback_identity(&self) -> BindingDigest {
+        self.binding_readback_identity
+    }
+
+    #[must_use]
+    pub const fn census_digest(&self) -> BindingDigest {
+        self.census_digest
+    }
+
+    #[must_use]
+    pub const fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    #[must_use]
+    pub const fn projection_receipt_digest(&self) -> BindingDigest {
+        self.projection_receipt_digest
+    }
+
+    #[must_use]
+    pub const fn projection_subject_identity(&self) -> [u8; 32] {
+        self.projection_subject_identity
+    }
+
+    #[must_use]
+    pub fn values(&self) -> &[StrategyInputSampleEventValueV1] {
+        &self.values
+    }
+}
+
+/// Redacted failure for exact selected-EVENT resolution.
+#[cfg(feature = "isolated-event-replay-acceptance")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+#[error("the exact request-selected Market Data EVENT is unavailable")]
+pub struct StrategyInputSampleEventResolveErrorV1;
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+pub(in crate::owner) mod sample_event_resolver_port_v1 {
+    use super::*;
+
+    #[async_trait]
+    pub(in crate::owner) trait Port: Send + Sync {
+        async fn resolve(
+            &self,
+        ) -> Result<StrategyInputSampleEventReadbackV1, StrategyInputSampleEventResolveErrorV1>;
+    }
+}
+
+/// Unforgeable read-only capability for one durable request-selected EVENT.
+///
+/// The exact binding locator and Owner store stay inside its private port. Its sole operation takes
+/// no caller-selected event, projection, role, value, query, or storage parameter.
+///
+/// ```compile_fail
+/// use vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputSampleEventResolverV1;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<StrategyInputSampleEventResolverV1>();
+/// ```
+///
+/// ```compile_fail
+/// use vibe_data::owner::strategy_input_event_corpus_v1::StrategyInputSampleEventResolverV1;
+/// let _: StrategyInputSampleEventResolverV1 = serde_json::from_slice(b"{}").unwrap();
+/// ```
+#[cfg(feature = "isolated-event-replay-acceptance")]
+pub struct StrategyInputSampleEventResolverV1 {
+    port: Box<dyn sample_event_resolver_port_v1::Port>,
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+impl Debug for StrategyInputSampleEventResolverV1 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct(stringify!(StrategyInputSampleEventResolverV1))
+            .finish_non_exhaustive()
+    }
+}
+
+#[cfg(feature = "isolated-event-replay-acceptance")]
+impl StrategyInputSampleEventResolverV1 {
+    pub(in crate::owner) fn from_owner_port(
+        port: impl sample_event_resolver_port_v1::Port + 'static,
+    ) -> Self {
+        Self {
+            port: Box::new(port),
+        }
+    }
+
+    /// Resolves only the EVENT already sealed into this capability.
+    pub async fn resolve(
+        &self,
+    ) -> Result<StrategyInputSampleEventReadbackV1, StrategyInputSampleEventResolveErrorV1> {
+        self.port.resolve().await
     }
 }
 

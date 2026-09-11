@@ -1400,6 +1400,15 @@ impl StoredStrategyInputSampleProjectionV2 {
     pub(super) fn canonical_bytes(&self) -> &[u8] {
         self.decoded.canonical_bytes()
     }
+
+    #[cfg(feature = "isolated-event-replay-acceptance")]
+    pub(super) fn into_public_readback(
+        self,
+    ) -> super::sample_projection::StrategyInputSampleProjectionReadbackV2 {
+        super::sample_projection::StrategyInputSampleProjectionReadbackV2::from_postgres_verified(
+            StrategyInputSampleProjectionPostgresProofV2::new(self.decoded),
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
