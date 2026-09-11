@@ -25,9 +25,6 @@ use vibe_common::{
 };
 use vibe_core::UUID4;
 use vibe_data::engine::config::DataEngineConfig;
-use vibe_data::owner::{
-    source_binding::BindingDigest, strategy_input_binding::StrategyInputUniverseFrameReceipt,
-};
 use vibe_execution::{
     engine::config::ExecutionEngineConfig,
     models::{
@@ -37,18 +34,19 @@ use vibe_execution::{
 };
 use vibe_model::{
     accounts::margin_model::{MarginModelAny, StandardMarginModel},
-    data::{BarType, Data},
+    data::Data,
     enums::{AccountType, BarAggregation, BarIntervalType, BookType, OmsType},
-    identifiers::{AccountId, ClientId, InstrumentId, StrategyId, Symbol, TraderId, Venue},
+    identifiers::{AccountId, ClientId, InstrumentId, Symbol, TraderId, Venue},
     instruments::{Instrument, InstrumentAny},
     types::{Currency, Money, Price},
 };
 use vibe_portfolio::config::PortfolioConfig;
 use vibe_risk::engine::config::RiskEngineConfig;
 
+#[cfg(test)]
+use vibe_model::data::BarType;
+
 use crate::{
-    artifact_v2::StrategyArtifactV2,
-    program_host_sim_event_consumer_v1::ProgramHostSimEventCapabilityV1,
     replay_economic_configuration_v1::{
         DisabledEconomicModelV1, ReplayAccountTypeV1, ReplayBookTypeV1,
         ReplayEconomicConfigurationV1, ReplayFeeModelV1, ReplayFillModelV1, ReplayFixedDecimalV1,
@@ -65,7 +63,6 @@ use crate::{
         ReplayRunnerOperationalProfileV1, ReplayRunnerOptionalSubsystemV1,
         ReplayRunnerSerializationEncodingV1,
     },
-    strategy_plan_v2::StrategyPlanV2,
 };
 
 /// Exact native layout and inactive-float contract implemented by this adapter.
@@ -87,10 +84,9 @@ const NATIVE_DISABLED_SLIPPAGE_PROBABILITY_V1: f64 = 0.0;
 ///
 /// Native configs remain private so a consumer cannot register a different instrument before the
 /// Owner terms check. [`Self::into_backtest_engine`] is the only extraction path.
-pub struct ReplayNativeExecutionProfileV1 {
+pub(crate) struct ReplayNativeExecutionProfileV1 {
     engine_config: BacktestEngineConfig,
     venue_config: SimulatedVenueConfig,
-    instrument_id: InstrumentId,
     instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
     instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
     materialization_digest: [u8; 32],
@@ -101,96 +97,18 @@ pub struct ReplayNativeExecutionProfileV1 {
 impl ReplayNativeExecutionProfileV1 {
     /// Content identity available for downstream actual-consumption evidence.
     #[must_use]
-    pub const fn materialization_digest(&self) -> [u8; 32] {
+    pub(crate) const fn materialization_digest(&self) -> [u8; 32] {
         self.materialization_digest
     }
 
     #[must_use]
-    pub const fn instance_id(&self) -> UUID4 {
+    pub(crate) const fn instance_id(&self) -> UUID4 {
         self.instance_id
     }
 
     #[must_use]
-    pub const fn instrument_id(&self) -> InstrumentId {
-        self.instrument_id
-    }
-
-    #[must_use]
-    pub fn instrument_fact_digest(&self) -> [u8; 32] {
-        self.primary_instrument_terms().instrument_fact_digest
-    }
-
-    #[must_use]
-    pub fn instrument_receipt_digest(&self) -> [u8; 32] {
-        self.primary_instrument_terms().instrument_receipt_digest
-    }
-
-    #[must_use]
-    pub const fn deterministic_fill_seed(&self) -> u64 {
+    pub(crate) const fn deterministic_fill_seed(&self) -> u64 {
         self.fill_seed
-    }
-
-    fn primary_instrument_terms(&self) -> &BoundInstrumentEconomicTermsV1 {
-        let ordinal = usize::from(self.instrument_ids[0] != self.instrument_id);
-        debug_assert_eq!(self.instrument_ids[ordinal], self.instrument_id);
-        &self.instrument_terms[ordinal]
-    }
-
-    /// Moves this exact native profile into the sole ProgramHost Sim EVENT consumer capability.
-    ///
-    /// The Owner-bound instrument is rechecked before either native config is released. The
-    /// materialization, Instrument fact, and Instrument receipt digests travel with the same
-    /// move-only value and therefore cannot be supplied independently by the caller.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when the target set omits or mutates the Owner-bound instrument, or when
-    /// the consumer rejects the remaining ProgramHost scheduling inputs.
-    #[allow(clippy::too_many_arguments)]
-    pub fn into_program_host_sim_event_capability_v1(
-        self,
-        plan: StrategyPlanV2,
-        artifact: StrategyArtifactV2,
-        universe_frame: StrategyInputUniverseFrameReceipt,
-        strategy_id: StrategyId,
-        run_id: String,
-        instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
-        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
-        data: Vec<Data>,
-    ) -> anyhow::Result<ProgramHostSimEventCapabilityV1> {
-        self.validate_target_set(&instruments)?;
-        self.validate_account_scope()?;
-        self.validate_data(&data)?;
-        let account_scope_id = AccountId::from(format!("{}-001", self.venue_config.venue).as_str());
-        let Self {
-            engine_config,
-            venue_config,
-            materialization_digest,
-            instrument_terms,
-            ..
-        } = self;
-        let instrument_fact_digests = instrument_terms
-            .each_ref()
-            .map(|terms| terms.instrument_fact_digest);
-        let instrument_receipt_digests = instrument_terms
-            .each_ref()
-            .map(|terms| terms.instrument_receipt_digest);
-        ProgramHostSimEventCapabilityV1::new(
-            plan,
-            artifact,
-            universe_frame,
-            BindingDigest::from_untrusted_bytes(materialization_digest),
-            instrument_fact_digests,
-            instrument_receipt_digests,
-            account_scope_id,
-            engine_config,
-            venue_config,
-            strategy_id,
-            run_id,
-            instruments,
-            bar_types,
-            data,
-        )
     }
 
     /// Rechecks the supplied native instrument against Owner-derived exact terms, then constructs
@@ -200,7 +118,7 @@ impl ReplayNativeExecutionProfileV1 {
     ///
     /// Returns before a Backtest engine exists when the instrument identity, quote currency, fee,
     /// or margin terms differ. Native configuration or engine registration errors also fail closed.
-    pub fn into_backtest_engine(
+    pub(crate) fn into_backtest_engine(
         self,
         instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
     ) -> Result<BacktestEngine, ReplayNativeExecutionProfileErrorV1> {
@@ -219,7 +137,7 @@ impl ReplayNativeExecutionProfileV1 {
         Ok(engine)
     }
 
-    fn validate_target_set(
+    pub(crate) fn validate_target_set(
         &self,
         instruments: &[InstrumentAny; TARGET_SET_MEMBER_COUNT],
     ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
@@ -257,7 +175,7 @@ impl ReplayNativeExecutionProfileV1 {
         Ok(())
     }
 
-    fn validate_account_scope(&self) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
+    pub(crate) fn validate_account_scope(&self) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
         let expected = format!("{}-001", self.venue_config.venue);
         if self
             .instrument_terms
@@ -269,7 +187,10 @@ impl ReplayNativeExecutionProfileV1 {
         Ok(())
     }
 
-    fn validate_data(&self, data: &[Data]) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
+    pub(crate) fn validate_data(
+        &self,
+        data: &[Data],
+    ) -> Result<(), ReplayNativeExecutionProfileErrorV1> {
         let mut signal_time = [None; TARGET_SET_MEMBER_COUNT];
         let mut event_time = [None; TARGET_SET_MEMBER_COUNT];
         for datum in data {
@@ -311,6 +232,16 @@ impl ReplayNativeExecutionProfileV1 {
         }
         Ok(())
     }
+
+    pub(crate) fn account_scope_id(&self) -> AccountId {
+        AccountId::from(format!("{}-001", self.venue_config.venue).as_str())
+    }
+
+    pub(crate) const fn instrument_terms(
+        &self,
+    ) -> &[BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
+        &self.instrument_terms
+    }
 }
 
 fn data_event_time_ns(data: &Data) -> Result<i128, ReplayNativeExecutionProfileErrorV1> {
@@ -333,7 +264,7 @@ fn data_event_time_ns(data: &Data) -> Result<i128, ReplayNativeExecutionProfileE
 /// Fails before returning a capability for seal mismatch, native version drift, lossy fixed-point
 /// conversion, invalid native identifiers or currencies, unsupported codecs, or invalid native
 /// configuration.
-pub fn materialize_event_replay_execution_profile_v1(
+pub(crate) fn materialize_event_replay_execution_profile_v1(
     binding: ReplayExecutionProfileBindingV1,
     economic: &ReplayEconomicConfigurationV1,
     runner: &ReplayRunnerOperationalProfileV1,
@@ -465,7 +396,6 @@ pub fn materialize_event_replay_execution_profile_v1(
     Ok(ReplayNativeExecutionProfileV1 {
         engine_config,
         venue_config,
-        instrument_id,
         instrument_ids,
         instrument_terms,
         materialization_digest,

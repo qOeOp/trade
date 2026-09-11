@@ -137,6 +137,7 @@ mod replay_policy_catalog_postgres_v2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub mod replay_policy_catalog_sealed_acceptance_v2;
 mod replay_policy_catalog_v2;
+pub mod replay_target_set_execution_bundle_v1;
 pub use replay_policy_catalog_postgres_v2::{
     ensure_authenticated_replay_policy_catalog_genesis_v1,
     read_authenticated_replay_policy_catalog_genesis_v1,
