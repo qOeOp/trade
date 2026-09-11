@@ -178,6 +178,7 @@ pub(crate) async fn persist_initial_family(
         census_frontier_identity: family.census_frontier.frontier_identity().to_string(),
         census_frontier_digest: family.census_frontier.frontier_digest().to_string(),
         replay_execution_policy_v2: family.root.policy().replay_execution_policy_v2().cloned(),
+        replay_policy_catalog_v3: family.root.policy().replay_policy_catalog_v3().cloned(),
     };
     persist_outbox(
         transaction,
@@ -511,6 +512,7 @@ pub(crate) async fn append_trial_family_attempt_in_transaction(
             .frontier_identity()
             .to_string(),
         candidate_set_frontier_digest: next.candidate_set_frontier.frontier_digest().to_string(),
+        replay_policy_catalog_v3: next.census_frontier.replay_policy_catalog_v3().cloned(),
     };
     persist_outbox(
         transaction,
@@ -830,6 +832,8 @@ fn verify_family_outbox_row(
         || payload.census_frontier_digest != family.census_frontier.frontier_digest()
         || payload.replay_execution_policy_v2
             != family.root.policy().replay_execution_policy_v2().cloned()
+        || payload.replay_policy_catalog_v3
+            != family.root.policy().replay_policy_catalog_v3().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "family outbox mismatch".to_string(),
@@ -885,6 +889,8 @@ async fn verify_census_outbox_in_transaction(
             != readback.candidate_set_frontier.frontier_identity()
         || payload.candidate_set_frontier_digest
             != readback.candidate_set_frontier.frontier_digest()
+        || payload.replay_policy_catalog_v3
+            != readback.census_frontier.replay_policy_catalog_v3().cloned()
     {
         return Err(TrialFamilyError::Unavailable(
             "V2 census outbox mismatch".to_string(),
@@ -973,6 +979,8 @@ struct FamilyFrozenOutboxV1 {
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -987,6 +995,8 @@ struct CensusAdvancedOutboxV2 {
     attempt_frontier_digest: String,
     candidate_set_frontier_identity: String,
     candidate_set_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -1735,6 +1745,7 @@ mod postgres_binding_tests {
             independence_basis_identity: "independence-basis-v1".to_string(),
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
         }
     }
 

@@ -247,6 +247,9 @@ pub(crate) struct ExploratoryReplayCommitReceiptV2 {
     pub(crate) request_identity: String,
     pub(crate) meaning_digest: String,
     pub(crate) seal_digest: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_profile_seal:
+        Option<crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>,
     pub(crate) committed_at_epoch_ms: u64,
 }
 
@@ -326,6 +329,9 @@ pub struct SealedExploratoryReplayReadbackV2 {
     pub(crate) canonical_request_bytes: Vec<u8>,
     pub(crate) meaning_digest: String,
     pub(crate) receipt: ExploratoryReplayCommitReceiptV2,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) execution_profile_seal:
+        Option<crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>,
     pub(crate) owner_cut_epoch_ms: u64,
 }
 
@@ -352,6 +358,13 @@ impl SealedExploratoryReplayReadbackV2 {
 
     pub fn seal_digest(&self) -> &str {
         &self.receipt.seal_digest
+    }
+
+    pub(crate) fn execution_profile_seal(
+        &self,
+    ) -> Option<&crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>
+    {
+        self.execution_profile_seal.as_ref()
     }
 
     #[must_use]
@@ -396,10 +409,29 @@ pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
             request_identity,
             meaning_digest,
             seal_digest,
+            execution_profile_seal: None,
             committed_at_epoch_ms: 1,
         },
+        execution_profile_seal: None,
         owner_cut_epoch_ms: 1,
     })
+}
+
+#[cfg(test)]
+pub(crate) fn issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(
+    request: ReplayRequestV2,
+    family: &crate::trial_family::TrialFamilyReadbackV1,
+) -> anyhow::Result<SealedExploratoryReplayReadbackV2> {
+    let mut readback = issue_sealed_exploratory_replay_readback_for_acceptance_v2(request)?;
+    let seal =
+        crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1::issue(
+            family,
+            readback.request_identity(),
+            readback.meaning_digest(),
+        )?;
+    readback.receipt.execution_profile_seal = Some(seal.clone());
+    readback.execution_profile_seal = Some(seal);
+    Ok(readback)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]

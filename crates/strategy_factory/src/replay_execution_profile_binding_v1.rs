@@ -4,6 +4,7 @@
 //! retains the exact Instrument Owner terms needed by the native materializer, while preflight
 //! remains unavailable until the real `ProgramHostV2` to Sim Exchange EVENT consumer exists.
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
@@ -18,7 +19,6 @@ use crate::{
     replay_economic_configuration_v1::{
         InstrumentEconomicTermsBindingV1, ReplayEconomicConfigurationV1,
     },
-    replay_policy_catalog_v2::ReplayPolicyCatalogBindingV3,
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
     trial_family::{TrialFamilyReadbackV1, verify_family},
 };
@@ -30,7 +30,8 @@ const PROFILE_BINDING_DIGEST_DOMAIN_V1: &[u8] =
 const MAX_IDENTITY_BYTES_V1: usize = 256;
 
 /// TrialFamily-owned choice of the two exact profile contents.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReplayExecutionProfileFamilyBindingV1 {
     pub schema_version: u16,
     pub trial_family_identity: String,
@@ -43,7 +44,8 @@ pub struct ReplayExecutionProfileFamilyBindingV1 {
 ///
 /// This remains a standalone V1 binding so the existing Replay V2 request codec and custody are
 /// unchanged. It is not a replacement request DTO or an execution receipt.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReplayExecutionProfileRequestBindingV1 {
     pub schema_version: u16,
     pub request_identity: String,
@@ -52,6 +54,89 @@ pub struct ReplayExecutionProfileRequestBindingV1 {
     pub trial_family_digest: [u8; 32],
     pub economic_configuration_digest: [u8; 32],
     pub runner_operational_profile_digest: [u8; 32],
+}
+
+/// Additive seal repeated by the frozen Replay request, receipt, and outbox.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ReplayExecutionProfileRequestSealV1 {
+    schema_version: u16,
+    request: ReplayExecutionProfileRequestBindingV1,
+    catalog_v3_binding_digest: [u8; 32],
+    family_profile_binding_digest: [u8; 32],
+    request_profile_binding_digest: [u8; 32],
+}
+
+impl ReplayExecutionProfileRequestSealV1 {
+    pub(crate) fn issue(
+        family: &TrialFamilyReadbackV1,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<Self, ReplayExecutionProfileBindingErrorV1> {
+        verify_family(family)
+            .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+        let root = family.root();
+        let catalog_v3 = root
+            .policy()
+            .replay_policy_catalog_v3()
+            .ok_or(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+        let (economic, runner) = catalog_v3
+            .verify()
+            .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
+        if root.policy().replay_execution_policy_v2() != Some(catalog_v3.replay_policy_v2()) {
+            return Err(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable);
+        }
+        let family_digest = decode_canonical_digest(root.root_digest())?;
+        let request = ReplayExecutionProfileRequestBindingV1 {
+            schema_version: REPLAY_EXECUTION_PROFILE_BINDING_SCHEMA_VERSION_V1,
+            request_identity: request_identity.to_owned(),
+            request_meaning_digest: decode_canonical_digest(request_meaning_digest)?,
+            trial_family_identity: root.trial_family_identity().to_owned(),
+            trial_family_digest: family_digest,
+            economic_configuration_digest: economic.digest(),
+            runner_operational_profile_digest: runner.digest(),
+        };
+        let family_binding = ReplayExecutionProfileFamilyBindingV1 {
+            schema_version: REPLAY_EXECUTION_PROFILE_BINDING_SCHEMA_VERSION_V1,
+            trial_family_identity: root.trial_family_identity().to_owned(),
+            trial_family_digest: family_digest,
+            economic_configuration_digest: economic.digest(),
+            runner_operational_profile_digest: runner.digest(),
+        };
+        validate_schema_and_identity(&family_binding, &request)?;
+        let family_profile_binding_digest =
+            family_profile_binding_digest(&family_binding, catalog_v3.binding_digest())?;
+        let request_profile_binding_digest =
+            request_profile_binding_digest(&request, family_profile_binding_digest)?;
+        Ok(Self {
+            schema_version: REPLAY_EXECUTION_PROFILE_BINDING_SCHEMA_VERSION_V1,
+            request,
+            catalog_v3_binding_digest: catalog_v3.binding_digest(),
+            family_profile_binding_digest,
+            request_profile_binding_digest,
+        })
+    }
+
+    pub(crate) fn verify_for_family(
+        &self,
+        family: &TrialFamilyReadbackV1,
+        request_identity: &str,
+        request_meaning_digest: &str,
+    ) -> Result<(), ReplayExecutionProfileBindingErrorV1> {
+        let expected = Self::issue(family, request_identity, request_meaning_digest)?;
+        if self != &expected {
+            return Err(ReplayExecutionProfileBindingErrorV1::ProfileMismatch);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn request_binding(&self) -> &ReplayExecutionProfileRequestBindingV1 {
+        &self.request
+    }
+
+    pub(crate) const fn family_profile_binding_digest(&self) -> [u8; 32] {
+        self.family_profile_binding_digest
+    }
 }
 
 /// Move-only proof issued by a future Strategy Factory-private adapter from sealed Instrument
@@ -358,18 +443,17 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
 )]
 pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     family: &TrialFamilyReadbackV1,
-    catalog_v3: &ReplayPolicyCatalogBindingV3,
     request: &SealedExploratoryReplayReadbackV2,
     instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
     verify_family(family)
         .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
     let root = family.root();
-    let catalog = root
+    let catalog_v3 = root
         .policy()
-        .replay_execution_policy_v2()
+        .replay_policy_catalog_v3()
         .ok_or(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
-    if catalog_v3.replay_policy_v2() != catalog {
+    if root.policy().replay_execution_policy_v2() != Some(catalog_v3.replay_policy_v2()) {
         return Err(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable);
     }
     let (economic, runner) = catalog_v3
@@ -377,6 +461,10 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
         .map_err(|_| ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?;
 
     let locator = request.locator();
+    request
+        .execution_profile_seal()
+        .ok_or(ReplayExecutionProfileBindingErrorV1::OwnerAuthorityUnavailable)?
+        .verify_for_family(family, &locator.request_identity, &locator.meaning_digest)?;
     let family_digest = decode_canonical_digest(root.root_digest())?;
     let request_meaning_digest = decode_canonical_digest(request.meaning_digest())?;
     let request_dto = request.request().as_dto();
@@ -479,11 +567,10 @@ pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
 #[cfg(test)]
 pub(crate) fn issue_owner_replay_execution_profile_binding_for_test_v1(
     family: &TrialFamilyReadbackV1,
-    catalog_v3: &ReplayPolicyCatalogBindingV3,
     request: &SealedExploratoryReplayReadbackV2,
     instrument_terms: [SealedInstrumentEconomicTermsProvenanceV1; TARGET_SET_MEMBER_COUNT],
 ) -> Result<OwnerIssuedReplayExecutionProfileBindingV1, ReplayExecutionProfileBindingErrorV1> {
-    issue_owner_replay_execution_profile_binding_v1(family, catalog_v3, request, instrument_terms)
+    issue_owner_replay_execution_profile_binding_v1(family, request, instrument_terms)
 }
 
 /// Genuine fixed Owner-readback fixture for the Backtest consumer seam.
@@ -495,7 +582,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
     window: ReplayWindowV2,
 ) -> OwnerIssuedReplayExecutionProfileBindingV1 {
     use crate::{
-        exploratory_replay::issue_sealed_exploratory_replay_readback_for_acceptance_v2,
+        exploratory_replay::issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2,
         replay_economic_configuration_v1::economic_fixture,
         replay_execution_policy_v2::ReplayExecutionPolicyV2,
         replay_policy_catalog_v2::{ReplayPolicyCatalogBindingV2, ReplayPolicyCatalogBindingV3},
@@ -557,7 +644,18 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         time_zone: versioned("america-new-york-v1"),
         correction_rule: versioned("correction-rule-v1"),
         market_semantics: versioned("market-semantics-v1"),
-        replay_configuration: content("economic-profile-v1", digest(1)),
+        replay_configuration: content(
+            "economic-profile-v1",
+            CanonicalDigestV2::try_from(format!(
+                "sha256:{}",
+                economic
+                    .digest()
+                    .iter()
+                    .map(|byte| format!("{byte:02x}"))
+                    .collect::<String>()
+            ))
+            .expect("economic configuration digest"),
+        ),
         corporate_action_cut: content("corporate-action-cut-v1", digest(2)),
         historical_membership_cut: content("membership-cut-v1", digest(3)),
     };
@@ -585,6 +683,7 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
             independence_basis_identity: "independence-basis-v1".into(),
             frozen_falsifier_binding: format!("sha256:{}", "5".repeat(64)),
             replay_execution_policy_v2: Some(catalog_v2),
+            replay_policy_catalog_v3: Some(catalog_v3.clone()),
         },
         1,
     )
@@ -662,8 +761,9 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
         historical_membership_cut: execution_policy.historical_membership_cut,
     })
     .expect("Replay V2 fixture");
-    let request = issue_sealed_exploratory_replay_readback_for_acceptance_v2(request)
-        .expect("sealed Replay Owner fixture");
+    let request =
+        issue_sealed_exploratory_replay_readback_with_profiles_for_acceptance_v2(request, &family)
+            .expect("sealed Replay Owner fixture");
     let terms = &economic.input().instrument_terms;
     let provenance = [
         instrument_terms_provenance_for_fixture(
@@ -693,13 +793,8 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
             i128::MAX,
         ),
     ];
-    issue_owner_replay_execution_profile_binding_for_test_v1(
-        &family,
-        &catalog_v3,
-        &request,
-        provenance,
-    )
-    .expect("Owner-issued dual-profile fixture")
+    issue_owner_replay_execution_profile_binding_for_test_v1(&family, &request, provenance)
+        .expect("Owner-issued dual-profile fixture")
 }
 
 impl ReplayExecutionProfileBindingV1 {
@@ -932,6 +1027,38 @@ fn validate_schema_and_identity(
         }
     }
     Ok(())
+}
+
+fn family_profile_binding_digest(
+    family: &ReplayExecutionProfileFamilyBindingV1,
+    catalog_v3_binding_digest: [u8; 32],
+) -> Result<[u8; 32], ReplayExecutionProfileBindingErrorV1> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"rd.replay-family-execution-profile-seal.v1\0");
+    hasher.update(family.schema_version.to_le_bytes());
+    encode_bytes(&mut hasher, family.trial_family_identity.as_bytes())?;
+    hasher.update(family.trial_family_digest);
+    hasher.update(family.economic_configuration_digest);
+    hasher.update(family.runner_operational_profile_digest);
+    hasher.update(catalog_v3_binding_digest);
+    Ok(hasher.finalize().into())
+}
+
+fn request_profile_binding_digest(
+    request: &ReplayExecutionProfileRequestBindingV1,
+    family_profile_binding_digest: [u8; 32],
+) -> Result<[u8; 32], ReplayExecutionProfileBindingErrorV1> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"rd.replay-request-execution-profile-seal.v1\0");
+    hasher.update(request.schema_version.to_le_bytes());
+    encode_bytes(&mut hasher, request.request_identity.as_bytes())?;
+    hasher.update(request.request_meaning_digest);
+    encode_bytes(&mut hasher, request.trial_family_identity.as_bytes())?;
+    hasher.update(request.trial_family_digest);
+    hasher.update(request.economic_configuration_digest);
+    hasher.update(request.runner_operational_profile_digest);
+    hasher.update(family_profile_binding_digest);
+    Ok(hasher.finalize().into())
 }
 
 fn validate_instrument_terms(

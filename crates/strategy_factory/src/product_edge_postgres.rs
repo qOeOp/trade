@@ -45,7 +45,7 @@ use crate::rd_owner_postgres_custody::{
     resolve_exploratory_replay_result_for_rd_in_transaction, resolve_verified_artifact_family,
 };
 use crate::{
-    replay_policy_catalog_postgres_v2::resolve_current_for_trial_family_formation,
+    replay_policy_catalog_postgres_v2::resolve_current_v3_for_trial_family_formation,
     trial_family::{
         TrialFamilyDirectResultV1, TrialFamilyError, TrialFamilyIndependenceDispositionV1,
         TrialFamilyPolicyV1,
@@ -2710,18 +2710,23 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             )
             .map_err(|e| trial_family_storage(&e))?,
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
         };
-        let replay_policy =
-            match resolve_current_for_trial_family_formation(&mut transaction, &canonical_policy)
-                .await
-            {
-                Ok(policy) => policy,
-                Err(_) => {
-                    transaction.rollback().await.map_err(|e| storage(&e))?;
-                    return Ok(unresolved_result_v2(&request_identity));
-                }
-            };
-        canonical_policy.replay_execution_policy_v2 = Some(replay_policy);
+        let replay_policy_catalog_v3 = match resolve_current_v3_for_trial_family_formation(
+            &mut transaction,
+            &canonical_policy,
+        )
+        .await
+        {
+            Ok(policy) => policy,
+            Err(_) => {
+                transaction.rollback().await.map_err(|e| storage(&e))?;
+                return Ok(unresolved_result_v2(&request_identity));
+            }
+        };
+        canonical_policy.replay_execution_policy_v2 =
+            Some(replay_policy_catalog_v3.replay_policy_v2().clone());
+        canonical_policy.replay_policy_catalog_v3 = Some(replay_policy_catalog_v3);
         let stored_request = StoredAdmittedResearchRequestV2 {
             schema_version: 1,
             request: request.clone(),

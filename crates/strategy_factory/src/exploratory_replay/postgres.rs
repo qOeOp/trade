@@ -29,6 +29,7 @@ use crate::{
         FrozenResearchGoalIntent, RESEARCH_OWNER_V1, RESEARCH_SCOPE_V1, ResearchRequestDisposition,
     },
     rd_owner_postgres_custody::{AttemptState, VerifiedAttemptCustodyV1},
+    replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1,
 };
 
 const LOCK_FUNCTION: &str = "rd_owner_api.lock_exploratory_replay_request_v1(text,text,text)";
@@ -181,15 +182,32 @@ const INTERNAL_VERIFY_SOURCE_V1: &str = r#"
                AND family_outbox.event_identity='rd-owner-outbox-v1-' || pg_catalog.replace(head.frontier_digest,'sha256:','')
                AND family_outbox.committed_at_epoch_ms=(sealed.frozen_json->>'trial_family_outbox_committed_at_epoch_ms')::bigint
                AND family_outbox.committed_at_epoch_ms=family.committed_at_epoch_ms
-               AND family_outbox.payload_json=pg_catalog.jsonb_build_object(
-                 'schema_version',1,
-                 'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
-                 'intent_identity',sealed.intent_identity,
-                 'trial_family_identity',sealed.trial_family_identity,
-                 'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
-                 'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
-                 'census_frontier_identity',head.frontier_identity,
-                 'census_frontier_digest',head.frontier_digest
+               AND family_outbox.payload_json=(
+                 pg_catalog.jsonb_build_object(
+                   'schema_version',1,
+                   'research_receipt_identity',sealed.frozen_json->>'research_receipt_identity',
+                   'intent_identity',sealed.intent_identity,
+                   'trial_family_identity',sealed.trial_family_identity,
+                   'root_receipt_identity',family.root_receipt_json->>'receipt_identity',
+                   'membership_receipt_identity',member.membership_receipt_json->>'receipt_identity',
+                   'census_frontier_identity',head.frontier_identity,
+                   'census_frontier_digest',head.frontier_digest
+                 ) || CASE
+                   WHEN family.root_json->'policy' ? 'replay_execution_policy_v2'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_execution_policy_v2',
+                     family.root_json->'policy'->'replay_execution_policy_v2'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
+                 || CASE
+                   WHEN family.root_json->'policy' ? 'replay_policy_catalog_v3'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_policy_catalog_v3',
+                     family.root_json->'policy'->'replay_policy_catalog_v3'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
                )
           ) OR NOT EXISTS (
             SELECT 1
@@ -278,11 +296,20 @@ const INTERNAL_VERIFY_SOURCE_V2: &str = r#"
              OR sealed.v2_meaning_digest IS NULL
              OR sealed.v2_seal_digest IS NULL
              OR sealed.v2_receipt_json IS NULL
-             OR sealed.v2_receipt_json->>'schema_version' <> '2'
+             OR sealed.v2_receipt_json->>'schema_version' NOT IN ('2','3')
              OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
              OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
              OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
              OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR CASE sealed.v2_receipt_json->>'schema_version'
+                  WHEN '2' THEN sealed.v2_receipt_json ? 'execution_profile_seal'
+                                OR sealed.frozen_json ? 'execution_profile_seal'
+                  WHEN '3' THEN NOT sealed.v2_receipt_json ? 'execution_profile_seal'
+                                OR NOT sealed.frozen_json ? 'execution_profile_seal'
+                                OR sealed.v2_receipt_json->'execution_profile_seal'
+                                   <> sealed.frozen_json->'execution_profile_seal'
+                  ELSE true
+                END
           THEN RETURN NULL; END IF;
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
@@ -302,15 +329,21 @@ const INTERNAL_VERIFY_SOURCE_V2: &str = r#"
              AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2'
            FOR SHARE;
 
-          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
-               'schema_version',2,
+          IF locked_v2_outbox.payload_json <> (pg_catalog.jsonb_build_object(
+               'schema_version',(sealed.v2_receipt_json->>'schema_version')::integer,
                'request_identity',sealed.request_identity,
                'meaning_digest',sealed.v2_meaning_digest,
                'seal_digest',sealed.v2_seal_digest,
                'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
                'lineage_request_digest',sealed.request_digest,
                'committed_at_epoch_ms',sealed.committed_at_epoch_ms
-             )
+             ) || CASE sealed.v2_receipt_json->>'schema_version'
+                    WHEN '3' THEN pg_catalog.jsonb_build_object(
+                      'execution_profile_seal',
+                      sealed.v2_receipt_json->'execution_profile_seal'
+                    )
+                    ELSE '{}'::jsonb
+                  END)
              OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
           THEN RETURN NULL; END IF;
 
@@ -366,6 +399,8 @@ struct FrozenMeaningV1<'a> {
     artifact_family_outbox_event_identity: &'a str,
     artifact_family_outbox_digest: &'a str,
     artifact_family_outbox_committed_at_epoch_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<&'a ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -394,6 +429,8 @@ struct StoredFrozenV1 {
     artifact_family_outbox_event_identity: String,
     artifact_family_outbox_digest: String,
     artifact_family_outbox_committed_at_epoch_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
     request_digest: String,
 }
@@ -411,6 +448,8 @@ struct FamilyFrozenOutboxV1 {
     census_frontier_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
@@ -457,6 +496,8 @@ struct StoredOutboxV2 {
     seal_digest: String,
     receipt_identity: String,
     lineage_request_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -468,6 +509,8 @@ struct StoredReceiptV2 {
     request_identity: String,
     meaning_digest: String,
     seal_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
     committed_at_epoch_ms: u64,
 }
 
@@ -476,6 +519,7 @@ struct PreparedSealV2 {
     proposal: ExploratoryReplayRequestProposalV2,
     canonical_request_bytes: Vec<u8>,
     meaning_digest: String,
+    execution_profile_seal: Option<ReplayExecutionProfileRequestSealV1>,
 }
 
 #[derive(Debug)]
@@ -1033,6 +1077,14 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
                    )
                    ELSE '{}'::pg_catalog.jsonb
                  END
+                 || CASE
+                   WHEN family.root_json->'policy' ? 'replay_policy_catalog_v3'
+                   THEN pg_catalog.jsonb_build_object(
+                     'replay_policy_catalog_v3',
+                     family.root_json->'policy'->'replay_policy_catalog_v3'
+                   )
+                   ELSE '{}'::pg_catalog.jsonb
+                 END
                )
           ) OR NOT EXISTS (
             SELECT 1
@@ -1161,11 +1213,20 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
              OR sealed.v2_meaning_digest IS NULL
              OR sealed.v2_seal_digest IS NULL
              OR sealed.v2_receipt_json IS NULL
-             OR sealed.v2_receipt_json->>'schema_version' <> '2'
+             OR sealed.v2_receipt_json->>'schema_version' NOT IN ('2','3')
              OR sealed.v2_receipt_json->>'request_identity' <> sealed.request_identity
              OR sealed.v2_receipt_json->>'meaning_digest' <> sealed.v2_meaning_digest
              OR sealed.v2_receipt_json->>'seal_digest' <> sealed.v2_seal_digest
              OR sealed.v2_receipt_json->>'committed_at_epoch_ms' <> sealed.committed_at_epoch_ms::text
+             OR CASE sealed.v2_receipt_json->>'schema_version'
+                  WHEN '2' THEN sealed.v2_receipt_json ? 'execution_profile_seal'
+                                OR sealed.frozen_json ? 'execution_profile_seal'
+                  WHEN '3' THEN NOT sealed.v2_receipt_json ? 'execution_profile_seal'
+                                OR NOT sealed.frozen_json ? 'execution_profile_seal'
+                                OR sealed.v2_receipt_json->'execution_profile_seal'
+                                   <> sealed.frozen_json->'execution_profile_seal'
+                  ELSE true
+                END
           THEN RETURN NULL; END IF;
 
           base := rd_owner_api.verify_exploratory_replay_request_internal_v1(
@@ -1184,15 +1245,21 @@ pub(crate) async fn migrate(pool: &PgPool) -> Result<(), ExploratoryReplayOwnerE
            WHERE aggregate_identity=sealed.request_identity
              AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2';
 
-          IF locked_v2_outbox.payload_json <> pg_catalog.jsonb_build_object(
-               'schema_version',2,
+          IF locked_v2_outbox.payload_json <> (pg_catalog.jsonb_build_object(
+               'schema_version',(sealed.v2_receipt_json->>'schema_version')::integer,
                'request_identity',sealed.request_identity,
                'meaning_digest',sealed.v2_meaning_digest,
                'seal_digest',sealed.v2_seal_digest,
                'receipt_identity',sealed.v2_receipt_json->>'receipt_identity',
                'lineage_request_digest',sealed.request_digest,
                'committed_at_epoch_ms',sealed.committed_at_epoch_ms
-             )
+             ) || CASE sealed.v2_receipt_json->>'schema_version'
+                    WHEN '3' THEN pg_catalog.jsonb_build_object(
+                      'execution_profile_seal',
+                      sealed.v2_receipt_json->'execution_profile_seal'
+                    )
+                    ELSE '{}'::jsonb
+                  END)
              OR locked_v2_outbox.committed_at_epoch_ms <> sealed.committed_at_epoch_ms
           THEN RETURN NULL; END IF;
 
@@ -1353,6 +1420,7 @@ pub(crate) async fn commit_v2(
             proposal,
             canonical_request_bytes,
             meaning_digest,
+            execution_profile_seal: None,
         }),
     ))
     .await?;
@@ -1365,7 +1433,7 @@ pub(crate) async fn commit_v2(
 async fn commit_inner(
     pool: &PgPool,
     proposal: ExploratoryReplayRequestProposalV1,
-    prepared_v2: Option<PreparedSealV2>,
+    mut prepared_v2: Option<PreparedSealV2>,
 ) -> Result<CommittedReplay, ExploratoryReplayOwnerError> {
     validate_proposal(&proposal)?;
     let mut transaction = pool.begin().await.map_err(storage)?;
@@ -1429,6 +1497,18 @@ async fn commit_inner(
     let binding = family.binding();
     let binding_receipt = family.binding_receipt();
 
+    if let Some(prepared) = prepared_v2.as_mut() {
+        verify_request_equals_family_sealed_policy(root.policy(), &prepared.proposal.request)?;
+        prepared.execution_profile_seal = Some(
+            ReplayExecutionProfileRequestSealV1::issue(
+                family.trial_family(),
+                &proposal.request_identity,
+                &prepared.meaning_digest,
+            )
+            .map_err(unavailable)?,
+        );
+    }
+
     if custody.attempt.state != AttemptState::Terminal
         || receipt.disposition != ArtifactBuildDisposition::Success
         || research_receipt.disposition != ResearchRequestDisposition::Accepted
@@ -1491,6 +1571,12 @@ async fn commit_inner(
                 .root()
                 .policy()
                 .replay_execution_policy_v2()
+                .cloned(),
+            replay_policy_catalog_v3: family
+                .trial_family()
+                .root()
+                .policy()
+                .replay_policy_catalog_v3()
                 .cloned(),
         },
         research_receipt.committed_at_epoch_ms,
@@ -1586,6 +1672,9 @@ async fn commit_inner(
         artifact_family_outbox_event_identity: artifact_family_outbox.event_identity.clone(),
         artifact_family_outbox_digest: artifact_family_outbox.payload_digest.clone(),
         artifact_family_outbox_committed_at_epoch_ms: artifact_family_outbox.committed_at_epoch_ms,
+        execution_profile_seal: prepared_v2
+            .as_ref()
+            .and_then(|prepared| prepared.execution_profile_seal.clone()),
         committed_at_epoch_ms: final_cut,
         request_digest: String::new(),
     };
@@ -1655,12 +1744,13 @@ async fn commit_inner(
 
     if let Some((_, receipt_v2)) = &stored_v2 {
         let payload_v2 = StoredOutboxV2 {
-            schema_version: 2,
+            schema_version: receipt_v2.schema_version,
             request_identity: frozen.proposal.request_identity.clone(),
             meaning_digest: receipt_v2.meaning_digest.clone(),
             seal_digest: receipt_v2.seal_digest.clone(),
             receipt_identity: receipt_v2.receipt_identity.clone(),
             lineage_request_digest: frozen.request_digest.clone(),
+            execution_profile_seal: receipt_v2.execution_profile_seal.clone(),
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         };
         let payload_digest_v2 = canonical_digest("rd.owner-outbox.payload.v1", &payload_v2)?;
@@ -1769,6 +1859,7 @@ async fn resolve_existing(
             proposal: expected.proposal.clone(),
             canonical_request_bytes,
             meaning_digest,
+            execution_profile_seal: receipt.execution_profile_seal.clone(),
         };
         verify_v2_seal(&prepared, &receipt, &validated.frozen)?;
         if receipt.seal_digest != seal_digest {
@@ -1890,50 +1981,20 @@ pub(crate) async fn resolve_for_rd_v2(
     rd_pool: &PgPool,
     selector: &ExploratoryReplayRecoverySelectorV2,
 ) -> Result<ExploratoryReplayReadResultV2, ExploratoryReplayOwnerError> {
-    use vibe_rd_exploratory_replay_custody::{
-        ExploratoryReplayAvailabilityV2 as CustodyAvailability,
-        ExploratoryReplayRecoverySelectorV2 as CustodySelector,
-        resolve_sealed_exploratory_replay_request_v2,
-    };
-
-    let custody = resolve_sealed_exploratory_replay_request_v2(
-        rd_pool,
-        &CustodySelector {
-            request_identity: selector.request_identity.clone(),
-            meaning_digest: selector.meaning_digest.clone(),
-        },
+    let value: Option<serde_json::Value> = sqlx::query_scalar(
+        "SELECT rd_owner_api.verify_exploratory_replay_request_internal_v2($1,$2,'','')",
     )
+    .bind(&selector.request_identity)
+    .bind(&selector.meaning_digest)
+    .fetch_one(rd_pool)
     .await
-    .map_err(unavailable)?;
-    let availability = match custody.availability() {
-        CustodyAvailability::Available => ExploratoryReplayAvailabilityV1::Available,
-        CustodyAvailability::Stale => ExploratoryReplayAvailabilityV1::Stale,
-        CustodyAvailability::Unavailable => ExploratoryReplayAvailabilityV1::Unavailable,
-    };
-    let projection = projection_v2(custody.request_identity(), availability);
-    let Some(readback) = custody.into_readback() else {
-        return Ok(ExploratoryReplayReadResultV2 {
-            projection,
-            readback: None,
-        });
-    };
-    Ok(ExploratoryReplayReadResultV2 {
-        projection,
-        readback: Some(SealedExploratoryReplayReadbackV2 {
-            request: readback.request().clone(),
-            canonical_request_bytes: readback.canonical_request_bytes().to_vec(),
-            meaning_digest: readback.meaning_digest().to_string(),
-            receipt: ExploratoryReplayCommitReceiptV2 {
-                schema_version: 2,
-                receipt_identity: readback.receipt_identity().to_string(),
-                request_identity: selector.request_identity.clone(),
-                meaning_digest: readback.meaning_digest().to_string(),
-                seal_digest: readback.seal_digest().to_string(),
-                committed_at_epoch_ms: readback.committed_at_epoch_ms(),
-            },
-            owner_cut_epoch_ms: readback.owner_cut_epoch_ms(),
-        }),
-    })
+    .map_err(storage)?;
+    decode_v2_read_result(
+        &selector.request_identity,
+        &selector.meaning_digest,
+        None,
+        value,
+    )
 }
 
 fn decode_v2_read_result(
@@ -1995,6 +2056,7 @@ fn decode_v2_read_result(
         },
         canonical_request_bytes: canonical_request_bytes.clone(),
         meaning_digest: meaning_digest.clone(),
+        execution_profile_seal: receipt.execution_profile_seal.clone(),
     };
 
     if expected_request_identity != receipt.request_identity
@@ -2026,6 +2088,7 @@ fn decode_v2_read_result(
             request,
             canonical_request_bytes,
             meaning_digest,
+            execution_profile_seal: receipt.execution_profile_seal.clone(),
             receipt: into_receipt_v2(receipt),
             owner_cut_epoch_ms: validated.owner_cut_epoch_ms,
         }),
@@ -2586,6 +2649,59 @@ fn validate_proposal_v2(
     Ok(request)
 }
 
+fn verify_request_equals_family_sealed_policy(
+    family_policy: &crate::trial_family::TrialFamilyPolicyV1,
+    request: &ReplayRequestDtoV2,
+) -> Result<(), ExploratoryReplayOwnerError> {
+    let catalog_v3 = family_policy.replay_policy_catalog_v3().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable(
+            "TrialFamily has no sealed Replay execution profiles".into(),
+        )
+    })?;
+    let (economic, _runner) = catalog_v3.verify().map_err(unavailable)?;
+    if family_policy.replay_execution_policy_v2() != Some(catalog_v3.replay_policy_v2()) {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "TrialFamily Catalog V2/V3 binding mismatch".into(),
+        ));
+    }
+    let policy = catalog_v3
+        .replay_policy_v2()
+        .verify()
+        .map_err(unavailable)?;
+    let economic_digest = format!(
+        "sha256:{}",
+        economic
+            .digest()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>()
+    );
+    if request.models.runtime_kernel != policy.runtime_kernel
+        || request.models.simulator != policy.simulator
+        || request.models.cost != policy.cost
+        || request.models.slippage != policy.slippage
+        || request.models.capacity != policy.capacity
+        || request.runner_operational_profile != policy.runner_operational_profile
+        || request.diagnostic_policy != policy.diagnostic_policy
+        || request.deterministic_seed != policy.deterministic_seed
+        || request.window != policy.window
+        || request.calendar != policy.calendar
+        || request.session != policy.session
+        || request.time_zone != policy.time_zone
+        || request.correction_rule != policy.correction_rule
+        || request.market_semantics != policy.market_semantics
+        || request.replay_configuration != policy.replay_configuration
+        || request.replay_configuration.digest.as_str() != economic_digest
+        || request.corporate_action_cut != policy.corporate_action_cut
+        || request.historical_membership_cut != policy.historical_membership_cut
+    {
+        return Err(ExploratoryReplayOwnerError::Unavailable(
+            "Replay request does not equal the family-sealed execution policy".into(),
+        ));
+    }
+    Ok(())
+}
+
 fn legacy_lineage_projection(
     proposal: &ExploratoryReplayRequestProposalV2,
 ) -> Result<ExploratoryReplayRequestProposalV1, ExploratoryReplayOwnerError> {
@@ -2765,6 +2881,7 @@ fn frozen_digest(frozen: &StoredFrozenV1) -> Result<String, ExploratoryReplayOwn
             artifact_family_outbox_digest: &frozen.artifact_family_outbox_digest,
             artifact_family_outbox_committed_at_epoch_ms: frozen
                 .artifact_family_outbox_committed_at_epoch_ms,
+            execution_profile_seal: frozen.execution_profile_seal.as_ref(),
             committed_at_epoch_ms: frozen.committed_at_epoch_ms,
         },
     )
@@ -2924,12 +3041,13 @@ fn verify_v2_outbox(
     frozen: &StoredFrozenV1,
 ) -> Result<(), ExploratoryReplayOwnerError> {
     let expected = StoredOutboxV2 {
-        schema_version: 2,
+        schema_version: receipt.schema_version,
         request_identity: frozen.proposal.request_identity.clone(),
         meaning_digest: receipt.meaning_digest.clone(),
         seal_digest: receipt.seal_digest.clone(),
         receipt_identity: receipt.receipt_identity.clone(),
         lineage_request_digest: frozen.request_digest.clone(),
+        execution_profile_seal: receipt.execution_profile_seal.clone(),
         committed_at_epoch_ms: frozen.committed_at_epoch_ms,
     };
     let payload: StoredOutboxV2 = decode_exact(&outbox.payload_json)?;
@@ -3046,33 +3164,39 @@ fn seal_v2(
     prepared: PreparedSealV2,
     frozen: &StoredFrozenV1,
 ) -> Result<(PreparedSealV2, StoredReceiptV2), ExploratoryReplayOwnerError> {
+    let profile_seal = prepared.execution_profile_seal.as_ref().ok_or_else(|| {
+        ExploratoryReplayOwnerError::Unavailable("Replay execution-profile seal missing".into())
+    })?;
     let seal_digest = canonical_digest(
-        "rd.exploratory-replay-request-seal.v2",
+        "rd.exploratory-replay-request-seal.v3",
         &(
-            2_u16,
+            3_u16,
             frozen.proposal.request_identity.as_str(),
             prepared.meaning_digest.as_str(),
             BASE64.encode(&prepared.canonical_request_bytes),
             frozen.request_digest.as_str(),
+            profile_seal,
             frozen.committed_at_epoch_ms,
         ),
     )?;
     let receipt_digest = canonical_digest(
-        "rd.exploratory-replay-request-receipt.v2",
+        "rd.exploratory-replay-request-receipt.v3",
         &(
-            2_u16,
+            3_u16,
             frozen.proposal.request_identity.as_str(),
             prepared.meaning_digest.as_str(),
             seal_digest.as_str(),
+            profile_seal,
             frozen.committed_at_epoch_ms,
         ),
     )?;
     let receipt = StoredReceiptV2 {
-        schema_version: 2,
+        schema_version: 3,
         receipt_identity: identity("rd-exploratory-replay-receipt-v2", &receipt_digest),
         request_identity: frozen.proposal.request_identity.clone(),
         meaning_digest: prepared.meaning_digest.clone(),
         seal_digest,
+        execution_profile_seal: Some(profile_seal.clone()),
         committed_at_epoch_ms: frozen.committed_at_epoch_ms,
     };
     verify_v2_seal(&prepared, &receipt, frozen)?;
@@ -3096,30 +3220,74 @@ fn verify_v2_seal(
             "sealed Replay V2 canonical meaning mismatch".into(),
         ));
     }
-    let expected_seal = canonical_digest(
-        "rd.exploratory-replay-request-seal.v2",
-        &(
-            2_u16,
-            frozen.proposal.request_identity.as_str(),
-            prepared.meaning_digest.as_str(),
-            BASE64.encode(&prepared.canonical_request_bytes),
-            frozen.request_digest.as_str(),
-            frozen.committed_at_epoch_ms,
-        ),
-    )?;
-    let receipt_digest = canonical_digest(
-        "rd.exploratory-replay-request-receipt.v2",
-        &(
-            2_u16,
-            frozen.proposal.request_identity.as_str(),
-            prepared.meaning_digest.as_str(),
-            expected_seal.as_str(),
-            frozen.committed_at_epoch_ms,
-        ),
-    )?;
+    let (expected_seal, receipt_digest) =
+        if let Some(profile_seal) = prepared.execution_profile_seal.as_ref() {
+            if frozen.execution_profile_seal.as_ref() != Some(profile_seal)
+                || receipt.execution_profile_seal.as_ref() != Some(profile_seal)
+                || receipt.schema_version != 3
+            {
+                return Err(ExploratoryReplayOwnerError::Unavailable(
+                    "Replay execution-profile request/receipt mismatch".into(),
+                ));
+            }
+            let seal = canonical_digest(
+                "rd.exploratory-replay-request-seal.v3",
+                &(
+                    3_u16,
+                    frozen.proposal.request_identity.as_str(),
+                    prepared.meaning_digest.as_str(),
+                    BASE64.encode(&prepared.canonical_request_bytes),
+                    frozen.request_digest.as_str(),
+                    profile_seal,
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            let receipt = canonical_digest(
+                "rd.exploratory-replay-request-receipt.v3",
+                &(
+                    3_u16,
+                    frozen.proposal.request_identity.as_str(),
+                    prepared.meaning_digest.as_str(),
+                    seal.as_str(),
+                    profile_seal,
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            (seal, receipt)
+        } else {
+            if frozen.execution_profile_seal.is_some()
+                || receipt.execution_profile_seal.is_some()
+                || receipt.schema_version != 2
+            {
+                return Err(ExploratoryReplayOwnerError::Unavailable(
+                    "legacy Replay V2 profile extension is partial".into(),
+                ));
+            }
+            let seal = canonical_digest(
+                "rd.exploratory-replay-request-seal.v2",
+                &(
+                    2_u16,
+                    frozen.proposal.request_identity.as_str(),
+                    prepared.meaning_digest.as_str(),
+                    BASE64.encode(&prepared.canonical_request_bytes),
+                    frozen.request_digest.as_str(),
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            let receipt = canonical_digest(
+                "rd.exploratory-replay-request-receipt.v2",
+                &(
+                    2_u16,
+                    frozen.proposal.request_identity.as_str(),
+                    prepared.meaning_digest.as_str(),
+                    seal.as_str(),
+                    frozen.committed_at_epoch_ms,
+                ),
+            )?;
+            (seal, receipt)
+        };
 
-    if receipt.schema_version != 2
-        || receipt.request_identity != frozen.proposal.request_identity
+    if receipt.request_identity != frozen.proposal.request_identity
         || receipt.meaning_digest != prepared.meaning_digest
         || receipt.seal_digest != expected_seal
         || receipt.committed_at_epoch_ms != frozen.committed_at_epoch_ms
@@ -3209,6 +3377,7 @@ fn into_receipt_v2(stored: StoredReceiptV2) -> ExploratoryReplayCommitReceiptV2 
         request_identity: stored.request_identity,
         meaning_digest: stored.meaning_digest,
         seal_digest: stored.seal_digest,
+        execution_profile_seal: stored.execution_profile_seal,
         committed_at_epoch_ms: stored.committed_at_epoch_ms,
     }
 }

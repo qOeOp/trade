@@ -27,6 +27,11 @@ pub struct TrialFamilyPolicyV1 {
     /// Replay V2 composition.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    /// Additive Catalog V3 dual-profile seal fixed at family formation.
+    ///
+    /// Absence denotes a historically readable family that is unavailable for Replay V2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -80,6 +85,8 @@ pub struct TrialFamilyRootReceiptV1 {
     root_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
     committed_at_epoch_ms: u64,
 }
 
@@ -166,6 +173,8 @@ pub(crate) struct TrialFamilyCensusFrontierV2 {
     attempt_frontier_digest: String,
     candidate_set_frontier_identity: String,
     candidate_set_frontier_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
     frontier_digest: String,
 }
 
@@ -245,6 +254,8 @@ pub struct TrialFamilyCensusFrontierV1 {
     consumed_trial_budget: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
     frontier_digest: String,
 }
 
@@ -324,6 +335,8 @@ struct StoredTrialFamilyRootReceiptV1 {
     root_digest: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
     committed_at_epoch_ms: u64,
 }
 
@@ -368,6 +381,8 @@ struct StoredTrialFamilyCensusFrontierV1 {
     consumed_trial_budget: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
     frontier_digest: String,
 }
 
@@ -551,6 +566,10 @@ impl TrialFamilyPolicyV1 {
     pub fn replay_execution_policy_v2(&self) -> Option<&crate::ReplayPolicyCatalogBindingV2> {
         self.replay_execution_policy_v2.as_ref()
     }
+
+    pub fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
+        self.replay_policy_catalog_v3.as_ref()
+    }
 }
 
 impl TrialFamilyRootV1 {
@@ -582,6 +601,10 @@ impl TrialFamilyRootReceiptV1 {
 
     pub fn replay_execution_policy_v2(&self) -> Option<&crate::ReplayPolicyCatalogBindingV2> {
         self.replay_execution_policy_v2.as_ref()
+    }
+
+    pub fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
+        self.replay_policy_catalog_v3.as_ref()
     }
 
     pub(crate) fn committed_at_epoch_ms(&self) -> u64 {
@@ -660,6 +683,10 @@ impl TrialFamilyCensusFrontierV1 {
 
     pub fn replay_execution_policy_v2(&self) -> Option<&crate::ReplayPolicyCatalogBindingV2> {
         self.replay_execution_policy_v2.as_ref()
+    }
+
+    pub fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
+        self.replay_policy_catalog_v3.as_ref()
     }
 }
 
@@ -808,6 +835,10 @@ impl TrialFamilyCensusFrontierV2 {
 
     pub(crate) fn trial_family_identity(&self) -> &str {
         &self.trial_family_identity
+    }
+
+    pub(crate) fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
+        self.replay_policy_catalog_v3.as_ref()
     }
 }
 
@@ -961,8 +992,24 @@ pub(crate) fn form_initial_family(
             ));
         }
     }
+    if let Some(binding_v3) = policy.replay_policy_catalog_v3.as_ref() {
+        binding_v3
+            .verify()
+            .map_err(|e| TrialFamilyError::Unavailable(e.to_string()))?;
+        let binding_v2 = policy.replay_execution_policy_v2.as_ref().ok_or_else(|| {
+            TrialFamilyError::Unavailable(
+                "Replay Catalog V3 is missing its unchanged V2 policy binding".to_string(),
+            )
+        })?;
+        if binding_v3.replay_policy_v2() != binding_v2 {
+            return Err(TrialFamilyError::Unavailable(
+                "Replay Catalog V3 family/profile cross-binding mismatch".to_string(),
+            ));
+        }
+    }
     let policy_digest = canonical_digest("rd.trial-family.policy.v1", &policy)?;
     let replay_execution_policy_v2 = policy.replay_execution_policy_v2.clone();
+    let replay_policy_catalog_v3 = policy.replay_policy_catalog_v3.clone();
     let family_identity_digest = canonical_digest(
         "rd.trial-family.identity.v1",
         &FamilyIdentityMeaningV1 {
@@ -995,6 +1042,7 @@ pub(crate) fn form_initial_family(
         intent_identity: intent_identity.to_string(),
         root_digest: root_digest.clone(),
         replay_execution_policy_v2: replay_execution_policy_v2.clone(),
+        replay_policy_catalog_v3: replay_policy_catalog_v3.clone(),
         committed_at_epoch_ms: now_epoch_ms,
     };
     let member_meaning = MemberMeaningV1 {
@@ -1031,6 +1079,7 @@ pub(crate) fn form_initial_family(
         member_digests: std::slice::from_ref(&member_digest),
         consumed_trial_budget: 1,
         replay_execution_policy_v2: replay_execution_policy_v2.as_ref(),
+        replay_policy_catalog_v3: replay_policy_catalog_v3.as_ref(),
     };
     let frontier_digest =
         canonical_digest("rd.trial-family.census-frontier.v1", &frontier_meaning)?;
@@ -1042,6 +1091,7 @@ pub(crate) fn form_initial_family(
         member_digests: vec![member_digest],
         consumed_trial_budget: 1,
         replay_execution_policy_v2,
+        replay_policy_catalog_v3,
         frontier_digest,
     };
     Ok(TrialFamilyReadbackV1 {
@@ -1201,6 +1251,7 @@ pub(crate) fn append_attempt_to_census_v2(
         attempt_frontier_digest: &attempt_frontier.frontier_digest,
         candidate_set_frontier_identity: &candidate_set_frontier.frontier_identity,
         candidate_set_frontier_digest: &candidate_set_frontier.frontier_digest,
+        replay_policy_catalog_v3: legacy_family.root.policy.replay_policy_catalog_v3.as_ref(),
     };
     let census_digest = canonical_digest("rd.trial-family.census-frontier.v2", &census_meaning)?;
     let census_frontier = TrialFamilyCensusFrontierV2 {
@@ -1214,6 +1265,7 @@ pub(crate) fn append_attempt_to_census_v2(
         attempt_frontier_digest: attempt_frontier.frontier_digest.clone(),
         candidate_set_frontier_identity: candidate_set_frontier.frontier_identity.clone(),
         candidate_set_frontier_digest: candidate_set_frontier.frontier_digest.clone(),
+        replay_policy_catalog_v3: legacy_family.root.policy.replay_policy_catalog_v3.clone(),
         frontier_digest: census_digest,
     };
     let readback = TrialFamilyCensusReadbackV2 {
@@ -1447,6 +1499,10 @@ pub(crate) fn verify_family(readback: &TrialFamilyReadbackV1) -> Result<(), Tria
             != readback.root_receipt.replay_execution_policy_v2
         || readback.root.policy.replay_execution_policy_v2
             != readback.census_frontier.replay_execution_policy_v2
+        || readback.root.policy.replay_policy_catalog_v3
+            != readback.root_receipt.replay_policy_catalog_v3
+        || readback.root.policy.replay_policy_catalog_v3
+            != readback.census_frontier.replay_policy_catalog_v3
         || readback.initial_intent_member.member_identity
             != readback.membership_receipt.member_identity
         || readback.initial_intent_member.member_digest != readback.membership_receipt.member_digest
@@ -1489,6 +1545,8 @@ pub(crate) fn verify_census_v2(
         || readback.candidate_set_frontier.trial_family_identity != family_identity
         || readback.census_frontier.trial_family_identity != family_identity
         || readback.census_frontier.root_digest != readback.legacy_family.root.root_digest
+        || readback.census_frontier.replay_policy_catalog_v3
+            != readback.legacy_family.root.policy.replay_policy_catalog_v3
         || readback.census_frontier.consumed_trial_budget
             != readback.attempt_frontier.consumed_trial_budget
         || readback.census_frontier.attempt_frontier_identity
@@ -1692,6 +1750,12 @@ pub(crate) fn verify_census_v2(
             attempt_frontier_digest: &readback.attempt_frontier.frontier_digest,
             candidate_set_frontier_identity: &candidate.frontier_identity,
             candidate_set_frontier_digest: &candidate.frontier_digest,
+            replay_policy_catalog_v3: readback
+                .legacy_family
+                .root
+                .policy
+                .replay_policy_catalog_v3
+                .as_ref(),
         },
     )?;
 
@@ -1813,6 +1877,8 @@ struct CensusFrontierMeaningV2<'a> {
     attempt_frontier_digest: &'a str,
     candidate_set_frontier_identity: &'a str,
     candidate_set_frontier_digest: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<&'a crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Serialize)]
@@ -1824,6 +1890,8 @@ struct FrontierMeaningV1<'a> {
     consumed_trial_budget: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     replay_execution_policy_v2: Option<&'a crate::ReplayPolicyCatalogBindingV2>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    replay_policy_catalog_v3: Option<&'a crate::ReplayPolicyCatalogBindingV3>,
 }
 
 #[derive(Serialize)]
@@ -1867,6 +1935,7 @@ impl From<StoredTrialFamilyRootReceiptV1> for TrialFamilyRootReceiptV1 {
             intent_identity: value.intent_identity,
             root_digest: value.root_digest,
             replay_execution_policy_v2: value.replay_execution_policy_v2,
+            replay_policy_catalog_v3: value.replay_policy_catalog_v3,
             committed_at_epoch_ms: value.committed_at_epoch_ms,
         }
     }
@@ -1918,6 +1987,7 @@ impl From<StoredTrialFamilyCensusFrontierV1> for TrialFamilyCensusFrontierV1 {
             member_digests: value.member_digests,
             consumed_trial_budget: value.consumed_trial_budget,
             replay_execution_policy_v2: value.replay_execution_policy_v2,
+            replay_policy_catalog_v3: value.replay_policy_catalog_v3,
             frontier_digest: value.frontier_digest,
         }
     }
@@ -2045,6 +2115,7 @@ mod tests {
             )
             .unwrap(),
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
         }
     }
 
@@ -2267,6 +2338,12 @@ mod tests {
                 candidate_set_frontier_digest: &malformed_member
                     .candidate_set_frontier
                     .frontier_digest,
+                replay_policy_catalog_v3: malformed_member
+                    .legacy_family
+                    .root
+                    .policy
+                    .replay_policy_catalog_v3
+                    .as_ref(),
             },
         )
         .unwrap();

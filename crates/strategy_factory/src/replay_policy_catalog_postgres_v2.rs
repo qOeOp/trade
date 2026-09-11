@@ -827,6 +827,7 @@ impl ReplayPolicyCatalogAdministrationPortV2 {
 }
 
 /// Locks and validates the exact current unrevoked Catalog fact on the caller's transaction.
+#[cfg(test)]
 pub(crate) async fn resolve_current_for_trial_family_formation(
     transaction: &mut Transaction<'_, Postgres>,
     family_policy: &TrialFamilyPolicyV1,
@@ -3269,6 +3270,7 @@ mod postgres_tests {
             independence_basis_identity: "independence-basis-v1".to_owned(),
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
             replay_execution_policy_v2: None,
+            replay_policy_catalog_v3: None,
         }
     }
 

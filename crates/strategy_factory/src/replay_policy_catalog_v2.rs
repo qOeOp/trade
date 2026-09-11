@@ -515,6 +515,7 @@ mod tests {
                 independence_basis_identity: "independence-basis-v1".to_owned(),
                 frozen_falsifier_binding: format!("sha256:{}", "b".repeat(64)),
                 replay_execution_policy_v2: Some(record.clone()),
+                replay_policy_catalog_v3: None,
             },
             1,
         )
