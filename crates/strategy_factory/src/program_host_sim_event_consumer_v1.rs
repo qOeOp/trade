@@ -45,6 +45,8 @@ pub struct ProgramHostSimEventCapabilityV1 {
     artifact: StrategyArtifactV2,
     universe_frame: StrategyInputUniverseFrameReceipt,
     execution_profile_digest: BindingDigest,
+    instrument_fact_digest: [u8; 32],
+    instrument_receipt_digest: [u8; 32],
     engine_config: BacktestEngineConfig,
     venue_config: SimulatedVenueConfig,
     strategy_id: StrategyId,
@@ -61,6 +63,8 @@ impl ProgramHostSimEventCapabilityV1 {
         artifact: StrategyArtifactV2,
         universe_frame: StrategyInputUniverseFrameReceipt,
         execution_profile_digest: BindingDigest,
+        instrument_fact_digest: [u8; 32],
+        instrument_receipt_digest: [u8; 32],
         engine_config: BacktestEngineConfig,
         venue_config: SimulatedVenueConfig,
         strategy_id: StrategyId,
@@ -72,6 +76,10 @@ impl ProgramHostSimEventCapabilityV1 {
         anyhow::ensure!(
             execution_profile_digest != BindingDigest::from_untrusted_bytes([0; 32]),
             "Sim EVENT capability has no execution-profile binding"
+        );
+        anyhow::ensure!(
+            instrument_fact_digest != [0; 32] && instrument_receipt_digest != [0; 32],
+            "Sim EVENT capability has no Instrument Owner binding"
         );
         anyhow::ensure!(
             engine_config.environment == Environment::Backtest
@@ -105,6 +113,8 @@ impl ProgramHostSimEventCapabilityV1 {
             artifact,
             universe_frame,
             execution_profile_digest,
+            instrument_fact_digest,
+            instrument_receipt_digest,
             engine_config,
             venue_config,
             strategy_id,
@@ -194,6 +204,8 @@ impl From<TargetSetActualFillConsumptionV1> for ProgramHostSimEventFillReadbackV
 pub struct ProgramHostSimEventReadbackV1 {
     execution_route: String,
     execution_profile_digest: [u8; 32],
+    instrument_fact_digest: [u8; 32],
+    instrument_receipt_digest: [u8; 32],
     canonical_result_digest: [u8; 32],
     target_set_count: usize,
     position_submit_count: usize,
@@ -210,6 +222,16 @@ impl ProgramHostSimEventReadbackV1 {
     #[must_use]
     pub const fn execution_profile_digest(&self) -> [u8; 32] {
         self.execution_profile_digest
+    }
+
+    #[must_use]
+    pub const fn instrument_fact_digest(&self) -> [u8; 32] {
+        self.instrument_fact_digest
+    }
+
+    #[must_use]
+    pub const fn instrument_receipt_digest(&self) -> [u8; 32] {
+        self.instrument_receipt_digest
     }
 
     #[must_use]
@@ -252,6 +274,8 @@ pub fn run_program_host_sim_event_consumer_v1(
         artifact,
         universe_frame,
         execution_profile_digest,
+        instrument_fact_digest,
+        instrument_receipt_digest,
         engine_config,
         venue_config,
         strategy_id,
@@ -302,6 +326,8 @@ pub fn run_program_host_sim_event_consumer_v1(
     Ok(ProgramHostSimEventReadbackV1 {
         execution_route: "EVENT".to_owned(),
         execution_profile_digest: *execution_profile_digest.as_bytes(),
+        instrument_fact_digest,
+        instrument_receipt_digest,
         canonical_result_digest,
         target_set_count: observed.canonical_target_sets.len(),
         position_submit_count: observed.successful_position_submits.len(),

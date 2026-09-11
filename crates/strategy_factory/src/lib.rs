@@ -104,6 +104,7 @@ pub use program_host_bar_joined_cut_backtest_v1::{
 mod program_host_bar_joined_cut_postgres_acceptance_tests;
 #[allow(dead_code)]
 mod program_host_event_corpus_backtest_v1;
+pub mod program_host_sim_event_consumer_v1;
 pub mod program_host_v2;
 #[cfg(test)]
 mod program_host_v2_backtest_tests;

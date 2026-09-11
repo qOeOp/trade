@@ -10,6 +10,7 @@ use std::{collections::HashMap, str::FromStr, time::Duration};
 use ahash::AHashMap;
 use rust_decimal::Decimal;
 use sha2::{Digest, Sha256};
+use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
 use vibe_backtest::{
     config::{BacktestEngineConfig, SimulatedVenueConfig},
@@ -24,6 +25,9 @@ use vibe_common::{
 };
 use vibe_core::UUID4;
 use vibe_data::engine::config::DataEngineConfig;
+use vibe_data::owner::{
+    source_binding::BindingDigest, strategy_input_binding::StrategyInputUniverseFrameReceipt,
+};
 use vibe_execution::{
     engine::config::ExecutionEngineConfig,
     models::{
@@ -33,8 +37,9 @@ use vibe_execution::{
 };
 use vibe_model::{
     accounts::margin_model::{MarginModelAny, StandardMarginModel},
+    data::{BarType, Data},
     enums::{AccountType, BarAggregation, BarIntervalType, BookType, OmsType},
-    identifiers::{ClientId, InstrumentId, Symbol, TraderId, Venue},
+    identifiers::{ClientId, InstrumentId, StrategyId, Symbol, TraderId, Venue},
     instruments::{Instrument, InstrumentAny},
     types::{Currency, Money, Price},
 };
@@ -42,6 +47,8 @@ use vibe_portfolio::config::PortfolioConfig;
 use vibe_risk::engine::config::RiskEngineConfig;
 
 use crate::{
+    artifact_v2::StrategyArtifactV2,
+    program_host_sim_event_consumer_v1::ProgramHostSimEventCapabilityV1,
     replay_economic_configuration_v1::{
         DisabledEconomicModelV1, ReplayAccountTypeV1, ReplayBookTypeV1,
         ReplayEconomicConfigurationV1, ReplayFeeModelV1, ReplayFillModelV1, ReplayFixedDecimalV1,
@@ -58,6 +65,7 @@ use crate::{
         ReplayRunnerOperationalProfileV1, ReplayRunnerOptionalSubsystemV1,
         ReplayRunnerSerializationEncodingV1,
     },
+    strategy_plan_v2::StrategyPlanV2,
 };
 
 /// Exact native layout and inactive-float contract implemented by this adapter.
@@ -119,6 +127,57 @@ impl ReplayNativeExecutionProfileV1 {
     #[must_use]
     pub const fn deterministic_fill_seed(&self) -> u64 {
         self.fill_seed
+    }
+
+    /// Moves this exact native profile into the sole ProgramHost Sim EVENT consumer capability.
+    ///
+    /// The Owner-bound instrument is rechecked before either native config is released. The
+    /// materialization, Instrument fact, and Instrument receipt digests travel with the same
+    /// move-only value and therefore cannot be supplied independently by the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the target set omits or mutates the Owner-bound instrument, or when
+    /// the consumer rejects the remaining ProgramHost scheduling inputs.
+    #[allow(clippy::too_many_arguments)]
+    pub fn into_program_host_sim_event_capability_v1(
+        self,
+        plan: StrategyPlanV2,
+        artifact: StrategyArtifactV2,
+        universe_frame: StrategyInputUniverseFrameReceipt,
+        strategy_id: StrategyId,
+        run_id: String,
+        instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        data: Vec<Data>,
+    ) -> anyhow::Result<ProgramHostSimEventCapabilityV1> {
+        let bound_instrument = instruments
+            .iter()
+            .find(|instrument| instrument.id() == self.instrument_id)
+            .ok_or(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)?;
+        self.validate_instrument(bound_instrument)?;
+        let Self {
+            engine_config,
+            venue_config,
+            materialization_digest,
+            instrument_terms,
+            ..
+        } = self;
+        ProgramHostSimEventCapabilityV1::new(
+            plan,
+            artifact,
+            universe_frame,
+            BindingDigest::from_untrusted_bytes(materialization_digest),
+            instrument_terms.instrument_fact_digest,
+            instrument_terms.instrument_receipt_digest,
+            engine_config,
+            venue_config,
+            strategy_id,
+            run_id,
+            instruments,
+            bar_types,
+            data,
+        )
     }
 
     /// Rechecks the supplied native instrument against Owner-derived exact terms, then constructs

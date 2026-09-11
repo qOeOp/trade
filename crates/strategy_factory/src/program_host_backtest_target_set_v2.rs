@@ -43,10 +43,12 @@ use vibe_trading::{
     vibe_strategy,
 };
 
+#[cfg(test)]
+use crate::program_host_v2::AdmittedProgramEventV2;
 use crate::{
     artifact_v2::StrategyArtifactV2,
     program_host_v2::{
-        AdmittedProgramEventV2, PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
+        PreparedBacktestTargetSetV2, ProgramHostV2, ProgramHostV2Error,
         admit_market_data_universe_program_event_v2,
     },
     strategy_plan_v2::StrategyPlanV2,
