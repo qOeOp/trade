@@ -30,9 +30,9 @@ use crate::product_edge::{
     ResearchDirectoryCursorV1, ResearchDirectoryItemV1, ResearchDirectoryOwnerPort,
     ResearchDirectoryReadbackV1, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
     ResearchGoalOwnerResultV1, ResearchGoalOwnerResultV2, ResearchLineageResolutionV1,
-    ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2, StoredIndependenceBasisV1,
-    StoredProtectedFeedbackProjectionV1, StoredRejectedResearchRequestV2,
-    UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
+    ResearchReadbackOwnerPortV1, ResearchRequestReceiptV1, StoredAdmittedResearchRequestV2,
+    StoredIndependenceBasisV1, StoredProtectedFeedbackProjectionV1,
+    StoredRejectedResearchRequestV2, UnsourcedResearchProposalV1, ValidatedResearchGoalRequestV2,
     assemble_partial_source_intake_research_admission_input, decide_commit_v2,
     decide_rejected_commit_v2, semantic_digest_v2, unresolved_result, unresolved_result_v2,
     validate_goal_request_v2, verify_research_admission_v2,
@@ -66,6 +66,84 @@ pub struct PostgresResearchGoalOwnerV1 {
     backtest: Option<crate::exploratory_replay::postgres::BoundBacktestReadV1>,
     source_policy: Option<Arc<dyn SourceIntakePolicyEvidencePort>>,
     source_submission: Option<Arc<SourceBoundResearchSubmissionV1>>,
+}
+
+#[derive(Clone)]
+pub struct PostgresResearchReadbackOwnerV1 {
+    pool: PgPool,
+}
+
+impl PostgresResearchReadbackOwnerV1 {
+    /// Binds a capability that exposes only custody readback operations.
+    ///
+    /// The underlying verification uses PostgreSQL share locks for one consistent
+    /// Owner cut, so the session itself must permit locking reads even though this
+    /// capability exposes no mutation operation.
+    pub async fn connect(database_url: &str) -> Result<Self, ResearchGoalOwnerError> {
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(4)
+            .connect(database_url)
+            .await
+            .map_err(|e| storage(&e))?;
+        require_rd_owner_api_schema(&pool)
+            .await
+            .map_err(|e| storage(&e))?;
+        verify_research_readback_relation(&pool).await?;
+        Ok(Self { pool })
+    }
+}
+
+async fn verify_research_readback_relation(pool: &PgPool) -> Result<(), ResearchGoalOwnerError> {
+    let compatible: Option<bool> = sqlx::query_scalar(
+        "SELECT relation.relkind='r'
+             AND relation.relpersistence='p'
+             AND pg_catalog.pg_get_userbyid(relation.relowner)='rd_owner'
+             AND pg_catalog.has_table_privilege(current_user, relation.oid, 'SELECT')
+             AND (SELECT pg_catalog.count(*)=11
+                    AND pg_catalog.bool_and(CASE attribute.attname
+                      WHEN 'request_identity' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'semantic_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'request_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'receipt_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'intent_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'view_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'committed_at_epoch_ms' THEN attribute.atttypid='pg_catalog.int8'::pg_catalog.regtype AND attribute.attnotnull
+                      WHEN 'artifact_evidence_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'artifact_evidence_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'source_ancestry_locator_json' THEN attribute.atttypid='pg_catalog.jsonb'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      WHEN 'source_ancestry_evidence_digest' THEN attribute.atttypid='pg_catalog.text'::pg_catalog.regtype AND NOT attribute.attnotnull
+                      ELSE false
+                    END)
+                    FROM pg_catalog.pg_attribute attribute
+                   WHERE attribute.attrelid=relation.oid
+                     AND attribute.attnum>0
+                     AND NOT attribute.attisdropped)
+             AND EXISTS (
+               SELECT 1
+                 FROM pg_catalog.pg_constraint constraint_entry
+                WHERE constraint_entry.conrelid=relation.oid
+                  AND constraint_entry.contype='p'
+                  AND constraint_entry.conkey=ARRAY[(
+                    SELECT attribute.attnum
+                      FROM pg_catalog.pg_attribute attribute
+                     WHERE attribute.attrelid=relation.oid
+                       AND attribute.attname='request_identity'
+                  )]::smallint[]
+             )
+           FROM pg_catalog.pg_class relation
+           JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+          WHERE namespace.nspname='public'
+            AND relation.relname='rd_research_request_receipts_v1'",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| storage(&e))?;
+    if compatible != Some(true) {
+        return Err(ResearchGoalOwnerError::Storage(
+            "research readback receipt relation is unavailable or incompatible".into(),
+        ));
+    }
+    Ok(())
 }
 
 impl Debug for PostgresResearchGoalOwnerV1 {
@@ -2094,6 +2172,45 @@ fn identity(prefix: &str, digest: &str) -> String {
 const RESEARCH_DIRECTORY_MAX_RETURNED: u32 = 20;
 const RESEARCH_DIRECTORY_MAX_SCANNED: i64 = 60;
 
+async fn read_research_v2_from_pool(
+    pool: &PgPool,
+    request_identity: &str,
+) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+    let read_cut_epoch_ms = current_epoch_ms()?;
+    let mut transaction = pool.begin().await.map_err(|e| storage(&e))?;
+    let custody = Box::pin(admit_research_v2_custody_read_only_in_transaction(
+        &mut transaction,
+        request_identity,
+    ))
+    .await?;
+    let result = match custody {
+        Some(custody) => custody.into_v2_result(read_cut_epoch_ms)?,
+        None => unresolved_result_v2(request_identity),
+    };
+    transaction.commit().await.map_err(|e| storage(&e))?;
+    Ok(result)
+}
+
+#[async_trait]
+impl ResearchReadbackOwnerPortV1 for PostgresResearchGoalOwnerV1 {
+    async fn read_research_v2(
+        &self,
+        request_identity: &str,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        read_research_v2_from_pool(&self.pool, request_identity).await
+    }
+}
+
+#[async_trait]
+impl ResearchReadbackOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
+    async fn read_research_v2(
+        &self,
+        request_identity: &str,
+    ) -> Result<ResearchGoalOwnerResultV2, ResearchGoalOwnerError> {
+        read_research_v2_from_pool(&self.pool, request_identity).await
+    }
+}
+
 #[async_trait]
 impl ResearchDirectoryOwnerPort for PostgresResearchGoalOwnerV1 {
     async fn list_research(
@@ -3492,6 +3609,8 @@ mod tests {
             .submit_v2(request(&request_identity, admission.clone()))
             .await
             .unwrap();
+        let readback = owner.read_research_v2(&request_identity).await.unwrap();
+        assert_eq!(readback, accepted);
         let directory = owner.list_research(None, 20).await.unwrap();
         let directory_item = directory
             .items

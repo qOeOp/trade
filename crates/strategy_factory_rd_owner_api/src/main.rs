@@ -47,8 +47,9 @@ use vibe_strategy_factory::{
         ProductEdgeChannel, ProductEdgeResearchGoalRequestV2, RESEARCH_GOAL_OPERATION_V2,
         RESEARCH_GOAL_SCHEMA_V2, RESEARCH_OWNER_V1, ResearchDirectoryCursorV1,
         ResearchDirectoryOwnerPort, ResearchGoalOwnerError, ResearchGoalOwnerPortV2,
-        SourcedResearchGoalV2, TrialFamilyProposalV1, identity_conflict_result,
-        identity_conflict_result_v2, rejected_result, unresolved_result, unresolved_result_v2,
+        ResearchReadbackOwnerPortV1, SourcedResearchGoalV2, TrialFamilyProposalV1,
+        identity_conflict_result, identity_conflict_result_v2, rejected_result, unresolved_result,
+        unresolved_result_v2,
     },
     product_edge_postgres::{PostgresResearchGoalOwnerV1, ResearchRequestIdentityPreflightV1},
     rd_historical_custody::{HistoricalCustodyErrorV1, HistoricalCustodyOwnerPortV1},
@@ -140,6 +141,7 @@ struct ApiState {
     artifact_source_owner: Arc<dyn ArtifactSourceOwnerPort>,
     artifact_directory_owner: Arc<dyn ArtifactDirectoryOwnerPort>,
     research_directory_owner: Arc<dyn ResearchDirectoryOwnerPort>,
+    research_readback_owner: Arc<dyn ResearchReadbackOwnerPortV1>,
     historical_custody_owner: Arc<dyn HistoricalCustodyOwnerPortV1>,
     token_digest: [u8; 32],
     request_proof_digest: String,
@@ -327,6 +329,7 @@ async fn main() -> anyhow::Result<()> {
         artifact_source_owner: artifact_owner.clone(),
         artifact_directory_owner: artifact_owner,
         research_directory_owner: owner.clone(),
+        research_readback_owner: owner.clone(),
         historical_custody_owner,
         token_digest,
         request_proof_digest: request_proof_digest.clone(),
@@ -356,6 +359,10 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/health", get(health))
         .route("/v1/research-goals/directory", get(read_research_directory))
+        .route(
+            "/v2/research-goals/{request_identity}/readback",
+            get(read_research_v2),
+        )
         .route("/v1/historical-custodies", get(read_historical_custodies))
         .route(
             "/v1/research-goals/{request_identity}/resolve",
@@ -1828,6 +1835,29 @@ async fn read_research_directory(
     }
 }
 
+async fn read_research_v2(
+    State(state): State<ApiState>,
+    Path(request_identity): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    if !authorized(&headers, &state.token_digest) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+
+    if !valid_research_readback_identity(&request_identity) {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+
+    match state
+        .research_readback_owner
+        .read_research_v2(&request_identity)
+        .await
+    {
+        Ok(readback) => (StatusCode::OK, Json(readback)).into_response(),
+        Err(_) => StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 async fn read_historical_custodies(State(state): State<ApiState>, headers: HeaderMap) -> Response {
     if !authorized(&headers, &state.token_digest) {
         return StatusCode::FORBIDDEN.into_response();
@@ -1843,6 +1873,13 @@ async fn read_historical_custodies(State(state): State<ApiState>, headers: Heade
             StatusCode::SERVICE_UNAVAILABLE.into_response()
         }
     }
+}
+
+fn valid_research_readback_identity(value: &str) -> bool {
+    (1..=192).contains(&value.len())
+        && value.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.' | b'/')
+        })
 }
 
 fn valid_directory_identity(value: &str) -> bool {
@@ -2375,6 +2412,17 @@ mod tests {
         assert!(materializer.contains("PostgresDevelopComposerStoreV2::materialize_schema"));
     }
 
+    #[rstest]
+    fn research_readback_identity_accepts_only_bounded_route_safe_values() {
+        assert!(valid_research_readback_identity(
+            "research-request-v2/example:attempt_1.2"
+        ));
+        assert!(!valid_research_readback_identity(""));
+        assert!(!valid_research_readback_identity("request identity"));
+        assert!(!valid_research_readback_identity("request?identity"));
+        assert!(!valid_research_readback_identity(&"x".repeat(193)));
+    }
+
     #[tokio::test]
     async fn deployment_store_consumer_seam_preserves_default_and_fails_closed_when_required() {
         assert!(
@@ -2720,7 +2768,8 @@ mod tests {
             artifact_owner: artifact_owner.clone(),
             artifact_source_owner: artifact_owner.clone(),
             artifact_directory_owner: artifact_owner,
-            research_directory_owner: owner,
+            research_directory_owner: owner.clone(),
+            research_readback_owner: owner,
             historical_custody_owner,
             token_digest,
             request_proof_digest,
@@ -2790,6 +2839,17 @@ mod tests {
         .await;
         assert_eq!(research_response.status(), StatusCode::OK);
         let research_json = response_json(research_response).await;
+        let readback_response = read_research_v2(
+            State(state.clone()),
+            Path(research_request_identity.clone()),
+            headers.clone(),
+        )
+        .await;
+        assert_eq!(readback_response.status(), StatusCode::OK);
+        assert_eq!(
+            response_json(readback_response).await["request_identity"],
+            research_request_identity
+        );
         let intent_identity = research_json["owner_receipt"]["resulting_research_intent_identity"]
             .as_str()
             .unwrap_or_else(|| panic!("research custody unavailable: {research_json}"))
@@ -2987,6 +3047,7 @@ mod tests {
             artifact_source_owner: artifact_owner.clone(),
             artifact_directory_owner: artifact_owner,
             research_directory_owner: owner.clone(),
+            research_readback_owner: owner.clone(),
             historical_custody_owner,
             token_digest,
             request_proof_digest,
