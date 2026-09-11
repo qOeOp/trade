@@ -470,6 +470,129 @@ fn event_replay_package_digest(
     BindingDigest::from_untrusted_bytes(hasher.finalize().into())
 }
 
+/// Untrusted locator for one durable request-to-EVENT binding.
+///
+/// The R&D request coordinates remain byte-for-byte strings from the sealed R&D readback. The
+/// Market Data binding identity is content-addressed over those coordinates, the selected native
+/// event, and the complete ordered EVENT census. Constructing this locator confers no authority.
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyInputEventBindingLocatorV1 {
+    request_identity: Box<str>,
+    request_meaning_digest: Box<str>,
+    binding_identity: BindingDigest,
+}
+
+impl StrategyInputEventBindingLocatorV1 {
+    #[must_use]
+    pub fn from_untrusted(
+        request_identity: impl Into<Box<str>>,
+        request_meaning_digest: impl Into<Box<str>>,
+        binding_identity: BindingDigest,
+    ) -> Self {
+        Self {
+            request_identity: request_identity.into(),
+            request_meaning_digest: request_meaning_digest.into(),
+            binding_identity,
+        }
+    }
+
+    #[must_use]
+    pub fn request_identity(&self) -> &str {
+        &self.request_identity
+    }
+
+    #[must_use]
+    pub fn request_meaning_digest(&self) -> &str {
+        &self.request_meaning_digest
+    }
+
+    #[must_use]
+    pub const fn binding_identity(&self) -> BindingDigest {
+        self.binding_identity
+    }
+}
+
+/// Exact durable Market Data readback for one sealed R&D request and complete EVENT census.
+///
+/// This move-only value has no public constructor and no deserializer. The bytes are returned
+/// exactly as stored so response-loss recovery and restart recovery cannot reconstruct a positive
+/// result from caller-authored fields.
+#[derive(Debug, Eq, PartialEq)]
+pub(in crate::owner) struct StrategyInputEventBindingReadbackV1 {
+    pub(in crate::owner) locator: StrategyInputEventBindingLocatorV1,
+    pub(in crate::owner) receipt_identity: BindingDigest,
+    pub(in crate::owner) readback_identity: BindingDigest,
+    pub(in crate::owner) projection_receipt_digest: BindingDigest,
+    pub(in crate::owner) selected_event_identity: [u8; 16],
+    pub(in crate::owner) census_digest: BindingDigest,
+    pub(in crate::owner) event_count: usize,
+    pub(in crate::owner) canonical_bytes: Box<[u8]>,
+}
+
+impl StrategyInputEventBindingReadbackV1 {
+    #[must_use]
+    pub(in crate::owner) const fn locator(&self) -> &StrategyInputEventBindingLocatorV1 {
+        &self.locator
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn receipt_identity(&self) -> BindingDigest {
+        self.receipt_identity
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn readback_identity(&self) -> BindingDigest {
+        self.readback_identity
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn projection_receipt_digest(&self) -> BindingDigest {
+        self.projection_receipt_digest
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn selected_event_identity(&self) -> [u8; 16] {
+        self.selected_event_identity
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn census_digest(&self) -> BindingDigest {
+        self.census_digest
+    }
+
+    #[must_use]
+    pub(in crate::owner) const fn event_count(&self) -> usize {
+        self.event_count
+    }
+
+    #[must_use]
+    pub(in crate::owner) fn canonical_bytes(&self) -> &[u8] {
+        &self.canonical_bytes
+    }
+}
+
+/// Fail-closed durable binding categories. No error contains a partial binding or census.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
+pub enum StrategyInputEventBindingErrorV1 {
+    #[error("the sealed R&D request evidence is invalid")]
+    InvalidRequest,
+    #[error("the complete EVENT corpus or selected event is invalid")]
+    InvalidEventCensus,
+    #[error("the exact sample projection custody is unavailable")]
+    ProjectionUnavailable,
+    #[error("the request identity or meaning conflicts with durable custody")]
+    ReplayConflict,
+    #[error("the durable request-to-EVENT binding is unknown")]
+    UnknownBinding,
+    #[error("the durable request-to-EVENT binding store is unavailable or corrupt")]
+    StoreUnavailable,
+    #[error("the transaction was rolled back before commit")]
+    CommitInterrupted,
+    #[error("the binding committed but its response was lost")]
+    ResponseLost,
+}
+
 /// Fail-closed issuance categories. No error contains a partial corpus.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, thiserror::Error)]
 pub enum StrategyInputEventCorpusUnavailableV1 {
