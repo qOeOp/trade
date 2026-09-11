@@ -19,6 +19,30 @@ test("side navigation preserves the documented workflow order", () => {
   ]);
 });
 
+test("Operations exposes only the documented first-party tab order", () => {
+  const operations = modules.find(({ id }) => id === "operations");
+  assert.deepEqual(operations?.tabs, [
+    { label: "Runs", href: "/operations" },
+    { label: "Workers", href: "/operations/workers" },
+    { label: "Schedules", href: "/operations/schedules" },
+    { label: "Service Logs", href: "/operations/service-logs" },
+    { label: "Audit", href: "/operations/audit" },
+    { label: "Event Rail", href: "/operations/event-rail" },
+    { label: "Telemetry", href: "/operations/telemetry" },
+    { label: "Alerts", href: "/operations/alerts" },
+  ]);
+});
+
+test("bilingual Operations matrices and skeletons publish the same first-party tab order", async () => {
+  const matrix = "| Operations    | Runs, Workers, Schedules, Service Logs, Audit, Event Rail, Telemetry, Alerts |";
+  const skeleton = "N  [Runs] [Workers] [Schedules] [Service Logs] [Audit] [Event Rail] [Telemetry] [Alerts]";
+  for (const suffix of ["", ".zh"]) {
+    const doc = await readFile(new URL(`../../../docs/guide/dashboard${suffix}.md`, import.meta.url), "utf8");
+    assert.ok(doc.includes(matrix), `${suffix || "en"} Operations matrix has drifted`);
+    assert.ok(doc.includes(skeleton), `${suffix || "en"} Operations skeleton has drifted`);
+  }
+});
+
 test("every routed page has a unique absolute path", () => {
   const hrefs = allRoutes.map(({ href }) => href);
   assert.equal(new Set(hrefs).size, hrefs.length);
