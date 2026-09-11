@@ -129,7 +129,8 @@ pub mod rd_historical_custody_postgres;
 mod rd_owner_postgres_custody;
 pub use native_replay_execution_bundle_owner_v2::{
     NativeReplayExecutionPrerequisitesErrorV2, NativeReplayExecutionPrerequisitesV2,
-    native_execution_bundle_prerequisite_v2, prepare_native_replay_execution_prerequisites_v2,
+    compose_native_replay_execution_bundle_v2, native_execution_bundle_prerequisite_v2,
+    prepare_native_replay_execution_prerequisites_v2,
 };
 pub use native_replay_preparation_inputs_v2::{
     NativeReplayPreparationInputsErrorV2, NativeReplayPreparationInputsV2,

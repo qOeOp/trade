@@ -73,6 +73,7 @@ pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
 #[cfg(not(test))]
 use self::{
     bar_schedule::BarScheduleResolverV1,
+    native_replay_scheduling_v1::NativeReplaySchedulingResolverV1,
     postgres::MarketDataReadPostgres,
     research_pit_terminal::ResearchPitTerminalResolver,
     sample_projection::{
@@ -123,6 +124,20 @@ pub struct StrategyInputSampleProjectionBootstrapErrorV3 {
 #[error("Market Data BAR schedule bootstrap rejected: {failure:?}")]
 pub struct BarScheduleBootstrapErrorV1 {
     failure: ResearchPitTerminalBootstrapFailure,
+}
+
+/// Redacted startup failure for the sealed native Replay scheduling resolver.
+#[derive(Debug, thiserror::Error)]
+#[error("Market Data native Replay scheduling bootstrap rejected: {failure:?}")]
+pub struct NativeReplaySchedulingBootstrapErrorV1 {
+    failure: ResearchPitTerminalBootstrapFailure,
+}
+
+impl NativeReplaySchedulingBootstrapErrorV1 {
+    #[must_use]
+    pub const fn failure(&self) -> ResearchPitTerminalBootstrapFailure {
+        self.failure
+    }
 }
 
 impl BarScheduleBootstrapErrorV1 {
@@ -357,6 +372,46 @@ pub async fn bar_schedule_resolver_v1_from_store_admission_lookup(
     consume_bar_schedule_store_admission_bootstrap_v1(bootstrap).await
 }
 
+/// Resolves store admission and returns the combined PIT and BAR native scheduling Owner port.
+///
+/// Disabled mode returns `None`. Required mode retains the fixed read-only capability inside
+/// Market Data; callers receive no pool, credential, raw row, or generic query surface.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_scheduling_resolver_v1_from_store_admission_environment()
+-> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_environment().map_err(|e| {
+            NativeReplaySchedulingBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+}
+
+/// Lookup-injected form of the sealed native Replay scheduling startup bridge.
+///
+/// # Errors
+///
+/// Returns only a redacted configuration or admission category.
+#[cfg(not(test))]
+pub async fn native_replay_scheduling_resolver_v1_from_store_admission_lookup(
+    lookup: impl FnMut(&str) -> Option<String>,
+) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    let bootstrap =
+        store_admission::RdOwnerStoreAdmissionBootstrap::from_lookup(lookup).map_err(|e| {
+            NativeReplaySchedulingBootstrapErrorV1 {
+                failure: map_bootstrap_failure(&e),
+            }
+        })?;
+    consume_native_replay_scheduling_store_admission_bootstrap_v1(bootstrap).await
+}
+
 #[cfg(not(test))]
 async fn consume_store_admission_bootstrap(
     bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
@@ -457,6 +512,29 @@ async fn consume_bar_schedule_store_admission_bootstrap_v1(
                 })?;
             let port = capability.into_bar_schedule_snapshot_port().map_err(|_| {
                 BarScheduleBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                }
+            })?;
+            Ok(Some(Arc::new(MarketDataReadPostgres::from_admitted(port))))
+        }
+    }
+}
+
+#[cfg(not(test))]
+async fn consume_native_replay_scheduling_store_admission_bootstrap_v1(
+    bootstrap: store_admission::RdOwnerStoreAdmissionBootstrap,
+) -> Result<Option<Arc<dyn NativeReplaySchedulingResolverV1>>, NativeReplaySchedulingBootstrapErrorV1>
+{
+    match bootstrap {
+        store_admission::RdOwnerStoreAdmissionBootstrap::Disabled => Ok(None),
+        store_admission::RdOwnerStoreAdmissionBootstrap::Required(request) => {
+            let capability = store_admission::admit_rd_owner_market_data_postgres(&request)
+                .await
+                .map_err(|_| NativeReplaySchedulingBootstrapErrorV1 {
+                    failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
+                })?;
+            let port = capability.into_bar_schedule_snapshot_port().map_err(|_| {
+                NativeReplaySchedulingBootstrapErrorV1 {
                     failure: ResearchPitTerminalBootstrapFailure::StoreAdmissionRejected,
                 }
             })?;

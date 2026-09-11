@@ -9,9 +9,14 @@
 
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
 use thiserror::Error;
+use vibe_data::owner::strategy_input_binding::StrategyInputUniverseFrameReceipt;
 use vibe_data::owner::{
     instrument_economic_terms_v1::InstrumentEconomicTermsReadbackV1,
     instrument_master::{InstrumentMasterReadbackV1, verify_instrument_master_readback},
+    instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2,
+    native_replay_scheduling_v1::{
+        NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
+    },
     replay_market_facts_v2::{
         ReplayCompositionBindingReadbackV1, ReplayCompositionBindingResolverV1,
         ReplayMarketDependencyKindV2, ReplayMarketFactsReadbackV2,
@@ -19,13 +24,17 @@ use vibe_data::owner::{
     },
     source_binding::BindingDigest,
 };
+use vibe_model::identifiers::StrategyId;
 
 use crate::{
+    artifact_v2::StrategyArtifactV2,
     native_replay_preparation_inputs_v2::NativeReplayPreparationInputsV2,
     replay_execution_profile_binding_v1::{
         OwnerIssuedReplayExecutionProfileBindingV1,
         issue_owner_replay_execution_profile_binding_from_readbacks_v1,
     },
+    replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+    strategy_plan_v2::StrategyPlanV2,
 };
 
 /// Move-only complete prerequisite cut immediately below native value materialization.
@@ -68,6 +77,10 @@ impl NativeReplayExecutionPrerequisitesV2 {
     pub const fn preparation(&self) -> &NativeReplayPreparationInputsV2 {
         &self.preparation
     }
+
+    fn into_profile_authority(self) -> OwnerIssuedReplayExecutionProfileBindingV1 {
+        self.profile_authority
+    }
 }
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
@@ -80,6 +93,51 @@ pub enum NativeReplayExecutionPrerequisitesErrorV2 {
     NativeInstrumentProjectionUnavailable,
     #[error("Market Data has not issued canonical ordered native scheduling data")]
     NativeSchedulingDataUnavailable,
+    #[error("Native Replay execution bundle composition is unavailable")]
+    ExecutionBundleUnavailable,
+}
+
+/// Resolves persistent Market Data scheduling custody and composes the exact Sim execution bundle.
+///
+/// The untrusted request supplies lookup coordinates only. Market Data resolves and verifies the
+/// complete PIT batch and both BAR schedules before Strategy Factory can consume its move-only
+/// native scheduling readback together with the already-bound profile authority.
+#[allow(clippy::too_many_arguments)]
+pub async fn compose_native_replay_execution_bundle_v2<R>(
+    prerequisites: NativeReplayExecutionPrerequisitesV2,
+    scheduling_request: &UntrustedNativeReplaySchedulingRequestV1,
+    scheduling_resolver: &R,
+    plan: StrategyPlanV2,
+    artifact: StrategyArtifactV2,
+    universe_frame: StrategyInputUniverseFrameReceipt,
+    strategy_id: StrategyId,
+    run_id: String,
+    public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+) -> Result<ReplayTargetSetExecutionBundleV1, NativeReplayExecutionPrerequisitesErrorV2>
+where
+    R: NativeReplaySchedulingResolverV1 + ?Sized,
+{
+    let request_window = prerequisites.profile_authority.request_window();
+    if scheduling_request.frame_time_ns() != request_window.start_event_ns
+        || scheduling_request.window_end_ns_exclusive() != request_window.end_event_ns_exclusive
+    {
+        return Err(NativeReplayExecutionPrerequisitesErrorV2::OwnerBindingUnavailable);
+    }
+    let scheduling = scheduling_resolver
+        .resolve_native_replay_scheduling_v1(scheduling_request)
+        .await
+        .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::NativeSchedulingDataUnavailable)?;
+    ReplayTargetSetExecutionBundleV1::new(
+        prerequisites.into_profile_authority(),
+        plan,
+        artifact,
+        universe_frame,
+        strategy_id,
+        run_id,
+        public_terms,
+        scheduling,
+    )
+    .map_err(|_| NativeReplayExecutionPrerequisitesErrorV2::ExecutionBundleUnavailable)
 }
 
 /// Cross-binds all currently available Owner readbacks and issues the execution-profile authority.

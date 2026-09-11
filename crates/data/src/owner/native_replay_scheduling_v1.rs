@@ -22,9 +22,11 @@ use vibe_model::{
 use super::{
     bar_schedule::{
         BarScheduleCompletionV1, BarScheduleKindV1, BarScheduleLabelV1, BarScheduleReadbackV1,
-        BarScheduleUnitV1,
+        BarScheduleUnitV1, UntrustedBarScheduleLocatorV1,
     },
-    pit_snapshot::{VerifiedPitObservation, VerifiedPitObservationBatch},
+    pit_snapshot::{
+        UntrustedPitSnapshotLocator, VerifiedPitObservation, VerifiedPitObservationBatch,
+    },
     source_binding::BindingDigest,
 };
 
@@ -86,6 +88,8 @@ impl NativeReplaySchedulingReadbackV1 {
 
 #[derive(Clone, Copy, Debug, Error, Eq, PartialEq)]
 pub enum NativeReplaySchedulingErrorV1 {
+    #[error("native Replay scheduling Owner readback is unavailable")]
+    OwnerReadbackUnavailable,
     #[error("native Replay scheduling Owner bindings mismatch")]
     OwnerBindingMismatch,
     #[error("native Replay scheduling field census is incomplete or ambiguous")]
@@ -94,6 +98,78 @@ pub enum NativeReplaySchedulingErrorV1 {
     EventOrderUnavailable,
     #[error("native Replay scheduling value is not exactly representable")]
     NativeRepresentation,
+}
+
+/// Untrusted coordinates for resolving one exact native Replay scheduling projection.
+///
+/// Construction grants no storage authority. The sealed Market Data resolver verifies every PIT
+/// and BAR schedule coordinate before it can issue a native scheduling readback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UntrustedNativeReplaySchedulingRequestV1 {
+    pit_locator: UntrustedPitSnapshotLocator,
+    schedule_locators: [UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT],
+    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
+}
+
+impl UntrustedNativeReplaySchedulingRequestV1 {
+    #[must_use]
+    pub const fn new(
+        pit_locator: UntrustedPitSnapshotLocator,
+        schedule_locators: [UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT],
+        member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Self {
+        Self {
+            pit_locator,
+            schedule_locators,
+            member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive,
+        }
+    }
+
+    #[must_use]
+    pub const fn pit_locator(&self) -> &UntrustedPitSnapshotLocator {
+        &self.pit_locator
+    }
+
+    #[must_use]
+    pub const fn schedule_locators(
+        &self,
+    ) -> &[UntrustedBarScheduleLocatorV1; TARGET_SET_MEMBER_COUNT] {
+        &self.schedule_locators
+    }
+
+    #[must_use]
+    pub const fn member_instruments(&self) -> [InstrumentId; TARGET_SET_MEMBER_COUNT] {
+        self.member_instruments
+    }
+
+    #[must_use]
+    pub const fn frame_time_ns(&self) -> u64 {
+        self.frame_time_ns
+    }
+
+    #[must_use]
+    pub const fn window_end_ns_exclusive(&self) -> u64 {
+        self.window_end_ns_exclusive
+    }
+}
+
+pub(crate) mod resolver_seal {
+    pub trait Sealed {}
+}
+
+/// Read-only Owner port that resolves and seals all persistent scheduling inputs as one capability.
+#[async_trait::async_trait]
+pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync {
+    async fn resolve_native_replay_scheduling_v1(
+        &self,
+        request: &UntrustedNativeReplaySchedulingRequestV1,
+    ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1>;
 }
 
 /// Seals one exact `[BAR0, BAR1, QUOTE0, QUOTE1]` native schedule from Owner readbacks.

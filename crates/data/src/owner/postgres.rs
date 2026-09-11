@@ -29,6 +29,12 @@ mod time_zone;
 mod universe_selection;
 
 #[cfg(not(test))]
+use super::native_replay_scheduling_v1::{
+    NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
+    NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
+    seal_native_replay_scheduling_v1,
+};
+#[cfg(not(test))]
 use super::pit_snapshot::{PitObservationBatchOwnerResolver, VerifiedPitObservationBatch};
 use super::research_pit_terminal::{
     ResearchPitTerminal, ResearchPitTerminalResolver, UntrustedResearchPitTerminalRequest,
@@ -6600,6 +6606,37 @@ impl StrategyInputSampleProjectionResolverV3 for MarketDataReadPostgres {
 impl super::research_pit_terminal::sealed::Sealed for MarketDataReadPostgres {}
 impl super::sealed_replay_input::sealed::Sealed for MarketDataReadPostgres {}
 impl super::bar_schedule::resolver_seal::Sealed for MarketDataReadPostgres {}
+#[cfg(not(test))]
+impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataReadPostgres {}
+
+#[cfg(not(test))]
+#[async_trait::async_trait]
+impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
+    async fn resolve_native_replay_scheduling_v1(
+        &self,
+        request: &UntrustedNativeReplaySchedulingRequestV1,
+    ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1> {
+        let batch = self
+            .resolve_pit_observation_batch(request.pit_locator())
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let first = self
+            .resolve_bar_schedule_v1(&request.schedule_locators()[0])
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let second = self
+            .resolve_bar_schedule_v1(&request.schedule_locators()[1])
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        seal_native_replay_scheduling_v1(
+            batch,
+            [first, second],
+            request.member_instruments(),
+            request.frame_time_ns(),
+            request.window_end_ns_exclusive(),
+        )
+    }
+}
 
 #[async_trait::async_trait]
 impl BarScheduleResolverV1 for MarketDataReadPostgres {

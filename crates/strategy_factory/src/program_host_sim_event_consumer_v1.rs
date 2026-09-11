@@ -474,6 +474,7 @@ mod tests {
                 test_instrument_census("AAPL", [9; 32], [11; 32]),
                 test_instrument_census("MSFT", [10; 32], [12; 32]),
             ],
+            owner_scheduling_receipt_digest: None,
             scheduling_data_digest: [13; 32],
             scheduling_data_count: 4,
             bar_count: 2,
