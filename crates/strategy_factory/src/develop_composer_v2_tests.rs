@@ -78,7 +78,7 @@ fn real_local_plugin_builder_supplies_composer_and_program_host() {
         .expect("the real locally built module reaches the sole Composer and ProgramHostV2 path");
 }
 
-#[test]
+#[rstest::rstest]
 #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
 #[cfg(any(
     all(target_os = "macos", target_arch = "aarch64"),
@@ -248,10 +248,11 @@ fn real_v3_owner_build_reaches_composer_program_host_and_durable_abi3_artifact()
     assert_eq!(terminal.coordinate, "plugin_builds.manifest_digest");
 }
 
-#[test]
+#[rstest::rstest]
 fn abi3_bfp_parameter_inputs_cannot_bypass_market_owner_roles() {
     let (mut design, proposal, _) = bfp_candidate();
     let bfp_plugin = proposal.plugin_semantic_id;
+
     for reaction in &mut design.reactions {
         for node in &mut reaction.nodes {
             if node.plugin_semantic_id != bfp_plugin {
@@ -302,6 +303,7 @@ fn bfp_composer_candidate() -> (
     design
         .plugins
         .retain(|plugin| plugin.semantic_id == plugin_semantic_id);
+
     for reaction in &mut design.reactions {
         reaction
             .nodes
@@ -309,6 +311,7 @@ fn bfp_composer_candidate() -> (
         if reaction.kind != LifecycleKindV2::Bar {
             reaction.nodes.clear();
         }
+
         if reaction.nodes.is_empty() {
             reaction.state_writes.clear();
             reaction.proposal = None;
@@ -375,7 +378,7 @@ fn v3_composer_case(
     let verified_bindings = verified_strategy_input_bindings_for_test(&design, owner_bindings);
     let bfp_plugin_semantic_id = build.build().plugin_semantic_id().to_owned();
     let plugin_builds = vec![UntrustedPluginBuildLocatorV2 {
-        plugin_semantic_id: bfp_plugin_semantic_id.clone(),
+        plugin_semantic_id: bfp_plugin_semantic_id,
         verified_build_receipt_digest: build.build().verified_build_receipt_digest(),
     }];
     let builds = vec![build.into_composer_build().into()];

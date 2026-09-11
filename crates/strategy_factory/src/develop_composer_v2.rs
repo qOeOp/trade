@@ -785,12 +785,14 @@ fn resolve_plugin_builds(
                 "verified build is sealed to a different canonical plugin manifest",
             ));
         }
+
         if !build.matches_current_joint_freeze(custody, design) {
             return Err(DevelopComposerTerminalV2::unsupported(
                 "plugin_builds.joint_freeze_digest",
                 "verified V3 build is sealed to a different Research custody or canonical Design",
             ));
         }
+
         if !build.matches_current_static_bindings(design, bindings) {
             return Err(DevelopComposerTerminalV2::unsupported(
                 "plugin_builds.static_binding_receipt_digest",
@@ -857,48 +859,6 @@ fn manifest_matches_build_version(
             abi_version == PLUGIN_ABI_VERSION_V3
                 && failure_semantic_id == PLUGIN_FAILURE_SEMANTIC_ID_V3
         }
-    }
-}
-
-#[cfg(test)]
-mod version_dispatch_tests {
-    use super::{
-        PLUGIN_FAILURE_SEMANTIC_ID_V2, PLUGIN_FAILURE_SEMANTIC_ID_V3, PluginBuildVersion,
-        manifest_matches_build_version,
-    };
-
-    #[test]
-    fn build_versions_require_the_exact_abi_and_failure_pair() {
-        assert!(manifest_matches_build_version(
-            PluginBuildVersion::V2,
-            2,
-            PLUGIN_FAILURE_SEMANTIC_ID_V2,
-        ));
-        assert!(manifest_matches_build_version(
-            PluginBuildVersion::V3,
-            3,
-            PLUGIN_FAILURE_SEMANTIC_ID_V3,
-        ));
-        assert!(!manifest_matches_build_version(
-            PluginBuildVersion::V2,
-            3,
-            PLUGIN_FAILURE_SEMANTIC_ID_V2,
-        ));
-        assert!(!manifest_matches_build_version(
-            PluginBuildVersion::V2,
-            2,
-            PLUGIN_FAILURE_SEMANTIC_ID_V3,
-        ));
-        assert!(!manifest_matches_build_version(
-            PluginBuildVersion::V3,
-            2,
-            PLUGIN_FAILURE_SEMANTIC_ID_V3,
-        ));
-        assert!(!manifest_matches_build_version(
-            PluginBuildVersion::V3,
-            3,
-            PLUGIN_FAILURE_SEMANTIC_ID_V2,
-        ));
     }
 }
 
@@ -1032,5 +992,47 @@ impl CurrentResearchDevelopCustodyV2 {
             &serde_json::to_vec(&value).expect("fixture custody serialization"),
         );
         value
+    }
+}
+
+#[cfg(test)]
+mod version_dispatch_tests {
+    use super::{
+        PLUGIN_FAILURE_SEMANTIC_ID_V2, PLUGIN_FAILURE_SEMANTIC_ID_V3, PluginBuildVersion,
+        manifest_matches_build_version,
+    };
+
+    #[rstest::rstest]
+    fn build_versions_require_the_exact_abi_and_failure_pair() {
+        assert!(manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
+        assert!(manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V2,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            2,
+            PLUGIN_FAILURE_SEMANTIC_ID_V3,
+        ));
+        assert!(!manifest_matches_build_version(
+            PluginBuildVersion::V3,
+            3,
+            PLUGIN_FAILURE_SEMANTIC_ID_V2,
+        ));
     }
 }

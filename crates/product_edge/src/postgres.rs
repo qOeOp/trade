@@ -1325,6 +1325,7 @@ impl ProductEdgePostgresOwnerV1 {
         .fetch_one(&pool)
         .await
         .map_err(storage)?;
+
         if !admitted {
             return Err(ProductEdgeError::Unavailable);
         }

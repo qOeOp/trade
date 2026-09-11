@@ -377,6 +377,7 @@ impl StrategyArtifactV2 {
 
         let manifests = plan.canonical_plugin_manifests();
         let artifact_abi = artifact_abi_version(manifests)?;
+
         if builds
             .iter()
             .any(|build| build.abi_version() != artifact_abi)
@@ -571,6 +572,7 @@ fn artifact_abi_version(manifests: &[PluginManifestV2]) -> Result<u16, StrategyA
     let Some(first) = manifests.first().map(|manifest| manifest.abi_version) else {
         return Err(StrategyArtifactV2Error::ModuleCoverage);
     };
+
     if !matches!(
         first,
         PROGRAM_HOST_ABI_VERSION_V2 | PROGRAM_HOST_ABI_VERSION_V3
@@ -1100,6 +1102,7 @@ mod tests {
                 true,
                 false,
             );
+
             if !shared_module {
                 let mut identity = Vec::new();
                 name(&mut identity, "fixture-identity");

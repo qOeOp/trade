@@ -128,6 +128,7 @@ impl PreparedDevelopPluginCapsuleV3 {
                 "capsule bytes do not decode with the V3 schema",
             )
         })?;
+
         if durable_encode(&decoded) != bytes {
             return Err(DevelopPluginBuildTerminalV3::invalid_capsule(
                 "capsule.canonical",
@@ -283,6 +284,7 @@ impl DevelopPluginBuildReceiptV3 {
                 "V3 receipt bytes do not decode with the V3 schema",
             )
         })?;
+
         if receipt.canonical_bytes() != bytes {
             return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.canonical",
@@ -312,6 +314,7 @@ impl DevelopPluginBuildReceiptV3 {
             && self.lowerer_source_digest == expected.lowerer_source_digest
             && self.source_set_digest == expected.source_set_digest
             && self.bounds == expected.bounds;
+
         if !bindings_match {
             return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.binding",
@@ -351,6 +354,7 @@ impl DevelopPluginBuildReceiptV3 {
                                 .map(|digest| *digest.as_bytes()),
                         )
                 });
+
         if !execution_profile_matches || self.receipt_digest != receipt_digest(self) {
             return Err(DevelopPluginBuildTerminalV3::invalid_receipt(
                 "receipt.execution",
@@ -385,6 +389,7 @@ pub(crate) fn prepare_develop_plugin_capsule_v3(
             "V3 requires ABI 3 and the named BFP numeric failure semantic",
         ));
     }
+
     if first_inputs != second_inputs {
         return Err(DevelopPluginBuildTerminalV3::new(
             DevelopPluginBuildTerminalKindV3::NonReproducible,
@@ -418,6 +423,7 @@ pub(crate) fn prepare_develop_plugin_capsule_v3(
             "source set bytes do not match the lowerer-owned digest",
         ));
     }
+
     if domain_digest(BFP_PROGRAM_DOMAIN, inputs.program_bytes()) != inputs.program_digest() {
         return Err(DevelopPluginBuildTerminalV3::invalid_capsule(
             "capsule.bfp.digest",
@@ -565,6 +571,7 @@ impl VerifiedDevelopPluginBuildV3 {
                 ),
             );
         }
+
         if self.receipt.module_digest != module_digest(&self.wasm) {
             return Err(
                 crate::develop_composer_v2::DevelopComposerTerminalV2::unavailable(
@@ -585,10 +592,10 @@ impl VerifiedDevelopPluginBuildV3 {
                 max_wasm_bytes: self.receipt.bounds.max_wasm_bytes,
             },
         )
-        .map_err(|error| {
+        .map_err(|e| {
             crate::develop_composer_v2::DevelopComposerTerminalV2::unavailable(
                 "plugin_builds.consume",
-                &format!("move-bound ABI3 build failed current consumption validation: {error}"),
+                &format!("move-bound ABI3 build failed current consumption validation: {e}"),
             )
         })
     }
@@ -772,6 +779,7 @@ fn build_twice(
         manifest.max_linear_memory_bytes,
     )
     .map_err(map_sandbox_terminal)?;
+
     if first.wasm != second.wasm {
         return Err(DevelopPluginBuildTerminalV3::new(
             DevelopPluginBuildTerminalKindV3::NonReproducible,
@@ -779,6 +787,7 @@ fn build_twice(
             "the two private builds produced different Wasm bytes",
         ));
     }
+
     if !sandbox_authority_matches(&first.execution, &second.execution) {
         return Err(DevelopPluginBuildTerminalV3::new(
             DevelopPluginBuildTerminalKindV3::VerificationFailed,
@@ -791,11 +800,11 @@ fn build_twice(
         manifest,
         capsule.value.bounds.max_wasm_bytes,
     )
-    .map_err(|error| {
+    .map_err(|e| {
         DevelopPluginBuildTerminalV3::new(
             DevelopPluginBuildTerminalKindV3::VerificationFailed,
             "build.module",
-            &error.to_string(),
+            &e.to_string(),
         )
     })?;
     let receipt = make_receipt(capsule, &first.wasm, [&first.execution, &second.execution]);
@@ -849,11 +858,11 @@ fn verify_current(
         manifest,
         capsule.value.bounds.max_wasm_bytes,
     )
-    .map_err(|error| {
+    .map_err(|e| {
         DevelopPluginBuildTerminalV3::new(
             DevelopPluginBuildTerminalKindV3::VerificationFailed,
             "build.module",
-            &error.to_string(),
+            &e.to_string(),
         )
     })?;
     Ok(VerifiedDevelopPluginBuildV3 {
@@ -949,11 +958,11 @@ fn private_tempdir() -> Result<TempDir, DevelopPluginBuildTerminalV3> {
     TempDirBuilder::new()
         .prefix("strategy-factory-v3-build-")
         .tempdir()
-        .map_err(|error| {
+        .map_err(|e| {
             DevelopPluginBuildTerminalV3::new(
                 DevelopPluginBuildTerminalKindV3::SandboxUnavailable,
                 "sandbox.root",
-                &error.to_string(),
+                &e.to_string(),
             )
         })
 }
@@ -1069,6 +1078,7 @@ fn validate_files(
         ));
     }
     let mut total = 0_usize;
+
     for file in files {
         let path = Path::new(&file.path);
         if file.path.is_empty()
@@ -1093,6 +1103,7 @@ fn validate_files(
             )
         })?;
     }
+
     if total > max_source_bytes as usize
         || !files.iter().any(|file| file.path == ".cargo/config.toml")
         || !files.iter().any(|file| file.path == "Cargo.lock")
@@ -1137,6 +1148,7 @@ fn validate_capsule_value(
             && capsule.config_digest.as_bytes()
                 == &frozen_config_digest(capsule.bounds.max_linear_memory_bytes)
     });
+
     if capsule.capsule_tag != CAPSULE_TAG
         || capsule.schema_version != CAPSULE_SCHEMA_VERSION
         || capsule.language != LANGUAGE
@@ -1202,6 +1214,7 @@ fn source_set_digest(
             })?
             .to_le_bytes(),
     );
+
     for file in files {
         hasher.update(
             u16::try_from(file.path.len())
@@ -1412,7 +1425,7 @@ mod tests {
         receipt
     }
 
-    #[test]
+    #[rstest::rstest]
     fn receipt_is_explicitly_v3_and_canonical() {
         let capsule = fixture_capsule();
         let receipt = fixture_receipt(&capsule);
@@ -1423,7 +1436,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn zero_module_digest_is_rejected_even_when_every_execution_matches() {
         let capsule = fixture_capsule();
         let mut receipt = fixture_receipt(&capsule);
@@ -1440,7 +1453,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn executions_must_share_one_authority_tuple() {
         let capsule = fixture_capsule();
         let mut receipt = fixture_receipt(&capsule);
@@ -1461,7 +1474,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn execution_toolchain_and_command_fields_are_receipt_authority() {
         let capsule = fixture_capsule();
         let mut receipt = fixture_receipt(&capsule);
@@ -1477,10 +1490,10 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cleanup_failure_prevents_positive_finalization() {
-        let error = std::io::Error::other("cannot remove private root");
-        let result = finish_cleanup(Ok(7_u8), Err(error), Ok(()));
+        let e = std::io::Error::other("cannot remove private root");
+        let result = finish_cleanup(Ok(7_u8), Err(e), Ok(()));
         assert!(matches!(
             result,
             Err(DevelopPluginBuildTerminalV3 {
@@ -1490,7 +1503,7 @@ mod tests {
         ));
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cross_tag_noncanonical_and_identity_mutations_fail_closed() {
         let capsule = fixture_capsule();
         let receipt = fixture_receipt(&capsule);
@@ -1526,14 +1539,14 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn source_set_mutation_is_rejected_before_receipt_use() {
         let mut capsule = fixture_capsule();
         capsule.value.files[0].bytes.push(1);
         assert!(validate_capsule_value(&capsule.value).is_err());
     }
 
-    #[test]
+    #[rstest::rstest]
     fn sandbox_owned_source_paths_are_rejected() {
         for path in [".cargo/credentials.toml", "target/generated.rs"] {
             let mut capsule = fixture_capsule();
@@ -1554,7 +1567,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn restart_requires_current_owner_inputs_before_receipt_bytes_can_be_used() {
         let (design, proposal, catalog) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
@@ -1590,7 +1603,7 @@ mod tests {
         assert_eq!(terminal.coordinate, "receipt.codec");
     }
 
-    #[test]
+    #[rstest::rstest]
     fn cargo_conversion_rejects_a_different_current_manifest() {
         let capsule = fixture_capsule();
         let receipt = fixture_receipt(&capsule);
@@ -1615,7 +1628,7 @@ mod tests {
         assert_eq!(terminal.coordinate, "plugin_builds.receipt");
     }
 
-    #[test]
+    #[rstest::rstest]
     #[ignore = "invokes the exact pinned local wasm compiler in two private roots"]
     fn two_lowerings_two_builds_and_strict_replay_mint_one_v3_identity() {
         let (design, proposal, catalog) = candidate();

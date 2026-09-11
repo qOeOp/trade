@@ -316,6 +316,7 @@ impl VerifiedPluginCargoBuildV3 {
             return Err(CargoArtifactError::NonReproducible);
         }
         let zero = BindingDigest::from_untrusted_bytes([0; 32]);
+
         if [
             evidence.capsule_digest,
             evidence.source_set_digest,
@@ -328,7 +329,7 @@ impl VerifiedPluginCargoBuildV3 {
             ));
         }
         validate_plugin_candidate_v3(evidence.wasm_one, manifest, evidence.max_wasm_bytes)
-            .map_err(|error| CargoArtifactError::RuntimeProfile(error.to_string()))?;
+            .map_err(|e| CargoArtifactError::RuntimeProfile(e.to_string()))?;
         Ok(Self {
             plugin_semantic_id: manifest.semantic_id.clone(),
             manifest_digest: plugin_manifest_digest(manifest),
@@ -507,6 +508,7 @@ mod tests {
 
         let mut exports = vec![6];
         export(&mut exports, "memory", 2, 0);
+
         for (name, index) in [
             ("strategy_factory_plugin_input_ptr_v2", 0),
             ("strategy_factory_plugin_input_capacity_v2", 1),
@@ -522,6 +524,7 @@ mod tests {
         for value in [1024, 128, 8192, output_capacity, 0] {
             function_body(&mut code, &i32_const(value));
         }
+
         if float_type {
             function_body(&mut code, &[]);
         }

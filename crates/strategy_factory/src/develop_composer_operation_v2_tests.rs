@@ -227,6 +227,9 @@ fn build_receipt_roundtrips_and_every_critical_field_mutation_fails_closed() {
 
 #[rstest]
 fn versioned_build_receipt_tags_preserve_v2_and_fail_closed_on_wrong_custody() {
+    type ReceiptMutation =
+        fn(&mut super::develop_composer_operation_v2::StoredDevelopComposerPositiveV2);
+
     let (request, builder, evidence, _, _) = fixture();
     let operation = LocalDevelopComposerOperationV2::new(builder, evidence);
     assert_eq!(
@@ -287,8 +290,6 @@ fn versioned_build_receipt_tags_preserve_v2_and_fail_closed_on_wrong_custody() {
         "partial tag/receipt coverage must fail closed",
     );
 
-    type ReceiptMutation =
-        fn(&mut super::develop_composer_operation_v2::StoredDevelopComposerPositiveV2);
     let mutations: [ReceiptMutation; 4] = [
         |record| {
             record.build_receipt_tags.clear();
@@ -297,6 +298,7 @@ fn versioned_build_receipt_tags_preserve_v2_and_fail_closed_on_wrong_custody() {
         |record| record.build_receipt_tags[0] = 3,
         |record| record.build_receipt_bytes[0] = b"canonical-v3-shaped-receipt".to_vec(),
     ];
+
     for mutation in mutations {
         let (request, builder, evidence, _, _) = fixture();
         let operation = LocalDevelopComposerOperationV2::new(builder, evidence);

@@ -244,6 +244,7 @@ fn validate_source_set(
             "the source set is empty or exceeds the frozen file bound",
         ));
     }
+
     if !files
         .windows(2)
         .all(|pair| pair[0].path.as_bytes() < pair[1].path.as_bytes())
@@ -254,6 +255,7 @@ fn validate_source_set(
         ));
     }
     let mut total = 0_usize;
+
     for file in files {
         let path = Path::new(file.path);
         if file.path.is_empty()
@@ -275,6 +277,7 @@ fn validate_source_set(
             invalid_source_set("sandbox.source_set.bytes", "source byte count overflow")
         })?;
     }
+
     if total > MAX_BYTES
         || !files.iter().any(|file| file.path == "Cargo.toml")
         || !files.iter().any(|file| file.path == "Cargo.lock")
@@ -307,6 +310,7 @@ fn materialize_source_set(
             "the private build root is not empty",
         ));
     }
+
     for file in files {
         let destination = root.join(file.path);
         if let Some(parent) = destination.parent() {
@@ -337,6 +341,7 @@ fn recheck_materialized_source_set(
                 "a materialized source entry became unavailable during the build",
             )
         })?;
+
         if !metadata.file_type().is_file() {
             return Err(DevelopPluginBuildTerminalV2::new(
                 DevelopPluginBuildTerminalKindV2::VerificationFailed,
@@ -351,6 +356,7 @@ fn recheck_materialized_source_set(
                 "materialized source bytes could not be reread after the build",
             )
         })?;
+
         if observed != file.bytes {
             return Err(DevelopPluginBuildTerminalV2::new(
                 DevelopPluginBuildTerminalKindV2::VerificationFailed,
@@ -838,7 +844,7 @@ fn io_terminal(coordinate: &str, error: &std::io::Error) -> DevelopPluginBuildTe
 mod source_set_tests {
     use super::*;
 
-    #[test]
+    #[rstest::rstest]
     fn materialized_source_bytes_are_rechecked_after_build_boundary() {
         let root = tempfile::tempdir().unwrap();
         let config = frozen_config(65_536);

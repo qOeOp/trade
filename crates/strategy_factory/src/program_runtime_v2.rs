@@ -112,6 +112,7 @@ impl ProgramPluginRuntimeV2 {
                 semantic_id: BOUNDED_FEATURE_NUMERIC_FAILURE_V1,
             });
         }
+
         if status < 0 {
             return Err(unsupported(
                 "guest_status",
@@ -225,7 +226,7 @@ mod tests {
         }
     }
 
-    #[test]
+    #[rstest::rstest]
     fn only_the_exact_abi_three_status_maps_to_numeric_failure() {
         assert!(is_numeric_failure_no_state_change(
             -1,
