@@ -131,6 +131,7 @@ pub mod receipt;
 pub mod replay_economic_configuration_v1;
 pub mod replay_execution_policy_v2;
 pub mod replay_execution_profile_binding_v1;
+pub mod replay_execution_profile_native_v1;
 mod replay_policy_catalog_postgres_v2;
 #[cfg(feature = "sealed-develop-composer-acceptance")]
 pub mod replay_policy_catalog_sealed_acceptance_v2;

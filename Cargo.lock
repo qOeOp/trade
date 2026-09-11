@@ -11247,12 +11247,14 @@ dependencies = [
 name = "vibe-strategy-factory"
 version = "0.62.0"
 dependencies = [
+ "ahash 0.8.12",
  "anyhow",
  "async-trait",
  "base64 0.23.1",
  "blake3",
  "ed25519-dalek",
  "jiff",
+ "log",
  "reqwest 0.13.4",
  "rstest",
  "rust_decimal",
@@ -11275,6 +11277,7 @@ dependencies = [
  "vibe-core",
  "vibe-data",
  "vibe-deployment-attestation",
+ "vibe-execution",
  "vibe-fred",
  "vibe-indicators-kernel",
  "vibe-model",
@@ -11286,6 +11289,7 @@ dependencies = [
  "vibe-rd-artifact-invocation-custody",
  "vibe-rd-exploratory-replay-custody",
  "vibe-rd-source-intake-invocation-custody",
+ "vibe-risk",
  "vibe-scheduled-events",
  "vibe-testkit",
  "vibe-trading",

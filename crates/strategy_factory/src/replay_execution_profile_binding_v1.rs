@@ -1,9 +1,8 @@
 //! Cross-binding and fail-closed preflight for the two Replay execution-profile seals.
 //!
-//! This module intentionally exposes no engine constructor and no admitted result. Even a complete
-//! profile binding returns an explicit unavailable prerequisite census until every native
-//! representation and model mapping, the no-float liquidation boundary, and the real
-//! `ProgramHostV2` to Sim Exchange EVENT consumer exist.
+//! This module exposes no engine constructor and no admitted result. A complete binding privately
+//! retains the exact Instrument Owner terms needed by the native materializer, while preflight
+//! remains unavailable until the real `ProgramHostV2` to Sim Exchange EVENT consumer exists.
 
 use sha2::{Digest, Sha256};
 use thiserror::Error;
@@ -73,9 +72,14 @@ pub struct SealedInstrumentEconomicTermsProvenanceV1 {
     terms_digest: [u8; 32],
     economic_configuration_digest: [u8; 32],
     venue_identity: String,
+    quote_currency: String,
     account_scope_identity: String,
     event_time_ns: i128,
     margin_model: InstrumentMarginModelSelectionV1,
+    maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
 }
 
 /// Exact native margin implementation selected by verified Owner meaning.
@@ -137,10 +141,44 @@ pub fn seal_instrument_economic_terms_provenance_v1(
         terms_digest: instrument_terms_digest(expected)?,
         economic_configuration_digest: economic.digest(),
         venue_identity: context.venue_identity.into(),
+        quote_currency: owner.quote_currency.clone(),
         account_scope_identity: context.account_scope_identity.into(),
         event_time_ns: context.event_time_ns,
         margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
+        maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+            mantissa: owner.maker_fee.mantissa,
+            scale: owner.maker_fee.scale,
+        },
+        taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+            mantissa: owner.taker_fee.mantissa,
+            scale: owner.taker_fee.scale,
+        },
+        initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+            mantissa: owner.initial_margin.mantissa,
+            scale: owner.initial_margin.scale,
+        },
+        maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1 {
+            mantissa: owner.maintenance_margin.mantissa,
+            scale: owner.maintenance_margin.scale,
+        },
     })
+}
+
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct BoundInstrumentEconomicTermsV1 {
+    pub(crate) instrument_identity: String,
+    pub(crate) instrument_fact_digest: [u8; 32],
+    pub(crate) instrument_receipt_digest: [u8; 32],
+    pub(crate) terms_digest: [u8; 32],
+    pub(crate) venue_identity: String,
+    pub(crate) quote_currency: String,
+    pub(crate) account_scope_identity: String,
+    pub(crate) event_time_ns: i128,
+    pub(crate) margin_model: InstrumentMarginModelSelectionV1,
+    pub(crate) maker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    pub(crate) taker_fee: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    pub(crate) initial_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
+    pub(crate) maintenance_margin: crate::replay_economic_configuration_v1::ReplayFixedDecimalV1,
 }
 
 /// Content binding produced before any engine state exists.
@@ -151,6 +189,7 @@ pub struct ReplayExecutionProfileBindingV1 {
     economic_configuration_digest: [u8; 32],
     runner_operational_profile_digest: [u8; 32],
     binding_digest: [u8; 32],
+    instrument_terms: BoundInstrumentEconomicTermsV1,
 }
 
 impl ReplayExecutionProfileBindingV1 {
@@ -163,23 +202,31 @@ impl ReplayExecutionProfileBindingV1 {
     pub fn request_identity(&self) -> &str {
         &self.request_identity
     }
+
+    pub(crate) const fn request_meaning_digest(&self) -> [u8; 32] {
+        self.request_meaning_digest
+    }
+
+    pub(crate) const fn economic_configuration_digest(&self) -> [u8; 32] {
+        self.economic_configuration_digest
+    }
+
+    pub(crate) const fn runner_operational_profile_digest(&self) -> [u8; 32] {
+        self.runner_operational_profile_digest
+    }
+
+    pub(crate) fn instrument_terms(&self) -> &BoundInstrumentEconomicTermsV1 {
+        &self.instrument_terms
+    }
+
+    pub(crate) fn into_instrument_terms(self) -> BoundInstrumentEconomicTermsV1 {
+        self.instrument_terms
+    }
 }
 
-/// Finite prerequisites that deliberately prevent native materialization in this leaf.
+/// Finite prerequisites that prevent end-to-end EVENT execution admission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReplayExecutionProfileUnavailablePrerequisiteV1 {
-    /// Native identifiers, currency/fixed-point values, message-bus codecs, time origins,
-    /// rate limits, and deterministic instance UUIDs do not yet have one version-bound,
-    /// fail-closed materializer from the sealed policy bytes.
-    NativeRepresentationMaterialization,
-    /// The semantic full-fill, fee, and margin choices do not yet select exact native model
-    /// implementations with a proof that construction and execution consume no host randomness
-    /// or implicit model default.
-    DeterministicEconomicModelMaterialization,
-    /// V1 encodes liquidation as disabled and contains no float. Native construction remains
-    /// unavailable until an adapter proves the inactive float field is not read, or binds a
-    /// version-specific inactive constant outside policy bytes.
-    NoFloatLiquidationMaterialization,
     /// No non-test consumer currently carries the prepared ProgramHost EVENT through the real
     /// Backtest engine and Sim Exchange to engine-produced consumption evidence.
     ProgramHostV2SimExchangeEventConsumer,
@@ -189,7 +236,7 @@ pub enum ReplayExecutionProfileUnavailablePrerequisiteV1 {
 #[derive(Debug, Eq, PartialEq)]
 pub struct ReplayExecutionProfilePreflightUnavailableV1 {
     pub binding_digest: [u8; 32],
-    pub prerequisites: [ReplayExecutionProfileUnavailablePrerequisiteV1; 4],
+    pub prerequisites: [ReplayExecutionProfileUnavailablePrerequisiteV1; 1],
 }
 
 /// Cross-binds family, request, both exact content seals, and sealed Instrument Owner terms.
@@ -241,6 +288,7 @@ pub fn bind_replay_execution_profiles_v1(
         economic_configuration_digest: economic.digest(),
         runner_operational_profile_digest: runner.digest(),
         binding_digest: hasher.finalize().into(),
+        instrument_terms: instrument_context,
     })
 }
 
@@ -268,9 +316,6 @@ pub fn preflight_event_replay_execution_profile_v1(
     Ok(ReplayExecutionProfilePreflightUnavailableV1 {
         binding_digest: binding.binding_digest,
         prerequisites: [
-            ReplayExecutionProfileUnavailablePrerequisiteV1::NativeRepresentationMaterialization,
-            ReplayExecutionProfileUnavailablePrerequisiteV1::DeterministicEconomicModelMaterialization,
-            ReplayExecutionProfileUnavailablePrerequisiteV1::NoFloatLiquidationMaterialization,
             ReplayExecutionProfileUnavailablePrerequisiteV1::ProgramHostV2SimExchangeEventConsumer,
         ],
     })
@@ -334,16 +379,10 @@ fn validate_schema_and_identity(
     Ok(())
 }
 
-struct ValidatedInstrumentEconomicTermsContextV1 {
-    venue_identity: String,
-    account_scope_identity: String,
-    event_time_ns: i128,
-}
-
 fn validate_instrument_terms(
     economic: &ReplayEconomicConfigurationV1,
     provenance: SealedInstrumentEconomicTermsProvenanceV1,
-) -> Result<ValidatedInstrumentEconomicTermsContextV1, ReplayExecutionProfileBindingErrorV1> {
+) -> Result<BoundInstrumentEconomicTermsV1, ReplayExecutionProfileBindingErrorV1> {
     let expected = &economic.input().instrument_terms;
     let SealedInstrumentEconomicTermsProvenanceV1 {
         instrument_identity,
@@ -352,9 +391,14 @@ fn validate_instrument_terms(
         terms_digest,
         economic_configuration_digest,
         venue_identity,
+        quote_currency,
         account_scope_identity,
         event_time_ns,
         margin_model,
+        maker_fee,
+        taker_fee,
+        initial_margin,
+        maintenance_margin,
     } = provenance;
 
     if instrument_identity != expected.instrument_identity
@@ -363,14 +407,29 @@ fn validate_instrument_terms(
         || terms_digest != instrument_terms_digest(expected)?
         || economic_configuration_digest != economic.digest()
         || venue_identity != economic.input().venue_identity
+        || quote_currency != expected.quote_currency
         || margin_model != InstrumentMarginModelSelectionV1::StandardMarginModel
+        || maker_fee != expected.maker_fee
+        || taker_fee != expected.taker_fee
+        || initial_margin != expected.initial_margin
+        || maintenance_margin != expected.maintenance_margin
     {
         return Err(ReplayExecutionProfileBindingErrorV1::InstrumentTermsProvenanceMismatch);
     }
-    Ok(ValidatedInstrumentEconomicTermsContextV1 {
+    Ok(BoundInstrumentEconomicTermsV1 {
+        instrument_identity,
+        instrument_fact_digest,
+        instrument_receipt_digest,
+        terms_digest,
         venue_identity,
+        quote_currency,
         account_scope_identity,
         event_time_ns,
+        margin_model,
+        maker_fee,
+        taker_fee,
+        initial_margin,
+        maintenance_margin,
     })
 }
 
@@ -390,6 +449,29 @@ fn instrument_terms_digest(
     hasher.update(b"strategy-factory.instrument-economic-terms.v1\0");
     hasher.update(bytes);
     Ok(hasher.finalize().into())
+}
+
+#[cfg(test)]
+pub(crate) fn instrument_terms_provenance_fixture_v1(
+    economic: &ReplayEconomicConfigurationV1,
+) -> SealedInstrumentEconomicTermsProvenanceV1 {
+    let terms = &economic.input().instrument_terms;
+    SealedInstrumentEconomicTermsProvenanceV1 {
+        instrument_identity: terms.instrument_identity.clone(),
+        instrument_fact_digest: terms.instrument_fact_digest,
+        instrument_receipt_digest: terms.instrument_receipt_digest,
+        terms_digest: instrument_terms_digest(terms).expect("fixture terms digest"),
+        economic_configuration_digest: economic.digest(),
+        venue_identity: economic.input().venue_identity.clone(),
+        quote_currency: terms.quote_currency.clone(),
+        account_scope_identity: "fixture-account".into(),
+        event_time_ns: 1,
+        margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
+        maker_fee: terms.maker_fee,
+        taker_fee: terms.taker_fee,
+        initial_margin: terms.initial_margin,
+        maintenance_margin: terms.maintenance_margin,
+    }
 }
 
 fn encode_bytes(
@@ -454,9 +536,14 @@ mod tests {
             terms_digest: instrument_terms_digest(terms).unwrap(),
             economic_configuration_digest: economic.digest(),
             venue_identity: economic.input().venue_identity.clone(),
+            quote_currency: terms.quote_currency.clone(),
             account_scope_identity: "fixture-account".into(),
             event_time_ns: 1,
             margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
+            maker_fee: terms.maker_fee,
+            taker_fee: terms.taker_fee,
+            initial_margin: terms.initial_margin,
+            maintenance_margin: terms.maintenance_margin,
         };
         (economic, runner, family, request, provenance)
     }
@@ -473,9 +560,6 @@ mod tests {
         assert_eq!(
             unavailable.prerequisites,
             [
-                ReplayExecutionProfileUnavailablePrerequisiteV1::NativeRepresentationMaterialization,
-                ReplayExecutionProfileUnavailablePrerequisiteV1::DeterministicEconomicModelMaterialization,
-                ReplayExecutionProfileUnavailablePrerequisiteV1::NoFloatLiquidationMaterialization,
                 ReplayExecutionProfileUnavailablePrerequisiteV1::ProgramHostV2SimExchangeEventConsumer,
             ]
         );
