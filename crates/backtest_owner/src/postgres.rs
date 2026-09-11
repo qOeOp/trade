@@ -37,6 +37,20 @@ const OUTBOX_EVENT_DIGEST_DOMAIN: &str = "vibe.backtest.result-outbox-event.v1";
 const ATTEMPT_LOCK_DOMAIN: &str = "vibe.backtest.replay-result-attempt-lock.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 const EVIDENCE_SOURCE_STORAGE_DOMAIN: &str = "vibe.backtest.native-replay-producer-source.v2";
+const READ_ORPHAN_NATIVE_REPLAY_EVIDENCE: &str = "
+SELECT pg_catalog.exists(
+  SELECT 1
+    FROM public.backtest_native_replay_observations_v2 observation
+   WHERE observation.result_identity=$1
+      OR (observation.request_identity=$2 AND observation.attempt_identity=$3)
+      OR observation.envelope_reference=ANY($4)
+) OR pg_catalog.exists(
+  SELECT 1
+    FROM public.backtest_native_replay_semantic_traces_v2 trace
+   WHERE trace.result_identity=$1 OR trace.locator_reference=$5
+)";
+const INSERT_NATIVE_REPLAY_OBSERVATION: &str = "INSERT INTO public.backtest_native_replay_observations_v2(result_identity,component,request_identity,request_meaning_digest,request_receipt_identity,request_seal_digest,attempt_identity,envelope_reference,envelope_digest,producer_namespace,producer_reference,source_digest,observed_meaning_identity,observed_meaning_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)";
+const INSERT_NATIVE_REPLAY_TRACE: &str = "INSERT INTO public.backtest_native_replay_semantic_traces_v2(result_identity,locator_reference,locator_digest,canonical_bytes) VALUES($1,$2,$3,$4)";
 
 const READ_AGGREGATE: &str = "
 SELECT result.result_identity,result.result_digest,result.request_identity,
@@ -675,6 +689,21 @@ async fn persist_native_replay_aggregate(
             ))
         };
     }
+    let envelope_references = batch
+        .envelopes()
+        .iter()
+        .map(|envelope| envelope.envelope_locator().reference.as_str().to_owned())
+        .collect::<Vec<_>>();
+    let orphan_evidence: bool = sqlx::query_scalar(READ_ORPHAN_NATIVE_REPLAY_EVIDENCE)
+        .bind(result_dto.result_identity.as_str())
+        .bind(result_dto.request_identity.as_str())
+        .bind(result_dto.attempt_identity.as_str())
+        .bind(&envelope_references)
+        .bind(trace.locator().reference.as_str())
+        .fetch_one(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    reject_orphan_native_replay_evidence(orphan_evidence)?;
     let inserted = sqlx::query("INSERT INTO public.backtest_replay_results_v2(result_identity,result_digest,request_identity,request_meaning_digest,attempt_identity,terminal,canonical_bytes,canonical_bytes_blake3) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT DO NOTHING")
             .bind(result_dto.result_identity.as_str()).bind(result_dto.result_digest.as_str())
             .bind(result_dto.request_identity.as_str()).bind(result_dto.request_meaning_digest.as_str())
@@ -715,7 +744,7 @@ async fn persist_native_replay_aggregate(
             .bind(storage_digest(EVIDENCE_SOURCE_STORAGE_DOMAIN, envelope.producer_bytes()))
             .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
         if source_inserted.rows_affected() == 0 {
-            let row = sqlx::query("SELECT canonical_bytes,canonical_bytes_blake3 FROM public.backtest_native_replay_source_blobs_v2 WHERE source_digest=$1 FOR SHARE")
+            let row = sqlx::query("SELECT canonical_bytes,canonical_bytes_blake3 FROM public.backtest_native_replay_source_blobs_v2 WHERE source_digest=$1")
                 .bind(envelope.producer_bytes_digest().as_str()).fetch_one(&mut *transaction).await
                 .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
             if row.try_get::<Vec<u8>, _>("canonical_bytes").ok().as_deref()
@@ -733,17 +762,40 @@ async fn persist_native_replay_aggregate(
             }
         }
         let component = component_text(envelope.component())?;
-        sqlx::query("INSERT INTO public.backtest_native_replay_observations_v2(result_identity,component,request_identity,request_meaning_digest,request_receipt_identity,request_seal_digest,attempt_identity,envelope_reference,envelope_digest,producer_namespace,producer_reference,source_digest,observed_meaning_identity,observed_meaning_digest,canonical_bytes) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) ON CONFLICT DO NOTHING")
-            .bind(result_dto.result_identity.as_str()).bind(&component).bind(&batch.request_locator().request_identity)
-            .bind(&batch.request_locator().meaning_digest).bind(&batch.request_locator().receipt_identity).bind(&batch.request_locator().seal_digest)
-            .bind(batch.attempt_identity().as_str()).bind(envelope.envelope_locator().reference.as_str()).bind(envelope.envelope_locator().digest.as_str())
-            .bind(envelope.producer_namespace().as_str()).bind(envelope.producer_reference().as_str()).bind(envelope.producer_bytes_digest().as_str())
-            .bind(envelope.observed_meaning_identity().as_str()).bind(envelope.observed_meaning_digest().as_str()).bind(envelope.canonical_bytes())
-            .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        let inserted = sqlx::query(INSERT_NATIVE_REPLAY_OBSERVATION)
+            .bind(result_dto.result_identity.as_str())
+            .bind(&component)
+            .bind(&batch.request_locator().request_identity)
+            .bind(&batch.request_locator().meaning_digest)
+            .bind(&batch.request_locator().receipt_identity)
+            .bind(&batch.request_locator().seal_digest)
+            .bind(batch.attempt_identity().as_str())
+            .bind(envelope.envelope_locator().reference.as_str())
+            .bind(envelope.envelope_locator().digest.as_str())
+            .bind(envelope.producer_namespace().as_str())
+            .bind(envelope.producer_reference().as_str())
+            .bind(envelope.producer_bytes_digest().as_str())
+            .bind(envelope.observed_meaning_identity().as_str())
+            .bind(envelope.observed_meaning_digest().as_str())
+            .bind(envelope.canonical_bytes())
+            .execute(&mut *transaction)
+            .await
+            .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+        if inserted.rows_affected() != 1 {
+            return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+        }
     }
-    sqlx::query("INSERT INTO public.backtest_native_replay_semantic_traces_v2(result_identity,locator_reference,locator_digest,canonical_bytes) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING")
-        .bind(result_dto.result_identity.as_str()).bind(trace.locator().reference.as_str()).bind(trace.canonical_bytes_digest().as_str()).bind(trace.canonical_bytes())
-        .execute(&mut *transaction).await.map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    let inserted = sqlx::query(INSERT_NATIVE_REPLAY_TRACE)
+        .bind(result_dto.result_identity.as_str())
+        .bind(trace.locator().reference.as_str())
+        .bind(trace.canonical_bytes_digest().as_str())
+        .bind(trace.canonical_bytes())
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?;
+    if inserted.rows_affected() != 1 {
+        return Err(PostgresReplayResultOwnerErrorV2::ConflictingResult);
+    }
 
     let expected = expected_evidence(batch);
     let (evidence_batch, semantic_trace) = read_expected_evidence(
@@ -820,7 +872,7 @@ async fn read_expected_evidence(
     let mut values = Vec::with_capacity(28);
     for item in expected {
         let component = component_text(item.component)?;
-        let row = sqlx::query("SELECT observation.request_identity,observation.request_meaning_digest,observation.request_receipt_identity,observation.request_seal_digest,observation.attempt_identity,observation.envelope_reference,observation.envelope_digest,observation.producer_namespace,observation.producer_reference,observation.source_digest,observation.observed_meaning_identity,observation.observed_meaning_digest,observation.canonical_bytes,source.canonical_bytes AS source_bytes,source.canonical_bytes_blake3 FROM public.backtest_native_replay_observations_v2 observation JOIN public.backtest_native_replay_source_blobs_v2 source ON source.source_digest=observation.source_digest WHERE observation.result_identity=$1 AND observation.component=$2 FOR SHARE OF observation,source")
+        let row = sqlx::query("SELECT observation.request_identity,observation.request_meaning_digest,observation.request_receipt_identity,observation.request_seal_digest,observation.attempt_identity,observation.envelope_reference,observation.envelope_digest,observation.producer_namespace,observation.producer_reference,observation.source_digest,observation.observed_meaning_identity,observation.observed_meaning_digest,observation.canonical_bytes,source.canonical_bytes AS source_bytes,source.canonical_bytes_blake3 FROM public.backtest_native_replay_observations_v2 observation JOIN public.backtest_native_replay_source_blobs_v2 source ON source.source_digest=observation.source_digest WHERE observation.result_identity=$1 AND observation.component=$2")
             .bind(result_identity.as_str()).bind(component).fetch_optional(&mut **transaction).await
             .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?
             .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
@@ -859,7 +911,7 @@ async fn read_expected_evidence(
             item.producer_bytes_digest.clone(),
         ));
     }
-    let trace_row = sqlx::query("SELECT locator_reference,locator_digest,canonical_bytes FROM public.backtest_native_replay_semantic_traces_v2 WHERE result_identity=$1 FOR SHARE")
+    let trace_row = sqlx::query("SELECT locator_reference,locator_digest,canonical_bytes FROM public.backtest_native_replay_semantic_traces_v2 WHERE result_identity=$1")
         .bind(result_identity.as_str()).fetch_optional(&mut **transaction).await
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)?
         .ok_or(PostgresReplayResultOwnerErrorV2::CorruptReadback)?;
@@ -886,6 +938,16 @@ fn component_text(
     serde_json::to_string(&value)
         .map(|value| value.trim_matches('"').to_owned())
         .map_err(|_| PostgresReplayResultOwnerErrorV2::StorageUnavailable)
+}
+
+fn reject_orphan_native_replay_evidence(
+    orphan_evidence: bool,
+) -> Result<(), PostgresReplayResultOwnerErrorV2> {
+    if orphan_evidence {
+        Err(PostgresReplayResultOwnerErrorV2::ConflictingResult)
+    } else {
+        Ok(())
+    }
 }
 
 fn commit_disposition(
@@ -993,7 +1055,10 @@ fn attempt_lock_key(
 
 #[cfg(test)]
 mod lock_key_tests {
-    use super::attempt_lock_key;
+    use super::{
+        INSERT_NATIVE_REPLAY_OBSERVATION, INSERT_NATIVE_REPLAY_TRACE,
+        READ_ORPHAN_NATIVE_REPLAY_EVIDENCE, attempt_lock_key, reject_orphan_native_replay_evidence,
+    };
     use rstest::rstest;
 
     #[rstest]
@@ -1010,6 +1075,27 @@ mod lock_key_tests {
         assert_ne!(
             attempt_lock_key("request", "attempt:tail").expect("first tuple"),
             attempt_lock_key("request:attempt", "tail").expect("second tuple")
+        );
+    }
+
+    #[rstest]
+    fn native_replay_orphans_fail_before_non_deduplicating_evidence_inserts() {
+        for required_key in [
+            "observation.result_identity=$1",
+            "observation.request_identity=$2 AND observation.attempt_identity=$3",
+            "observation.envelope_reference=ANY($4)",
+            "trace.result_identity=$1 OR trace.locator_reference=$5",
+        ] {
+            assert!(
+                READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains(required_key),
+                "missing orphan key {required_key}"
+            );
+        }
+        assert!(!INSERT_NATIVE_REPLAY_OBSERVATION.contains("ON CONFLICT"));
+        assert!(!INSERT_NATIVE_REPLAY_TRACE.contains("ON CONFLICT"));
+        assert_eq!(
+            reject_orphan_native_replay_evidence(true),
+            Err(super::PostgresReplayResultOwnerErrorV2::ConflictingResult)
         );
     }
 }

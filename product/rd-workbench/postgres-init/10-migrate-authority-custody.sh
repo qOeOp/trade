@@ -938,6 +938,123 @@ GRANT SELECT, INSERT ON TABLE public.backtest_replay_results_v2, public.backtest
 REVOKE ALL ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 FROM PUBLIC, rd_owner, rd_fact_writer, market_data_reader, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, backtest_owner;
 GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;
 
+DO $backtest_native_replay_evidence_topology_readback$
+DECLARE exact boolean;
+BEGIN
+  WITH family AS (
+    SELECT relation.oid, relation.relname
+      FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+     WHERE namespace.nspname='public'
+       AND relation.relname IN ('backtest_native_replay_source_blobs_v2','backtest_native_replay_observations_v2','backtest_native_replay_semantic_traces_v2')
+  )
+  SELECT
+    (SELECT pg_catalog.count(*)=3 AND pg_catalog.bool_and(
+              relation.relkind='r' AND relation.relpersistence='p' AND access_method.amname='heap'
+          AND pg_catalog.pg_get_userbyid(relation.relowner)='backtest_custodian'
+          AND NOT relation.relrowsecurity AND NOT relation.relforcerowsecurity
+          AND relation.relreplident='d' AND NOT relation.relispartition
+          AND relation.reltablespace=0 AND relation.reloptions IS NULL)
+       FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+       JOIN pg_catalog.pg_am access_method ON access_method.oid=relation.relam)
+    AND NOT EXISTS (
+      SELECT 1 FROM pg_catalog.pg_class relation
+      JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
+       WHERE namespace.nspname<>'public'
+         AND relation.relname IN ('backtest_native_replay_source_blobs_v2','backtest_native_replay_observations_v2','backtest_native_replay_semantic_traces_v2'))
+    AND (SELECT pg_catalog.count(*)=22 AND NOT pg_catalog.bool_or(
+          (family.relname,attribute.attnum,attribute.attname,pg_catalog.format_type(attribute.atttypid,attribute.atttypmod),attribute.attnotnull)
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2',1::smallint,'source_digest','text',true),
+            ('backtest_native_replay_source_blobs_v2',2::smallint,'canonical_bytes','bytea',true),
+            ('backtest_native_replay_source_blobs_v2',3::smallint,'canonical_bytes_blake3','text',true),
+            ('backtest_native_replay_observations_v2',1::smallint,'result_identity','text',true),
+            ('backtest_native_replay_observations_v2',2::smallint,'component','text',true),
+            ('backtest_native_replay_observations_v2',3::smallint,'request_identity','text',true),
+            ('backtest_native_replay_observations_v2',4::smallint,'request_meaning_digest','text',true),
+            ('backtest_native_replay_observations_v2',5::smallint,'request_receipt_identity','text',true),
+            ('backtest_native_replay_observations_v2',6::smallint,'request_seal_digest','text',true),
+            ('backtest_native_replay_observations_v2',7::smallint,'attempt_identity','text',true),
+            ('backtest_native_replay_observations_v2',8::smallint,'envelope_reference','text',true),
+            ('backtest_native_replay_observations_v2',9::smallint,'envelope_digest','text',true),
+            ('backtest_native_replay_observations_v2',10::smallint,'producer_namespace','text',true),
+            ('backtest_native_replay_observations_v2',11::smallint,'producer_reference','text',true),
+            ('backtest_native_replay_observations_v2',12::smallint,'source_digest','text',true),
+            ('backtest_native_replay_observations_v2',13::smallint,'observed_meaning_identity','text',true),
+            ('backtest_native_replay_observations_v2',14::smallint,'observed_meaning_digest','text',true),
+            ('backtest_native_replay_observations_v2',15::smallint,'canonical_bytes','bytea',true),
+            ('backtest_native_replay_semantic_traces_v2',1::smallint,'result_identity','text',true),
+            ('backtest_native_replay_semantic_traces_v2',2::smallint,'locator_reference','text',true),
+            ('backtest_native_replay_semantic_traces_v2',3::smallint,'locator_digest','text',true),
+            ('backtest_native_replay_semantic_traces_v2',4::smallint,'canonical_bytes','bytea',true))
+          OR attribute.atthasdef OR attribute.attidentity<>'' OR attribute.attgenerated<>''
+          OR attribute.attacl IS NOT NULL OR attribute.attcollation<>attribute_type.typcollation
+          OR attribute.attndims<>0 OR NOT attribute.attislocal OR attribute.attinhcount<>0)
+       FROM family JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=family.oid AND attribute.attnum>0 AND NOT attribute.attisdropped
+       JOIN pg_catalog.pg_type attribute_type ON attribute_type.oid=attribute.atttypid)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND attribute.attisdropped)
+    AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+          (family.relname,constraint_fact.contype::pg_catalog.text,pg_catalog.array_to_string(constraint_fact.conkey,' '))
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2','p','1'),
+            ('backtest_native_replay_observations_v2','p','1 2'),
+            ('backtest_native_replay_observations_v2','u','8'),
+            ('backtest_native_replay_observations_v2','u','3 7 2'),
+            ('backtest_native_replay_semantic_traces_v2','p','1'),
+            ('backtest_native_replay_semantic_traces_v2','u','2'))
+          OR constraint_fact.condeferrable OR constraint_fact.condeferred OR NOT constraint_fact.convalidated
+          OR NOT constraint_fact.connoinherit OR NOT constraint_fact.conislocal OR constraint_fact.coninhcount<>0)
+       FROM pg_catalog.pg_constraint constraint_fact JOIN family ON family.oid=constraint_fact.conrelid
+       WHERE constraint_fact.contype IN ('p','u'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conrelid IN (SELECT oid FROM family) AND constraint_fact.contype NOT IN ('p','u'))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.confrelid IN (SELECT oid FROM family))
+    AND (SELECT pg_catalog.count(*)=6 AND NOT pg_catalog.bool_or(
+          (family.relname,index_fact.indisprimary,pg_catalog.array_to_string(index_fact.indkey::smallint[],' '))
+          NOT IN (VALUES
+            ('backtest_native_replay_source_blobs_v2',true,'1'),
+            ('backtest_native_replay_observations_v2',true,'1 2'),
+            ('backtest_native_replay_observations_v2',false,'8'),
+            ('backtest_native_replay_observations_v2',false,'3 7 2'),
+            ('backtest_native_replay_semantic_traces_v2',true,'1'),
+            ('backtest_native_replay_semantic_traces_v2',false,'2'))
+          OR NOT index_fact.indisunique OR index_fact.indisexclusion OR NOT index_fact.indimmediate
+          OR index_fact.indisclustered OR NOT index_fact.indisvalid OR NOT index_fact.indisready
+          OR NOT index_fact.indislive OR index_fact.indisreplident OR index_fact.indnullsnotdistinct
+          OR index_fact.indnkeyatts<>index_fact.indnatts OR index_fact.indexprs IS NOT NULL OR index_fact.indpred IS NOT NULL
+          OR index_relation.relkind<>'i' OR index_relation.relpersistence<>'p' OR index_relation.reltablespace<>0
+          OR index_relation.reloptions IS NOT NULL OR pg_catalog.pg_get_userbyid(index_relation.relowner)<>'backtest_custodian'
+          OR index_method.amname<>'btree'
+          OR NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint constraint_fact WHERE constraint_fact.conindid=index_relation.oid)
+          OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value WHERE option_value<>0)
+          OR EXISTS (SELECT 1 FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid WHERE NOT operator_class.opcdefault)
+          OR EXISTS (
+            SELECT 1 FROM pg_catalog.unnest(index_fact.indkey::smallint[]) WITH ORDINALITY key_fact(attnum,ordinality)
+            JOIN pg_catalog.unnest(index_fact.indcollation::oid[]) WITH ORDINALITY collation_fact(collation_oid,ordinality) USING(ordinality)
+            JOIN pg_catalog.pg_attribute attribute ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+             WHERE collation_fact.collation_oid<>attribute.attcollation))
+       FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
+       JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
+       JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
+    AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(
+          role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable
+          AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+       FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+       CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+       LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>relation.relowner)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND NOT attribute.attisdropped)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_rewrite rewrite WHERE rewrite.ev_class IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_inherits inheritance WHERE inheritance.inhrelid IN (SELECT oid FROM family) OR inheritance.inhparent IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_rel publication WHERE publication.prrelid IN (SELECT oid FROM family))
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication publication WHERE publication.puballtables)
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_publication_namespace publication_namespace JOIN pg_catalog.pg_namespace namespace ON namespace.oid=publication_namespace.pnnspid WHERE namespace.nspname='public')
+    AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_statistic_ext statistic WHERE statistic.stxrelid IN (SELECT oid FROM family))
+  INTO exact;
+  IF exact IS DISTINCT FROM true THEN RAISE EXCEPTION 'Backtest native Replay evidence topology mismatch'; END IF;
+END
+$backtest_native_replay_evidence_topology_readback$;
+
 DO $remove_misplaced_authority_lock$
 DECLARE misplaced oid := pg_catalog.to_regprocedure('backtest_owner_api.lock_authority_catalogs_v1()');
 BEGIN
@@ -973,7 +1090,7 @@ CREATE OR REPLACE FUNCTION backtest_owner_api.resolve_exploratory_replay_result_
   p_attempt_identity text
 ) RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
-AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity FOR SHARE; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END$function$;
+AS $function$DECLARE locked_result public.backtest_replay_results_v2%ROWTYPE; locked_receipt public.backtest_replay_result_receipts_v1%ROWTYPE; locked_outbox public.backtest_replay_result_outbox_v1%ROWTYPE; BEGIN SELECT result.* INTO locked_result FROM public.backtest_replay_results_v2 result WHERE result.result_identity=p_result_identity AND result.request_identity=p_request_identity AND result.attempt_identity=p_attempt_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT receipt.* INTO locked_receipt FROM public.backtest_replay_result_receipts_v1 receipt WHERE receipt.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; SELECT outbox.* INTO locked_outbox FROM public.backtest_replay_result_outbox_v1 outbox WHERE outbox.result_identity=p_result_identity; IF NOT FOUND THEN RETURN NULL; END IF; RETURN pg_catalog.jsonb_build_object('schema_version',2,'result',pg_catalog.jsonb_build_object('result_identity',locked_result.result_identity,'result_digest',locked_result.result_digest,'request_identity',locked_result.request_identity,'request_meaning_digest',locked_result.request_meaning_digest,'attempt_identity',locked_result.attempt_identity,'terminal',locked_result.terminal,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_result.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_result.canonical_bytes_blake3),'receipt',pg_catalog.jsonb_build_object('result_identity',locked_receipt.result_identity,'receipt_identity',locked_receipt.receipt_identity,'receipt_digest',locked_receipt.receipt_digest,'request_identity',locked_receipt.request_identity,'request_meaning_digest',locked_receipt.request_meaning_digest,'result_digest',locked_receipt.result_digest,'namespace',locked_receipt.namespace,'outbox_event_identity',locked_receipt.outbox_event_identity,'committed_at_epoch_ms',locked_receipt.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_receipt.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_receipt.canonical_bytes_blake3),'outbox',pg_catalog.jsonb_build_object('result_identity',locked_outbox.result_identity,'event_identity',locked_outbox.event_identity,'event_digest',locked_outbox.event_digest,'receipt_identity',locked_outbox.receipt_identity,'request_identity',locked_outbox.request_identity,'request_meaning_digest',locked_outbox.request_meaning_digest,'result_digest',locked_outbox.result_digest,'namespace',locked_outbox.namespace,'payload_digest',locked_outbox.payload_digest,'committed_at_epoch_ms',locked_outbox.committed_at_epoch_ms,'canonical_bytes_base64',pg_catalog.replace(pg_catalog.encode(locked_outbox.canonical_bytes,'base64'),pg_catalog.chr(10),''),'canonical_bytes_blake3',locked_outbox.canonical_bytes_blake3)); END$function$;
 ALTER FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) OWNER TO backtest_custodian;
 REVOKE ALL ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) FROM PUBLIC, backtest_owner, product_edge_owner, qualification_owner, qualification_writer, operator_authorization_owner, operator_authorization_writer, portfolio_owner, rd_fact_writer, market_data_reader, rd_owner;
 GRANT EXECUTE ON FUNCTION backtest_owner_api.resolve_exploratory_replay_result_v2(text,text,text) TO rd_owner;
