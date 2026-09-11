@@ -1035,12 +1035,23 @@ BEGIN
        FROM pg_catalog.pg_index index_fact JOIN family ON family.oid=index_fact.indrelid
        JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
        JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
-    AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(
-          role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable
-          AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+    AND (SELECT pg_catalog.count(*)=6
+          AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+          AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
        FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
        CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
-       LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee WHERE acl.grantee<>relation.relowner)
+       JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+       WHERE acl.grantee<>relation.relowner AND acl.grantee<>0
+         AND role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT') AND NOT acl.is_grantable
+         AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+    AND NOT EXISTS (
+      SELECT 1 FROM family JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))) acl
+      LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+       WHERE acl.grantee<>relation.relowner
+         AND (acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'
+           OR acl.privilege_type NOT IN ('SELECT','INSERT') OR acl.is_grantable
+           OR pg_catalog.pg_get_userbyid(acl.grantor) IS DISTINCT FROM 'backtest_custodian'))
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_attribute attribute CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl WHERE attribute.attrelid IN (SELECT oid FROM family) AND attribute.attnum>0 AND NOT attribute.attisdropped)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_trigger trigger_fact WHERE trigger_fact.tgrelid IN (SELECT oid FROM family) AND NOT trigger_fact.tgisinternal)
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_policy policy WHERE policy.polrelid IN (SELECT oid FROM family))

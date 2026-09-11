@@ -287,8 +287,28 @@ grep -Fq 'UNIQUE (request_identity, attempt_identity, component)' "$package_dir/
 grep -Fq 'GRANT SELECT, INSERT ON TABLE public.backtest_native_replay_source_blobs_v2, public.backtest_native_replay_observations_v2, public.backtest_native_replay_semantic_traces_v2 TO backtest_owner;' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'DO $backtest_native_replay_evidence_topology_readback$' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "pg_catalog.count(*)=22 AND NOT pg_catalog.bool_or(" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
-grep -Fq "role.rolname='backtest_owner' AND acl.privilege_type IN ('SELECT','INSERT')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "acl.grantee=0 OR role.oid IS NULL OR role.rolname IS DISTINCT FROM 'backtest_owner'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq "acl.privilege_type NOT IN ('SELECT','INSERT')" "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl)' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+native_evidence_runtime_census=$(sed -n '/^const NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY:/,/^";$/p' "$package_dir/../../crates/backtest_result_custody/src/lib.rs")
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indoption::smallint[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indclass::oid[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'WHERE NOT operator_class.opcdefault'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'pg_catalog.unnest(index_fact.indcollation::oid[])'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'collation_fact.collation_oid<>attribute.attcollation'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3"
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3"
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'acl.grantee=0'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq 'role.oid IS NULL'
+printf '%s' "$native_evidence_runtime_census" | grep -Fq "acl.privilege_type NOT IN ('SELECT','INSERT')"
+backtest_orphan_preflight=$(sed -n '/^const READ_ORPHAN_NATIVE_REPLAY_EVIDENCE:/,/^";$/p' "$package_dir/../../crates/backtest_owner/src/postgres.rs")
+printf '%s' "$backtest_orphan_preflight" | grep -Fq 'SELECT EXISTS ('
+if printf '%s' "$backtest_orphan_preflight" | grep -Fq 'pg_catalog.exists('; then
+  echo 'Backtest orphan preflight must use PostgreSQL EXISTS syntax' >&2
+  exit 1
+fi
 grep -Fq 'AND NOT trigger_fact.tgisinternal' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SELECT 1 FROM pg_catalog.pg_rewrite rewrite' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq "RAISE EXCEPTION 'Backtest native Replay evidence topology mismatch'" "$package_dir/postgres-init/10-migrate-authority-custody.sh"

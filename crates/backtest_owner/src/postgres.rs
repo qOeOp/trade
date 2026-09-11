@@ -38,13 +38,13 @@ const ATTEMPT_LOCK_DOMAIN: &str = "vibe.backtest.replay-result-attempt-lock.v2";
 const EVENT_KIND: &str = "EXPLORATORY_BACKTEST_RESULT_COMMITTED_V1";
 const EVIDENCE_SOURCE_STORAGE_DOMAIN: &str = "vibe.backtest.native-replay-producer-source.v2";
 const READ_ORPHAN_NATIVE_REPLAY_EVIDENCE: &str = "
-SELECT pg_catalog.exists(
+SELECT EXISTS (
   SELECT 1
     FROM public.backtest_native_replay_observations_v2 observation
    WHERE observation.result_identity=$1
       OR (observation.request_identity=$2 AND observation.attempt_identity=$3)
       OR observation.envelope_reference=ANY($4)
-) OR pg_catalog.exists(
+) OR EXISTS (
   SELECT 1
     FROM public.backtest_native_replay_semantic_traces_v2 trace
    WHERE trace.result_identity=$1 OR trace.locator_reference=$5
@@ -1080,6 +1080,14 @@ mod lock_key_tests {
 
     #[rstest]
     fn native_replay_orphans_fail_before_non_deduplicating_evidence_inserts() {
+        assert!(READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains("SELECT EXISTS ("));
+        assert_eq!(
+            READ_ORPHAN_NATIVE_REPLAY_EVIDENCE
+                .matches("EXISTS (")
+                .count(),
+            2
+        );
+        assert!(!READ_ORPHAN_NATIVE_REPLAY_EVIDENCE.contains("pg_catalog.exists("));
         for required_key in [
             "observation.result_identity=$1",
             "observation.request_identity=$2 AND observation.attempt_identity=$3",

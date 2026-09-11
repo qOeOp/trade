@@ -411,24 +411,65 @@ SELECT
           SELECT 1 FROM pg_catalog.pg_constraint constraint_fact
            WHERE constraint_fact.conindid=index_relation.oid
         )
+        OR EXISTS (
+          SELECT 1 FROM pg_catalog.unnest(index_fact.indoption::smallint[]) option_value
+           WHERE option_value<>0
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM pg_catalog.unnest(index_fact.indclass::oid[]) class_oid
+            JOIN pg_catalog.pg_opclass operator_class ON operator_class.oid=class_oid
+           WHERE NOT operator_class.opcdefault
+        )
+        OR EXISTS (
+          SELECT 1
+            FROM pg_catalog.unnest(index_fact.indkey::smallint[])
+                 WITH ORDINALITY key_fact(attnum,ordinality)
+            JOIN pg_catalog.unnest(index_fact.indcollation::oid[])
+                 WITH ORDINALITY collation_fact(collation_oid,ordinality)
+              USING(ordinality)
+            JOIN pg_catalog.pg_attribute attribute
+              ON attribute.attrelid=index_fact.indrelid AND attribute.attnum=key_fact.attnum
+           WHERE collation_fact.collation_oid<>attribute.attcollation
+        )
       )
      FROM pg_catalog.pg_index index_fact
      JOIN family ON family.oid=index_fact.indrelid
      JOIN pg_catalog.pg_class index_relation ON index_relation.oid=index_fact.indexrelid
      JOIN pg_catalog.pg_am index_method ON index_method.oid=index_relation.relam)
-  AND (SELECT pg_catalog.count(*)=6 AND pg_catalog.bool_and(
-        role.rolname='backtest_owner'
-        AND acl.privilege_type IN ('SELECT','INSERT')
-        AND NOT acl.is_grantable
-        AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian'
-      )
+  AND (SELECT pg_catalog.count(*)=6
+        AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3
+        AND pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3
      FROM family
      JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
      CROSS JOIN LATERAL pg_catalog.aclexplode(
        COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))
      ) acl
-     LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
-    WHERE acl.grantee<>relation.relowner)
+     JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+    WHERE acl.grantee<>relation.relowner
+      AND acl.grantee<>0
+      AND role.rolname='backtest_owner'
+      AND acl.privilege_type IN ('SELECT','INSERT')
+      AND NOT acl.is_grantable
+      AND pg_catalog.pg_get_userbyid(acl.grantor)='backtest_custodian')
+  AND NOT EXISTS (
+    SELECT 1
+      FROM family
+      JOIN pg_catalog.pg_class relation ON relation.oid=family.oid
+      CROSS JOIN LATERAL pg_catalog.aclexplode(
+        COALESCE(relation.relacl,pg_catalog.acldefault('r',relation.relowner))
+      ) acl
+      LEFT JOIN pg_catalog.pg_roles role ON role.oid=acl.grantee
+     WHERE acl.grantee<>relation.relowner
+       AND (
+         acl.grantee=0
+         OR role.oid IS NULL
+         OR role.rolname IS DISTINCT FROM 'backtest_owner'
+         OR acl.privilege_type NOT IN ('SELECT','INSERT')
+         OR acl.is_grantable
+         OR pg_catalog.pg_get_userbyid(acl.grantor) IS DISTINCT FROM 'backtest_custodian'
+       )
+  )
   AND NOT EXISTS (
     SELECT 1 FROM pg_catalog.pg_attribute attribute
     CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl) acl
@@ -1077,17 +1118,49 @@ mod tests {
 
     #[rstest]
     fn native_evidence_topology_rejects_table_and_column_acl_drift() {
-        assert!(NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(
-            "pg_catalog.count(*)=6 AND pg_catalog.bool_and(\n        role.rolname='backtest_owner'"
-        ));
         assert!(
             NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY
-                .contains("acl.privilege_type IN ('SELECT','INSERT')")
+                .contains("pg_catalog.count(*) FILTER (WHERE acl.privilege_type='SELECT')=3")
+        );
+        assert!(
+            NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY
+                .contains("pg_catalog.count(*) FILTER (WHERE acl.privilege_type='INSERT')=3")
+        );
+        for rejected_acl in [
+            "acl.grantee=0",
+            "role.oid IS NULL",
+            "role.rolname IS DISTINCT FROM 'backtest_owner'",
+            "acl.privilege_type NOT IN ('SELECT','INSERT')",
+        ] {
+            assert!(
+                NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(rejected_acl),
+                "missing ACL rejection {rejected_acl}"
+            );
+        }
+        assert!(
+            !NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY
+                .contains("pg_catalog.count(*)=6 AND pg_catalog.bool_and(")
         );
         assert!(
             NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY
                 .contains("CROSS JOIN LATERAL pg_catalog.aclexplode(attribute.attacl)")
         );
+    }
+
+    #[rstest]
+    fn native_evidence_topology_matches_migration_index_guards() {
+        for required in [
+            "pg_catalog.unnest(index_fact.indoption::smallint[])",
+            "pg_catalog.unnest(index_fact.indclass::oid[])",
+            "WHERE NOT operator_class.opcdefault",
+            "pg_catalog.unnest(index_fact.indcollation::oid[])",
+            "collation_fact.collation_oid<>attribute.attcollation",
+        ] {
+            assert!(
+                NATIVE_REPLAY_EVIDENCE_TABLE_CENSUS_QUERY.contains(required),
+                "missing native evidence index guard {required}"
+            );
+        }
     }
 
     #[rstest]
