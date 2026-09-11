@@ -338,7 +338,10 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
                     ORDER BY key.ordinality),' '),'') AS foreign_columns,
                  CASE WHEN constraint_fact.contype='f' THEN constraint_fact.confdeltype::text ELSE ' ' END AS delete_action,
                  constraint_fact.condeferrable,constraint_fact.condeferred,constraint_fact.convalidated,
-                 constraint_fact.conislocal,constraint_fact.coninhcount
+                 constraint_fact.conislocal,constraint_fact.coninhcount,
+                 constraint_fact.contype<>'f'
+                   OR constraint_fact.confrelid=pg_catalog.to_regclass(
+                       pg_catalog.format('market_data_private.%I',foreign_relation.relname)) AS foreign_relation_oid_exact
             FROM pg_catalog.pg_constraint constraint_fact
             JOIN pg_catalog.pg_class relation ON relation.oid=constraint_fact.conrelid
             JOIN pg_catalog.pg_namespace namespace ON namespace.oid=relation.relnamespace
@@ -355,9 +358,11 @@ pub(crate) async fn verify_replay_market_facts_read_contract_v2(
           AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed)
           AND NOT EXISTS (SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM observed EXCEPT ALL SELECT relation_name,constraint_kind,key_columns,foreign_relation,foreign_columns,delete_action FROM expected)
           AND NOT EXISTS (SELECT 1 FROM observed WHERE condeferrable OR condeferred OR NOT convalidated OR NOT conislocal OR coninhcount<>0)
+          AND NOT EXISTS (SELECT 1 FROM observed WHERE NOT foreign_relation_oid_exact)
           AND (SELECT count(*)=1
                  AND bool_and(index_fact.indisunique AND index_fact.indisvalid AND index_fact.indisready
                               AND NOT index_fact.indisprimary AND NOT index_fact.indisexclusion
+                              AND index_fact.indrelid=pg_catalog.to_regclass('market_data_private.replay_market_facts_v2')
                               AND pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'
                               AND pg_catalog.array_to_string(ARRAY(
                                   SELECT attribute.attname
@@ -1976,8 +1981,11 @@ mod resolver_contract_tests {
             "procedure.proconfig=ARRAY['search_path=pg_catalog']::text[]",
             "relation.relkind='r'",
             "(SELECT count(*) FROM observed)=27",
+            "constraint_fact.confrelid=pg_catalog.to_regclass(",
+            "NOT foreign_relation_oid_exact",
             "replay_market_facts_binding_v1",
             "index_fact.indisunique",
+            "index_fact.indrelid=pg_catalog.to_regclass('market_data_private.replay_market_facts_v2')",
             "pg_catalog.pg_get_expr(index_fact.indpred,index_fact.indrelid)='(composition_binding_identity IS NOT NULL)'",
         ] {
             assert!(source.contains(required));
@@ -2016,8 +2024,12 @@ mod resolver_contract_tests {
         for required in [
             "universe_selection_records_v1",
             "load_strategy_input_joined_cut_custody_v1",
+            "load_observation_census_v1",
             "rederive_observation_census_read_only_v1",
+            "persisted_census != rederived_census",
+            "persisted_census.record().identity() != observation.identity()",
             "resolve_strategy_input_sample_projection_v4",
+            "row_digest(\"schedule_dependency_set_digest\")?",
             "validate_sample_projection_dependencies_v3",
             ".ok_or(Error::UniverseSelectionUnavailable)",
             ".ok_or(Error::JoinedCutUnavailable)",

@@ -879,7 +879,7 @@ async fn validate_replay_market_native_dependencies_read_only_v2(
     use super::replay_market_facts_v2::postgres::ReplayMarketFactsPostgresErrorV2 as Error;
 
     let dependencies = readback.facts().frontier().dependencies();
-    let [_, _, _, universe, _, joined, sample] = dependencies else {
+    let [_, _, _, universe, observation, joined, sample] = dependencies else {
         return Err(Error::CorruptRecord);
     };
 
@@ -960,14 +960,28 @@ async fn validate_replay_market_native_dependencies_read_only_v2(
         .await
         .map_err(|_| Error::JoinedCutUnavailable)?
         .ok_or(Error::JoinedCutUnavailable)?;
-    let (census, rederived_joined) =
+    let persisted_census = observation_census::load_observation_census_v1(
+        transaction,
+        &joined_request.locator(),
+        observation_census::ObservationCensusReadModeV1::ReadOnly,
+    )
+    .await
+    .map_err(|_| Error::JoinedCutUnavailable)?
+    .ok_or(Error::JoinedCutUnavailable)?;
+    let (rederived_census, rederived_joined) =
         observation_census::rederive_observation_census_read_only_v1(transaction, &joined_request)
             .await
             .map_err(|_| Error::JoinedCutUnavailable)?;
+    if persisted_census != rederived_census
+        || persisted_census.record().identity() != observation.identity()
+        || persisted_census.record().digest() != observation.digest()
+    {
+        return Err(Error::CorruptRecord);
+    }
     crate::owner::observation_census::authority::validate_strategy_input_joined_cut_custody_v1(
         &joined_custody,
         &joined_request,
-        &census,
+        &persisted_census,
         &joined_locator,
         joined_receipt_digest,
     )
@@ -1031,6 +1045,7 @@ async fn validate_replay_sample_projection_read_only_v4(
     if decoded.kind() != StrategyInputSampleProjectionKindV4::JoinedCut
         || decoded.subject_identity() != joined_receipt_digest
         || row_digest("receipt_digest")? != sample_identity
+        || row_digest("schedule_dependency_set_digest")? != decoded.schedule_dependency_set_digest()
         || row_digest("outbox_identity")? != sample_identity
         || readback_bytes != bytes
         || outbox_bytes != bytes
