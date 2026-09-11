@@ -254,13 +254,6 @@ pub struct OwnerIssuedReplayExecutionProfileBindingV1 {
     runner_operational_profile_canonical_bytes: Vec<u8>,
     runner_operational_profile_digest: [u8; 32],
     authority_digest: [u8; 32],
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the separately leased Backtest runner authority slice"
-        )
-    )]
     execution_profile_binding: ReplayExecutionProfileBindingV1,
 }
 
@@ -310,13 +303,6 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
         self.authority_digest
     }
 
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the separately leased Backtest runner authority slice"
-        )
-    )]
     pub(crate) fn into_execution_profile_binding(self) -> ReplayExecutionProfileBindingV1 {
         self.execution_profile_binding
     }
@@ -471,7 +457,11 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
     }
 
     let mut economic_input = economic_fixture();
-    economic_input.instrument_terms.instrument_identity = "AAPL.XNAS".into();
+    economic_input.venue_identity = "XNAS".into();
+    economic_input.starting_balance_currency = "USD".into();
+    economic_input.common_quote_currency = "USD".into();
+    economic_input.instrument_terms.instrument_identity = "AAPL".into();
+    economic_input.instrument_terms.quote_currency = "USD".into();
     let economic = ReplayEconomicConfigurationV1::seal(economic_input).expect("economic fixture");
     let runner = ReplayRunnerOperationalProfileV1::seal(runner_fixture()).expect("runner fixture");
     let execution_policy = ReplayExecutionPolicyV2 {
@@ -573,27 +563,27 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1()
     let provenance = [
         instrument_terms_provenance_for_fixture(
             &economic,
-            "AAPL.XNAS".into(),
+            "AAPL".into(),
             terms.instrument_fact_digest,
             terms.instrument_receipt_digest,
             terms.maker_fee,
             terms.taker_fee,
             terms.initial_margin,
             terms.maintenance_margin,
-            "SIM-001",
+            "XNAS-001",
             0,
             i128::MAX,
         ),
         instrument_terms_provenance_for_fixture(
             &economic,
-            "MSFT.XNAS".into(),
+            "MSFT".into(),
             [21; 32],
             [22; 32],
             terms.maker_fee,
             terms.taker_fee,
             terms.initial_margin,
             terms.maintenance_margin,
-            "SIM-001",
+            "XNAS-001",
             0,
             i128::MAX,
         ),
@@ -1164,6 +1154,16 @@ mod tests {
         assert_ne!(binding.authority_digest(), [0; 32]);
         let inner = binding.into_execution_profile_binding();
         assert_eq!(inner.request_identity(), locator.request_identity);
+        assert_eq!(inner.instrument_terms()[0].instrument_identity, "AAPL");
+        assert_eq!(inner.instrument_terms()[1].instrument_identity, "MSFT");
+        assert!(
+            inner
+                .instrument_terms()
+                .iter()
+                .all(|terms| terms.venue_identity == "XNAS"
+                    && terms.quote_currency == "USD"
+                    && terms.account_scope_identity == "XNAS-001")
+        );
     }
 
     #[rstest]
