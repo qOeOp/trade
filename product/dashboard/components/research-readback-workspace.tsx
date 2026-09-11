@@ -40,7 +40,7 @@ function AvailableReadback({ projection }: { projection: ResearchReadbackProject
   if (!outcome) {
     return (
       <EmptyState icon={<EvidenceIcons.pending aria-hidden="true" size={20} />} title="No Owner outcome" density="compact">
-        This request has no accepted or rejected Owner record.
+        {null}
       </EmptyState>
     );
   }
@@ -150,7 +150,6 @@ export function ResearchReadbackWorkspace({ requestIdentity }: { requestIdentity
               icon={<EvidenceIcons.warning aria-hidden="true" size={20} />}
               title="Research readback unavailable"
               reason={projection?.reason ?? "RESEARCH_READBACK_TRANSPORT_UNAVAILABLE"}
-              detail="Previously loaded data has been cleared. Verify this identity or the Owner read configuration."
               density="compact"
             />
           )}
