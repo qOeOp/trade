@@ -22,6 +22,7 @@ mod sealed {
     pub trait Sealed {}
 }
 
+pub mod native_replay;
 pub mod postgres;
 /// Read-only view of an observation created by Backtest's internal composition boundary.
 ///
@@ -57,6 +58,28 @@ pub struct ConsumedComponentObservationV2 {
 }
 
 impl sealed::Sealed for ConsumedComponentObservationV2 {}
+
+impl ConsumedComponentObservationV2 {
+    pub(crate) fn from_owner_evidence(
+        request_identity: OpaqueIdentityV2,
+        request_meaning_digest: CanonicalDigestV2,
+        attempt_identity: OpaqueIdentityV2,
+        component: ObservationComponentV2,
+        locator: ComponentObservationLocatorV2,
+        observed_meaning_identity: OpaqueIdentityV2,
+        observed_meaning_digest: CanonicalDigestV2,
+    ) -> Self {
+        Self {
+            request_identity,
+            request_meaning_digest,
+            attempt_identity,
+            component,
+            locator,
+            observed_meaning_identity,
+            observed_meaning_digest,
+        }
+    }
+}
 
 impl ReplayConsumptionObservationV2 for ConsumedComponentObservationV2 {
     fn request_identity(&self) -> &OpaqueIdentityV2 {
@@ -159,6 +182,22 @@ pub struct DiagnosticEvidenceV2 {
 }
 
 impl DiagnosticEvidenceV2 {
+    pub(crate) fn from_native_execution(
+        request_identity: OpaqueIdentityV2,
+        request_meaning_digest: CanonicalDigestV2,
+        attempt_identity: OpaqueIdentityV2,
+        category: DiagnosticCategoryV2,
+        decisive_evidence: ComponentObservationLocatorV2,
+    ) -> Self {
+        Self {
+            request_identity,
+            request_meaning_digest,
+            attempt_identity,
+            category,
+            decisive_evidence,
+        }
+    }
+
     #[must_use]
     pub fn request_identity(&self) -> &OpaqueIdentityV2 {
         &self.request_identity
@@ -319,14 +358,14 @@ pub enum ReplayOwnerErrorV2 {
     CanonicalEncodingUnavailable(String),
 }
 
-struct OwnerResultDraftV2 {
-    attempt_identity: OpaqueIdentityV2,
-    terminal: ReplayTerminalV2,
-    observations: Vec<ConsumedComponentObservationV2>,
-    diagnostics: Vec<DiagnosticEvidenceV2>,
+pub(crate) struct OwnerResultDraftV2 {
+    pub(crate) attempt_identity: OpaqueIdentityV2,
+    pub(crate) terminal: ReplayTerminalV2,
+    pub(crate) observations: Vec<ConsumedComponentObservationV2>,
+    pub(crate) diagnostics: Vec<DiagnosticEvidenceV2>,
 }
 
-fn commit_owner_result(
+pub(crate) fn commit_owner_result(
     request: &ReplayRequestV2,
     draft: OwnerResultDraftV2,
 ) -> Result<SealedReplayResultV2, ReplayOwnerErrorV2> {
@@ -486,12 +525,12 @@ struct ProvisionalResultV2<'a> {
 }
 
 #[derive(Clone)]
-struct ComponentMeaningV2 {
-    identity: OpaqueIdentityV2,
-    digest: CanonicalDigestV2,
+pub(crate) struct ComponentMeaningV2 {
+    pub(crate) identity: OpaqueIdentityV2,
+    pub(crate) digest: CanonicalDigestV2,
 }
 
-fn requested_component_meanings(
+pub(crate) fn requested_component_meanings(
     request: &ReplayRequestV2,
 ) -> Result<BTreeMap<ObservationComponentV2, ComponentMeaningV2>, ReplayOwnerErrorV2> {
     let dto = request.as_dto();

@@ -1,0 +1,402 @@
+//! Backtest-owned coordination contract for request-bound native Replay V2 execution.
+//!
+//! A production preparation Owner does not exist yet. The sealed port below fixes the only admitted
+//! handoff: one exact R&D request readback, one move-only target-set execution bundle, a complete
+//! 28-component Owner-observation package, and the inputs needed to derive semantic-trace evidence
+//! from the actual ProgramHost/Sim EVENT readback. Until an Owner implementation can produce that
+//! handoff, no production caller can enter the runner.
+
+use std::{collections::BTreeSet, future::Future, pin::Pin};
+
+use serde::Serialize;
+use thiserror::Error;
+use vibe_strategy_factory::{
+    exploratory_replay::{ExploratoryReplayRequestLocatorV2, SealedExploratoryReplayReadbackV2},
+    program_host_sim_event_consumer_v1::{
+        ProgramHostSimEventReadbackV1, run_program_host_sim_event_consumer_v1,
+    },
+    replay_target_set_execution_bundle_v1::ReplayTargetSetExecutionBundleV1,
+};
+
+use crate::{
+    CanonicalDigestV2, ComponentObservationLocatorV2, ConsumedComponentObservationV2,
+    DiagnosticCategoryV2, DiagnosticEvidenceV2, ObservationComponentV2, OpaqueIdentityV2,
+    OwnerResultDraftV2, ReplayConsumptionObservationV2, ReplayOwnerErrorV2, ReplayTerminalV2,
+    SealedReplayResultV2, commit_owner_result,
+    postgres::{
+        PostgresReplayResultCommitDispositionV2, PostgresReplayResultOwnerErrorV2,
+        PostgresReplayResultOwnerV2,
+    },
+    requested_component_meanings,
+};
+
+const OWNER_OBSERVATION_BYTES_DOMAIN_V2: &[u8] = b"vibe.backtest.owner-observation-bytes.v2\0";
+const SEMANTIC_TRACE_BYTES_DOMAIN_V2: &[u8] = b"vibe.backtest.native-semantic-trace.v2\0";
+
+pub(crate) mod admitted_preparation_owner {
+    pub trait Sealed {}
+}
+
+/// One precise producer-owned observation for a requested Replay component.
+///
+/// Construction is crate-private and the type is move-only. The canonical bytes must be the exact
+/// bytes retained at `locator`; the runner independently hashes them before accepting the package.
+pub struct NativeReplayComponentEvidenceV2 {
+    request_identity: OpaqueIdentityV2,
+    request_meaning_digest: CanonicalDigestV2,
+    attempt_identity: OpaqueIdentityV2,
+    component: ObservationComponentV2,
+    locator: ComponentObservationLocatorV2,
+    canonical_observation_bytes: Vec<u8>,
+    observed_meaning_identity: OpaqueIdentityV2,
+    observed_meaning_digest: CanonicalDigestV2,
+}
+
+impl NativeReplayComponentEvidenceV2 {
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn from_owner_observation(
+        request_identity: OpaqueIdentityV2,
+        request_meaning_digest: CanonicalDigestV2,
+        attempt_identity: OpaqueIdentityV2,
+        component: ObservationComponentV2,
+        locator: ComponentObservationLocatorV2,
+        canonical_observation_bytes: Vec<u8>,
+        observed_meaning_identity: OpaqueIdentityV2,
+        observed_meaning_digest: CanonicalDigestV2,
+    ) -> Self {
+        Self {
+            request_identity,
+            request_meaning_digest,
+            attempt_identity,
+            component,
+            locator,
+            canonical_observation_bytes,
+            observed_meaning_identity,
+            observed_meaning_digest,
+        }
+    }
+}
+
+/// Move-only evidence inputs which can be finalized only with the actual native execution readback.
+pub struct NativeReplaySemanticTraceEvidenceV2 {
+    observation_reference: OpaqueIdentityV2,
+    execution_profile_binding_digest: [u8; 32],
+    native_materialization_digest: [u8; 32],
+    deterministic_fill_seed: u64,
+    instance_identity: OpaqueIdentityV2,
+}
+
+impl NativeReplaySemanticTraceEvidenceV2 {
+    pub(crate) fn from_owner_materialization(
+        observation_reference: OpaqueIdentityV2,
+        execution_profile_binding_digest: [u8; 32],
+        native_materialization_digest: [u8; 32],
+        deterministic_fill_seed: u64,
+        instance_identity: OpaqueIdentityV2,
+    ) -> Self {
+        Self {
+            observation_reference,
+            execution_profile_binding_digest,
+            native_materialization_digest,
+            deterministic_fill_seed,
+            instance_identity,
+        }
+    }
+
+    fn finalize(
+        self,
+        request_identity: &OpaqueIdentityV2,
+        request_meaning_digest: &CanonicalDigestV2,
+        attempt_identity: &OpaqueIdentityV2,
+        execution: &ProgramHostSimEventReadbackV1,
+    ) -> Result<ConsumedComponentObservationV2, NativeReplayRunErrorV2> {
+        let census = execution.consumption_census();
+        if census.execution_profile_binding_digest() != self.execution_profile_binding_digest
+            || census.native_materialization_digest() != self.native_materialization_digest
+            || execution.actual_fills().is_empty()
+            || execution
+                .actual_fills()
+                .iter()
+                .any(|fill| fill.checkpoint_before() == fill.checkpoint_after())
+        {
+            return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+        }
+        let bytes = serde_json::to_vec(&SemanticTraceObservationV2 {
+            schema_version: 2,
+            request_identity,
+            request_meaning_digest,
+            attempt_identity,
+            deterministic_fill_seed: self.deterministic_fill_seed,
+            instance_identity: &self.instance_identity,
+            execution,
+        })
+        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+        let digest = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, &bytes)?;
+        let meaning_identity = OpaqueIdentityV2::try_from(format!(
+            "backtest-semantic-trace-v2-{}",
+            digest.as_str().trim_start_matches("blake3:")
+        ))
+        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+        let locator = ComponentObservationLocatorV2 {
+            component: ObservationComponentV2::SemanticTrace,
+            reference: self.observation_reference,
+            digest: digest.clone(),
+        };
+        Ok(ConsumedComponentObservationV2::from_owner_evidence(
+            request_identity.clone(),
+            request_meaning_digest.clone(),
+            attempt_identity.clone(),
+            ObservationComponentV2::SemanticTrace,
+            locator,
+            meaning_identity,
+            digest,
+        ))
+    }
+}
+
+#[derive(Serialize)]
+#[serde(deny_unknown_fields)]
+struct SemanticTraceObservationV2<'a> {
+    schema_version: u16,
+    request_identity: &'a OpaqueIdentityV2,
+    request_meaning_digest: &'a CanonicalDigestV2,
+    attempt_identity: &'a OpaqueIdentityV2,
+    deterministic_fill_seed: u64,
+    instance_identity: &'a OpaqueIdentityV2,
+    execution: &'a ProgramHostSimEventReadbackV1,
+}
+
+/// Complete move-only input to one Backtest-owned execution attempt.
+pub struct NativeReplayPreparationV2 {
+    request: SealedExploratoryReplayReadbackV2,
+    execution: ReplayTargetSetExecutionBundleV1,
+    component_evidence: Vec<NativeReplayComponentEvidenceV2>,
+    semantic_trace_evidence: NativeReplaySemanticTraceEvidenceV2,
+}
+
+impl NativeReplayPreparationV2 {
+    pub(crate) fn from_owner_resolution(
+        request: SealedExploratoryReplayReadbackV2,
+        execution: ReplayTargetSetExecutionBundleV1,
+        component_evidence: Vec<NativeReplayComponentEvidenceV2>,
+        semantic_trace_evidence: NativeReplaySemanticTraceEvidenceV2,
+    ) -> Self {
+        Self {
+            request,
+            execution,
+            component_evidence,
+            semantic_trace_evidence,
+        }
+    }
+}
+
+/// Sealed preparation and final re-lock port admitted for native Replay V2.
+///
+/// The future production implementation must own the R&D database capability and resolve all
+/// family, Instrument Owner, Plan, Artifact, universe, and scheduling facts itself. The final method
+/// must re-lock the same request and relevant revocation/drift facts inside the Backtest Result
+/// commit boundary; it may not reconstruct or persist a result independently.
+pub trait NativeReplayPreparationOwnerV2: admitted_preparation_owner::Sealed + Send + Sync {
+    fn prepare_exploratory_replay_v2<'a>(
+        &'a self,
+        locator: &'a ExploratoryReplayRequestLocatorV2,
+        attempt_identity: &'a OpaqueIdentityV2,
+    ) -> Pin<Box<dyn Future<Output = Result<NativeReplayPreparationV2, NativeReplayRunErrorV2>> + 'a>>;
+
+    fn relock_and_commit_exploratory_replay_v2<'a>(
+        &'a self,
+        result_owner: &'a PostgresReplayResultOwnerV2,
+        locator: &'a ExploratoryReplayRequestLocatorV2,
+        result: &'a SealedReplayResultV2,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        PostgresReplayResultCommitDispositionV2,
+                        PostgresReplayResultOwnerErrorV2,
+                    >,
+                > + 'a,
+        >,
+    >;
+}
+
+/// Fail-closed outcomes from the Backtest-owned native Replay V2 coordinator.
+#[derive(Debug, Error)]
+pub enum NativeReplayRunErrorV2 {
+    #[error(
+        "R&D Owner has no admitted request-to-ReplayTargetSetExecutionBundleV1 preparation capability"
+    )]
+    ExecutionBundleOwnerUnavailable,
+    #[error("native Replay V2 evidence is incomplete, duplicated, mismatched, or unresolvable")]
+    IncompleteReconciliation,
+    #[error("ProgramHostV2 to Sim EVENT native execution failed: {0}")]
+    NativeExecution(String),
+    #[error("Backtest Owner rejected the actual-consumption Result: {0}")]
+    ResultConstruction(#[from] ReplayOwnerErrorV2),
+    #[error("Backtest Result custody failed: {0}")]
+    ResultCommit(#[from] PostgresReplayResultOwnerErrorV2),
+}
+
+/// Runs and commits one exact exploratory Replay V2 attempt.
+///
+/// The caller supplies only admitted Owner handles, the exact four-field request locator, and the
+/// explicit attempt identity. The complete 28-component package is checked before the move-only
+/// execution bundle is consumed. Native execution failure, missing fills or checkpoint evidence,
+/// incomplete reconciliation, and final re-lock/commit drift produce no durable Result.
+///
+/// No production preparation Owner implements this contract yet, so the current repository has no
+/// successful runtime entry to this function.
+pub async fn run_exploratory_replay_v2<P: NativeReplayPreparationOwnerV2 + ?Sized>(
+    preparation_owner: &P,
+    result_owner: &PostgresReplayResultOwnerV2,
+    locator: &ExploratoryReplayRequestLocatorV2,
+    attempt_identity: OpaqueIdentityV2,
+) -> Result<PostgresReplayResultCommitDispositionV2, NativeReplayRunErrorV2> {
+    let prepared = preparation_owner
+        .prepare_exploratory_replay_v2(locator, &attempt_identity)
+        .await?;
+    let NativeReplayPreparationV2 {
+        request,
+        execution,
+        component_evidence,
+        semantic_trace_evidence,
+    } = prepared;
+    validate_request_readback(&request, locator)?;
+    let request_meaning_digest = request
+        .request()
+        .meaning_digest()
+        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    let mut observations = validate_component_evidence(
+        request.request(),
+        &request_meaning_digest,
+        &attempt_identity,
+        component_evidence,
+    )?;
+
+    let execution_readback = run_program_host_sim_event_consumer_v1(execution)
+        .map_err(|error| NativeReplayRunErrorV2::NativeExecution(error.to_string()))?;
+    let semantic_trace = semantic_trace_evidence.finalize(
+        request.request().request_identity(),
+        &request_meaning_digest,
+        &attempt_identity,
+        &execution_readback,
+    )?;
+    let decisive_evidence = semantic_trace.locator().clone();
+    observations.push(semantic_trace);
+    let result = commit_owner_result(
+        request.request(),
+        OwnerResultDraftV2 {
+            attempt_identity: attempt_identity.clone(),
+            terminal: ReplayTerminalV2::TerminalResult,
+            observations,
+            diagnostics: vec![DiagnosticEvidenceV2::from_native_execution(
+                request.request().request_identity().clone(),
+                request_meaning_digest,
+                attempt_identity,
+                DiagnosticCategoryV2::NoExecutionDefect,
+                decisive_evidence,
+            )],
+        },
+    )?;
+    preparation_owner
+        .relock_and_commit_exploratory_replay_v2(result_owner, locator, &result)
+        .await
+        .map_err(NativeReplayRunErrorV2::from)
+}
+
+fn validate_request_readback(
+    request: &SealedExploratoryReplayReadbackV2,
+    locator: &ExploratoryReplayRequestLocatorV2,
+) -> Result<(), NativeReplayRunErrorV2> {
+    let canonical = request
+        .request()
+        .to_canonical_bytes()
+        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)?;
+    if request.locator() != *locator
+        || request.canonical_request_bytes() != canonical
+        || request.request_identity() != locator.request_identity
+        || request.meaning_digest() != locator.meaning_digest
+        || request.receipt_identity() != locator.receipt_identity
+        || request.seal_digest() != locator.seal_digest
+    {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(())
+}
+
+fn validate_component_evidence(
+    request: &crate::ReplayRequestV2,
+    request_meaning_digest: &CanonicalDigestV2,
+    attempt_identity: &OpaqueIdentityV2,
+    evidence: Vec<NativeReplayComponentEvidenceV2>,
+) -> Result<Vec<ConsumedComponentObservationV2>, NativeReplayRunErrorV2> {
+    if evidence.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    let requested = requested_component_meanings(request)?;
+    let mut seen = BTreeSet::new();
+    let mut observations = Vec::with_capacity(evidence.len() + 1);
+    for item in evidence {
+        let Some(expected) = requested.get(&item.component) else {
+            return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+        };
+        let observation_digest = digest_bytes(
+            OWNER_OBSERVATION_BYTES_DOMAIN_V2,
+            &item.canonical_observation_bytes,
+        )?;
+        if item.canonical_observation_bytes.is_empty()
+            || item.request_identity != *request.request_identity()
+            || item.request_meaning_digest != *request_meaning_digest
+            || item.attempt_identity != *attempt_identity
+            || item.locator.component != item.component
+            || item.locator.digest != observation_digest
+            || item.observed_meaning_identity != expected.identity
+            || item.observed_meaning_digest != expected.digest
+            || !seen.insert(item.component)
+        {
+            return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+        }
+        observations.push(ConsumedComponentObservationV2::from_owner_evidence(
+            item.request_identity,
+            item.request_meaning_digest,
+            item.attempt_identity,
+            item.component,
+            item.locator,
+            item.observed_meaning_identity,
+            item.observed_meaning_digest,
+        ));
+    }
+    if seen.len() != ObservationComponentV2::REQUESTED_MEANING.len() {
+        return Err(NativeReplayRunErrorV2::IncompleteReconciliation);
+    }
+    Ok(observations)
+}
+
+fn digest_bytes(domain: &[u8], bytes: &[u8]) -> Result<CanonicalDigestV2, NativeReplayRunErrorV2> {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain);
+    hasher.update(bytes);
+    CanonicalDigestV2::try_from(format!("blake3:{}", hasher.finalize().to_hex()))
+        .map_err(|_| NativeReplayRunErrorV2::IncompleteReconciliation)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn observation_byte_digest_is_domain_separated_and_exact() {
+        let first = digest_bytes(OWNER_OBSERVATION_BYTES_DOMAIN_V2, b"owner observation").unwrap();
+        let repeated =
+            digest_bytes(OWNER_OBSERVATION_BYTES_DOMAIN_V2, b"owner observation").unwrap();
+        let changed = digest_bytes(
+            OWNER_OBSERVATION_BYTES_DOMAIN_V2,
+            b"owner observation changed",
+        )
+        .unwrap();
+        let semantic = digest_bytes(SEMANTIC_TRACE_BYTES_DOMAIN_V2, b"owner observation").unwrap();
+        assert_eq!(first, repeated);
+        assert_ne!(first, changed);
+        assert_ne!(first, semantic);
+    }
+}
