@@ -37,6 +37,12 @@ const BROWSER_ITEM_KEYS = [
 const BROWSER_CURSOR_KEYS = ["committedAtEpochMs", "requestIdentity"];
 
 type Fetcher = typeof fetch;
+type ResearchDirectoryEnvironmentV1 = Record<string, string | undefined>;
+
+export type ResearchDirectoryOwnerTargetV1 = Readonly<{
+  baseUrl: string | undefined;
+  token: string | undefined;
+}>;
 
 export type ResearchDirectoryCursorV1 = Readonly<{
   committedAtEpochMs: number;
@@ -126,6 +132,18 @@ function unavailable(reason: string): ResearchDirectoryProjectionV1 {
     nextCursor: null,
     items: [],
     reason,
+  };
+}
+
+export function researchDirectoryOwnerTargetV1(
+  environment: ResearchDirectoryEnvironmentV1 = process.env,
+): ResearchDirectoryOwnerTargetV1 {
+  const readBaseUrl = environment.RD_RESEARCH_OWNER_READ_API_URL || undefined;
+  const readToken = environment.RD_RESEARCH_OWNER_READ_API_TOKEN || undefined;
+  if (readBaseUrl || readToken) return { baseUrl: readBaseUrl, token: readToken };
+  return {
+    baseUrl: environment.RD_OWNER_API_URL,
+    token: environment.RD_OWNER_API_TOKEN,
   };
 }
 
@@ -278,26 +296,31 @@ export function parseResearchDirectoryBrowserProjectionV1(
 
 export async function readResearchDirectoryGatewayV1({
   cursor,
-  baseUrl = process.env.RD_OWNER_API_URL,
-  token = process.env.RD_OWNER_API_TOKEN,
+  baseUrl,
+  token,
+  environment = process.env,
   fetcher = fetch,
 }: {
   cursor?: ResearchDirectoryCursorV1;
   baseUrl?: string;
   token?: string;
+  environment?: ResearchDirectoryEnvironmentV1;
   fetcher?: Fetcher;
 } = {}): Promise<ResearchDirectoryGatewayResultV1> {
   if (cursor && (!safeEpoch(cursor.committedAtEpochMs) || !requestIdentity(cursor.requestIdentity))) {
     return { status: 400, projection: unavailable("RESEARCH_DIRECTORY_CURSOR_INVALID") };
   }
-  const endpoint = baseUrl ? ownerEndpoint(baseUrl, cursor) : null;
-  if (!endpoint || !token) {
+  const configuredTarget = baseUrl !== undefined || token !== undefined
+    ? { baseUrl, token }
+    : researchDirectoryOwnerTargetV1(environment);
+  const endpoint = configuredTarget.baseUrl ? ownerEndpoint(configuredTarget.baseUrl, cursor) : null;
+  if (!endpoint || !configuredTarget.token) {
     return { status: 503, projection: unavailable("OWNER_CONFIGURATION_UNAVAILABLE") };
   }
   try {
     const response = await fetcher(endpoint, {
       method: "GET",
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${configuredTarget.token}` },
       cache: "no-store",
       signal: AbortSignal.timeout(8_000),
     });

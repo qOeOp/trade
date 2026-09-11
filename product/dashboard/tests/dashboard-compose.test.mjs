@@ -80,6 +80,23 @@ test("Artifact verified-directory reads use a dedicated GET-only Compose service
   );
 });
 
+test("Research verified-directory reads use a dedicated GET-only Compose service", () => {
+  const researchRead = serviceBlock("rd-research-owner-read-api");
+  const dashboard = serviceBlock("dashboard-web");
+
+  assert.match(researchRead, /profiles: \["dashboard-preview"\]/);
+  assert.match(researchRead, /strategy-factory-rd-research-read-api/);
+  assert.match(researchRead, /RD_RESEARCH_OWNER_READ_DATABASE_URL:/);
+  assert.match(researchRead, /RD_RESEARCH_OWNER_READ_API_TOKEN:/);
+  assert.match(researchRead, /expose:\n\s+- 8083/);
+  assert.doesNotMatch(researchRead, /ports:/);
+  assert.match(researchRead, /read_only: true/);
+  assert.match(researchRead, /cap_drop:\n\s+- ALL/);
+  assert.match(dashboard, /rd-research-owner-read-api:\n\s+condition: service_healthy/);
+  assert.match(dashboard, /RD_RESEARCH_OWNER_READ_API_URL:[\s\S]*http:\/\/rd-research-owner-read-api:8083/);
+  assert.match(dashboard, /RD_RESEARCH_OWNER_READ_API_TOKEN: \$\{RD_RESEARCH_OWNER_READ_API_TOKEN:-\}/);
+});
+
 test("Windmill remains independent of the opt-in Dashboard profile", () => {
   const server = serviceBlock("windmill-server");
   const worker = serviceBlock("windmill-worker");

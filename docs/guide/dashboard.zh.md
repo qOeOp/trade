@@ -226,6 +226,12 @@ cut 明确标为 partial。任何 malformed 或跨读变化的 candidate 都使�
 request identity、custody time 与精确的 `POINT_READ_REQUIRED` state，不暴露 request meaning、disposition、
 availability、receipt、authority，也不判断 current/legacy；超限必须显式 truncated。
 
+verified Research directory GET 由独立的 `strategy-factory-rd-research-read-api` 打包。其 router 只暴露
+`/health` 与 `/v1/research-goals/directory`，state 只持有 typed `ResearchDirectoryOwnerPort`。Dashboard 通过必须
+原子成对配置的 `RD_RESEARCH_OWNER_READ_API_URL` 与 `RD_RESEARCH_OWNER_READ_API_TOKEN` 绑定；只配置一半时必须
+fail closed，不能借用 write API credential。adapter 复用 canonical 的逐 candidate locking verifier，不暴露
+submit 或 resolve port。
+
 browser 只接收 request identity、可选 intent identity、accepted 或 rejected-no-write disposition、accepted
 时的当前 Research-view availability/phase，以及 committed time。rejected-no-write row 不会编造 intent 或
 view。Research goal 正文、sources、principal、policy、authorization、raw receipt、TrialFamily payload、

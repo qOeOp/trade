@@ -2211,6 +2211,130 @@ impl ResearchReadbackOwnerPortV1 for PostgresResearchReadbackOwnerV1 {
     }
 }
 
+async fn list_research_from_pool(
+    pool: &PgPool,
+    after: Option<&ResearchDirectoryCursorV1>,
+    limit: u32,
+) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
+    if !(1..=RESEARCH_DIRECTORY_MAX_RETURNED).contains(&limit)
+        || after.is_some_and(|cursor| {
+            !(16..=128).contains(&cursor.request_identity.len())
+                || !cursor.request_identity.bytes().all(|byte| {
+                    byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
+                })
+        })
+    {
+        return Err(ResearchGoalOwnerError::Storage(
+            "research directory cursor or limit is invalid".into(),
+        ));
+    }
+
+    let scan_limit = RESEARCH_DIRECTORY_MAX_SCANNED + 1;
+    let candidate_rows = if let Some(cursor) = after {
+        sqlx::query(
+                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE (committed_at_epoch_ms, request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $3",
+            )
+            .bind(i64::try_from(cursor.committed_at_epoch_ms).map_err(json_storage)?)
+            .bind(&cursor.request_identity)
+            .bind(scan_limit)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| storage(&e))?
+    } else {
+        sqlx::query(
+                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $1",
+            )
+            .bind(scan_limit)
+            .fetch_all(pool)
+            .await
+            .map_err(|e| storage(&e))?
+    };
+
+    let max_scanned = usize::try_from(RESEARCH_DIRECTORY_MAX_SCANNED).map_err(json_storage)?;
+    let has_unscanned_candidate = candidate_rows.len() > max_scanned;
+    let candidates = candidate_rows
+        .into_iter()
+        .take(max_scanned)
+        .collect::<Vec<_>>();
+    let candidate_count = candidates.len();
+    let returned_limit = usize::try_from(limit).map_err(json_storage)?;
+    let mut items = Vec::with_capacity(returned_limit);
+    let mut omitted_count = 0_u32;
+    let mut last_cursor = None;
+    let mut scanned = 0_usize;
+    let read_cut_epoch_ms = current_epoch_ms()?;
+
+    for row in candidates {
+        let request_identity = row
+            .try_get::<String, _>("request_identity")
+            .map_err(|e| storage(&e))?;
+        let committed_at_epoch_ms = u64::try_from(
+            row.try_get::<i64, _>("committed_at_epoch_ms")
+                .map_err(|e| storage(&e))?,
+        )
+        .map_err(json_storage)?;
+        last_cursor = Some(ResearchDirectoryCursorV1 {
+            committed_at_epoch_ms,
+            request_identity: request_identity.clone(),
+        });
+        scanned += 1;
+
+        let mut transaction = pool.begin().await.map_err(|e| storage(&e))?;
+        let custody = Box::pin(admit_research_v2_custody_read_only_in_transaction(
+            &mut transaction,
+            &request_identity,
+        ))
+        .await?;
+
+        if let Some(custody) = custody {
+            let result = custody.into_v2_result(read_cut_epoch_ms)?;
+            let receipt = result.owner_receipt.as_ref().ok_or_else(|| {
+                ResearchGoalOwnerError::Storage(
+                    "verified research directory receipt missing".into(),
+                )
+            })?;
+
+            if receipt.committed_at_epoch_ms != committed_at_epoch_ms {
+                return Err(ResearchGoalOwnerError::Storage(
+                    "research directory candidate changed across custody cut".into(),
+                ));
+            }
+            let view = result.research_view.as_ref();
+            items.push(ResearchDirectoryItemV1 {
+                request_identity: receipt.request_identity.clone(),
+                intent_identity: receipt.resulting_research_intent_identity.clone(),
+                disposition: receipt.disposition,
+                availability: view.map(|value| value.availability),
+                phase: view.map(|value| value.phase),
+                committed_at_epoch_ms: receipt.committed_at_epoch_ms,
+            });
+        } else {
+            omitted_count = omitted_count.saturating_add(1);
+        }
+        transaction.commit().await.map_err(|e| storage(&e))?;
+
+        if items.len() == returned_limit {
+            break;
+        }
+    }
+
+    let next_cursor = (has_unscanned_candidate || scanned < candidate_count)
+        .then_some(last_cursor)
+        .flatten();
+    Ok(ResearchDirectoryReadbackV1 {
+        schema_version: 1,
+        observed_at_epoch_ms: read_cut_epoch_ms,
+        completeness: if omitted_count == 0 {
+            ResearchDirectoryCompletenessV1::Complete
+        } else {
+            ResearchDirectoryCompletenessV1::Partial
+        },
+        omitted_count,
+        next_cursor,
+        items,
+    })
+}
+
 #[async_trait]
 impl ResearchDirectoryOwnerPort for PostgresResearchGoalOwnerV1 {
     async fn list_research(
@@ -2218,123 +2342,18 @@ impl ResearchDirectoryOwnerPort for PostgresResearchGoalOwnerV1 {
         after: Option<&ResearchDirectoryCursorV1>,
         limit: u32,
     ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
-        if !(1..=RESEARCH_DIRECTORY_MAX_RETURNED).contains(&limit)
-            || after.is_some_and(|cursor| {
-                !(16..=128).contains(&cursor.request_identity.len())
-                    || !cursor.request_identity.bytes().all(|byte| {
-                        byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b':' | b'.')
-                    })
-            })
-        {
-            return Err(ResearchGoalOwnerError::Storage(
-                "research directory cursor or limit is invalid".into(),
-            ));
-        }
+        list_research_from_pool(&self.pool, after, limit).await
+    }
+}
 
-        let scan_limit = RESEARCH_DIRECTORY_MAX_SCANNED + 1;
-        let candidate_rows = if let Some(cursor) = after {
-            sqlx::query(
-                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 WHERE (committed_at_epoch_ms, request_identity COLLATE \"C\") < ($1, $2 COLLATE \"C\") ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $3",
-            )
-            .bind(i64::try_from(cursor.committed_at_epoch_ms).map_err(json_storage)?)
-            .bind(&cursor.request_identity)
-            .bind(scan_limit)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| storage(&e))?
-        } else {
-            sqlx::query(
-                "SELECT request_identity, committed_at_epoch_ms FROM rd_research_request_receipts_v1 ORDER BY committed_at_epoch_ms DESC, request_identity COLLATE \"C\" DESC LIMIT $1",
-            )
-            .bind(scan_limit)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| storage(&e))?
-        };
-
-        let max_scanned = usize::try_from(RESEARCH_DIRECTORY_MAX_SCANNED).map_err(json_storage)?;
-        let has_unscanned_candidate = candidate_rows.len() > max_scanned;
-        let candidates = candidate_rows
-            .into_iter()
-            .take(max_scanned)
-            .collect::<Vec<_>>();
-        let candidate_count = candidates.len();
-        let returned_limit = usize::try_from(limit).map_err(json_storage)?;
-        let mut items = Vec::with_capacity(returned_limit);
-        let mut omitted_count = 0_u32;
-        let mut last_cursor = None;
-        let mut scanned = 0_usize;
-        let read_cut_epoch_ms = current_epoch_ms()?;
-
-        for row in candidates {
-            let request_identity = row
-                .try_get::<String, _>("request_identity")
-                .map_err(|e| storage(&e))?;
-            let committed_at_epoch_ms = u64::try_from(
-                row.try_get::<i64, _>("committed_at_epoch_ms")
-                    .map_err(|e| storage(&e))?,
-            )
-            .map_err(json_storage)?;
-            last_cursor = Some(ResearchDirectoryCursorV1 {
-                committed_at_epoch_ms,
-                request_identity: request_identity.clone(),
-            });
-            scanned += 1;
-
-            let mut transaction = self.pool.begin().await.map_err(|e| storage(&e))?;
-            let custody = Box::pin(admit_research_v2_custody_read_only_in_transaction(
-                &mut transaction,
-                &request_identity,
-            ))
-            .await?;
-
-            if let Some(custody) = custody {
-                let result = custody.into_v2_result(read_cut_epoch_ms)?;
-                let receipt = result.owner_receipt.as_ref().ok_or_else(|| {
-                    ResearchGoalOwnerError::Storage(
-                        "verified research directory receipt missing".into(),
-                    )
-                })?;
-
-                if receipt.committed_at_epoch_ms != committed_at_epoch_ms {
-                    return Err(ResearchGoalOwnerError::Storage(
-                        "research directory candidate changed across custody cut".into(),
-                    ));
-                }
-                let view = result.research_view.as_ref();
-                items.push(ResearchDirectoryItemV1 {
-                    request_identity: receipt.request_identity.clone(),
-                    intent_identity: receipt.resulting_research_intent_identity.clone(),
-                    disposition: receipt.disposition,
-                    availability: view.map(|value| value.availability),
-                    phase: view.map(|value| value.phase),
-                    committed_at_epoch_ms: receipt.committed_at_epoch_ms,
-                });
-            } else {
-                omitted_count = omitted_count.saturating_add(1);
-            }
-            transaction.commit().await.map_err(|e| storage(&e))?;
-
-            if items.len() == returned_limit {
-                break;
-            }
-        }
-
-        let next_cursor = (has_unscanned_candidate || scanned < candidate_count)
-            .then_some(last_cursor)
-            .flatten();
-        Ok(ResearchDirectoryReadbackV1 {
-            schema_version: 1,
-            observed_at_epoch_ms: read_cut_epoch_ms,
-            completeness: if omitted_count == 0 {
-                ResearchDirectoryCompletenessV1::Complete
-            } else {
-                ResearchDirectoryCompletenessV1::Partial
-            },
-            omitted_count,
-            next_cursor,
-            items,
-        })
+#[async_trait]
+impl ResearchDirectoryOwnerPort for PostgresResearchReadbackOwnerV1 {
+    async fn list_research(
+        &self,
+        after: Option<&ResearchDirectoryCursorV1>,
+        limit: u32,
+    ) -> Result<ResearchDirectoryReadbackV1, ResearchGoalOwnerError> {
+        list_research_from_pool(&self.pool, after, limit).await
     }
 }
 

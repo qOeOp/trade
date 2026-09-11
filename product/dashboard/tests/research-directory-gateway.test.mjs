@@ -7,6 +7,7 @@ import {
   parseResearchDirectoryBrowserProjectionV1,
   projectResearchDirectoryOwnerReadbackV1,
   readResearchDirectoryGatewayV1,
+  researchDirectoryOwnerTargetV1,
 } from "../lib/research-directory-gateway.ts";
 
 const ownerReadback = {
@@ -27,6 +28,56 @@ const ownerReadback = {
     committed_at_epoch_ms: 1_788_669_550_000,
   }],
 };
+
+test("dedicated Research read target is atomic and falls back only when entirely absent", () => {
+  assert.deepEqual(researchDirectoryOwnerTargetV1({
+    RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+    RD_RESEARCH_OWNER_READ_API_TOKEN: "read-token",
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), { baseUrl: "http://research-read:8083", token: "read-token" });
+  assert.deepEqual(researchDirectoryOwnerTargetV1({
+    RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), { baseUrl: "http://research-read:8083", token: undefined });
+  assert.deepEqual(researchDirectoryOwnerTargetV1({
+    RD_OWNER_API_URL: "http://owner-write:8080",
+    RD_OWNER_API_TOKEN: "write-token",
+  }), { baseUrl: "http://owner-write:8080", token: "write-token" });
+});
+
+test("gateway uses only the complete dedicated Research read target", async () => {
+  const calls = [];
+  const result = await readResearchDirectoryGatewayV1({
+    environment: {
+      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+      RD_RESEARCH_OWNER_READ_API_TOKEN: "read-token",
+      RD_OWNER_API_URL: "http://owner-write:8080",
+      RD_OWNER_API_TOKEN: "write-token",
+    },
+    fetcher: async (url, init) => {
+      calls.push({ url: String(url), authorization: init.headers.authorization });
+      return new Response(JSON.stringify(ownerReadback), { status: 200 });
+    },
+  });
+  assert.equal(result.status, 200);
+  assert.deepEqual(calls, [{
+    url: "http://research-read:8083/v1/research-goals/directory?limit=20",
+    authorization: "Bearer read-token",
+  }]);
+
+  const incomplete = await readResearchDirectoryGatewayV1({
+    environment: {
+      RD_RESEARCH_OWNER_READ_API_URL: "http://research-read:8083",
+      RD_OWNER_API_URL: "http://owner-write:8080",
+      RD_OWNER_API_TOKEN: "write-token",
+    },
+    fetcher: async () => { throw new Error("partial target must make zero Owner calls"); },
+  });
+  assert.equal(incomplete.status, 503);
+  assert.equal(incomplete.projection.reason, "OWNER_CONFIGURATION_UNAVAILABLE");
+});
 
 test("exact Owner Research directory becomes a bounded browser projection", () => {
   const projected = projectResearchDirectoryOwnerReadbackV1(ownerReadback);

@@ -265,6 +265,13 @@ candidate view uses authenticated GET `/v1/historical-custodies`. Its dedicated 
 200 request identities with their custody time and the exact state `POINT_READ_REQUIRED`; it exposes no request
 meaning, disposition, availability, receipt, authority, or current/legacy classification. Truncation is explicit.
 
+The verified Research directory GET is packaged as the dedicated
+`strategy-factory-rd-research-read-api`. Its router exposes only `/health` and
+`/v1/research-goals/directory`; its state holds only the typed `ResearchDirectoryOwnerPort`. Dashboard binds it
+through the atomically configured `RD_RESEARCH_OWNER_READ_API_URL` and
+`RD_RESEARCH_OWNER_READ_API_TOKEN` pair. A partial dedicated pair fails closed and never borrows the write API's
+credential. The adapter reuses the canonical per-candidate locking verifier and exposes no submit or resolve port.
+
 The browser receives only request identity, optional intent identity, accepted or rejected-no-write disposition,
 current Research-view availability and phase when accepted, and committed time. Rejected-no-write rows carry no
 invented intent or view. Research goal text, sources, principals, policy, authorization, raw receipts, TrialFamily
