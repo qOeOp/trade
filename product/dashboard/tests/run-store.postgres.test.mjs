@@ -12,6 +12,7 @@ import {
   artifactFormationOperationManifestV1,
 } from "../lib/artifact-formation-operation.ts";
 import { executeDisposableArtifactFormationV1 } from "../lib/artifact-formation-client.ts";
+import { researchGoalOperationV2 } from "../lib/research-goal-operation.ts";
 import { projectRunDetailEnvelopeV1 } from "../lib/run-detail-projection.ts";
 import {
   ARTIFACT_SHADOW_RESOLVE_OPERATION,
@@ -22,10 +23,17 @@ import {
   SOURCE_INTAKE_SHADOW_READ_OPERATION,
 } from "../lib/operation-registry.ts";
 import { PostgresRunStoreV1 } from "../lib/run-store.ts";
-import { unavailableSourceResearchRoutingAdmissionV1 } from "../lib/source-research-run-contract.ts";
+import {
+  admitSourceResearchExecutionV1,
+} from "../lib/source-research-run-contract.ts";
+import { sourceIntakeOperationV1 } from "../lib/source-intake-operation.ts";
 import { PostgresServiceLogGatewayV1 } from "../lib/service-log-gateway.ts";
 import { PostgresOperationAuditGatewayV1 } from "../lib/operation-audit-gateway.ts";
-import { boundShadowWorkerIdentityV1, runShadowWorkerTickV1 } from "../lib/shadow-worker.ts";
+import {
+  availableShadowWorkerOperationsV1,
+  boundShadowWorkerIdentityV1,
+  runShadowWorkerTickV1,
+} from "../lib/shadow-worker.ts";
 import {
   runShadowSchedulerTickV1,
   schedulerCapabilityDigestV1,
@@ -56,6 +64,9 @@ const unknownArtifactOwnerResult = {
   next_legal_action: "RESOLVE_SAME_ATTEMPT_IDENTITY",
 };
 const dispatchCompatibility = compatibleEnvironmentV1();
+const sourceResearchCompatibility = compatibleEnvironmentV1({
+  extraManifests: [sourceIntakeOperationV1, researchGoalOperationV2],
+});
 
 function bindingFor(operationId, fixture = dispatchCompatibility) {
   const binding = operationDispatchBindingForIdV1(
@@ -65,6 +76,26 @@ function bindingFor(operationId, fixture = dispatchCompatibility) {
   );
   assert.ok(binding);
   return binding;
+}
+
+async function ensureSourceResearchCompatibilityCustody(admin) {
+  const result = await admin.query(
+    `SELECT count(*)::int AS custody_columns
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'dashboard_source_research_run_bindings_v1'
+        AND column_name IN (
+          'source_registry_entry_digest', 'source_compatibility_envelope_digest',
+          'research_registry_entry_digest', 'research_compatibility_envelope_digest'
+        )`,
+  );
+  const custodyColumns = Number(result.rows[0]?.custody_columns ?? 0);
+  if (custodyColumns === 4) return;
+  assert.equal(custodyColumns, 0, "source/research compatibility custody must be all-or-nothing");
+  await admin.query(await readFile(
+    new URL("../migrations/0010_source_research_compatibility_custody.sql", import.meta.url),
+    "utf8",
+  ));
 }
 
 function digest(value) {
@@ -134,6 +165,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
   await admin.query(scheduleMigration);
   await admin.query(effectMigration);
   await admin.query(sourceResearchMigration);
+  await ensureSourceResearchCompatibilityCustody(admin);
   await admin.query(cacheDeletionMigration);
   await admin.query(cancellationMigration);
   await admin.query(operationAuditMigration);
@@ -328,7 +360,11 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     secondClientRecovery.envelope.operational_run.run_identity,
     firstClientRecovery.envelope.operational_run.run_identity,
   );
-  assert.equal(clientTransports.length, 4);
+  assert.equal(clientTransports.length, 2);
+  assert.ok(clientTransports.every((url) => (
+    url.includes(`/v1/artifact-builds/${dispatchBuildRequestIdentity}/attempts/`)
+      && url.endsWith("/resolve")
+  )));
   assert.equal(clientTransports.some((url) => url.includes("provider.invalid")), false);
   const research = await store.beginRead(RESEARCH_SHADOW_RESOLVE_OPERATION, {
     request_identity: "research-request-run-store-1",
@@ -489,7 +525,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     queuedSourceBinding.compatibility_envelope_set_digest,
   );
   const busyWorkerPage = await store.listShadowWorkers();
-  assert.equal(busyWorkerPage.workers[0].job_count, 1);
+  assert.equal(busyWorkerPage.workers[0].job_count, 2);
   assert.equal(busyWorkerPage.workers[0].active_job_count, 1);
   assert.equal(busyWorkerPage.workers[0].last_run_identity, queuedSource.run_identity);
   assert.equal(busyWorkerPage.workers[0].last_run_state, "running");
@@ -753,13 +789,10 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     e2eRunDetail?.worker_compatibility.worker_identity,
     boundShadowWorkerIdentityV1({
       configuredIdentity: fixture.environment.DASHBOARD_SHADOW_WORKER_ID,
-      operationIds: [
-        ARTIFACT_SHADOW_RESOLVE_OPERATION,
-        RD_FORMATION_CATALOG_SHADOW_READ_OPERATION,
-        RD_ITERATION_TIMELINE_SHADOW_READ_OPERATION,
-        RESEARCH_SHADOW_RESOLVE_OPERATION,
-        SOURCE_INTAKE_SHADOW_READ_OPERATION,
-      ],
+      operationIds: availableShadowWorkerOperationsV1(
+        fixture.environment,
+        fixture.nowEpochMs,
+      ),
       workerCapability: fixture.environment.DASHBOARD_SHADOW_WORKER_TOKEN,
       workerArtifactDigest: fixture.environment.DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST,
     }),
@@ -976,7 +1009,7 @@ test("PostgreSQL RunStore persists CAS state, bounded logs and restart readback"
     instance_identity, source_cut,
   })));
   await assert.rejects(() => serviceLogGateway.read({ observedAt: "2999-01-01T00:00:00.000Z" }), {
-    message: "SERVICE_LOG_CUT_INVALID",
+    message: "SERVICE_LOG_QUERY_INVALID",
   });
   await serviceLogGateway.close();
   const operationAuditGateway = new PostgresOperationAuditGatewayV1(connectionString, cursorKey);
@@ -1154,6 +1187,7 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
   ]) {
     await admin.query(await readFile(new URL(`../migrations/${name}`, import.meta.url), "utf8"));
   }
+  await ensureSourceResearchCompatibilityCustody(admin);
   const suffix = randomUUID();
   const recoveryIdentity = {
     source_request_identity: `source-response-loss-${suffix}`,
@@ -1167,12 +1201,21 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
     generation: 7,
     history_head_identity: `product-edge-operation-routing-binding-v1-${"6".repeat(64)}`,
   };
+  const activeAdmission = await admitSourceResearchExecutionV1({
+    action: "RUN",
+    environment: sourceResearchCompatibility.environment,
+    nowEpochMs: sourceResearchCompatibility.nowEpochMs,
+    routingResolver: async () => activeRouting,
+  });
+  assert.equal(activeAdmission.availability, "available");
+  const resolveAdmission = await admitSourceResearchExecutionV1({ action: "RESOLVE" });
+  assert.equal(resolveAdmission.availability, "available");
   let store = new PostgresRunStoreV1(connectionString, cursorKey);
   await store.assertSourceResearchSchema();
   const started = await store.beginSourceResearch({
     action: "RUN",
     recoveryIdentity,
-    routing: { source: activeRouting, research: activeRouting },
+    admission: activeAdmission,
   });
   assert.equal(started.execution_mode, "FRESH_RUN");
   assert.equal(started.run.transition_version, 1);
@@ -1213,7 +1256,7 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
   const resumed = await store.beginSourceResearch({
     action: "RESOLVE",
     recoveryIdentity,
-    routing: unavailableSourceResearchRoutingAdmissionV1(),
+    admission: resolveAdmission,
     existingRecoveryOnly: true,
   });
   assert.equal(resumed.execution_mode, "RESOLVE_ONLY");
@@ -1241,15 +1284,22 @@ test("PostgreSQL Source-to-Research custody survives response loss without repla
   await assert.rejects(() => store.beginSourceResearch({
     action: "RUN",
     recoveryIdentity,
-    routing: { source: activeRouting, research: activeRouting },
+    admission: activeAdmission,
   }), { message: "SOURCE_RESEARCH_IDENTITY_REUSED" });
   const binding = await admin.query(
-    `SELECT requested_action, source_routing_dispatcher, research_routing_dispatcher
+    `SELECT requested_action, source_registry_entry_digest,
+            source_compatibility_envelope_digest, research_registry_entry_digest,
+            research_compatibility_envelope_digest,
+            source_routing_dispatcher, research_routing_dispatcher
        FROM dashboard_source_research_run_bindings_v1 WHERE run_identity = $1`,
     [completed.run_identity],
   );
   assert.deepEqual(binding.rows, [{
     requested_action: "RUN",
+    source_registry_entry_digest: activeAdmission.source_registry_entry_digest,
+    source_compatibility_envelope_digest: activeAdmission.source_compatibility_envelope_digest,
+    research_registry_entry_digest: activeAdmission.research_registry_entry_digest,
+    research_compatibility_envelope_digest: activeAdmission.research_compatibility_envelope_digest,
     source_routing_dispatcher: "TRADE_DASHBOARD",
     research_routing_dispatcher: "TRADE_DASHBOARD",
   }]);
