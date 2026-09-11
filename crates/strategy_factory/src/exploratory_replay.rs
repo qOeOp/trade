@@ -328,13 +328,19 @@ pub struct SealedExploratoryReplayReadbackV2 {
     pub(crate) request: ReplayRequestV2,
     pub(crate) canonical_request_bytes: Vec<u8>,
     #[serde(skip)]
+    pub(crate) canonical_request_storage_digest: String,
+    #[serde(skip)]
     pub(crate) product_edge_admission: ProductEdgeAdmissionLocatorV1,
     pub(crate) meaning_digest: String,
     pub(crate) receipt: ExploratoryReplayCommitReceiptV2,
     #[serde(skip)]
     pub(crate) canonical_receipt_bytes: Vec<u8>,
     #[serde(skip)]
+    pub(crate) canonical_receipt_storage_digest: String,
+    #[serde(skip)]
     pub(crate) canonical_outbox_bytes: Vec<u8>,
+    #[serde(skip)]
+    pub(crate) canonical_outbox_storage_digest: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) execution_profile_seal:
         Option<crate::replay_execution_profile_binding_v1::ReplayExecutionProfileRequestSealV1>,
@@ -354,6 +360,10 @@ impl SealedExploratoryReplayReadbackV2 {
         &self.canonical_request_bytes
     }
 
+    pub fn canonical_request_storage_digest(&self) -> &str {
+        &self.canonical_request_storage_digest
+    }
+
     pub fn product_edge_admission(&self) -> &ProductEdgeAdmissionLocatorV1 {
         &self.product_edge_admission
     }
@@ -362,8 +372,16 @@ impl SealedExploratoryReplayReadbackV2 {
         &self.canonical_receipt_bytes
     }
 
+    pub fn canonical_receipt_storage_digest(&self) -> &str {
+        &self.canonical_receipt_storage_digest
+    }
+
     pub fn canonical_outbox_bytes(&self) -> &[u8] {
         &self.canonical_outbox_bytes
+    }
+
+    pub fn canonical_outbox_storage_digest(&self) -> &str {
+        &self.canonical_outbox_storage_digest
     }
 
     pub fn meaning_digest(&self) -> &str {
@@ -420,6 +438,7 @@ pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
     Ok(SealedExploratoryReplayReadbackV2 {
         request,
         canonical_request_bytes,
+        canonical_request_storage_digest: String::new(),
         product_edge_admission: ProductEdgeAdmissionLocatorV1 {
             request_identity: request_identity.clone(),
             admission_identity: "acceptance-only-admission".to_string(),
@@ -443,7 +462,9 @@ pub(crate) fn issue_sealed_exploratory_replay_readback_for_acceptance_v2(
             "seal_digest": seal_digest,
             "committed_at_epoch_ms": 1,
         }))?,
+        canonical_receipt_storage_digest: String::new(),
         canonical_outbox_bytes: Vec::new(),
+        canonical_outbox_storage_digest: String::new(),
         execution_profile_seal: None,
         owner_cut_epoch_ms: 1,
     })

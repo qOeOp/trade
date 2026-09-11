@@ -446,7 +446,65 @@ struct LockedAdmissionRowV1 {
     admission_digest: String,
     admission_json: serde_json::Value,
     receipt_json: serde_json::Value,
+    canonical_storage_bytes: Option<String>,
+    canonical_storage_digest: Option<String>,
+    canonical_storage_json: Option<serde_json::Value>,
     committed_at_epoch_ms: i64,
+}
+
+const ADMISSION_STORAGE_DOMAIN_V1: &str = "product-edge.admission-readback.storage.v1";
+
+fn storage_digest(domain: &str, bytes: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(bytes);
+    format!("blake3:{}", hasher.finalize().to_hex())
+}
+
+fn verify_admission_storage(
+    readback: &mut ProductEdgeAdmissionReadbackV1,
+    bytes: Option<Vec<u8>>,
+    digest: Option<String>,
+    mirror: Option<serde_json::Value>,
+) -> Result<(), ProductEdgeError> {
+    match (bytes, digest, mirror) {
+        (None, None, None) => Ok(()),
+        (Some(bytes), Some(digest), Some(mirror)) if !bytes.is_empty() => {
+            if storage_digest(ADMISSION_STORAGE_DOMAIN_V1, &bytes) != digest
+                || serde_json::from_slice::<serde_json::Value>(&bytes)
+                    .map_err(|_| ProductEdgeError::Unavailable)?
+                    != mirror
+                || serde_json::to_vec(readback).map_err(|_| ProductEdgeError::Unavailable)? != bytes
+            {
+                return Err(ProductEdgeError::Unavailable);
+            }
+            readback.canonical_storage_bytes = bytes;
+            readback.canonical_storage_digest = digest;
+            Ok(())
+        }
+        _ => Err(ProductEdgeError::Unavailable),
+    }
+}
+
+fn decode_json_bytea(value: Option<String>) -> Result<Option<Vec<u8>>, ProductEdgeError> {
+    value
+        .map(|value| {
+            let hex = value
+                .strip_prefix("\\x")
+                .ok_or(ProductEdgeError::Unavailable)?;
+            if hex.len() % 2 != 0 {
+                return Err(ProductEdgeError::Unavailable);
+            }
+            (0..hex.len())
+                .step_by(2)
+                .map(|index| {
+                    u8::from_str_radix(&hex[index..index + 2], 16)
+                        .map_err(|_| ProductEdgeError::Unavailable)
+                })
+                .collect()
+        })
+        .transpose()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -1117,7 +1175,7 @@ fn verify_locked_downstream_envelope(
         return Err(ProductEdgeError::Unavailable);
     }
 
-    Ok(ProductEdgeAdmissionReadbackV1 {
+    let mut readback = ProductEdgeAdmissionReadbackV1 {
         locator: ProductEdgeAdmissionLocatorV1 {
             request_identity: stored_admission.request.request_identity.clone(),
             admission_identity: stored_admission.admission_identity,
@@ -1138,10 +1196,19 @@ fn verify_locked_downstream_envelope(
         manifest_identity: stored_admission.manifest_identity,
         manifest_digest: stored_admission.manifest_digest,
         read_cut_epoch_ms: stored_admission.read_cut_epoch_ms,
+        canonical_storage_bytes: Vec::new(),
+        canonical_storage_digest: String::new(),
         manifest_proposal: manifest.proposal.clone(),
         original_current_authorization_evidence,
         current_policy_evidence,
-    })
+    };
+    verify_admission_storage(
+        &mut readback,
+        decode_json_bytea(envelope.admission.canonical_storage_bytes)?,
+        envelope.admission.canonical_storage_digest,
+        envelope.admission.canonical_storage_json,
+    )?;
+    Ok(readback)
 }
 
 #[derive(Clone)]
@@ -1381,12 +1448,15 @@ impl ProductEdgePostgresOwnerV1 {
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_binding_manifests_v1 (binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), manifest_identity TEXT NOT NULL REFERENCES product_edge_operation_manifests_v1(manifest_identity), manifest_digest TEXT NOT NULL, PRIMARY KEY(binding_identity, manifest_identity))",
             "CREATE TABLE IF NOT EXISTS product_edge_deployment_heads_v1 (deployment_identity TEXT PRIMARY KEY, binding_identity TEXT NOT NULL REFERENCES product_edge_deployment_bindings_v1(binding_identity), generation BIGINT NOT NULL, binding_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
-            "CREATE TABLE IF NOT EXISTS product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
+            "CREATE TABLE IF NOT EXISTS product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, canonical_storage_bytes BYTEA, canonical_storage_digest TEXT, canonical_storage_json JSONB, committed_at_epoch_ms BIGINT NOT NULL)",
             "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS deployment_identity TEXT",
             "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS binding_identity TEXT",
             "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_identity TEXT",
             "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS issuance_receipt_identity TEXT",
             "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_frontier_identity TEXT",
+            "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_bytes BYTEA",
+            "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_digest TEXT",
+            "ALTER TABLE product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_json JSONB",
             "UPDATE product_edge_request_admissions_v1 SET deployment_identity=admission_json->>'deployment_identity', binding_identity=admission_json->>'binding_identity', authorization_identity=admission_json#>>'{authorization,authorization_identity}', issuance_receipt_identity=admission_json#>>'{authorization,issuance_receipt_identity}', authorization_frontier_identity=admission_json->>'authorization_frontier_identity' WHERE deployment_identity IS NULL OR binding_identity IS NULL OR authorization_identity IS NULL OR issuance_receipt_identity IS NULL OR authorization_frontier_identity IS NULL",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_admissions_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, write_cut_epoch_ms BIGINT NOT NULL)",
             "CREATE TABLE IF NOT EXISTS product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL)",
@@ -2308,7 +2378,8 @@ impl ProductEdgePostgresOwnerV1 {
             committed_at,
         )
         .await?;
-        let result = verify_admission(
+        let stored_request_identity = stored.request.request_identity.clone();
+        let mut result = verify_admission(
             &mut transaction,
             stored,
             DownstreamAdmissionModeV1::Historical,
@@ -2316,6 +2387,23 @@ impl ProductEdgePostgresOwnerV1 {
             &authorization_plan,
         )
         .await?;
+        let canonical_storage_bytes =
+            serde_json::to_vec(&result).map_err(|_| ProductEdgeError::Unavailable)?;
+        let canonical_storage_digest =
+            storage_digest(ADMISSION_STORAGE_DOMAIN_V1, &canonical_storage_bytes);
+        let canonical_storage_json =
+            serde_json::from_slice::<serde_json::Value>(&canonical_storage_bytes)
+                .map_err(|_| ProductEdgeError::Unavailable)?;
+        sqlx::query("UPDATE product_edge_request_admissions_v1 SET canonical_storage_bytes=$1, canonical_storage_digest=$2, canonical_storage_json=$3 WHERE request_identity=$4 AND canonical_storage_bytes IS NULL AND canonical_storage_digest IS NULL AND canonical_storage_json IS NULL")
+            .bind(&canonical_storage_bytes)
+            .bind(&canonical_storage_digest)
+            .bind(canonical_storage_json)
+            .bind(&stored_request_identity)
+            .execute(&mut *transaction)
+            .await
+            .map_err(storage)?;
+        result.canonical_storage_bytes = canonical_storage_bytes;
+        result.canonical_storage_digest = canonical_storage_digest;
         transaction.commit().await.map_err(storage)?;
         Ok(result)
     }
@@ -4089,7 +4177,7 @@ async fn verify_admission(
         } else {
             None
         };
-    Ok(ProductEdgeAdmissionReadbackV1 {
+    let mut readback = ProductEdgeAdmissionReadbackV1 {
         locator: ProductEdgeAdmissionLocatorV1 {
             request_identity: stored.request.request_identity.clone(),
             admission_identity: stored.admission_identity,
@@ -4110,10 +4198,30 @@ async fn verify_admission(
         manifest_identity: stored.manifest_identity,
         manifest_digest: stored.manifest_digest,
         read_cut_epoch_ms: stored.read_cut_epoch_ms,
+        canonical_storage_bytes: Vec::new(),
+        canonical_storage_digest: String::new(),
         manifest_proposal: manifest.proposal.clone(),
         original_current_authorization_evidence: None,
         current_policy_evidence,
-    })
+    };
+    let storage_row = sqlx::query("SELECT canonical_storage_bytes,canonical_storage_digest,canonical_storage_json FROM product_edge_request_admissions_v1 WHERE admission_identity=$1 FOR SHARE")
+        .bind(&readback.locator.admission_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(storage)?;
+    verify_admission_storage(
+        &mut readback,
+        storage_row
+            .try_get("canonical_storage_bytes")
+            .map_err(storage)?,
+        storage_row
+            .try_get("canonical_storage_digest")
+            .map_err(storage)?,
+        storage_row
+            .try_get("canonical_storage_json")
+            .map_err(storage)?,
+    )?;
+    Ok(readback)
 }
 
 async fn store_manifest(

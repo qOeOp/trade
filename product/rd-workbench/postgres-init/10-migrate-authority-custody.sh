@@ -138,6 +138,36 @@ GRANT USAGE ON SCHEMA public, rd_owner_api TO rd_exploratory_replay_api_owner;
 GRANT USAGE ON SCHEMA rd_owner_api TO market_data_owner;
 REVOKE ALL ON SCHEMA rd_owner_api FROM market_data_reader;
 
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_families_v1 ADD COLUMN IF NOT EXISTS root_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS member_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_members_v1 ADD COLUMN IF NOT EXISTS membership_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_heads_v1 ADD COLUMN IF NOT EXISTS frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS census_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS attempt_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_trial_family_attempt_cuts_v2 ADD COLUMN IF NOT EXISTS candidate_set_frontier_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_request_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_sealed_exploratory_replay_requests_v1 ADD COLUMN IF NOT EXISTS v2_receipt_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_payload_storage_digest TEXT;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_bytes BYTEA;
+ALTER TABLE IF EXISTS public.rd_owner_outbox_v1 ADD COLUMN IF NOT EXISTS canonical_envelope_storage_digest TEXT;
+
 -- BEGIN INTERNAL_VERIFY_SOURCE_V1
 CREATE OR REPLACE FUNCTION rd_owner_api.verify_exploratory_replay_request_internal_v1(
   requested_request_identity text,
@@ -965,7 +995,7 @@ CREATE TABLE IF NOT EXISTS public.product_edge_deployment_bindings_v1 (binding_i
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_supersessions_v1 (binding_identity TEXT PRIMARY KEY REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), successor_binding_identity TEXT, supersession_digest TEXT NOT NULL, supersession_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_deployment_heads_v1 (deployment_identity TEXT PRIMARY KEY, binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), generation BIGINT NOT NULL, binding_digest TEXT NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_binding_manifests_v1 (binding_identity TEXT NOT NULL REFERENCES public.product_edge_deployment_bindings_v1(binding_identity), manifest_identity TEXT NOT NULL REFERENCES public.product_edge_operation_manifests_v1(manifest_identity), manifest_digest TEXT NOT NULL, PRIMARY KEY(binding_identity, manifest_identity));
-CREATE TABLE IF NOT EXISTS public.product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS public.product_edge_request_admissions_v1 (request_identity TEXT PRIMARY KEY, admission_identity TEXT NOT NULL UNIQUE, deployment_identity TEXT, binding_identity TEXT, authorization_identity TEXT, issuance_receipt_identity TEXT, authorization_frontier_identity TEXT, request_semantic_digest TEXT NOT NULL, admission_digest TEXT NOT NULL, admission_json JSONB NOT NULL, receipt_json JSONB NOT NULL, canonical_storage_bytes BYTEA, canonical_storage_digest TEXT, canonical_storage_json JSONB, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_admissions_v1 (receipt_identity TEXT PRIMARY KEY, receipt_digest TEXT NOT NULL, admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_identity TEXT NOT NULL UNIQUE, receipt_json JSONB NOT NULL, write_cut_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_claims_v1 (admission_identity TEXT PRIMARY KEY, claim_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, claim_json JSONB NOT NULL, committed_at_epoch_ms BIGINT NOT NULL);
 CREATE TABLE IF NOT EXISTS public.product_edge_effect_invocation_states_v1 (claim_identity TEXT PRIMARY KEY REFERENCES public.product_edge_effect_invocation_claims_v1(claim_identity), admission_identity TEXT NOT NULL UNIQUE, attempt_identity TEXT NOT NULL UNIQUE, claim_digest TEXT NOT NULL, state_digest TEXT NOT NULL, state_json JSONB NOT NULL, updated_at_epoch_ms BIGINT NOT NULL);
@@ -985,6 +1015,9 @@ ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS b
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_identity TEXT;
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS issuance_receipt_identity TEXT;
 ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS authorization_frontier_identity TEXT;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_bytes BYTEA;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_digest TEXT;
+ALTER TABLE public.product_edge_request_admissions_v1 ADD COLUMN IF NOT EXISTS canonical_storage_json JSONB;
 UPDATE public.product_edge_request_admissions_v1
 SET deployment_identity=admission_json->>'deployment_identity',
     binding_identity=admission_json->>'binding_identity',

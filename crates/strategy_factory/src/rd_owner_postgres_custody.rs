@@ -105,10 +105,240 @@ pub async fn resolve_native_replay_rd_sources_v2_in_transaction(
             error.to_string(),
         )
     })?;
+    let research_row = sqlx::query("SELECT request_storage_bytes,request_storage_digest,request_json,receipt_storage_bytes,receipt_storage_digest,receipt_json,intent_storage_bytes,intent_storage_digest,intent_json FROM rd_research_request_receipts_v1 WHERE request_identity=$1 FOR SHARE")
+        .bind(&research_request_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let family_identity = research
+        .family()
+        .ok_or_else(|| native_source_unavailable("TrialFamily custody missing"))?
+        .root()
+        .trial_family_identity();
+    let family_row = sqlx::query("SELECT root_storage_bytes,root_storage_digest,root_json,root_receipt_storage_bytes,root_receipt_storage_digest,root_receipt_json FROM rd_trial_families_v1 WHERE trial_family_identity=$1 FOR SHARE")
+        .bind(family_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let member_row = sqlx::query("SELECT member_storage_bytes,member_storage_digest,member_json,membership_receipt_storage_bytes,membership_receipt_storage_digest,membership_receipt_json FROM rd_trial_family_members_v1 WHERE trial_family_identity=$1 AND ordinal=0 FOR SHARE")
+        .bind(family_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let head_row = sqlx::query("SELECT frontier_storage_bytes,frontier_storage_digest,frontier_json FROM rd_trial_family_heads_v1 WHERE trial_family_identity=$1 FOR SHARE")
+        .bind(family_identity)
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let replay_row = sqlx::query("SELECT v2_canonical_request_bytes,v2_request_storage_digest,v2_receipt_storage_bytes,v2_receipt_storage_digest,v2_receipt_json FROM rd_sealed_exploratory_replay_requests_v1 WHERE request_identity=$1 FOR SHARE")
+        .bind(replay.request_identity())
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let replay_outbox_row = sqlx::query("SELECT event_identity,aggregate_identity,event_kind,payload_digest,payload_json,canonical_payload_bytes,canonical_payload_storage_digest,canonical_envelope_bytes,canonical_envelope_storage_digest,committed_at_epoch_ms FROM rd_owner_outbox_v1 WHERE aggregate_identity=$1 AND event_kind='EXPLORATORY_REPLAY_REQUEST_FROZEN_V2' FOR SHARE")
+        .bind(replay.request_identity())
+        .fetch_one(&mut **transaction)
+        .await
+        .map_err(native_source_storage)?;
+    let family = research.family().expect("checked present");
+    let stored = crate::native_replay_rd_sources_v2::NativeReplayStoredRowsV2 {
+        research_request: native_source_record(
+            &research_row,
+            "request_storage_bytes",
+            "request_storage_digest",
+            "request_json",
+            research.request_json().expect("accepted V2 request"),
+            crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+        )?,
+        research_receipt: native_source_record_value(
+            &research_row,
+            "receipt_storage_bytes",
+            "receipt_storage_digest",
+            "receipt_json",
+            &research.receipt(),
+            crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        research_intent: native_source_record_value(
+            &research_row,
+            "intent_storage_bytes",
+            "intent_storage_digest",
+            "intent_json",
+            research.intent().expect("accepted V2 intent"),
+            crate::native_replay_rd_sources_v2::RESEARCH_INTENT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_root: native_source_record_value(
+            &family_row,
+            "root_storage_bytes",
+            "root_storage_digest",
+            "root_json",
+            family.root(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_root_receipt: native_source_record_value(
+            &family_row,
+            "root_receipt_storage_bytes",
+            "root_receipt_storage_digest",
+            "root_receipt_json",
+            family.root_receipt(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_initial_member: native_source_record_value(
+            &member_row,
+            "member_storage_bytes",
+            "member_storage_digest",
+            "member_json",
+            family.initial_intent_member(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_membership_receipt: native_source_record_value(
+            &member_row,
+            "membership_receipt_storage_bytes",
+            "membership_receipt_storage_digest",
+            "membership_receipt_json",
+            family.membership_receipt(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        trial_family_frontier: native_source_record_value(
+            &head_row,
+            "frontier_storage_bytes",
+            "frontier_storage_digest",
+            "frontier_json",
+            family.census_frontier(),
+            crate::native_replay_rd_sources_v2::TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+        )?,
+        replay_request: native_source_record_value(
+            &replay_row,
+            "v2_canonical_request_bytes",
+            "v2_request_storage_digest",
+            "v2_canonical_request_bytes",
+            replay.request(),
+            crate::native_replay_rd_sources_v2::REPLAY_REQUEST_STORAGE_DOMAIN_V1,
+        )?,
+        replay_receipt: native_source_record(
+            &replay_row,
+            "v2_receipt_storage_bytes",
+            "v2_receipt_storage_digest",
+            "v2_receipt_json",
+            &replay_row
+                .try_get("v2_receipt_json")
+                .map_err(native_source_storage)?,
+            crate::native_replay_rd_sources_v2::REPLAY_RECEIPT_STORAGE_DOMAIN_V1,
+        )?,
+        replay_outbox: native_replay_outbox_source_record(&replay_outbox_row)?,
+    };
     crate::native_replay_rd_sources_v2::issue_native_replay_rd_sources_v2(
         replay,
         &replay_admission,
         &research,
+        stored,
+    )
+}
+
+fn native_source_unavailable(
+    message: impl Into<String>,
+) -> crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2 {
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2::Unavailable(message.into())
+}
+
+fn native_source_storage(
+    error: sqlx::Error,
+) -> crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2 {
+    native_source_unavailable(error.to_string())
+}
+
+fn native_source_record(
+    row: &PgRow,
+    bytes_column: &str,
+    digest_column: &str,
+    json_column: &str,
+    expected_json: &serde_json::Value,
+    domain: &str,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let bytes: Option<Vec<u8>> = row.try_get(bytes_column).map_err(native_source_storage)?;
+    let digest: Option<String> = row.try_get(digest_column).map_err(native_source_storage)?;
+    let mirror: serde_json::Value = if matches!(
+        json_column,
+        "v2_canonical_request_bytes" | "canonical_envelope_bytes"
+    ) {
+        expected_json.clone()
+    } else {
+        row.try_get(json_column).map_err(native_source_storage)?
+    };
+    let (Some(bytes), Some(digest)) = (bytes, digest) else {
+        return Err(native_source_unavailable(format!("{bytes_column} missing")));
+    };
+    let decoded: serde_json::Value = serde_json::from_slice(&bytes)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    if bytes.is_empty()
+        || decoded != mirror
+        || decoded != *expected_json
+        || crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes) != digest
+    {
+        return Err(native_source_unavailable(format!(
+            "{bytes_column} custody mismatch"
+        )));
+    }
+    Ok(crate::native_replay_rd_sources_v2::StoredSourceRecordV2 { bytes, digest })
+}
+
+fn native_source_record_value(
+    row: &PgRow,
+    bytes_column: &str,
+    digest_column: &str,
+    json_column: &str,
+    expected: &impl Serialize,
+    domain: &str,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let expected_json = serde_json::to_value(expected)
+        .map_err(|error| native_source_unavailable(error.to_string()))?;
+    native_source_record(
+        row,
+        bytes_column,
+        digest_column,
+        json_column,
+        &expected_json,
+        domain,
+    )
+}
+
+fn native_replay_outbox_source_record(
+    row: &PgRow,
+) -> Result<
+    crate::native_replay_rd_sources_v2::StoredSourceRecordV2,
+    crate::native_replay_rd_sources_v2::NativeReplayRdSourcesErrorV2,
+> {
+    let payload_json: serde_json::Value =
+        row.try_get("payload_json").map_err(native_source_storage)?;
+    let _payload = native_source_record(
+        row,
+        "canonical_payload_bytes",
+        "canonical_payload_storage_digest",
+        "payload_json",
+        &payload_json,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
+    )?;
+    let expected = serde_json::json!({
+        "event_identity": row.try_get::<String, _>("event_identity").map_err(native_source_storage)?,
+        "aggregate_identity": row.try_get::<String, _>("aggregate_identity").map_err(native_source_storage)?,
+        "event_kind": row.try_get::<String, _>("event_kind").map_err(native_source_storage)?,
+        "payload_digest": row.try_get::<String, _>("payload_digest").map_err(native_source_storage)?,
+        "payload_json": payload_json,
+        "committed_at_epoch_ms": u64::try_from(row.try_get::<i64, _>("committed_at_epoch_ms").map_err(native_source_storage)?)
+            .map_err(|error| native_source_unavailable(error.to_string()))?,
+    });
+    native_source_record(
+        row,
+        "canonical_envelope_bytes",
+        "canonical_envelope_storage_digest",
+        "canonical_envelope_bytes",
+        &expected,
+        crate::native_replay_rd_sources_v2::REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
     )
 }
 

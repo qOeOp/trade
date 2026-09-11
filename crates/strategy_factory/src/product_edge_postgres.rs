@@ -309,6 +309,12 @@ const RD_CORE_TABLES: &[crate::schema_materialization::PublicTableSpec] = &[
             crate::schema_materialization::optional("artifact_evidence_json", "jsonb"),
             crate::schema_materialization::optional("source_ancestry_locator_json", "jsonb"),
             crate::schema_materialization::optional("source_ancestry_evidence_digest", "text"),
+            crate::schema_materialization::optional("request_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("request_storage_digest", "text"),
+            crate::schema_materialization::optional("receipt_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("receipt_storage_digest", "text"),
+            crate::schema_materialization::optional("intent_storage_bytes", "bytea"),
+            crate::schema_materialization::optional("intent_storage_digest", "text"),
         ],
         constraints: &["p:request_identity:::false:false:true:"],
         indexes: &[
@@ -813,6 +819,12 @@ impl PostgresResearchGoalOwnerV1 {
                 receipt_json JSONB NOT NULL,
                 intent_json JSONB,
                 view_json JSONB,
+                request_storage_bytes BYTEA,
+                request_storage_digest TEXT,
+                receipt_storage_bytes BYTEA,
+                receipt_storage_digest TEXT,
+                intent_storage_bytes BYTEA,
+                intent_storage_digest TEXT,
                 committed_at_epoch_ms BIGINT NOT NULL
             )
             ",
@@ -852,6 +864,12 @@ impl PostgresResearchGoalOwnerV1 {
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS artifact_evidence_json JSONB",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_locator_json JSONB",
             "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS source_ancestry_evidence_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS request_storage_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS receipt_storage_digest TEXT",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_bytes BYTEA",
+            "ALTER TABLE rd_research_request_receipts_v1 ADD COLUMN IF NOT EXISTS intent_storage_digest TEXT",
             "CREATE UNIQUE INDEX IF NOT EXISTS rd_research_intent_identity_v1 ON rd_research_request_receipts_v1 ((intent_json->>'intent_identity')) WHERE intent_json IS NOT NULL",
             "REVOKE ALL ON SCHEMA rd_owner_api FROM PUBLIC",
             "GRANT USAGE ON SCHEMA rd_owner_api TO product_edge_owner, qualification_writer",
@@ -2423,11 +2441,25 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
                 };
                 let commit =
                     decide_rejected_commit_v2(request, digest.clone(), rejection_code, write_cut);
-                sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5)")
+                let (request_json, request_bytes, request_storage_digest) =
+                    research_source_storage(
+                        crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+                        &stored_request,
+                    )?;
+                let (receipt_json, receipt_bytes, receipt_storage_digest) =
+                    research_source_storage(
+                        crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+                        &commit.receipt,
+                    )?;
+                sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,NULL,NULL,$5,$6,$7,$8,$9)")
                     .bind(&commit.receipt.request_identity)
                     .bind(&commit.receipt.semantic_digest)
-                    .bind(serde_json::to_value(stored_request).map_err(json_storage)?)
-                    .bind(serde_json::to_value(&commit.receipt).map_err(json_storage)?)
+                    .bind(request_json)
+                    .bind(receipt_json)
+                    .bind(request_bytes)
+                    .bind(request_storage_digest)
+                    .bind(receipt_bytes)
+                    .bind(receipt_storage_digest)
                     .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
                     .execute(&mut *transaction)
                     .await
@@ -2739,7 +2771,11 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             },
             canonical_trial_family_policy: canonical_policy.clone(),
         };
-        let request_json = serde_json::to_value(&stored_request).map_err(json_storage)?;
+        let (request_json, request_storage_bytes, request_storage_digest) =
+            research_source_storage(
+                crate::native_replay_rd_sources_v2::RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+                &stored_request,
+            )?;
         let commit = decide_commit_v2(
             validated,
             digest.clone(),
@@ -2749,13 +2785,17 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             &final_admission,
             write_cut,
         )?;
-        let receipt_json = serde_json::to_value(&commit.receipt).map_err(json_storage)?;
-        let intent_json = commit
-            .intent
-            .as_ref()
-            .map(serde_json::to_value)
-            .transpose()
-            .map_err(json_storage)?;
+        let (receipt_json, receipt_storage_bytes, receipt_storage_digest) =
+            research_source_storage(
+                crate::native_replay_rd_sources_v2::RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+                &commit.receipt,
+            )?;
+        let (intent_json, intent_storage_bytes, intent_storage_digest) = research_source_storage(
+            crate::native_replay_rd_sources_v2::RESEARCH_INTENT_STORAGE_DOMAIN_V1,
+            commit.intent.as_ref().ok_or_else(|| {
+                ResearchGoalOwnerError::Storage("accepted S1 intent missing".to_string())
+            })?,
+        )?;
         let view_json = commit
             .view
             .as_ref()
@@ -2808,7 +2848,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .map(serde_json::to_value)
             .transpose()
             .map_err(json_storage)?;
-        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, source_ancestry_locator_json, source_ancestry_evidence_digest, committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)")
+        sqlx::query("INSERT INTO rd_research_request_receipts_v1 (request_identity, semantic_digest, request_json, receipt_json, intent_json, view_json, artifact_evidence_digest, artifact_evidence_json, source_ancestry_locator_json, source_ancestry_evidence_digest, request_storage_bytes,request_storage_digest,receipt_storage_bytes,receipt_storage_digest,intent_storage_bytes,intent_storage_digest,committed_at_epoch_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)")
             .bind(&commit.receipt.request_identity)
             .bind(&commit.receipt.semantic_digest)
             .bind(request_json)
@@ -2819,6 +2859,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .bind(artifact_evidence_json)
             .bind(source_ancestry_locator_json)
             .bind(source_ancestry_evidence_digest.as_deref())
+            .bind(request_storage_bytes)
+            .bind(request_storage_digest)
+            .bind(receipt_storage_bytes)
+            .bind(receipt_storage_digest)
+            .bind(intent_storage_bytes)
+            .bind(intent_storage_digest)
             .bind(i64::try_from(commit.receipt.committed_at_epoch_ms).map_err(json_storage)?)
             .execute(&mut *transaction)
             .await
@@ -2910,6 +2956,16 @@ fn storage(error: &sqlx::Error) -> ResearchGoalOwnerError {
 
 fn json_storage(error: impl Display) -> ResearchGoalOwnerError {
     ResearchGoalOwnerError::Storage(error.to_string())
+}
+
+fn research_source_storage(
+    domain: &str,
+    value: &impl Serialize,
+) -> Result<(serde_json::Value, Vec<u8>, String), ResearchGoalOwnerError> {
+    let bytes = serde_json::to_vec(value).map_err(json_storage)?;
+    let json = serde_json::from_slice(&bytes).map_err(json_storage)?;
+    let digest = crate::native_replay_rd_sources_v2::owner_storage_digest(domain, &bytes);
+    Ok((json, bytes, digest))
 }
 
 fn trial_family_storage(error: &TrialFamilyError) -> ResearchGoalOwnerError {

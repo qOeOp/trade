@@ -244,6 +244,13 @@ if grep -Eq '^[[:space:]]*(DELETE FROM|UPDATE .*SET .*(_json|_digest|committed_a
   exit 1
 fi
 grep -Fq 'CREATE OR REPLACE FUNCTION product_edge_api.lock_downstream_admission_v1(' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'canonical_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'request_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'root_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'frontier_storage_bytes BYTEA' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'v2_request_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'canonical_payload_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
+grep -Fq 'canonical_envelope_storage_digest TEXT' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'RETURNS jsonb LANGUAGE plpgsql STRICT VOLATILE PARALLEL UNSAFE SECURITY DEFINER' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'SET search_path = pg_catalog' "$package_dir/postgres-init/10-migrate-authority-custody.sh"
 grep -Fq 'GRANT EXECUTE ON FUNCTION product_edge_api.lock_downstream_admission_v1(text,text,text) TO rd_owner, product_edge_owner' "$package_dir/postgres-init/10-migrate-authority-custody.sh"

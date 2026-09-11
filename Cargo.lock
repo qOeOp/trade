@@ -10980,6 +10980,7 @@ name = "vibe-product-edge"
 version = "0.62.0"
 dependencies = [
  "anyhow",
+ "blake3",
  "rstest",
  "serde",
  "serde_json",

@@ -29,6 +29,7 @@ pub enum NativeReplayRdSourceKindV2 {
 pub struct NativeReplayRdSourceRecordV2 {
     kind: NativeReplayRdSourceKindV2,
     canonical_bytes: Vec<u8>,
+    owner_storage_digest: String,
 }
 
 impl NativeReplayRdSourceRecordV2 {
@@ -41,6 +42,57 @@ impl NativeReplayRdSourceRecordV2 {
     pub fn canonical_bytes(&self) -> &[u8] {
         &self.canonical_bytes
     }
+
+    #[must_use]
+    pub fn owner_storage_digest(&self) -> &str {
+        &self.owner_storage_digest
+    }
+}
+
+pub(crate) const PRODUCT_EDGE_ADMISSION_STORAGE_DOMAIN_V1: &str =
+    "product-edge.admission-readback.storage.v1";
+pub(crate) const RESEARCH_REQUEST_STORAGE_DOMAIN_V1: &str = "rd.research-request.storage.v1";
+pub(crate) const RESEARCH_RECEIPT_STORAGE_DOMAIN_V1: &str = "rd.research-receipt.storage.v1";
+pub(crate) const RESEARCH_INTENT_STORAGE_DOMAIN_V1: &str = "rd.research-intent.storage.v1";
+pub(crate) const TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1: &str = "rd.trial-family-root.storage.v1";
+pub(crate) const TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1: &str =
+    "rd.trial-family-root-receipt.storage.v1";
+pub(crate) const TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1: &str = "rd.trial-family-member.storage.v1";
+pub(crate) const TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1: &str =
+    "rd.trial-family-membership-receipt.storage.v1";
+pub(crate) const TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1: &str =
+    "rd.trial-family-frontier.storage.v1";
+pub(crate) const REPLAY_REQUEST_STORAGE_DOMAIN_V1: &str = "rd.replay-request.storage.v1";
+pub(crate) const REPLAY_RECEIPT_STORAGE_DOMAIN_V1: &str = "rd.replay-receipt.storage.v1";
+pub(crate) const REPLAY_OUTBOX_STORAGE_DOMAIN_V1: &str = "rd.replay-outbox.storage.v1";
+pub(crate) const REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1: &str =
+    "rd.replay-outbox-envelope.storage.v1";
+
+pub(crate) fn owner_storage_digest(domain: &str, bytes: &[u8]) -> String {
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(domain.as_bytes());
+    hasher.update(&[0]);
+    hasher.update(bytes);
+    format!("blake3:{}", hasher.finalize().to_hex())
+}
+
+pub(crate) struct StoredSourceRecordV2 {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) digest: String,
+}
+
+pub(crate) struct NativeReplayStoredRowsV2 {
+    pub(crate) research_request: StoredSourceRecordV2,
+    pub(crate) research_receipt: StoredSourceRecordV2,
+    pub(crate) research_intent: StoredSourceRecordV2,
+    pub(crate) trial_family_root: StoredSourceRecordV2,
+    pub(crate) trial_family_root_receipt: StoredSourceRecordV2,
+    pub(crate) trial_family_initial_member: StoredSourceRecordV2,
+    pub(crate) trial_family_membership_receipt: StoredSourceRecordV2,
+    pub(crate) trial_family_frontier: StoredSourceRecordV2,
+    pub(crate) replay_request: StoredSourceRecordV2,
+    pub(crate) replay_receipt: StoredSourceRecordV2,
+    pub(crate) replay_outbox: StoredSourceRecordV2,
 }
 
 /// A single move-only carrier issued from one locked and cross-bound R&D custody cut.
@@ -126,29 +178,22 @@ pub enum NativeReplayRdSourcesErrorV2 {
     Unavailable(String),
 }
 
-fn record(
-    kind: NativeReplayRdSourceKindV2,
-    value: &impl serde::Serialize,
-) -> Result<NativeReplayRdSourceRecordV2, NativeReplayRdSourcesErrorV2> {
-    Ok(NativeReplayRdSourceRecordV2 {
-        kind,
-        canonical_bytes: serde_json::to_vec(value)
-            .map_err(|error| NativeReplayRdSourcesErrorV2::Unavailable(error.to_string()))?,
-    })
-}
-
 fn bytes_record(
     kind: NativeReplayRdSourceKindV2,
+    domain: &str,
     canonical_bytes: &[u8],
+    stored_digest: &str,
 ) -> Result<NativeReplayRdSourceRecordV2, NativeReplayRdSourcesErrorV2> {
-    if canonical_bytes.is_empty() {
+    if canonical_bytes.is_empty() || owner_storage_digest(domain, canonical_bytes) != stored_digest
+    {
         return Err(NativeReplayRdSourcesErrorV2::Unavailable(format!(
-            "{kind:?} canonical bytes missing"
+            "{kind:?} canonical storage unavailable"
         )));
     }
     Ok(NativeReplayRdSourceRecordV2 {
         kind,
         canonical_bytes: canonical_bytes.to_vec(),
+        owner_storage_digest: stored_digest.to_string(),
     })
 }
 
@@ -201,6 +246,7 @@ pub(crate) fn issue_native_replay_rd_sources_v2(
     replay: &SealedExploratoryReplayReadbackV2,
     replay_admission: &ProductEdgeAdmissionReadbackV1,
     research: &VerifiedResearchCustodyV1,
+    stored: NativeReplayStoredRowsV2,
 ) -> Result<NativeReplayRdSourcesV2, NativeReplayRdSourcesErrorV2> {
     let request = replay.request();
     let intent = research.intent().ok_or_else(|| {
@@ -212,16 +258,12 @@ pub(crate) fn issue_native_replay_rd_sources_v2(
     let research_admission = research.product_edge_admission().ok_or_else(|| {
         NativeReplayRdSourcesErrorV2::Unavailable("Research Product Edge admission missing".into())
     })?;
-    let research_request = research.request_json().ok_or_else(|| {
+    let _research_request = research.request_json().ok_or_else(|| {
         NativeReplayRdSourcesErrorV2::Unavailable(
             "canonical Research request custody missing".into(),
         )
     })?;
     let research_receipt = research.receipt();
-    let root = family.root();
-    let member = family.initial_intent_member();
-    let frontier = family.census_frontier();
-
     let exact_request_bytes = request.to_canonical_bytes().map_err(|error| {
         NativeReplayRdSourcesErrorV2::Unavailable(format!(
             "Replay request canonicalization failed: {error}"
@@ -244,47 +286,77 @@ pub(crate) fn issue_native_replay_rd_sources_v2(
 
     Ok(NativeReplayRdSourcesV2 {
         request_locator: replay.locator(),
-        product_edge_admission: record(
+        product_edge_admission: bytes_record(
             NativeReplayRdSourceKindV2::ProductEdgeAdmission,
-            replay_admission,
+            PRODUCT_EDGE_ADMISSION_STORAGE_DOMAIN_V1,
+            replay_admission.canonical_storage_bytes(),
+            replay_admission.canonical_storage_digest(),
         )?,
-        research_request_custody: record(
+        research_request_custody: bytes_record(
             NativeReplayRdSourceKindV2::ResearchRequestCustody,
-            research_request,
+            RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+            &stored.research_request.bytes,
+            &stored.research_request.digest,
         )?,
-        research_request_receipt: record(
+        research_request_receipt: bytes_record(
             NativeReplayRdSourceKindV2::ResearchRequestReceipt,
-            research_receipt,
+            RESEARCH_RECEIPT_STORAGE_DOMAIN_V1,
+            &stored.research_receipt.bytes,
+            &stored.research_receipt.digest,
         )?,
-        frozen_research_intent: record(NativeReplayRdSourceKindV2::FrozenResearchIntent, intent)?,
-        trial_family_root: record(NativeReplayRdSourceKindV2::TrialFamilyRoot, root)?,
-        trial_family_root_receipt: record(
+        frozen_research_intent: bytes_record(
+            NativeReplayRdSourceKindV2::FrozenResearchIntent,
+            RESEARCH_INTENT_STORAGE_DOMAIN_V1,
+            &stored.research_intent.bytes,
+            &stored.research_intent.digest,
+        )?,
+        trial_family_root: bytes_record(
+            NativeReplayRdSourceKindV2::TrialFamilyRoot,
+            TRIAL_FAMILY_ROOT_STORAGE_DOMAIN_V1,
+            &stored.trial_family_root.bytes,
+            &stored.trial_family_root.digest,
+        )?,
+        trial_family_root_receipt: bytes_record(
             NativeReplayRdSourceKindV2::TrialFamilyRootReceipt,
-            family.root_receipt(),
+            TRIAL_FAMILY_ROOT_RECEIPT_STORAGE_DOMAIN_V1,
+            &stored.trial_family_root_receipt.bytes,
+            &stored.trial_family_root_receipt.digest,
         )?,
-        trial_family_initial_intent_member: record(
+        trial_family_initial_intent_member: bytes_record(
             NativeReplayRdSourceKindV2::TrialFamilyInitialIntentMember,
-            member,
+            TRIAL_FAMILY_MEMBER_STORAGE_DOMAIN_V1,
+            &stored.trial_family_initial_member.bytes,
+            &stored.trial_family_initial_member.digest,
         )?,
-        trial_family_membership_receipt: record(
+        trial_family_membership_receipt: bytes_record(
             NativeReplayRdSourceKindV2::TrialFamilyMembershipReceipt,
-            family.membership_receipt(),
+            TRIAL_FAMILY_MEMBERSHIP_RECEIPT_STORAGE_DOMAIN_V1,
+            &stored.trial_family_membership_receipt.bytes,
+            &stored.trial_family_membership_receipt.digest,
         )?,
-        trial_family_census_frontier: record(
+        trial_family_census_frontier: bytes_record(
             NativeReplayRdSourceKindV2::TrialFamilyCensusFrontier,
-            frontier,
+            TRIAL_FAMILY_FRONTIER_STORAGE_DOMAIN_V1,
+            &stored.trial_family_frontier.bytes,
+            &stored.trial_family_frontier.digest,
         )?,
         exploratory_replay_request: bytes_record(
             NativeReplayRdSourceKindV2::ExploratoryReplayRequest,
-            replay.canonical_request_bytes(),
+            REPLAY_REQUEST_STORAGE_DOMAIN_V1,
+            &stored.replay_request.bytes,
+            &stored.replay_request.digest,
         )?,
         exploratory_replay_receipt: bytes_record(
             NativeReplayRdSourceKindV2::ExploratoryReplayReceipt,
-            replay.canonical_receipt_bytes(),
+            REPLAY_RECEIPT_STORAGE_DOMAIN_V1,
+            &stored.replay_receipt.bytes,
+            &stored.replay_receipt.digest,
         )?,
         exploratory_replay_outbox: bytes_record(
             NativeReplayRdSourceKindV2::ExploratoryReplayOutbox,
-            replay.canonical_outbox_bytes(),
+            REPLAY_OUTBOX_ENVELOPE_STORAGE_DOMAIN_V1,
+            &stored.replay_outbox.bytes,
+            &stored.replay_outbox.digest,
         )?,
     })
 }
@@ -484,14 +556,39 @@ mod tests {
         let replay = replay("intent-v2", &intent_digest, &family_a);
         let receipt = receipt("intent-v2", &intent_digest);
         assert!(verify_rd_lineage_v2(&replay, &intent, &receipt, &family_b).is_err());
-        assert!(bytes_record(NativeReplayRdSourceKindV2::ExploratoryReplayOutbox, &[]).is_err());
+        assert!(
+            bytes_record(
+                NativeReplayRdSourceKindV2::ExploratoryReplayOutbox,
+                REPLAY_OUTBOX_STORAGE_DOMAIN_V1,
+                &[],
+                ""
+            )
+            .is_err()
+        );
     }
 
     #[test]
-    fn record_preserves_exact_canonical_bytes() {
+    fn stored_record_preserves_exact_canonical_bytes_and_digest() {
         let value = serde_json::json!({"request_identity":"research-request-v2","ordinal":1});
         let expected = serde_json::to_vec(&value).unwrap();
-        let record = record(NativeReplayRdSourceKindV2::ResearchRequestCustody, &value).unwrap();
+        let digest = owner_storage_digest(RESEARCH_REQUEST_STORAGE_DOMAIN_V1, &expected);
+        let record = bytes_record(
+            NativeReplayRdSourceKindV2::ResearchRequestCustody,
+            RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+            &expected,
+            &digest,
+        )
+        .unwrap();
         assert_eq!(record.canonical_bytes(), expected);
+        assert_eq!(record.owner_storage_digest(), digest);
+        assert!(
+            bytes_record(
+                NativeReplayRdSourceKindV2::ResearchRequestCustody,
+                RESEARCH_REQUEST_STORAGE_DOMAIN_V1,
+                &expected,
+                &owner_storage_digest(RESEARCH_RECEIPT_STORAGE_DOMAIN_V1, &expected),
+            )
+            .is_err()
+        );
     }
 }
