@@ -11,6 +11,7 @@
     "start": "next start",
     "build": "next build",
     "run-store:migrate": "node scripts/migrate-run-store.mjs",
+    "shadow-runtime": "node scripts/run-shadow-runtime.mjs",
     "test:postgres": "node --test tests/run-store.postgres.test.mjs",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --test tests/*.test.mjs",

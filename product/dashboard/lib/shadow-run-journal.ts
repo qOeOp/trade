@@ -1,4 +1,5 @@
 import type { RegisteredOperationId } from "./operation-registry.ts";
+import type { DevelopComposerGatewayResultV1 } from "./develop-composer-readback-gateway.ts";
 import type { OperationalRunReferenceV1 } from "./operational-run-reference.ts";
 import type { RunTerminalCodeV1 } from "./run-contract.ts";
 import {
@@ -62,6 +63,27 @@ export function ownerOutcomeForShadowResultV1(result: ShadowResult): {
     case "SUBMITTED_OR_UNKNOWN":
     case "OUTCOME_UNKNOWN":
       return { state: "unknown", terminalCode: "OWNER_UNKNOWN" };
+    default:
+      return { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
+  }
+}
+
+export function ownerOutcomeForDevelopComposerResultV1(
+  result: DevelopComposerGatewayResultV1,
+): { state: OwnerOutcomeState; terminalCode: RunTerminalCodeV1 } {
+  if (result.projection.availability === "unavailable" || !result.projection.readback) {
+    return { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
+  }
+  switch (result.projection.readback.disposition) {
+    case "SUCCESS":
+      return { state: "available", terminalCode: "OWNER_AVAILABLE" };
+    case "SUBMITTED_OR_UNKNOWN":
+      return { state: "unknown", terminalCode: "OWNER_UNKNOWN" };
+    case "CONFLICT":
+    case "UNSUPPORTED":
+    case "NEEDS_RESEARCH_REFINEMENT":
+      return { state: "rejected", terminalCode: "OWNER_REJECTED" };
+    case "UNAVAILABLE":
     default:
       return { state: "unavailable", terminalCode: "OWNER_UNAVAILABLE" };
   }

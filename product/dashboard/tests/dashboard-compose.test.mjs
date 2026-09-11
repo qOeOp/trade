@@ -19,8 +19,10 @@ function serviceBlock(serviceName) {
 test("Dashboard image and migration are opt-in Compose services", () => {
   const migration = serviceBlock("dashboard-run-store-migrate");
   const dashboard = serviceBlock("dashboard-web");
+  const worker = serviceBlock("dashboard-shadow-worker");
+  const scheduler = serviceBlock("dashboard-shadow-scheduler");
 
-  for (const block of [migration, dashboard]) {
+  for (const block of [migration, dashboard, worker, scheduler]) {
     assert.match(block, /profiles: \["dashboard-preview"\]/);
     assert.match(block, /image: trade-dashboard:\$\{DASHBOARD_IMAGE_TAG:-preview\}/);
     assert.match(block, /DASHBOARD_DATABASE_URL: \$\{DASHBOARD_DATABASE_URL:-\}/);
@@ -36,14 +38,30 @@ test("Dashboard image and migration are opt-in Compose services", () => {
   assert.match(dashboard, /RD_OWNER_API_URL: \$\{RD_OWNER_API_URL:-http:\/\/rd-owner-api:8080\}/);
   assert.match(dashboard, /read_only: true/);
   assert.match(dashboard, /cap_drop:\n\s+- ALL/);
+
+  assert.match(worker, /command: \["npm", "run", "shadow-runtime", "--", "worker"\]/);
+  assert.match(worker, /dashboard-run-store-migrate:\n\s+condition: service_completed_successfully/);
+  assert.match(worker, /rd-owner-api:\n\s+condition: service_healthy/);
+  assert.match(worker, /DASHBOARD_SHADOW_WORKER_TOKEN: \$\{DASHBOARD_SHADOW_WORKER_TOKEN:-\}/);
+  assert.match(worker, /test -f \/tmp\/dashboard-shadow-worker\.ready/);
+  assert.match(scheduler, /command: \["npm", "run", "shadow-runtime", "--", "scheduler"\]/);
+  assert.match(scheduler, /DASHBOARD_SHADOW_SCHEDULES_JSON:/);
+  assert.match(scheduler, /DASHBOARD_SCHEDULER_CAPABILITY_DIGEST:/);
+  assert.match(scheduler, /test -f \/tmp\/dashboard-shadow-scheduler\.ready/);
+  for (const block of [worker, scheduler]) {
+    assert.match(block, /pull_policy: never/);
+    assert.match(block, /read_only: true/);
+    assert.match(block, /cap_drop:\n\s+- ALL/);
+    assert.doesNotMatch(block, /ports:/);
+  }
 });
 
 test("Windmill remains independent of the opt-in Dashboard profile", () => {
   const server = serviceBlock("windmill-server");
   const worker = serviceBlock("windmill-worker");
 
-  assert.doesNotMatch(server, /dashboard-(?:web|run-store-migrate)/);
-  assert.doesNotMatch(worker, /dashboard-(?:web|run-store-migrate)/);
+  assert.doesNotMatch(server, /dashboard-(?:web|run-store-migrate|shadow-worker|shadow-scheduler)/);
+  assert.doesNotMatch(worker, /dashboard-(?:web|run-store-migrate|shadow-worker|shadow-scheduler)/);
   assert.doesNotMatch(server, /profiles:/);
   assert.doesNotMatch(worker, /profiles:/);
   assert.match(server, /MODE: server/);

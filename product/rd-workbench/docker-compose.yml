@@ -278,6 +278,13 @@ services:
       DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
       DASHBOARD_OPERATOR_API_TOKEN: ${DASHBOARD_OPERATOR_API_TOKEN:-}
       DASHBOARD_SERVER_INSTANCE_IDENTITY: ${DASHBOARD_SERVER_INSTANCE_IDENTITY:-dashboard-web}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_JSON: ${DASHBOARD_COMPATIBILITY_ENVELOPES_JSON:-}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST: ${DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST:-}
+      DASHBOARD_ARTIFACT_DIGEST: ${DASHBOARD_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST: ${DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST:-}
+      RD_OWNER_API_ARTIFACT_DIGEST: ${RD_OWNER_API_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_SCHEDULES_JSON: ${DASHBOARD_SHADOW_SCHEDULES_JSON:-}
+      DASHBOARD_SHADOW_SCHEDULES_DIGEST: ${DASHBOARD_SHADOW_SCHEDULES_DIGEST:-}
       RD_OWNER_API_URL: ${RD_OWNER_API_URL:-http://rd-owner-api:8080}
       RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:-}
       RD_OWNER_READ_API_URL: ${RD_OWNER_READ_API_URL:-}
@@ -300,6 +307,88 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
+    security_opt:
+      - no-new-privileges:true
+
+  dashboard-shadow-worker:
+    profiles: ["dashboard-preview"]
+    image: trade-dashboard:${DASHBOARD_IMAGE_TAG:-preview}
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    command: ["npm", "run", "shadow-runtime", "--", "worker"]
+    depends_on:
+      dashboard-run-store-migrate:
+        condition: service_completed_successfully
+      rd-owner-api:
+        condition: service_healthy
+    environment:
+      DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
+      DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_JSON: ${DASHBOARD_COMPATIBILITY_ENVELOPES_JSON:-}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST: ${DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST:-}
+      DASHBOARD_ARTIFACT_DIGEST: ${DASHBOARD_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST: ${DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST:-}
+      RD_OWNER_API_ARTIFACT_DIGEST: ${RD_OWNER_API_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_WORKER_ID: ${DASHBOARD_SHADOW_WORKER_ID:-}
+      DASHBOARD_SHADOW_WORKER_TOKEN: ${DASHBOARD_SHADOW_WORKER_TOKEN:-}
+      DASHBOARD_SHADOW_WORKER_INTERVAL_MS: ${DASHBOARD_SHADOW_WORKER_INTERVAL_MS:-1000}
+      RD_OWNER_API_URL: ${RD_OWNER_API_URL:-http://rd-owner-api:8080}
+      RD_OWNER_API_TOKEN: ${RD_OWNER_API_TOKEN:-}
+      RD_OWNER_READ_API_URL: ${RD_OWNER_READ_API_URL:-}
+      RD_OWNER_READ_API_TOKEN: ${RD_OWNER_READ_API_TOKEN:-}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/dashboard-shadow-worker.ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    security_opt:
+      - no-new-privileges:true
+
+  dashboard-shadow-scheduler:
+    profiles: ["dashboard-preview"]
+    image: trade-dashboard:${DASHBOARD_IMAGE_TAG:-preview}
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    command: ["npm", "run", "shadow-runtime", "--", "scheduler"]
+    depends_on:
+      dashboard-run-store-migrate:
+        condition: service_completed_successfully
+    environment:
+      DASHBOARD_DATABASE_URL: ${DASHBOARD_DATABASE_URL:-}
+      DASHBOARD_CURSOR_HMAC_KEY: ${DASHBOARD_CURSOR_HMAC_KEY:-}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_JSON: ${DASHBOARD_COMPATIBILITY_ENVELOPES_JSON:-}
+      DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST: ${DASHBOARD_COMPATIBILITY_ENVELOPES_DIGEST:-}
+      DASHBOARD_ARTIFACT_DIGEST: ${DASHBOARD_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST: ${DASHBOARD_SHADOW_WORKER_ARTIFACT_DIGEST:-}
+      RD_OWNER_API_ARTIFACT_DIGEST: ${RD_OWNER_API_ARTIFACT_DIGEST:-}
+      DASHBOARD_SHADOW_SCHEDULES_JSON: ${DASHBOARD_SHADOW_SCHEDULES_JSON:-}
+      DASHBOARD_SHADOW_SCHEDULES_DIGEST: ${DASHBOARD_SHADOW_SCHEDULES_DIGEST:-}
+      DASHBOARD_SCHEDULER_ID: ${DASHBOARD_SCHEDULER_ID:-}
+      DASHBOARD_SCHEDULER_TOKEN: ${DASHBOARD_SCHEDULER_TOKEN:-}
+      DASHBOARD_SCHEDULER_ARTIFACT_DIGEST: ${DASHBOARD_SCHEDULER_ARTIFACT_DIGEST:-}
+      DASHBOARD_SCHEDULER_CAPABILITY_DIGEST: ${DASHBOARD_SCHEDULER_CAPABILITY_DIGEST:-}
+      DASHBOARD_SHADOW_SCHEDULER_INTERVAL_MS: ${DASHBOARD_SHADOW_SCHEDULER_INTERVAL_MS:-5000}
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=16m,uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    pids_limit: 64
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/dashboard-shadow-scheduler.ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
     security_opt:
       - no-new-privileges:true
 
