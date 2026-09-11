@@ -1,6 +1,7 @@
 import type { HTMLAttributes, ReactNode } from "react";
+import type { StatusBadgeTone } from "./status-badge";
 
-type CompactStatusTone = "neutral" | "info" | "success" | "warning" | "danger" | "unavailable";
+type CompactStatusTone = StatusBadgeTone;
 
 export function CompactStatusBar({
   children,

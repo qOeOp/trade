@@ -5,6 +5,11 @@
 
 set -euo pipefail
 
+HOOK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+REPO_ROOT=$(cd "$HOOK_DIR/.." && pwd -P)
+readonly FROZEN_SOURCE_PATH="crates/strategy_factory/src/bounded_feature_program_lowerer_v1.rs"
+bash "$HOOK_DIR/check_frozen_source_convention_baseline.sh" "$REPO_ROOT"
+
 # Exit cleanly if ripgrep is not installed
 if ! command -v rg &> /dev/null; then
   echo "WARNING: ripgrep not found, skipping error convention checks"
@@ -35,7 +40,7 @@ VIOLATIONS=0
 echo "Checking Rust error variable naming..."
 
 # Search for Err(err), Err(error), |err|, |error| patterns
-rust_err_output=$(rg -n 'Err\((err|error)\)|\|(err|error)\|' crates --type rust 2> /dev/null || true)
+rust_err_output=$(rg -n --glob "!$FROZEN_SOURCE_PATH" 'Err\((err|error)\)|\|(err|error)\|' crates --type rust 2> /dev/null || true)
 
 if [[ -n "$rust_err_output" ]]; then
   while IFS=: read -r file line_num line_content; do

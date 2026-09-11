@@ -14,8 +14,9 @@ export function ownerOutcomeTone(value: string): StatusBadgeTone {
 }
 
 export function auditOutcomeTone(value: string): StatusBadgeTone {
-  if (value === "rejected") return "danger";
-  if (value === "unavailable" || value === "unknown") return "unavailable";
+  if (value === "succeeded") return "success";
+  if (value === "failed" || value === "denied" || value === "rejected") return "danger";
+  if (value === "unavailable" || value === "unknown") return "warning";
   return "neutral";
 }
 

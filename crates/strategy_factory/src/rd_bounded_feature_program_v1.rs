@@ -592,7 +592,7 @@ mod tests {
         develop_composer_v2::CurrentResearchDevelopCustodyV2,
     };
 
-    #[test]
+    #[rstest::rstest]
     fn freezes_exact_custody_and_canonical_design_program_bytes() {
         let (design, proposal, catalog) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);
@@ -605,7 +605,7 @@ mod tests {
         )
         .unwrap();
 
-        let mut reordered = design.clone();
+        let mut reordered = design;
         reordered.reactions.reverse();
         let reordered_frozen =
             freeze_research_bounded_feature_program_v1(&custody, &reordered, proposal, catalog)
@@ -621,7 +621,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn rejects_cross_spliced_research_custody_before_freeze() {
         let (mut design, proposal, catalog) = candidate();
         let custody = CurrentResearchDevelopCustodyV2::joint_bfp_test_fixture(&design);

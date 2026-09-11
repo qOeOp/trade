@@ -1385,6 +1385,7 @@ fn decode_record_row(
         .into_iter()
         .map(|tag| u16::try_from(tag).map_err(|_| DevelopComposerSealedReadErrorV2::Unavailable))
         .collect::<Result<Vec<_>, _>>()?;
+
     if build_receipt_tags.len() != build_receipt_bytes.len()
         || build_receipt_tags.iter().any(|tag| !matches!(tag, 2 | 3))
         || build_receipt_tags.windows(2).any(|tags| tags[0] != tags[1])
@@ -1856,6 +1857,7 @@ async fn verify_composer_v3_commit_authority_in_transaction(
     .bind(COMMIT_FUNCTION_SOURCE_SHA256_V3)
     .fetch_one(&mut **transaction)
     .await?;
+
     if exact {
         Ok(())
     } else {
@@ -3305,6 +3307,7 @@ async fn persist_record(
         .first()
         .copied()
         .ok_or_else(|| sqlx::Error::Protocol("empty Composer build receipt set".to_owned()))?;
+
     if record.build_receipt_tags.len() != record.build_receipt_bytes.len()
         || record.build_receipt_tags.len() != record.module_bytes.len()
         || record
@@ -3338,6 +3341,7 @@ async fn persist_record(
         .iter()
         .map(|value| value.as_bytes().to_vec())
         .collect::<Vec<_>>();
+
     if build_receipt_tag == 3 {
         verify_composer_v3_commit_authority_in_transaction(transaction).await?;
     }

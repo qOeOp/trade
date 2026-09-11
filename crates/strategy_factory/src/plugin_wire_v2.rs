@@ -446,7 +446,7 @@ mod tests {
         strategy_design_v2::PluginStateContractV2,
     };
 
-    #[test]
+    #[rstest::rstest]
     fn abi_three_retains_the_canonical_entry_layout_and_binds_the_header() {
         let manifest = PluginManifestV2 {
             semantic_id: "test.bfp.plugin.v1".to_owned(),
@@ -507,7 +507,7 @@ mod tests {
         );
     }
 
-    #[test]
+    #[rstest::rstest]
     fn abi_three_output_prefixes_entries_with_canonical_availability() {
         let manifest = PluginManifestV2 {
             semantic_id: "test.bfp.plugin.v1".to_owned(),
