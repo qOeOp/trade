@@ -25,6 +25,9 @@ use vibe_common::{
 };
 use vibe_core::UUID4;
 use vibe_data::engine::config::DataEngineConfig;
+use vibe_data::owner::instrument_master_v2::{
+    InstrumentDecimalV2, PublicInstrumentClassV2, ValidatedCryptoPerpetualPublicTermsV2,
+};
 use vibe_execution::{
     engine::config::ExecutionEngineConfig,
     models::{
@@ -37,8 +40,8 @@ use vibe_model::{
     data::Data,
     enums::{AccountType, BarAggregation, BarIntervalType, BookType, OmsType},
     identifiers::{AccountId, ClientId, InstrumentId, Symbol, TraderId, Venue},
-    instruments::{Instrument, InstrumentAny},
-    types::{Currency, Money, Price},
+    instruments::{CryptoPerpetual, Instrument, InstrumentAny},
+    types::{Currency, Money, Price, Quantity},
 };
 use vibe_portfolio::config::PortfolioConfig;
 use vibe_risk::engine::config::RiskEngineConfig;
@@ -90,7 +93,9 @@ pub(crate) struct ReplayNativeExecutionProfileV1 {
     instrument_ids: [InstrumentId; TARGET_SET_MEMBER_COUNT],
     instrument_terms: [BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT],
     materialization_digest: [u8; 32],
+    #[cfg_attr(not(test), allow(dead_code))]
     fill_seed: u64,
+    #[cfg_attr(not(test), allow(dead_code))]
     instance_id: UUID4,
 }
 
@@ -102,11 +107,13 @@ impl ReplayNativeExecutionProfileV1 {
     }
 
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn instance_id(&self) -> UUID4 {
         self.instance_id
     }
 
     #[must_use]
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) const fn deterministic_fill_seed(&self) -> u64 {
         self.fill_seed
     }
@@ -242,6 +249,96 @@ impl ReplayNativeExecutionProfileV1 {
     ) -> &[BoundInstrumentEconomicTermsV1; TARGET_SET_MEMBER_COUNT] {
         &self.instrument_terms
     }
+}
+
+/// Materializes the complete native target set from Market Data public terms and the separately
+/// sealed Instrument Owner economics. The tokens are consumed so no caller can replace structural
+/// fields between validation and bundle admission.
+pub(crate) fn materialize_crypto_perpetual_target_set_v2(
+    binding: &ReplayExecutionProfileBindingV1,
+    public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+) -> Result<[InstrumentAny; TARGET_SET_MEMBER_COUNT], ReplayNativeExecutionProfileErrorV1> {
+    let [first, second] = public_terms;
+    let economic_terms = binding.instrument_terms();
+    Ok([
+        materialize_crypto_perpetual_v2(&economic_terms[0], first)?,
+        materialize_crypto_perpetual_v2(&economic_terms[1], second)?,
+    ])
+}
+
+fn materialize_crypto_perpetual_v2(
+    economic: &BoundInstrumentEconomicTermsV1,
+    public: ValidatedCryptoPerpetualPublicTermsV2,
+) -> Result<InstrumentAny, ReplayNativeExecutionProfileErrorV1> {
+    let expected_instrument_id = format!(
+        "{}.{}",
+        economic.instrument_identity, economic.venue_identity
+    );
+    if public.instrument_class() != PublicInstrumentClassV2::CryptoPerpetual
+        || public.canonical_identity() != expected_instrument_id
+        || public.venue_identity() != economic.venue_identity
+        || public.quote_currency() != economic.quote_currency
+        || *public.instrument_master_fact_identity().as_bytes() != economic.instrument_fact_digest
+    {
+        return Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch);
+    }
+
+    let base_currency = native_currency(public.base_currency())?;
+    let quote_currency = native_currency(public.quote_currency())?;
+    let settlement_currency = native_currency(public.settlement_currency())?;
+    let instrument_id = InstrumentId::from_str(public.canonical_identity())
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
+    let raw_symbol = Symbol::new_checked(public.raw_symbol())
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::InvalidIdentifier)?;
+
+    let instrument = CryptoPerpetual::new_checked(
+        instrument_id,
+        raw_symbol,
+        base_currency,
+        quote_currency,
+        settlement_currency,
+        public.is_inverse(),
+        public.price_precision(),
+        public.quantity_precision(),
+        native_public_price(public.price_increment())?,
+        native_public_quantity(public.quantity_increment())?,
+        Some(native_public_quantity(public.contract_multiplier())?),
+        Some(native_public_quantity(public.lot_size())?),
+        public
+            .maximum_quantity()
+            .map(native_public_quantity)
+            .transpose()?,
+        public
+            .minimum_quantity()
+            .map(native_public_quantity)
+            .transpose()?,
+        public
+            .maximum_notional()
+            .map(|value| native_public_money(value, quote_currency))
+            .transpose()?,
+        public
+            .minimum_notional()
+            .map(|value| native_public_money(value, quote_currency))
+            .transpose()?,
+        public
+            .maximum_price()
+            .map(native_public_price)
+            .transpose()?,
+        public
+            .minimum_price()
+            .map(native_public_price)
+            .transpose()?,
+        Some(native_decimal(economic.initial_margin)?),
+        Some(native_decimal(economic.maintenance_margin)?),
+        Some(native_decimal(economic.maker_fee)?),
+        Some(native_decimal(economic.taker_fee)?),
+        None,
+        None,
+        public.ts_event(),
+        public.ts_init(),
+    )
+    .map_err(|_| ReplayNativeExecutionProfileErrorV1::NativeConfiguration)?;
+    Ok(InstrumentAny::CryptoPerpetual(instrument))
 }
 
 fn data_event_time_ns(data: &Data) -> Result<i128, ReplayNativeExecutionProfileErrorV1> {
@@ -702,6 +799,50 @@ fn native_decimal(
         .map_err(|_| ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable)
 }
 
+fn native_public_decimal(
+    value: InstrumentDecimalV2,
+) -> Result<Decimal, ReplayNativeExecutionProfileErrorV1> {
+    Decimal::try_from_i128_with_scale(value.mantissa, u32::from(value.scale))
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable)
+}
+
+fn native_public_price(
+    value: InstrumentDecimalV2,
+) -> Result<Price, ReplayNativeExecutionProfileErrorV1> {
+    let decimal = native_public_decimal(value)?;
+    let native = Price::from_decimal(decimal)
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable)?;
+    if native.as_decimal() != decimal {
+        return Err(ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable);
+    }
+    Ok(native)
+}
+
+fn native_public_quantity(
+    value: InstrumentDecimalV2,
+) -> Result<Quantity, ReplayNativeExecutionProfileErrorV1> {
+    let decimal = native_public_decimal(value)?;
+    let native = Quantity::from_decimal(decimal)
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable)?;
+    if native.as_decimal() != decimal {
+        return Err(ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable);
+    }
+    Ok(native)
+}
+
+fn native_public_money(
+    value: InstrumentDecimalV2,
+    currency: Currency,
+) -> Result<Money, ReplayNativeExecutionProfileErrorV1> {
+    let decimal = native_public_decimal(value)?;
+    let native = Money::from_decimal(decimal, currency)
+        .map_err(|_| ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable)?;
+    if native.as_decimal() != decimal {
+        return Err(ReplayNativeExecutionProfileErrorV1::DecimalUnrepresentable);
+    }
+    Ok(native)
+}
+
 fn native_money(
     value: ReplayFixedDecimalV1,
     currency: Currency,
@@ -822,6 +963,13 @@ mod tests {
     use std::time::Duration;
 
     use rstest::rstest;
+    use vibe_data::owner::{
+        instrument_master_v2::{
+            ExchangeInfoBaselineV2, ExchangeInfoSnapshotProvenanceV2, FactValue,
+            InstrumentMasterFactV2, InstrumentMasterPublicTermsV2,
+        },
+        source_binding::BindingDigest,
+    };
     use vibe_execution::models::fill::FillModel;
     use vibe_model::{
         data::{Bar, BarSpecification, BookOrder, OrderBookDelta},
@@ -940,6 +1088,123 @@ mod tests {
             )));
         }
         data
+    }
+
+    fn validated_public_terms(canonical_identity: &str) -> ValidatedCryptoPerpetualPublicTermsV2 {
+        let decimal = |mantissa, scale| InstrumentDecimalV2 { mantissa, scale };
+        InstrumentMasterFactV2::from_exchange_info_baseline(ExchangeInfoBaselineV2 {
+            canonical_identity: canonical_identity.to_owned(),
+            venue_identity: "SIM".to_owned(),
+            raw_symbol: canonical_identity
+                .strip_suffix(".SIM")
+                .unwrap_or(canonical_identity)
+                .to_owned(),
+            instrument_class: PublicInstrumentClassV2::CryptoPerpetual,
+            provenance: ExchangeInfoSnapshotProvenanceV2 {
+                source_binding_identity: BindingDigest::from_untrusted_bytes([31; 32]),
+                source_binding_digest: BindingDigest::from_untrusted_bytes([32; 32]),
+                raw_payload_digest: BindingDigest::from_untrusted_bytes([33; 32]),
+                effective_from_ns: 1,
+                retrieval_time_ns: 2,
+                owner_observation_time_ns: 3,
+            },
+            terms: InstrumentMasterPublicTermsV2 {
+                base_currency: FactValue::Value("ETH".to_owned()),
+                quote_currency: FactValue::Value("USDT".to_owned()),
+                settlement_currency: FactValue::Value("USDT".to_owned()),
+                contract_status: FactValue::Value("TRADING".to_owned()),
+                is_inverse: FactValue::Value(false),
+                price_precision_from_filter: FactValue::Value(2),
+                quantity_precision_from_filter: FactValue::Value(3),
+                price_increment_from_filter: FactValue::Value(decimal(1, 2)),
+                quantity_increment_from_filter: FactValue::Value(decimal(1, 3)),
+                contract_multiplier: FactValue::Value(decimal(2, 0)),
+                lot_size: FactValue::Value(decimal(5, 3)),
+                minimum_price: FactValue::Value(decimal(1, 2)),
+                maximum_price: FactValue::Value(decimal(1_000_000, 2)),
+                minimum_quantity: FactValue::Value(decimal(5, 3)),
+                maximum_quantity: FactValue::Value(decimal(100_000, 3)),
+                minimum_notional: FactValue::Value(decimal(10, 0)),
+                maximum_notional: FactValue::Value(decimal(1_000_000, 0)),
+            },
+        })
+        .unwrap()
+        .validate_native_crypto_perpetual_public_terms()
+        .unwrap()
+    }
+
+    fn matching_economic_terms(
+        public: &ValidatedCryptoPerpetualPublicTermsV2,
+    ) -> BoundInstrumentEconomicTermsV1 {
+        BoundInstrumentEconomicTermsV1 {
+            instrument_identity: public
+                .canonical_identity()
+                .strip_suffix(".SIM")
+                .unwrap()
+                .to_owned(),
+            instrument_fact_digest: *public.instrument_master_fact_identity().as_bytes(),
+            instrument_receipt_digest: [41; 32],
+            terms_digest: [42; 32],
+            venue_identity: "SIM".to_owned(),
+            quote_currency: "USDT".to_owned(),
+            account_scope_identity: "SIM-001".to_owned(),
+            event_time_ns: 3,
+            valid_from_ns: 0,
+            valid_until_ns_exclusive: i128::MAX,
+            margin_model: InstrumentMarginModelSelectionV1::StandardMarginModel,
+            maker_fee: ReplayFixedDecimalV1 {
+                mantissa: 2,
+                scale: 4,
+            },
+            taker_fee: ReplayFixedDecimalV1 {
+                mantissa: 4,
+                scale: 4,
+            },
+            initial_margin: ReplayFixedDecimalV1 {
+                mantissa: 1,
+                scale: 1,
+            },
+            maintenance_margin: ReplayFixedDecimalV1 {
+                mantissa: 5,
+                scale: 2,
+            },
+        }
+    }
+
+    #[rstest]
+    fn v2_public_terms_and_owner_economics_materialize_one_exact_native_instrument() {
+        let public = validated_public_terms("ETHUSDT-PERP.SIM");
+        let economic = matching_economic_terms(&public);
+
+        let instrument = materialize_crypto_perpetual_v2(&economic, public).unwrap();
+        let InstrumentAny::CryptoPerpetual(instrument) = instrument else {
+            panic!("expected crypto perpetual")
+        };
+        assert_eq!(instrument.id.to_string(), "ETHUSDT-PERP.SIM");
+        assert_eq!(instrument.raw_symbol.as_str(), "ETHUSDT-PERP");
+        assert_eq!(instrument.base_currency.code.as_str(), "ETH");
+        assert_eq!(instrument.quote_currency.code.as_str(), "USDT");
+        assert_eq!(instrument.settlement_currency.code.as_str(), "USDT");
+        assert_eq!(instrument.price_increment, Price::from("0.01"));
+        assert_eq!(instrument.size_increment, Quantity::from("0.001"));
+        assert_eq!(instrument.multiplier, Quantity::from("2"));
+        assert_eq!(instrument.lot_size, Quantity::from("0.005"));
+        assert_eq!(instrument.maker_fee, Decimal::new(2, 4));
+        assert_eq!(instrument.taker_fee, Decimal::new(4, 4));
+        assert_eq!(instrument.margin_init, Decimal::new(1, 1));
+        assert_eq!(instrument.margin_maint, Decimal::new(5, 2));
+    }
+
+    #[rstest]
+    fn v2_public_fact_must_match_owner_economic_fact() {
+        let public = validated_public_terms("ETHUSDT-PERP.SIM");
+        let mut economic = matching_economic_terms(&public);
+        economic.instrument_fact_digest = [99; 32];
+
+        assert_eq!(
+            materialize_crypto_perpetual_v2(&economic, public),
+            Err(ReplayNativeExecutionProfileErrorV1::InstrumentTermsMismatch)
+        );
     }
 
     #[rstest]

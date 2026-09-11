@@ -7,6 +7,7 @@
 
 use sha2::{Digest, Sha256};
 use strategy_factory_program_sdk::lifecycle_v2::TARGET_SET_MEMBER_COUNT;
+use vibe_data::owner::instrument_master_v2::ValidatedCryptoPerpetualPublicTermsV2;
 use vibe_data::owner::strategy_input_binding::{
     StrategyInputEventKind, StrategyInputUniverseFrameReceipt,
 };
@@ -26,7 +27,8 @@ use crate::{
         OwnerIssuedReplayExecutionProfileBindingV1,
     },
     replay_execution_profile_native_v1::{
-        ReplayNativeExecutionProfileV1, materialize_event_replay_execution_profile_v1,
+        ReplayNativeExecutionProfileV1, materialize_crypto_perpetual_target_set_v2,
+        materialize_event_replay_execution_profile_v1,
     },
     replay_runner_operational_profile_v1::ReplayRunnerOperationalProfileV1,
     strategy_plan_v2::StrategyPlanV2,
@@ -350,6 +352,35 @@ impl ReplayTargetSetExecutionBundleV1 {
         universe_frame: StrategyInputUniverseFrameReceipt,
         strategy_id: StrategyId,
         run_id: String,
+        public_terms: [ValidatedCryptoPerpetualPublicTermsV2; TARGET_SET_MEMBER_COUNT],
+        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        data: Vec<Data>,
+    ) -> anyhow::Result<Self> {
+        let instruments = materialize_crypto_perpetual_target_set_v2(
+            authority.execution_profile_binding(),
+            public_terms,
+        )?;
+        Self::new_with_native_instruments(
+            authority,
+            plan,
+            artifact,
+            universe_frame,
+            strategy_id,
+            run_id,
+            instruments,
+            bar_types,
+            data,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn new_with_native_instruments(
+        authority: OwnerIssuedReplayExecutionProfileBindingV1,
+        plan: StrategyPlanV2,
+        artifact: StrategyArtifactV2,
+        universe_frame: StrategyInputUniverseFrameReceipt,
+        strategy_id: StrategyId,
+        run_id: String,
         instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
         bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
         data: Vec<Data>,
@@ -498,6 +529,32 @@ impl ReplayTargetSetExecutionBundleV1 {
             data,
             census,
         })
+    }
+
+    #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_with_native_instruments_for_test(
+        authority: OwnerIssuedReplayExecutionProfileBindingV1,
+        plan: StrategyPlanV2,
+        artifact: StrategyArtifactV2,
+        universe_frame: StrategyInputUniverseFrameReceipt,
+        strategy_id: StrategyId,
+        run_id: String,
+        instruments: [InstrumentAny; TARGET_SET_MEMBER_COUNT],
+        bar_types: [BarType; TARGET_SET_MEMBER_COUNT],
+        data: Vec<Data>,
+    ) -> anyhow::Result<Self> {
+        Self::new_with_native_instruments(
+            authority,
+            plan,
+            artifact,
+            universe_frame,
+            strategy_id,
+            run_id,
+            instruments,
+            bar_types,
+            data,
+        )
     }
 }
 

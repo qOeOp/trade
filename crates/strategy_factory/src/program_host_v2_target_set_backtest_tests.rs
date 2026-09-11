@@ -84,7 +84,7 @@ fn owner_bound_profile_drives_bar_signal_then_real_event_fills() {
         },
     );
     let (bar_types, data) = request_execution_schedule(&instruments, time);
-    let capability = ReplayTargetSetExecutionBundleV1::new(
+    let capability = ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
         authority,
         plan,
         artifact,
@@ -152,7 +152,7 @@ fn self_consistent_plan_artifact_splice_fails_before_execution() {
     let (bar_types, data) = request_execution_schedule(&instruments, foreign_time);
 
     assert!(
-        ReplayTargetSetExecutionBundleV1::new(
+        ReplayTargetSetExecutionBundleV1::new_with_native_instruments_for_test(
             authority,
             foreign_plan,
             foreign_artifact,

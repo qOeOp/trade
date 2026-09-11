@@ -129,14 +129,6 @@ impl ReplayExecutionProfileRequestSealV1 {
         }
         Ok(())
     }
-
-    pub(crate) fn request_binding(&self) -> &ReplayExecutionProfileRequestBindingV1 {
-        &self.request
-    }
-
-    pub(crate) const fn family_profile_binding_digest(&self) -> [u8; 32] {
-        self.family_profile_binding_digest
-    }
 }
 
 /// Move-only proof issued by a future Strategy Factory-private adapter from sealed Instrument
@@ -427,6 +419,10 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
     pub(crate) fn into_execution_profile_binding(self) -> ReplayExecutionProfileBindingV1 {
         self.execution_profile_binding
     }
+
+    pub(crate) const fn execution_profile_binding(&self) -> &ReplayExecutionProfileBindingV1 {
+        &self.execution_profile_binding
+    }
 }
 
 /// Issues execution-profile authority solely from verified R&D family and request readbacks.
@@ -434,13 +430,6 @@ impl OwnerIssuedReplayExecutionProfileBindingV1 {
 /// Historical families without both canonical profiles are unavailable. The complete request
 /// locator, family root, exact profile bytes, and the verified per-member binding digest all enter
 /// the authority digest.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "issued by the separately leased exploratory Replay composition slice"
-    )
-)]
 pub(crate) fn issue_owner_replay_execution_profile_binding_v1(
     family: &TrialFamilyReadbackV1,
     request: &SealedExploratoryReplayReadbackV2,
@@ -1268,13 +1257,6 @@ fn encode_bytes(
     Ok(())
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "used by the staged Owner issuance seam before its composition consumer lands"
-    )
-)]
 fn decode_canonical_digest(value: &str) -> Result<[u8; 32], ReplayExecutionProfileBindingErrorV1> {
     let Some((algorithm, hexadecimal)) = value.split_once(':') else {
         return Err(ReplayExecutionProfileBindingErrorV1::InvalidDigest);
@@ -1300,13 +1282,6 @@ fn hex_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "used by the staged Owner issuance seam before its composition consumer lands"
-    )
-)]
 fn hex_nibble(value: u8) -> Result<u8, ReplayExecutionProfileBindingErrorV1> {
     match value {
         b'0'..=b'9' => Ok(value - b'0'),

@@ -81,7 +81,7 @@ fn exact_owner_coordinate_evidence_changes_the_admitted_event_identity() {
         canonical: coordinate,
         projection_receipt_digest: BindingDigest::from_untrusted_bytes([101; 32]),
         projection_subject_identity: joined.digest(),
-        schedule_dependency_set_digest: BindingDigest::from_untrusted_bytes([102; 32]),
+        schedule_dependency_set_digest: Some(BindingDigest::from_untrusted_bytes([102; 32])),
         timeframe_projection_digest: BindingDigest::from_untrusted_bytes([103; 32]),
         sample_identity: BindingDigest::from_untrusted_bytes([104; 32]),
         sample_receipt_digest: BindingDigest::from_untrusted_bytes([105; 32]),
