@@ -845,6 +845,32 @@ impl TrialFamilyCandidateSetFrontierV2 {
     pub(crate) fn attempt_ordinal(&self) -> u32 {
         self.attempt_ordinal
     }
+
+    pub(crate) fn generation_rule_identity(&self) -> &str {
+        &self.generation_rule_identity
+    }
+
+    pub(crate) fn generation_rule_digest(&self) -> &str {
+        &self.generation_rule_digest
+    }
+
+    pub(crate) const fn expected_cardinality(&self) -> u32 {
+        self.expected_cardinality
+    }
+
+    pub(crate) fn candidates(&self) -> &[TrialFamilyCandidateFactV2] {
+        &self.candidates
+    }
+}
+
+impl TrialFamilyCandidateFactV2 {
+    pub(crate) fn candidate_identity(&self) -> &str {
+        &self.candidate_identity
+    }
+
+    pub(crate) fn candidate_digest(&self) -> &str {
+        &self.candidate_digest
+    }
 }
 
 impl TrialFamilyCensusFrontierV2 {

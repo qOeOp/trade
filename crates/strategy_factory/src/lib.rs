@@ -71,6 +71,11 @@ mod family_adapters;
 mod formation_adapters;
 mod holdout;
 pub mod intent;
+#[allow(
+    dead_code,
+    reason = "the R&D-private candidate comparison awaits the same-transaction Decision composer"
+)]
+mod iteration_candidate;
 pub mod iteration_decision;
 mod iteration_decision_postgres;
 pub mod market_data_repair_reentry;
