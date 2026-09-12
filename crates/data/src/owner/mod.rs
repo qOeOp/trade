@@ -9,6 +9,7 @@ pub mod instrument_economic_terms_postgres_v1;
 pub mod instrument_economic_terms_v1;
 pub mod instrument_master;
 pub mod instrument_master_v2;
+pub mod instrument_master_v2_postgres;
 pub mod native_replay_scheduling_v1;
 pub mod observation_census;
 pub mod pit_snapshot;
@@ -29,6 +30,10 @@ pub mod universe_selection;
 use instrument_economic_terms_postgres_v1::{
     INSTRUMENT_OWNER_DATABASE_URL_ENV, InstrumentEconomicTermsPostgresErrorV1,
     InstrumentEconomicTermsPostgresOwnerV1,
+};
+use instrument_master_v2::InstrumentMasterCustodyErrorV2;
+use instrument_master_v2_postgres::{
+    InstrumentMasterV2PostgresOwner, MARKET_DATA_OWNER_DATABASE_URL_ENV,
 };
 
 pub(crate) mod corporate_action;
@@ -68,6 +73,27 @@ pub async fn instrument_economic_terms_postgres_owner_from_environment_v1()
         .await
         .map_err(|_| InstrumentEconomicTermsPostgresErrorV1::StoreUnavailable)?;
     InstrumentEconomicTermsPostgresOwnerV1::install(pool).await
+}
+
+/// Opens the sole configured durable public Instrument Master V2 authority.
+///
+/// The environment supplies only deployment configuration. The returned Owner retains the pool;
+/// request and consumer APIs cannot inject a pool, symbol, digest, member order, or latest selector.
+///
+/// # Errors
+///
+/// Returns a redacted configuration/store/ACL failure without attempting a default database.
+pub async fn instrument_master_v2_postgres_owner_from_environment()
+-> Result<InstrumentMasterV2PostgresOwner, InstrumentMasterCustodyErrorV2> {
+    let url = std::env::var(MARKET_DATA_OWNER_DATABASE_URL_ENV)
+        .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
+    if url.is_empty() || url.trim() != url {
+        return Err(InstrumentMasterCustodyErrorV2::StoreUnavailable);
+    }
+    let pool = sqlx::PgPool::connect(&url)
+        .await
+        .map_err(|_| InstrumentMasterCustodyErrorV2::StoreUnavailable)?;
+    InstrumentMasterV2PostgresOwner::install(pool).await
 }
 
 #[cfg(not(test))]
