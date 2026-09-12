@@ -30,8 +30,10 @@ mod universe_selection;
 
 #[cfg(not(test))]
 use super::native_replay_scheduling_v1::{
+    NativeReplayInitialMarketReadbackV1, NativeReplayInitialMarketRequestV1,
     NativeReplaySchedulingErrorV1, NativeReplaySchedulingReadbackV1,
     NativeReplaySchedulingResolverV1, UntrustedNativeReplaySchedulingRequestV1,
+    issue_native_replay_initial_market_readback_v1, native_replay_schedule_matches_request_v1,
     seal_native_replay_scheduling_v1,
 };
 #[cfg(not(test))]
@@ -226,6 +228,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_sample_receipt_v1(p_receipt_digest BYTEA) RETURNS TABLE(sample_identity BYTEA,fact_digest BYTEA,series_identity BYTEA,series_predecessor_identity BYTEA,series_sequence BIGINT,correction_slot_identity BYTEA,correction_predecessor_identity BYTEA,correction_sequence BIGINT,logical_time BIGINT,lineage_version BIGINT,projection_receipt_digest BYTEA,projection_binding_receipt_digest BYTEA,projection_receipt_bytes BYTEA,projection_custody_digest BYTEA,fact_bytes BYTEA,fact_custody_digest BYTEA,receipt_digest BYTEA,receipt_bytes BYTEA,receipt_custody_digest BYTEA,outbox_identity BYTEA,outbox_payload_digest BYTEA,outbox_payload_bytes BYTEA,outbox_custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.sample_identity,f.fact_digest,f.series_identity,f.series_predecessor_identity,f.series_sequence,f.correction_slot_identity,f.correction_predecessor_identity,f.correction_sequence,f.logical_time,f.lineage_version,f.projection_receipt_digest,p.binding_receipt_digest,p.receipt_bytes,p.custody_digest,f.fact_bytes,f.custody_digest,r.receipt_digest,r.receipt_bytes,r.custody_digest,o.outbox_identity,o.payload_digest,o.payload_bytes,o.custody_digest FROM market_data_private.sample_receipts_v1 AS r JOIN market_data_private.sample_facts_v1 AS f ON f.sample_identity=r.sample_identity JOIN market_data_private.timeframe_projection_receipts_v1 AS p ON p.receipt_digest=f.projection_receipt_digest JOIN market_data_private.sample_outbox_v1 AS o ON o.sample_identity=f.sample_identity WHERE r.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v2 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_v1(p_readback_identity BYTEA) RETURNS TABLE(fact_digest BYTEA,canonical_instrument TEXT,predecessor_fact_digest BYTEA,fact_bytes BYTEA,cut_identity BYTEA,cut_bytes BYTEA,readback_identity BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.fact_digest,f.canonical_instrument,f.predecessor_fact_digest,f.fact_bytes,c.cut_identity,c.cut_bytes,r.readback_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence FROM market_data_private.bar_schedule_receipts_v1 AS r JOIN market_data_private.bar_schedule_facts_v1 AS f ON f.fact_digest=r.fact_digest JOIN market_data_private.bar_schedule_cuts_v1 AS c ON c.fact_digest=f.fact_digest JOIN market_data_private.bar_schedule_outbox_v1 AS o ON o.fact_digest=f.fact_digest AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.bar_schedule_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1) WHERE r.readback_identity=p_readback_identity $function$",
+    "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_candidates_v1(p_canonical_instrument TEXT) RETURNS TABLE(fact_digest BYTEA,canonical_instrument TEXT,predecessor_fact_digest BYTEA,fact_bytes BYTEA,cut_identity BYTEA,cut_bytes BYTEA,readback_identity BYTEA,receipt_identity BYTEA,receipt_bytes BYTEA,append_sequence BIGINT,outbox_identity BYTEA,outbox_receipt_bytes BYTEA,store_generation_identity BYTEA,state_append_sequence BIGINT) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT f.fact_digest,f.canonical_instrument,f.predecessor_fact_digest,f.fact_bytes,c.cut_identity,c.cut_bytes,r.readback_identity,r.receipt_identity,r.receipt_bytes,r.append_sequence,o.outbox_identity,o.receipt_bytes,s.store_generation_identity,s.append_sequence FROM market_data_private.bar_schedule_receipts_v1 AS r JOIN market_data_private.bar_schedule_facts_v1 AS f ON f.fact_digest=r.fact_digest JOIN market_data_private.bar_schedule_cuts_v1 AS c ON c.fact_digest=f.fact_digest JOIN market_data_private.bar_schedule_outbox_v1 AS o ON o.fact_digest=f.fact_digest AND o.outbox_identity=r.receipt_identity AND o.receipt_bytes=r.receipt_bytes JOIN market_data_private.bar_schedule_state_v1 AS s ON s.singleton AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_facts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_cuts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_receipts_v1) AND s.append_sequence=(SELECT COUNT(*) FROM market_data_private.bar_schedule_outbox_v1) WHERE f.canonical_instrument=p_canonical_instrument ORDER BY r.readback_identity $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_bar_schedule_history_v1(p_canonical_instrument TEXT) RETURNS TABLE(head_fact_digest BYTEA,fact_digest BYTEA,predecessor_fact_digest BYTEA,fact_bytes BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT h.fact_digest,f.fact_digest,f.predecessor_fact_digest,f.fact_bytes FROM (SELECT fact_digest FROM market_data_private.bar_schedule_heads_v1 WHERE canonical_instrument=p_canonical_instrument) AS h FULL OUTER JOIN (SELECT fact_digest,predecessor_fact_digest,fact_bytes FROM market_data_private.bar_schedule_facts_v1 WHERE canonical_instrument=p_canonical_instrument) AS f ON TRUE $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(p_receipt_digest BYTEA) RETURNS TABLE(receipt_digest BYTEA,kind SMALLINT,lifecycle SMALLINT,subject_identity BYTEA,component_count BIGINT,receipt_bytes BYTEA,custody_digest BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT p.receipt_digest,p.kind,p.lifecycle,p.subject_identity,p.component_count,p.receipt_bytes,p.custody_digest FROM market_data_private.strategy_input_sample_projection_receipts_v3 AS p WHERE p.receipt_digest=p_receipt_digest $function$",
     "CREATE OR REPLACE FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(p_receipt_digest BYTEA) RETURNS TABLE(component_ordinal BIGINT,role_identity BYTEA,binding_receipt_digest BYTEA,schedule_readback_identity BYTEA,schedule_fact_digest BYTEA,schedule_cut_identity BYTEA,schedule_cut_digest BYTEA,schedule_receipt_identity BYTEA) LANGUAGE SQL STABLE SECURITY DEFINER SET search_path=pg_catalog AS $function$ SELECT d.component_ordinal,d.role_identity,d.binding_receipt_digest,d.schedule_readback_identity,d.schedule_fact_digest,d.schedule_cut_identity,d.schedule_cut_digest,d.schedule_receipt_identity FROM market_data_private.strategy_input_sample_projection_schedule_dependencies_v3 AS d WHERE d.receipt_digest=p_receipt_digest ORDER BY d.component_ordinal $function$",
@@ -250,6 +253,7 @@ const MIGRATION_STATEMENTS: &[&str] = &[
     "REVOKE ALL ON FUNCTION market_data_private.resolve_sample_receipt_v1(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v2(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_v1(BYTEA) FROM PUBLIC",
+    "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_candidates_v1(TEXT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_bar_schedule_history_v1(TEXT) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_v3(BYTEA) FROM PUBLIC",
     "REVOKE ALL ON FUNCTION market_data_private.resolve_strategy_input_sample_projection_schedule_dependencies_v3(BYTEA) FROM PUBLIC",
@@ -6612,6 +6616,60 @@ impl super::native_replay_scheduling_v1::resolver_seal::Sealed for MarketDataRea
 #[cfg(not(test))]
 #[async_trait::async_trait]
 impl NativeReplaySchedulingResolverV1 for MarketDataReadPostgres {
+    async fn resolve_native_replay_initial_market_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+        let evidence = self
+            .admitted_port
+            .resolve_pit_evaluation(*request.snapshot_identity().as_bytes())
+            .await
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let batch = verify_admitted_pit_evidence_by_identity_v1(
+            request.snapshot_identity(),
+            request.snapshot_fact_digest(),
+            &evidence,
+        )
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+        let timeframe = request
+            .schedule_timeframe()
+            .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?
+            .to_owned();
+        let mut schedules = Vec::with_capacity(2);
+        for instrument in request.member_instruments() {
+            let candidates = self
+                .admitted_port
+                .resolve_bar_schedule_candidates_v1(&instrument.to_string())
+                .await
+                .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+            let mut matches = candidates
+                .iter()
+                .map(verify_admitted_bar_schedule_candidate_v1)
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|schedule| {
+                    native_replay_schedule_matches_request_v1(
+                        schedule,
+                        &batch,
+                        instrument,
+                        &timeframe,
+                        request.frame_time_ns(),
+                    )
+                });
+            let selected = matches
+                .next()
+                .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+            if matches.next().is_some() {
+                return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+            }
+            schedules.push(selected);
+        }
+        let schedules = schedules
+            .try_into()
+            .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+        issue_native_replay_initial_market_readback_v1(batch, schedules, request)
+    }
+
     async fn resolve_native_replay_scheduling_v1(
         &self,
         request: &UntrustedNativeReplaySchedulingRequestV1,
@@ -6685,6 +6743,23 @@ fn verify_admitted_bar_schedule_v1(
         evidence.readback_row(),
         evidence.history_rows(),
     )
+}
+
+#[cfg(not(test))]
+fn verify_admitted_bar_schedule_candidate_v1(
+    evidence: &BarScheduleStorageEvidenceV1,
+) -> Result<BarScheduleReadbackV1, NativeReplaySchedulingErrorV1> {
+    let value: Value = serde_json::from_slice(evidence.readback_row())
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)?;
+    let identity = value
+        .as_object()
+        .and_then(|object| object.get("readback_identity"))
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        .and_then(|value| {
+            raw_digest(value).map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
+        })?;
+    verify_bar_schedule_storage_evidence(identity, evidence.readback_row(), evidence.history_rows())
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerReadbackUnavailable)
 }
 
 #[cfg(test)]
@@ -7457,6 +7532,32 @@ fn verify_admitted_pit_evidence(
             })
             .collect::<Vec<_>>(),
     )
+}
+
+#[cfg(not(test))]
+fn verify_admitted_pit_evidence_by_identity_v1(
+    snapshot_identity: BindingDigest,
+    fact_digest: BindingDigest,
+    evidence: &MarketDataPitEvaluationStorageEvidence,
+) -> Result<VerifiedPitObservationBatch, PitSnapshotError> {
+    let mut selected = None;
+    for raw in evidence.pit_lineage_rows() {
+        let envelope = decode_raw_pit_envelope(raw)?;
+        let aggregate: PitSnapshotCommitAggregate = serde_json::from_value(envelope.aggregate)
+            .map_err(|_| PitSnapshotError::PersistenceUnavailable)?;
+        if aggregate.fact().snapshot_identity() == snapshot_identity
+            && aggregate.fact().digest() == fact_digest
+        {
+            if selected
+                .replace(aggregate.receipt().locator().clone())
+                .is_some()
+            {
+                return Err(PitSnapshotError::PersistenceUnavailable);
+            }
+        }
+    }
+    let locator = selected.ok_or(PitSnapshotError::LocatorMismatch)?;
+    verify_admitted_pit_evidence(&locator, evidence)
 }
 
 #[cfg(not(test))]

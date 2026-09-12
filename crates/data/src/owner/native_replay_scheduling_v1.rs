@@ -28,6 +28,11 @@ use super::{
         UntrustedPitSnapshotLocator, VerifiedPitObservation, VerifiedPitObservationBatch,
     },
     source_binding::BindingDigest,
+    strategy_input_binding::{
+        MarketDataFieldSemantic, StrategyInputChannel, StrategyInputUnit,
+        StrategyInputUniverseFrameReceipt, UntrustedStrategyInputBindingRequest,
+        UntrustedStrategyInputScope, bind_strategy_input_universe_frame,
+    },
 };
 
 const RECEIPT_DOMAIN_V1: &[u8] = b"market-data.native-replay-scheduling-readback.v1\0";
@@ -113,6 +118,160 @@ pub struct UntrustedNativeReplaySchedulingRequestV1 {
     window_end_ns_exclusive: u64,
 }
 
+/// One Plan-declared universe role carried into the fixed initial-composition Owner read.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NativeReplayInitialUniverseRoleV1 {
+    input_role_identity: BindingDigest,
+    field_semantic: MarketDataFieldSemantic,
+    channel: StrategyInputChannel,
+    timeframe: String,
+    unit: StrategyInputUnit,
+    scale: u8,
+}
+
+impl NativeReplayInitialUniverseRoleV1 {
+    #[must_use]
+    pub fn new(
+        input_role_identity: BindingDigest,
+        field_semantic: MarketDataFieldSemantic,
+        channel: StrategyInputChannel,
+        timeframe: String,
+        unit: StrategyInputUnit,
+        scale: u8,
+    ) -> Self {
+        Self {
+            input_role_identity,
+            field_semantic,
+            channel,
+            timeframe,
+            unit,
+            scale,
+        }
+    }
+}
+
+/// Bounded request for reconstructing the initial universe frame and its two BAR schedules.
+///
+/// Every Owner coordinate absent from this type is derived from the verified PIT batch. The two
+/// schedule locators and the account scope are deliberately not caller inputs.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct NativeReplayInitialMarketRequestV1 {
+    snapshot_identity: BindingDigest,
+    snapshot_fact_digest: BindingDigest,
+    research_request_identity: BindingDigest,
+    strategy_design_identity: BindingDigest,
+    universe_selection_identity: BindingDigest,
+    universe_selection_digest: BindingDigest,
+    instrument_master_digest: BindingDigest,
+    source_binding_lineage_root: BindingDigest,
+    market_semantics_identity: BindingDigest,
+    roles: Vec<NativeReplayInitialUniverseRoleV1>,
+    member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+    frame_time_ns: u64,
+    window_end_ns_exclusive: u64,
+}
+
+impl NativeReplayInitialMarketRequestV1 {
+    #[allow(clippy::too_many_arguments)]
+    #[must_use]
+    pub fn new(
+        snapshot_identity: BindingDigest,
+        snapshot_fact_digest: BindingDigest,
+        research_request_identity: BindingDigest,
+        strategy_design_identity: BindingDigest,
+        universe_selection_identity: BindingDigest,
+        universe_selection_digest: BindingDigest,
+        instrument_master_digest: BindingDigest,
+        source_binding_lineage_root: BindingDigest,
+        market_semantics_identity: BindingDigest,
+        roles: Vec<NativeReplayInitialUniverseRoleV1>,
+        member_instruments: [InstrumentId; TARGET_SET_MEMBER_COUNT],
+        frame_time_ns: u64,
+        window_end_ns_exclusive: u64,
+    ) -> Self {
+        Self {
+            snapshot_identity,
+            snapshot_fact_digest,
+            research_request_identity,
+            strategy_design_identity,
+            universe_selection_identity,
+            universe_selection_digest,
+            instrument_master_digest,
+            source_binding_lineage_root,
+            market_semantics_identity,
+            roles,
+            member_instruments,
+            frame_time_ns,
+            window_end_ns_exclusive,
+        }
+    }
+
+    #[must_use]
+    pub const fn snapshot_identity(&self) -> BindingDigest {
+        self.snapshot_identity
+    }
+
+    #[must_use]
+    pub const fn snapshot_fact_digest(&self) -> BindingDigest {
+        self.snapshot_fact_digest
+    }
+
+    #[must_use]
+    pub const fn member_instruments(&self) -> [InstrumentId; TARGET_SET_MEMBER_COUNT] {
+        self.member_instruments
+    }
+
+    #[must_use]
+    pub const fn frame_time_ns(&self) -> u64 {
+        self.frame_time_ns
+    }
+
+    #[must_use]
+    pub const fn window_end_ns_exclusive(&self) -> u64 {
+        self.window_end_ns_exclusive
+    }
+
+    #[must_use]
+    pub fn schedule_timeframe(&self) -> Option<&str> {
+        let mut timeframes = self
+            .roles
+            .iter()
+            .filter(|role| role.field_semantic.data_kind() == "BAR")
+            .map(|role| role.timeframe.as_str());
+        let first = timeframes.next()?;
+        timeframes.all(|value| value == first).then_some(first)
+    }
+}
+
+/// Move-only initial Market Data readback retained until the R&D binding transaction commits.
+#[derive(Debug)]
+pub struct NativeReplayInitialMarketReadbackV1 {
+    universe_frame: StrategyInputUniverseFrameReceipt,
+    schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+}
+
+impl NativeReplayInitialMarketReadbackV1 {
+    #[must_use]
+    pub const fn universe_frame(&self) -> &StrategyInputUniverseFrameReceipt {
+        &self.universe_frame
+    }
+
+    #[must_use]
+    pub const fn schedules(&self) -> &[BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT] {
+        &self.schedules
+    }
+
+    #[must_use]
+    pub fn into_parts(
+        self,
+    ) -> (
+        StrategyInputUniverseFrameReceipt,
+        [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+    ) {
+        (self.universe_frame, self.schedules)
+    }
+}
+
 impl UntrustedNativeReplaySchedulingRequestV1 {
     #[must_use]
     pub const fn new(
@@ -166,10 +325,113 @@ pub(crate) mod resolver_seal {
 /// Read-only Owner port that resolves and seals all persistent scheduling inputs as one capability.
 #[async_trait::async_trait]
 pub trait NativeReplaySchedulingResolverV1: resolver_seal::Sealed + Send + Sync {
+    async fn resolve_native_replay_initial_market_inputs_v1(
+        &self,
+        request: &NativeReplayInitialMarketRequestV1,
+    ) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1>;
+
     async fn resolve_native_replay_scheduling_v1(
         &self,
         request: &UntrustedNativeReplaySchedulingRequestV1,
     ) -> Result<NativeReplaySchedulingReadbackV1, NativeReplaySchedulingErrorV1>;
+}
+
+#[cfg_attr(
+    test,
+    allow(dead_code, reason = "the production PostgreSQL resolver is disabled in unit tests")
+)]
+pub(crate) fn issue_native_replay_initial_market_readback_v1(
+    batch: VerifiedPitObservationBatch,
+    schedules: [BarScheduleReadbackV1; TARGET_SET_MEMBER_COUNT],
+    request: &NativeReplayInitialMarketRequestV1,
+) -> Result<NativeReplayInitialMarketReadbackV1, NativeReplaySchedulingErrorV1> {
+    if request.roles.is_empty()
+        || request.member_instruments[0] >= request.member_instruments[1]
+        || request.frame_time_ns >= request.window_end_ns_exclusive
+        || batch.snapshot_identity() != request.snapshot_identity
+        || batch.fact_digest() != request.snapshot_fact_digest
+        || batch.instrument_master_digest() != request.instrument_master_digest
+        || batch.universe_selection_digest() != request.universe_selection_digest
+        || batch.source_binding_lineage_root() != request.source_binding_lineage_root
+        || batch.market_semantics_identity() != request.market_semantics_identity
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    let timeframe = request
+        .schedule_timeframe()
+        .ok_or(NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    for (index, schedule) in schedules.iter().enumerate() {
+        validated_bar_type(
+            schedule,
+            &batch,
+            request.member_instruments[index],
+            request.frame_time_ns,
+        )?;
+        if schedule_timeframe(schedule.fact())? != timeframe {
+            return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+        }
+    }
+    let binding_requests = request
+        .roles
+        .iter()
+        .map(|role| UntrustedStrategyInputBindingRequest {
+            research_request_identity: request.research_request_identity,
+            strategy_design_identity: request.strategy_design_identity,
+            input_role_identity: role.input_role_identity,
+            scope: UntrustedStrategyInputScope::UniverseSelection {
+                selection_identity: request.universe_selection_identity,
+            },
+            field_semantic: role.field_semantic,
+            channel: role.channel,
+            timeframe: role.timeframe.clone(),
+            unit: role.unit,
+            scale: role.scale,
+            pit_request_identity: batch.request_identity(),
+            pit_request_digest: batch.request_digest(),
+            snapshot_identity: batch.snapshot_identity(),
+            snapshot_fact_digest: batch.fact_digest(),
+            observation_batch_digest: batch.digest(),
+            source_binding_identity: batch.source_binding_identity(),
+            source_frontier_digest: batch.source_frontier_digest(),
+            correction_frontier_digest: batch.correction_frontier_digest(),
+            instrument_master_digest: batch.instrument_master_digest(),
+            universe_selection_digest: batch.universe_selection_digest(),
+            market_semantics_identity: batch.market_semantics_identity(),
+            decision_cut: batch.time_evidence().decision_cut.value,
+        })
+        .collect::<Vec<_>>();
+    let universe_frame = bind_strategy_input_universe_frame(&binding_requests, &batch)
+        .map_err(|_| NativeReplaySchedulingErrorV1::OwnerBindingMismatch)?;
+    let members = universe_frame.selection().members();
+    if universe_frame.selection().selection_identity() != request.universe_selection_identity
+        || universe_frame.selection().selection_digest() != request.universe_selection_digest
+        || members.len() != TARGET_SET_MEMBER_COUNT
+        || !members
+            .iter()
+            .zip(request.member_instruments)
+            .all(|(member, instrument)| member.instrument() == instrument.to_string())
+    {
+        return Err(NativeReplaySchedulingErrorV1::OwnerBindingMismatch);
+    }
+    Ok(NativeReplayInitialMarketReadbackV1 {
+        universe_frame,
+        schedules,
+    })
+}
+
+#[cfg_attr(
+    test,
+    allow(dead_code, reason = "the production PostgreSQL resolver is disabled in unit tests")
+)]
+pub(crate) fn native_replay_schedule_matches_request_v1(
+    schedule: &BarScheduleReadbackV1,
+    batch: &VerifiedPitObservationBatch,
+    instrument: InstrumentId,
+    timeframe: &str,
+    frame_time_ns: u64,
+) -> bool {
+    validated_bar_type(schedule, batch, instrument, frame_time_ns).is_ok()
+        && schedule_timeframe(schedule.fact()).is_ok_and(|value| value == timeframe)
 }
 
 /// Seals one exact `[BAR0, BAR1, QUOTE0, QUOTE1]` native schedule from Owner readbacks.

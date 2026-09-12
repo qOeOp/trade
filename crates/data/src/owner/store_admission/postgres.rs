@@ -206,8 +206,9 @@ impl PostgresMeasurementSpec {
 
     /// Returns whether this exact admitted measurement covers the fixed BAR schedule read.
     pub(super) fn covers_bar_schedule_floor_v1(&self) -> bool {
-        const FUNCTIONS: [&str; 2] = [
+        const FUNCTIONS: [&str; 3] = [
             "market_data_private.resolve_bar_schedule_v1(bytea)",
+            "market_data_private.resolve_bar_schedule_candidates_v1(text)",
             "market_data_private.resolve_bar_schedule_history_v1(text)",
         ];
         const RELATIONS: [&str; 6] = [
@@ -815,6 +816,96 @@ pub(super) async fn read_bar_schedule_snapshot_v1(
         readback_row,
         history_rows,
     }))
+}
+
+/// Reads every BAR schedule candidate for one canonical instrument and its complete history in one
+/// fixed read-only snapshot.
+pub(super) async fn read_bar_schedule_candidate_snapshots_v1(
+    lease: &PostgresCredentialLease,
+    canonical_instrument: &str,
+) -> Result<Vec<RawBarScheduleSnapshotV1>, PostgresMeasurementError> {
+    const MAX_CANDIDATES: usize = 10_000;
+    const MAX_HISTORY_ROWS: usize = 10_000;
+    const MAX_EVIDENCE_ROW_BYTES: usize = 8 * 1024 * 1024;
+    const MAX_EVIDENCE_BYTES: usize = 64 * 1024 * 1024;
+
+    if canonical_instrument.is_empty() || ambient_pg_configuration_present() {
+        return Err(PostgresMeasurementError::InvalidTarget);
+    }
+    let target = parse_target(lease.database_url())?;
+    let options = connect_options(&target, "vibe-market-data-bar-schedule-candidates-v1");
+    let mut connection = PgConnection::connect_with(&options)
+        .await
+        .map_err(|_| PostgresMeasurementError::ConnectionUnavailable)?;
+    let mut transaction = connection
+        .begin()
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *transaction)
+        .await
+        .map_err(|_| PostgresMeasurementError::TransactionUnavailable)?;
+    let candidates = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(r) FROM market_data_private.resolve_bar_schedule_candidates_v1($1) AS r",
+    )
+    .bind(canonical_instrument)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    let history = sqlx::query_scalar::<_, serde_json::Value>(
+        "SELECT to_jsonb(h) FROM market_data_private.resolve_bar_schedule_history_v1($1) AS h",
+    )
+    .bind(canonical_instrument)
+    .fetch_all(&mut *transaction)
+    .await
+    .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    if candidates.len() > MAX_CANDIDATES || history.len() > MAX_HISTORY_ROWS {
+        return Err(PostgresMeasurementError::SnapshotUnavailable);
+    }
+    let history_rows = history
+        .into_iter()
+        .map(|value| {
+            serde_json::to_vec(&value).map_err(|_| PostgresMeasurementError::SnapshotUnavailable)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut history_bytes = 0_usize;
+    for row in &history_rows {
+        if row.len() > MAX_EVIDENCE_ROW_BYTES {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        history_bytes = history_bytes
+            .checked_add(row.len())
+            .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    }
+    let mut evidence_bytes = history_bytes
+        .checked_mul(candidates.len())
+        .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+        .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+    let mut snapshots = Vec::with_capacity(candidates.len());
+    for candidate in candidates {
+        if raw_bar_schedule_canonical_instrument(&candidate)? != canonical_instrument {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        let readback_row = serde_json::to_vec(&candidate)
+            .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+        if readback_row.len() > MAX_EVIDENCE_ROW_BYTES {
+            return Err(PostgresMeasurementError::SnapshotUnavailable);
+        }
+        evidence_bytes = evidence_bytes
+            .checked_add(readback_row.len())
+            .filter(|total| *total <= MAX_EVIDENCE_BYTES)
+            .ok_or(PostgresMeasurementError::SnapshotUnavailable)?;
+        snapshots.push(RawBarScheduleSnapshotV1 {
+            readback_row,
+            history_rows: history_rows.clone(),
+        });
+    }
+    transaction
+        .commit()
+        .await
+        .map_err(|_| PostgresMeasurementError::SnapshotUnavailable)?;
+    Ok(snapshots)
 }
 
 fn raw_bar_schedule_canonical_instrument(

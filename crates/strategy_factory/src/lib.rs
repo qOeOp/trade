@@ -78,6 +78,11 @@ pub mod native_replay_execution_bundle_owner_v2;
     reason = "T139 binding issuer awaits the T140 typed Owner-readback adapter"
 )]
 pub mod native_replay_execution_input_binding_v1;
+#[allow(
+    dead_code,
+    reason = "the fixed initial Owner-input adapter is consumed by the T145 atomic service composition"
+)]
+mod native_replay_initial_owner_inputs_v1;
 pub mod native_replay_preparation_inputs_v2;
 pub mod native_replay_preparation_owner_v2;
 pub mod native_replay_rd_sources_v2;

@@ -506,12 +506,19 @@ Replay profile；每个 member 的 BAR timeframe 等于其准确 schedule readba
 caller-reconstructed、V1-to-V2-synthesized、cross-request、cross-member、cross-venue、stale、tampered 或
 ACL-drifted constituent 都必须在 binding、ProgramHost、Backtest 或 result state 改变前失败。
 
+初始组合 adapter 只从已封存值派生 Market Data request。它消费 Replay PIT snapshot identity/digest 与 window、
+Plan 的完整 universe-role declaration 与 selection projection，以及规范 Master V2 member。它只映射闭集 Market
+Data semantic/channel/unit registry，保留 Plan 的 role identity、timeframe 与 scale，再把该有界 request 交给固定
+Owner resolver。返回的 universe frame 与两份 schedule readback 必须等于 Plan selection 与 Master V2 member
+order，才可进入 R&D binding issuer。该路径没有 caller 提供的 schedule locator 或通用 Owner-input map。
+
 Native Replay preparation 与 Backtest 只能消费 R&D Owner 的 move-only binding readback，并在 native
 materialization 前独立重新解析每个嵌入的准确 Owner locator。Caller 只能提交 sealed Replay request locator；
 不能提交 constituent list、fact、value、symbol、order、resolver、store 或 fallback。当前切面已经实现不可变
-PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator，以及 binding/receipt/outbox 的原子
-签发；authenticated R&D service read 也只接受完整 sealed Replay locator，并返回已签发 binding 的 projection。
-尚不声称首次 multi-Owner 签发编排、consumer 独立重新解析、disposable PostgreSQL acceptance、registered
+PostgreSQL ledger、exact-locator recovery、typed Owner-readback validator、binding/receipt/outbox 的原子签发，
+以及固定的初始 universe/schedule resolution bridge；authenticated R&D service read 也只接受完整 sealed Replay
+locator，并返回已签发 binding 的 projection。尚不声称原子 multi-Owner 签发编排、consumer 独立重新解析、
+disposable PostgreSQL acceptance、registered
 product composition、Native Replay execution、production startup/write、deployment、result closure 或 trading。
 
 **TARGET / NOT_ADMITTED，BAR FRAME 与 JOINED_CUT composition：** additive

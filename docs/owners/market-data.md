@@ -1167,6 +1167,15 @@ resolver. Byte-identical recovery returns the exact stored readback, while misma
 CURRENT/PARTIAL schedule custody and admitted read authority, not Windmill, Backtest, composite, or other product
 reachability. A caller locator, structural decode, or reconstructed bytes confers no schedule authority.
 
+For initial Native Replay execution-input composition, the admitted Market Data read capability also exposes one
+fixed request-bound operation. It resolves the PIT batch by the snapshot identity and fact digest already sealed in
+the R&D Replay request, rebuilds the complete universe frame from the Plan-declared role schema and Owner batch
+coordinates, then reads the complete BAR schedule history for each Master V2 canonical member. Market Data returns
+exactly one schedule per member only when its canonical timeframe, half-open validity, cut instant, Instrument Master,
+Market Semantics, source frontier, and correction frontier all equal that same batch and request window. Missing,
+duplicate, overlapping, reordered, or corrupt candidates return no frame or schedule readback. The caller supplies
+no schedule locator, account scope, latest selector, raw row, SQL, pool, credential, or replacement store.
+
 In the CURRENT/PARTIAL BAR schedule path, only a custody-verified readback may authorize the additive immutable
 `TimeframeProjectionReceiptV1` keyed by the exact V1 binding-receipt digest. Its existing canonical bytes and domain
 remain unchanged: schema `u16LE = 1`,

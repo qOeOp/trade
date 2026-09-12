@@ -1125,6 +1125,15 @@ startup resolver。逐字节相同 recovery 返回准确 stored readback，misma
 CURRENT/PARTIAL schedule custody 与 admitted read 权威，不是 Windmill、Backtest、composite 或其他产品
 reachability。caller locator、结构 decode 或重建 bytes 都不产生 schedule 权威。
 
+对于 Native Replay execution-input 初始组合，已准入的 Market Data read capability 还公开一个固定的
+request-bound 操作。它按 R&D Replay request 已封存的 snapshot identity 与 fact digest 解析 PIT batch，以 Plan
+声明的 role schema 和 Owner batch coordinate 重建完整 universe frame，再读取每个 Master V2 canonical member
+的完整 BAR schedule history。只有每个 member 恰好有一份 schedule 的 canonical timeframe、半开 validity、cut
+instant、Instrument Master、Market Semantics、source frontier 与 correction frontier 全部等于同一 batch 与
+request window，Market Data 才返回 frame 与 schedule readback。missing、duplicate、overlapping、reordered
+或 corrupt candidate 不返回任何正向 readback。caller 不提供 schedule locator、account scope、latest selector、
+raw row、SQL、pool、credential 或 replacement store。
+
 在 CURRENT/PARTIAL BAR schedule 路径中，只有具备 custody verification 的 readback 才能授权以准确 V1
 binding-receipt digest 为键的新增 immutable `TimeframeProjectionReceiptV1`。其既有 canonical bytes 与 domain
 保持不变：schema `u16LE = 1`、

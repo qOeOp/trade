@@ -619,6 +619,51 @@ impl MarketDataSourceBindingStorageEvidence {
 }
 
 impl AdmittedMarketDataSnapshotPort {
+    /// Reads all candidates for one canonical instrument after admission before and after.
+    pub(super) async fn resolve_bar_schedule_candidates_v1(
+        &self,
+        canonical_instrument: &str,
+    ) -> Result<Vec<BarScheduleStorageEvidenceV1>, DeploymentStoreAdmissionError> {
+        let before = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_bar_schedule_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &before.receipt,
+            &before.measurement_spec,
+        )?;
+        let raw = postgres::read_bar_schedule_candidate_snapshots_v1(
+            &before.credential_lease,
+            canonical_instrument,
+        )
+        .await
+        .map_err(|_| {
+            rejection(
+                &self.scope,
+                AdmissionFailureCode::DirectMeasurementUnavailable,
+            )
+        })?;
+        let after = self
+            .revalidator
+            .admit_capability(self.scope.clone())
+            .await?;
+        validate_bar_schedule_revalidation_v1(
+            &self.scope,
+            &self.receipt,
+            &after.receipt,
+            &after.measurement_spec,
+        )?;
+        Ok(raw
+            .into_iter()
+            .map(|raw| BarScheduleStorageEvidenceV1 {
+                readback_row: raw.readback_row,
+                history_rows: raw.history_rows,
+            })
+            .collect())
+    }
+
     /// Reads one fixed BAR schedule readback and complete history after admission before and after.
     pub(super) async fn resolve_bar_schedule_v1(
         &self,
@@ -2847,6 +2892,7 @@ mod tests {
                 "market_data_private.schema_migrations_v1",
                 vec![
                     "market_data_private.resolve_bar_schedule_v1(bytea)".to_string(),
+                    "market_data_private.resolve_bar_schedule_candidates_v1(text)".to_string(),
                     "market_data_private.resolve_bar_schedule_history_v1(text)".to_string(),
                 ],
                 vec![

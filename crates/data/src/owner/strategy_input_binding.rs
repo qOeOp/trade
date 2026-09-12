@@ -181,7 +181,7 @@ impl MarketDataFieldSemantic {
             .find(|semantic| semantic.identity() == identity)
     }
 
-    const fn data_kind(self) -> &'static str {
+    pub(crate) const fn data_kind(self) -> &'static str {
         match self {
             Self::BarOpenPrice
             | Self::BarHighPrice

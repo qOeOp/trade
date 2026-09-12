@@ -534,13 +534,22 @@ duplicate, reordered, latest-selected, caller-reconstructed, V1-to-V2-synthesize
 cross-venue, stale, tampered, or ACL-drifted constituent fails before binding, ProgramHost, Backtest, or result
 state changes.
 
+The initial-composition adapter derives the Market Data request from sealed values only. It takes the Replay PIT
+snapshot identity/digest and window, the Plan's complete universe-role declarations and selection projection, and
+the canonical Master V2 members. It maps only the closed Market Data semantic/channel/unit registries, preserves
+the Plan's role identities, timeframes, and scales, and hands that bounded request to the fixed Owner resolver.
+The returned universe frame and two schedule readbacks must equal the Plan selection and Master V2 member order
+before they can enter the R&D binding issuer. There is no caller-supplied schedule locator or generic Owner-input
+map in this path.
+
 Native Replay preparation and Backtest consume only the R&D Owner's move-only binding readback and independently
 re-resolve every embedded exact Owner locator before native materialization. A caller may supply the sealed Replay
 request locator only; it cannot supply the constituent list, facts, values, symbols, ordering, resolver, store, or
 fallback. The current slice implements the immutable PostgreSQL ledger, exact-locator recovery, typed Owner-readback
-validator, atomic binding/receipt/outbox issuance, and an authenticated R&D service read that accepts only the complete
-sealed Replay locator and returns the already issued binding projection. It does not yet claim initial multi-Owner
-issuance orchestration, independent consumer re-resolution, disposable PostgreSQL acceptance, registered product
+validator, atomic binding/receipt/outbox issuance, the fixed initial universe/schedule resolution bridge, and an
+authenticated R&D service read that accepts only the complete sealed Replay locator and returns the already issued
+binding projection. It does not yet claim atomic multi-Owner issuance orchestration, independent consumer
+re-resolution, disposable PostgreSQL acceptance, registered product
 composition, Native Replay execution, production startup/write, deployment, result closure, or trading.
 
 **TARGET / NOT_ADMITTED, BAR FRAME and JOINED_CUT composition:** the additive
