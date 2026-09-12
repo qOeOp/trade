@@ -752,6 +752,10 @@ pub(crate) fn owner_replay_execution_profile_binding_fixture_v1(
             frozen_falsifier_binding: format!("sha256:{}", "5".repeat(64)),
             replay_execution_policy_v2: Some(catalog_v2),
             replay_policy_catalog_v3: Some(catalog_v3.clone()),
+            decision_policy_v1: Some(
+                crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(&catalog_v3)
+                    .expect("decision-policy fixture"),
+            ),
         },
         1,
     )

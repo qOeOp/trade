@@ -1,17 +1,137 @@
 //! R&D-owned gate from one locked exploratory Result to an Iteration Decision.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 use vibe_backtest_owner_contracts::{
     DiagnosticCategoryV2, ReplayNamespaceV2, ReplayResultDtoV2, ReplayTerminalV2,
 };
 
 use crate::{
-    LockedExploratoryReplayResultV2,
+    LockedExploratoryReplayResultV2, ReplayPolicyCatalogBindingV3,
     trial_family::{
         TrialFamilyAttemptTerminalDispositionV2, TrialFamilyCensusReadbackV2, TrialFamilyError,
     },
 };
+
+const ITERATION_DECISION_POLICY_ID_V1: &str = "rd.iteration-decision-policy.v1";
+const ITERATION_DECISION_POLICY_VERSION_V1: u64 = 1;
+const ITERATION_DECISION_POLICY_DESCRIPTOR_V1: &[u8] = concat!(
+    "dimensions=EVIDENCE_INTEGRITY,MECHANISM_VALIDITY,ECONOMIC_VIABILITY,ROBUSTNESS,",
+    "FAILURE_ATTRIBUTION,INFORMATION_VALUE\n",
+    "result_gate=UNKNOWN_OR_NONTERMINAL:NO_DECISION;UNRESOLVED_FAILURE:NO_DECISION;",
+    "REJECTED_OR_INVALID_WITHOUT_REPAIR:NO_DECISION\n",
+    "repair_precedence=MARKET_DATA,ARTIFACT,RUNTIME_KERNEL,BACKTEST_OPERATIONAL,SIMULATOR,",
+    "REPLAY_CONFIGURATION\n",
+    "outcomes=REPAIR_INPUTS,SUCCESSOR_EXPERIMENT,READY_FOR_SELECTION,TERMINAL_STOP\n",
+    "terminal_stops=FALSIFIER_SATISFIED,FROZEN_STOP_RULE_SATISFIED,TRIAL_BUDGET_EXHAUSTED,",
+    "ECONOMIC_IMPOSSIBILITY,LOW_INFORMATION_VALUE,INPUT_UNAVAILABLE\n",
+    "decision_precedence=REPAIR_INPUTS,HARD_STOP,READY_FOR_SELECTION,LOW_INFORMATION_STOP,",
+    "ONE_CHANGE_SUCCESSOR\n",
+    "selection=READY_FOR_SELECTION_ONLY\n",
+)
+.as_bytes();
+
+/// Immutable R&D decision semantics fixed into a TrialFamily before any Result exists.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IterationDecisionPolicyBindingV1 {
+    schema_version: u16,
+    policy_identity: String,
+    policy_version: u64,
+    policy_digest: [u8; 32],
+    diagnostic_policy_identity: String,
+    diagnostic_policy_version: String,
+    replay_catalog_record_id: String,
+    replay_catalog_version: u64,
+    replay_catalog_record_digest: [u8; 32],
+    binding_digest: [u8; 32],
+}
+
+impl IterationDecisionPolicyBindingV1 {
+    pub(crate) fn seal(catalog: &ReplayPolicyCatalogBindingV3) -> Result<Self, TrialFamilyError> {
+        catalog
+            .verify()
+            .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+        let replay_policy = catalog
+            .replay_policy_v2()
+            .verify()
+            .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+        let policy_digest: [u8; 32] =
+            Sha256::digest(ITERATION_DECISION_POLICY_DESCRIPTOR_V1).into();
+        let replay_catalog = catalog.replay_policy_v2();
+        let mut binding = Self {
+            schema_version: 1,
+            policy_identity: ITERATION_DECISION_POLICY_ID_V1.to_string(),
+            policy_version: ITERATION_DECISION_POLICY_VERSION_V1,
+            policy_digest,
+            diagnostic_policy_identity: replay_policy
+                .diagnostic_policy
+                .identity
+                .as_str()
+                .to_string(),
+            diagnostic_policy_version: replay_policy.diagnostic_policy.version.as_str().to_string(),
+            replay_catalog_record_id: replay_catalog.catalog_record_id().to_string(),
+            replay_catalog_version: replay_catalog.catalog_version(),
+            replay_catalog_record_digest: *replay_catalog.catalog_record_digest(),
+            binding_digest: [0; 32],
+        };
+        binding.binding_digest = binding.expected_binding_digest()?;
+        Ok(binding)
+    }
+
+    pub(crate) fn verify_against(
+        &self,
+        catalog: &ReplayPolicyCatalogBindingV3,
+    ) -> Result<(), TrialFamilyError> {
+        let expected = Self::seal(catalog)?;
+        if self != &expected {
+            return Err(TrialFamilyError::Unavailable(
+                "TrialFamily decision-policy seal mismatch".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn expected_binding_digest(&self) -> Result<[u8; 32], TrialFamilyError> {
+        let mut digest = Sha256::new();
+        digest.update(b"rd.iteration-decision-policy-binding.v1\0");
+        digest.update(self.schema_version.to_le_bytes());
+        update_len_prefixed(&mut digest, self.policy_identity.as_bytes())?;
+        digest.update(self.policy_version.to_le_bytes());
+        digest.update(self.policy_digest);
+        update_len_prefixed(&mut digest, self.diagnostic_policy_identity.as_bytes())?;
+        update_len_prefixed(&mut digest, self.diagnostic_policy_version.as_bytes())?;
+        update_len_prefixed(&mut digest, self.replay_catalog_record_id.as_bytes())?;
+        digest.update(self.replay_catalog_version.to_le_bytes());
+        digest.update(self.replay_catalog_record_digest);
+        Ok(digest.finalize().into())
+    }
+
+    pub fn policy_identity(&self) -> &str {
+        &self.policy_identity
+    }
+
+    pub const fn policy_version(&self) -> u64 {
+        self.policy_version
+    }
+
+    pub const fn policy_digest(&self) -> [u8; 32] {
+        self.policy_digest
+    }
+
+    pub const fn binding_digest(&self) -> [u8; 32] {
+        self.binding_digest
+    }
+}
+
+fn update_len_prefixed(digest: &mut Sha256, value: &[u8]) -> Result<(), TrialFamilyError> {
+    let length = u64::try_from(value.len())
+        .map_err(|error| TrialFamilyError::Unavailable(error.to_string()))?;
+    digest.update(length.to_le_bytes());
+    digest.update(value);
+    Ok(())
+}
 
 /// The six R&D-owned diagnosis dimensions required before policy interpretation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -88,6 +208,10 @@ pub enum IterationTerminalStopReasonV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IterationDecisionEvidenceCutV1 {
+    pub decision_policy_identity: String,
+    pub decision_policy_version: u64,
+    pub decision_policy_digest: [u8; 32],
+    pub decision_policy_binding_digest: [u8; 32],
     pub trial_family_identity: String,
     pub census_frontier_identity: String,
     pub census_frontier_digest: String,
@@ -141,6 +265,8 @@ pub enum IterationNoDecisionReasonV1 {
 pub enum IterationDecisionErrorV1 {
     #[error("R&D TrialFamily Census unavailable: {0}")]
     Census(#[from] TrialFamilyError),
+    #[error("TrialFamily decision-policy seal is unavailable")]
+    DecisionPolicyUnavailable,
     #[error("locked exploratory Result does not match the latest TrialFamily attempt")]
     ResultBindingMismatch,
     #[error("locked Result is not exploratory")]
@@ -158,12 +284,20 @@ pub fn gate_locked_exploratory_result_v1(
     census: &TrialFamilyCensusReadbackV2,
     locked_result: &LockedExploratoryReplayResultV2,
 ) -> Result<IterationDecisionGateV1, IterationDecisionErrorV1> {
-    gate_result(census, locked_result.result())
+    let decision_policy = census
+        .decision_policy_v1()
+        .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
+    let catalog = census
+        .replay_policy_catalog_v3()
+        .ok_or(IterationDecisionErrorV1::DecisionPolicyUnavailable)?;
+    decision_policy.verify_against(catalog)?;
+    gate_result(census, locked_result.result(), decision_policy)
 }
 
 fn gate_result(
     census: &TrialFamilyCensusReadbackV2,
     result: &ReplayResultDtoV2,
+    decision_policy: &IterationDecisionPolicyBindingV1,
 ) -> Result<IterationDecisionGateV1, IterationDecisionErrorV1> {
     if result.namespace != ReplayNamespaceV2::Exploratory {
         return Err(IterationDecisionErrorV1::ProtectedResultForbidden);
@@ -198,7 +332,7 @@ fn gate_result(
             reason: IterationNoDecisionReasonV1::UnresolvedFailure,
         });
     }
-    let evidence_cut = evidence_cut(census, result, &latest);
+    let evidence_cut = evidence_cut(census, result, &latest, decision_policy);
     let supported_defects = repair_categories(&categories);
     if let Some(selected_category) = supported_defects.first().copied() {
         return Ok(IterationDecisionGateV1::RepairInputs {
@@ -238,8 +372,13 @@ fn evidence_cut(
     census: &TrialFamilyCensusReadbackV2,
     result: &ReplayResultDtoV2,
     latest: &crate::trial_family::TrialFamilyLatestAttemptBindingV2<'_>,
+    decision_policy: &IterationDecisionPolicyBindingV1,
 ) -> IterationDecisionEvidenceCutV1 {
     IterationDecisionEvidenceCutV1 {
+        decision_policy_identity: decision_policy.policy_identity().to_string(),
+        decision_policy_version: decision_policy.policy_version(),
+        decision_policy_digest: decision_policy.policy_digest(),
+        decision_policy_binding_digest: decision_policy.binding_digest(),
         trial_family_identity: census.census_frontier.trial_family_identity().to_string(),
         census_frontier_identity: census.census_frontier.frontier_identity().to_string(),
         census_frontier_digest: census.census_frontier.frontier_digest().to_string(),
@@ -347,6 +486,22 @@ mod tests {
             .expect("valid falsifier"),
             replay_execution_policy_v2: None,
             replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
+        }
+    }
+
+    fn decision_policy() -> IterationDecisionPolicyBindingV1 {
+        IterationDecisionPolicyBindingV1 {
+            schema_version: 1,
+            policy_identity: ITERATION_DECISION_POLICY_ID_V1.to_string(),
+            policy_version: ITERATION_DECISION_POLICY_VERSION_V1,
+            policy_digest: Sha256::digest(ITERATION_DECISION_POLICY_DESCRIPTOR_V1).into(),
+            diagnostic_policy_identity: "diagnostic-policy-v1".to_string(),
+            diagnostic_policy_version: "v1".to_string(),
+            replay_catalog_record_id: "catalog-v3".to_string(),
+            replay_catalog_version: 1,
+            replay_catalog_record_digest: [6; 32],
+            binding_digest: [7; 32],
         }
     }
 
@@ -428,7 +583,7 @@ mod tests {
             ],
         );
 
-        let gate = gate_result(&census, &result).expect("repair gate");
+        let gate = gate_result(&census, &result, &decision_policy()).expect("repair gate");
         let IterationDecisionGateV1::RepairInputs {
             supported_defects,
             selected_category,
@@ -458,7 +613,7 @@ mod tests {
             &[DiagnosticCategoryV2::ValidEconomicFailure],
         );
 
-        let gate = gate_result(&census, &result).expect("interpretation gate");
+        let gate = gate_result(&census, &result, &decision_policy()).expect("interpretation gate");
         let IterationDecisionGateV1::InterpretationRequired {
             diagnostic,
             required_dimensions,
@@ -480,7 +635,7 @@ mod tests {
         let result = result(ReplayTerminalV2::InProgressOrUnknown, &[]);
 
         assert_eq!(
-            gate_result(&census, &result).expect("no-decision gate"),
+            gate_result(&census, &result, &decision_policy()).expect("no-decision gate"),
             IterationDecisionGateV1::NoDecision {
                 reason: IterationNoDecisionReasonV1::UnknownOrNonterminalResult,
             }
@@ -497,7 +652,7 @@ mod tests {
         result.request_identity = identity("another-request-v2");
 
         assert!(matches!(
-            gate_result(&census, &result),
+            gate_result(&census, &result, &decision_policy()),
             Err(IterationDecisionErrorV1::ResultBindingMismatch)
         ));
     }

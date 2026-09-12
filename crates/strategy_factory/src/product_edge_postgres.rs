@@ -2872,6 +2872,7 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
             .map_err(|e| trial_family_storage(&e))?,
             replay_execution_policy_v2: None,
             replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
         };
         let replay_policy_catalog_v3 = match resolve_current_v3_for_trial_family_formation(
             &mut transaction,
@@ -2887,6 +2888,12 @@ impl ResearchGoalOwnerPortV2 for PostgresResearchGoalOwnerV1 {
         };
         canonical_policy.replay_execution_policy_v2 =
             Some(replay_policy_catalog_v3.replay_policy_v2().clone());
+        canonical_policy.decision_policy_v1 = Some(
+            crate::iteration_decision::IterationDecisionPolicyBindingV1::seal(
+                &replay_policy_catalog_v3,
+            )
+            .map_err(|error| trial_family_storage(&error))?,
+        );
         canonical_policy.replay_policy_catalog_v3 = Some(replay_policy_catalog_v3);
         let stored_request = StoredAdmittedResearchRequestV2 {
             schema_version: 1,

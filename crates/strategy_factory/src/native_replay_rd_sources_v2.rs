@@ -422,6 +422,7 @@ mod tests {
                 frozen_falsifier_binding: digest('f'),
                 replay_execution_policy_v2: None,
                 replay_policy_catalog_v3: None,
+                decision_policy_v1: None,
             },
             7,
         )

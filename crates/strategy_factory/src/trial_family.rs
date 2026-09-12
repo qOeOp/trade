@@ -32,6 +32,11 @@ pub struct TrialFamilyPolicyV1 {
     /// Absence denotes a historically readable family that is unavailable for Replay V2.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replay_policy_catalog_v3: Option<crate::ReplayPolicyCatalogBindingV3>,
+    /// R&D decision semantics fixed before the first exploratory Result is produced.
+    ///
+    /// Absence keeps historical families readable but makes them unavailable for Decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_policy_v1: Option<crate::iteration_decision::IterationDecisionPolicyBindingV1>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -578,6 +583,12 @@ impl TrialFamilyPolicyV1 {
     pub fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
         self.replay_policy_catalog_v3.as_ref()
     }
+
+    pub fn decision_policy_v1(
+        &self,
+    ) -> Option<&crate::iteration_decision::IterationDecisionPolicyBindingV1> {
+        self.decision_policy_v1.as_ref()
+    }
 }
 
 impl TrialFamilyRootV1 {
@@ -862,6 +873,16 @@ impl TrialFamilyCensusFrontierV2 {
     )
 )]
 impl TrialFamilyCensusReadbackV2 {
+    pub(crate) fn decision_policy_v1(
+        &self,
+    ) -> Option<&crate::iteration_decision::IterationDecisionPolicyBindingV1> {
+        self.legacy_family.root.policy().decision_policy_v1()
+    }
+
+    pub(crate) fn replay_policy_catalog_v3(&self) -> Option<&crate::ReplayPolicyCatalogBindingV3> {
+        self.census_frontier.replay_policy_catalog_v3()
+    }
+
     pub(crate) fn consumed_trial_budget(&self) -> u32 {
         self.census_frontier.consumed_trial_budget
     }
@@ -1043,6 +1064,14 @@ pub(crate) fn form_initial_family(
                 "Replay Catalog V3 family/profile cross-binding mismatch".to_string(),
             ));
         }
+    }
+    if let Some(decision_policy) = policy.decision_policy_v1.as_ref() {
+        let catalog = policy.replay_policy_catalog_v3.as_ref().ok_or_else(|| {
+            TrialFamilyError::Unavailable(
+                "decision-policy seal is missing Replay Catalog V3".to_string(),
+            )
+        })?;
+        decision_policy.verify_against(catalog)?;
     }
     let policy_digest = canonical_digest("rd.trial-family.policy.v1", &policy)?;
     let replay_execution_policy_v2 = policy.replay_execution_policy_v2.clone();
@@ -2179,6 +2208,7 @@ mod tests {
             .unwrap(),
             replay_execution_policy_v2: None,
             replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
         }
     }
 

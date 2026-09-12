@@ -172,6 +172,13 @@ pub(crate) async fn persist_initial_family(
     research_receipt: &ResearchRequestReceiptV1,
 ) -> Result<(), TrialFamilyError> {
     verify_family(family)?;
+    if family.root.policy().replay_policy_catalog_v3().is_some()
+        && family.root.policy().decision_policy_v1().is_none()
+    {
+        return Err(TrialFamilyError::Unavailable(
+            "new Replay Catalog V3 family is missing its decision-policy seal".to_string(),
+        ));
+    }
     let committed_at =
         i64::try_from(research_receipt.committed_at_epoch_ms).map_err(unavailable)?;
     let (root_json, root_bytes, root_storage_digest) = source_encode(
@@ -1834,6 +1841,7 @@ mod postgres_binding_tests {
             frozen_falsifier_binding: format!("sha256:{}", "c".repeat(64)),
             replay_execution_policy_v2: None,
             replay_policy_catalog_v3: None,
+            decision_policy_v1: None,
         }
     }
 
