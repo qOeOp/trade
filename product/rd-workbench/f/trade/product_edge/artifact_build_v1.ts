@@ -71,15 +71,33 @@ function validProviderInvocationClaimEnvelopeV1(
     && (claim.state !== "INVOCATION_STARTED" || claim.disposition === "ALREADY_CLAIMED")
 }
 
+async function validProviderInvocationCustodyEnvelopeV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  if (!validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)) return false
+  return verifyProviderInvocationCustodyV1(claim)
+}
+
 export async function validProviderInvocationClaimV1(
   claim: Record<string, unknown>,
   buildRequestIdentity: string,
   attemptIdentity: string,
 ): Promise<boolean> {
-  if (!validProviderInvocationClaimEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
-    || claim.state !== "CLAIMED"
-    || claim.next_legal_action !== "RUN_BOUNDED_EXECUTION_AGENT") return false
-  return verifyProviderInvocationCustodyV1(claim)
+  return claim.state === "CLAIMED"
+    && claim.next_legal_action === "RUN_BOUNDED_EXECUTION_AGENT"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
+}
+
+async function validProviderInvocationStartedV1(
+  claim: Record<string, unknown>,
+  buildRequestIdentity: string,
+  attemptIdentity: string,
+): Promise<boolean> {
+  return claim.state === "INVOCATION_STARTED"
+    && claim.next_legal_action === "MANUALLY_RECONCILE_PROVIDER_INVOCATION"
+    && await validProviderInvocationCustodyEnvelopeV1(claim, buildRequestIdentity, attemptIdentity)
 }
 
 export async function validProviderInvocationStartV1(
@@ -540,7 +558,15 @@ async function runOwnerOperation(
   let existing: Record<string, any>
   try {
     existing = await resolve(token, build_request_identity, attempt_identity)
-    if (existing?.owner_receipt != null || existing?.provider_invocation?.state === "INVOCATION_STARTED") {
+    if (existing?.owner_receipt != null) {
+      return finish(existing)
+    }
+    if (existing?.provider_invocation?.state === "INVOCATION_STARTED") {
+      if (!await validProviderInvocationStartedV1(
+        existing.provider_invocation,
+        build_request_identity,
+        attempt_identity,
+      )) return finish(unknown(build_request_identity, attempt_identity))
       return finish(existing)
     }
   } catch {
@@ -587,7 +613,11 @@ async function runOwnerOperation(
       return finish(unknown(build_request_identity, attempt_identity))
     }
     if (invocationClaim.state === "INVOCATION_STARTED") {
-      if (invocationClaim.next_legal_action !== "MANUALLY_RECONCILE_PROVIDER_INVOCATION") {
+      if (!await validProviderInvocationStartedV1(
+        invocationClaim,
+        build_request_identity,
+        attempt_identity,
+      )) {
         return finish(unknown(build_request_identity, attempt_identity))
       }
       return finish(unknown(build_request_identity, attempt_identity, invocationClaim))

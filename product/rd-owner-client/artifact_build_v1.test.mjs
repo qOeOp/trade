@@ -285,6 +285,53 @@ test("execution gate rejects a canonical-looking but cross-bound claim before in
   assert.equal(result.provider_invocation, null)
 })
 
+test("forged started custody is rejected before operational phase observation", async () => {
+  const admissionIdentity = `product-edge-request-admission-v1-${"c".repeat(64)}`
+  const invocationAdmissionReceiptIdentity =
+    `product-edge-provider-invocation-admission-receipt-v1-${"d".repeat(64)}`
+  const claim = {
+    schema_version: 1,
+    request_identity: request.build_request_identity,
+    claim_identity: await providerInvocationClaimIdentityV1(
+      admissionIdentity,
+      request.attempt_identity,
+      invocationAdmissionReceiptIdentity,
+    ),
+    admission_identity: admissionIdentity,
+    attempt_identity: request.attempt_identity,
+    invocation_admission_receipt_identity: invocationAdmissionReceiptIdentity,
+    invocation_admission_receipt_digest: `sha256:${"e".repeat(64)}`,
+    claim_digest: "",
+    state_digest: `sha256:${"f".repeat(64)}`,
+    committed_at_epoch_ms: 10,
+    disposition: "ALREADY_CLAIMED",
+    state: "INVOCATION_STARTED",
+    next_legal_action: "MANUALLY_RECONCILE_PROVIDER_INVOCATION",
+  }
+  claim.claim_digest = await providerInvocationClaimDigestV1(claim)
+  claim.claim_identity = `product-edge-provider-invocation-claim-v1-${"0".repeat(64)}`
+  const phases = []
+  const calls = []
+  const result = await executeArtifactBuildV1({ ...request, action: "RUN" }, {
+    ...runtime("WINDMILL", async (url) => {
+      const value = String(url)
+      calls.push(value)
+      if (value.endsWith("/v2/research-goals/research-1/resolve")) return Response.json({})
+      if (value.endsWith("/v1/artifact-builds/build-1/attempts/attempt-1/resolve")) {
+        return Response.json({ ...unknown, provider_invocation: claim })
+      }
+      throw new Error(`unexpected fetch ${value}`)
+    }),
+    observe_phase: async (phase) => phases.push(phase),
+  })
+
+  assert.deepEqual(phases, [])
+  assert.equal(calls.length, 2)
+  assert.equal(calls.some((value) => value === "https://provider.example.test"), false)
+  assert.equal(result.next_legal_action, "RESOLVE_SAME_ATTEMPT_IDENTITY")
+  assert.equal(result.provider_invocation, null)
+})
+
 test("Dashboard recovers an existing sealed claim after preparation authority becomes stale", async () => {
   const generated = await deriveGeneratedArtifactIdentitiesV1(
     "build-seed-1",
